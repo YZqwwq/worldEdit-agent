@@ -1,0 +1,105 @@
+{
+  "currentState": "memory_saved",
+  "stateHistory": [
+    {
+      "from": "initial",
+      "command": "remember",
+      "timestamp": "2025-08-11T18:58:34.810Z",
+      "args": [
+        "assistant",
+        "WorldEdit Agent项目的AI Agent模块架构分析：\n\n## 架构层次关系\n1. **IPC通信层** (src/main/ipc/ai-agent.ts)\n   - 职责：处理渲染进程与主进程间的AI Agent通信\n   - 定义完整的IPC通道常量和处理器函数\n   - 依赖AIAgentService实例执行业务逻辑\n\n2. **服务层** (src/main/services/ai-agent/)\n   - AIAgentService (index.ts): 统一服务入口，协调各子模块\n   - AIAgentEngine: 基于LangChain的核心对话引擎\n   - ContextManager: 管理对话上下文和会话状态\n   - ModelAdapter: 统一多种AI模型提供商接口\n   - MCPToolManager: MCP工具注册和调用管理\n\n## 调用流程\n渲染进程 → IPC通信层 → AIAgentService → 四大核心组件\n\n## 技术特点\n- 职责分离：通信与业务逻辑解耦\n- 模块化设计：每个组件职责单一\n- 支持多种AI模型：OpenAI、Claude、DeepSeek\n- 完整的会话管理和工具集成机制",
+        "--tags",
+        "worldedit-agent ai-agent 架构分析 electron langchain"
+      ]
+    },
+    {
+      "from": "memory_saved",
+      "command": "init",
+      "timestamp": "2025-08-11T18:58:41.715Z",
+      "args": [
+        {
+          "workingDirectory": "d:\\other\\code\\html\\electron\\world-agent\\worldEdit-agent",
+          "ideType": "trae"
+        }
+      ]
+    },
+    {
+      "from": "initialized",
+      "command": "remember",
+      "timestamp": "2025-08-11T18:58:50.567Z",
+      "args": [
+        "assistant",
+        "WorldEdit Agent项目的AI Agent模块架构分析：\n\n## 架构层次关系\n1. **IPC通信层** (src/main/ipc/ai-agent.ts)\n   - 职责：处理渲染进程与主进程间的AI Agent通信\n   - 定义完整的IPC通道常量和处理器函数\n   - 依赖AIAgentService实例执行业务逻辑\n\n2. **服务层** (src/main/services/ai-agent/)\n   - AIAgentService (index.ts): 统一服务入口，协调各子模块\n   - AIAgentEngine: 基于LangChain的核心对话引擎\n   - ContextManager: 管理对话上下文和会话状态\n   - ModelAdapter: 统一多种AI模型提供商接口\n   - MCPToolManager: MCP工具注册和调用管理\n\n## 调用流程\n渲染进程 → IPC通信层 → AIAgentService → 四大核心组件\n\n## 技术特点\n- 职责分离：通信与业务逻辑解耦\n- 模块化设计：每个组件职责单一\n- 支持多种AI模型：OpenAI、Claude、DeepSeek\n- 完整的会话管理和工具集成机制",
+        "--tags",
+        "worldedit-agent ai-agent 架构分析 electron langchain"
+      ]
+    },
+    {
+      "from": "memory_saved",
+      "command": "action",
+      "timestamp": "2025-08-11T19:00:02.805Z",
+      "args": [
+        "electron-developer"
+      ]
+    },
+    {
+      "from": "role_activated_with_memory",
+      "command": "welcome",
+      "timestamp": "2025-08-11T19:00:10.519Z",
+      "args": []
+    },
+    {
+      "from": "service_discovery",
+      "command": "action",
+      "timestamp": "2025-08-11T19:00:17.351Z",
+      "args": [
+        "electron-expert"
+      ]
+    },
+    {
+      "from": "role_activated_with_memory",
+      "command": "action",
+      "timestamp": "2025-08-12T08:29:42.996Z",
+      "args": [
+        "electron-developer"
+      ]
+    },
+    {
+      "from": "role_activated_with_memory",
+      "command": "init",
+      "timestamp": "2025-08-12T08:29:52.832Z",
+      "args": [
+        {
+          "workingDirectory": "d:\\other\\code\\html\\electron\\world-agent\\worldEdit-agent",
+          "ideType": "trae"
+        }
+      ]
+    },
+    {
+      "from": "initialized",
+      "command": "welcome",
+      "timestamp": "2025-08-12T08:30:33.775Z",
+      "args": []
+    },
+    {
+      "from": "service_discovery",
+      "command": "action",
+      "timestamp": "2025-08-12T08:30:40.726Z",
+      "args": [
+        "electron-expert"
+      ]
+    },
+    {
+      "from": "role_activated_with_memory",
+      "command": "remember",
+      "timestamp": "2025-08-12T19:44:07.461Z",
+      "args": [
+        "assistant",
+        "WorldEdit Agent AI-agent模块架构分析：\n\n核心架构：三层设计 - 前端渲染进程 → IPC通信 → 主进程服务层 → 外部AI服务\n\n主进程核心文件：\n- index.ts: AIAgentService统一入口，协调各组件\n- AIAgentEngine.ts: AI对话引擎核心，处理消息和工具调用\n- ModelAdapter.ts: 多模型适配器(OpenAI/Claude/DeepSeek)\n- MCPToolManager.ts: MCP工具管理器，集成LangChain\n- ContextManager.ts: 上下文管理器\n- ai-agent.ts(ipc): IPC通信处理器\n\n渲染进程核心文件：\n- AIAgent.vue: 主界面组件\n- ai-agent-api.ts: API客户端服务\n- useAIAgent.ts: Vue3组合式API\n- agent.ts(types): 完整类型定义\n- ai-agent.ts(plugins): Vue插件集成\n\n功能特性：多模型支持、智能创作、MCP工具集成、会话管理、流式响应、安全存储\n\n技术栈：Electron + Vue3 + TypeScript + LangChain + MCP协议",
+        "--tags",
+        "ai-agent 架构 worldedit electron vue3 langchain mcp"
+      ]
+    }
+  ],
+  "lastUpdated": "2025-08-12T19:44:07.528Z"
+}
