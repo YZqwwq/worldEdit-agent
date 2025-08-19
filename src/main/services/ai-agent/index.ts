@@ -42,6 +42,13 @@ export class AIAgentService {
   async initialize(config: AgentConfig): Promise<void> {
     try {
       console.log('正在初始化AI Agent服务...')
+      console.log('AIAgentService - 接收到的配置:', {
+        hasCurrentModel: !!config.currentModel,
+        provider: config.currentModel?.provider,
+        modelName: config.currentModel?.modelName,
+        hasApiKey: !!config.currentModel?.apiKey,
+        apiKeyLength: config.currentModel?.apiKey?.length || 0
+      })
       
       // 初始化工具管理器
       await this.toolManager.initialize()

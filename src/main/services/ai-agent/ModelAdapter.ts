@@ -45,6 +45,13 @@ export class ModelAdapter {
    * 初始化模型
    */
   async initialize(config: ModelConfig): Promise<void> {
+    console.log('ModelAdapter - 初始化模型配置:', {
+      provider: config.provider,
+      modelName: config.modelName,
+      hasApiKey: !!config.apiKey,
+      apiKeyLength: config.apiKey?.length || 0
+    })
+    
     this.config = config
     this.model = await this.createModel(config)
   }
@@ -173,7 +180,7 @@ export class ModelAdapter {
     switch (config.provider) {
       case ModelProvider.OPENAI:
         return new ChatOpenAI({
-          openAIApiKey: config.apiKey,
+          apiKey: config.apiKey,
           modelName: config.modelName,
           temperature: config.temperature,
           maxTokens: config.maxTokens,
@@ -196,7 +203,7 @@ export class ModelAdapter {
 
       case ModelProvider.DEEPSEEK:
         return new ChatOpenAI({
-          openAIApiKey: config.apiKey,
+          apiKey: config.apiKey,
           modelName: config.modelName,
           temperature: config.temperature,
           maxTokens: config.maxTokens,

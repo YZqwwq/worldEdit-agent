@@ -79,6 +79,23 @@ export class AIAgentEngine {
       throw new Error('AI Agent未初始化')
     }
 
+    console.log('AIAgentEngine - sendMessage调用开始:', {
+      hasAgent: !!this.agent,
+      hasModel: !!this.model,
+      modelType: this.model?.constructor.name,
+      message: message.substring(0, 50) + '...'
+    })
+
+    // 检查模型的API Key配置
+    if (this.model) {
+      const modelConfig = (this.model as any).fields || (this.model as any).kwargs || {}
+      console.log('AIAgentEngine - 模型配置检查:', {
+        hasOpenAIApiKey: !!(modelConfig.openAIApiKey || modelConfig.apiKey),
+        hasAnthropicApiKey: !!(modelConfig.anthropicApiKey),
+        apiKeyLength: (modelConfig.openAIApiKey || modelConfig.anthropicApiKey || modelConfig.apiKey || '').length
+      })
+    }
+
     try {
       this.setState({ status: AgentStatus.PROCESSING, message: '正在处理消息...' })
       
@@ -98,8 +115,18 @@ export class AIAgentEngine {
         context: context || {}
       }
       
+      console.log('AIAgentEngine - 准备调用agent.invoke:', {
+        inputKeys: Object.keys(input),
+        chatHistoryLength: input.chat_history.length
+      })
+      
       // 调用Agent
       const result = await this.agent.invoke(input)
+      
+      console.log('AIAgentEngine - agent.invoke调用成功:', {
+        hasOutput: !!result.output,
+        outputLength: result.output?.length || 0
+      })
       
       // 添加AI回复到历史
       const aiMessage: ChatMessage = {
@@ -122,6 +149,10 @@ export class AIAgentEngine {
       return result.output
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误'
+      console.error('AIAgentEngine - sendMessage调用失败:', {
+        error: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined
+      })
       this.setState({
         status: AgentStatus.ERROR,
         error: errorMessage,
@@ -195,10 +226,17 @@ export class AIAgentEngine {
    * 初始化模型
    */
   private async initializeModel(modelConfig: ModelConfig): Promise<void> {
+    console.log('AIAgentEngine - 初始化模型配置:', {
+      provider: modelConfig.provider,
+      modelName: modelConfig.modelName,
+      hasApiKey: !!modelConfig.apiKey,
+      apiKeyLength: modelConfig.apiKey?.length || 0
+    })
+    
     switch (modelConfig.provider) {
       case ModelProvider.OPENAI:
         this.model = new ChatOpenAI({
-          openAIApiKey: modelConfig.apiKey,
+          apiKey: modelConfig.apiKey,
           modelName: modelConfig.modelName,
           temperature: modelConfig.temperature,
           maxTokens: modelConfig.maxTokens,
