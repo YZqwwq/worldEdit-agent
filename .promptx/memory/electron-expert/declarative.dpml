@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<memory>
+  <item id="mem_1755545860923_z9mm0ndbt" time="2025/08/19 03:37">
+    <content>
+      解决了AIAgent.vue文件中的Vue模板解析错误。问题是在template标签结束后和script标签开始前有一行错误的代码&quot;if (error instanceof IPCClientError) {&quot;，这导致Vue编译器无法正确解析文件结构。通过移除这行错误代码并正确添加script setup标签解决了问题。
+    </content>
+    <tags>#其他</tags>
+  </item>
+</memory>
