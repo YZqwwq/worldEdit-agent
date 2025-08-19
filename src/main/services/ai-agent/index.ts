@@ -41,14 +41,7 @@ export class AIAgentService {
    */
   async initialize(config: AgentConfig): Promise<void> {
     try {
-      console.log('正在初始化AI Agent服务...')
-      console.log('AIAgentService - 接收到的配置:', {
-        hasCurrentModel: !!config.currentModel,
-        provider: config.currentModel?.provider,
-        modelName: config.currentModel?.modelName,
-        hasApiKey: !!config.currentModel?.apiKey,
-        apiKeyLength: config.currentModel?.apiKey?.length || 0
-      })
+      // Initializing AI Agent service...
       
       // 初始化工具管理器
       await this.toolManager.initialize()
@@ -69,7 +62,7 @@ export class AIAgentService {
       this.contextManager.createSession('默认对话')
       
       this.isInitialized = true
-      console.log('AI Agent服务初始化完成')
+      // AI Agent service initialized successfully
     } catch (error) {
       console.error('AI Agent服务初始化失败:', error)
       throw error
@@ -320,7 +313,7 @@ export class AIAgentService {
     this.modelAdapter.destroy()
     this.contextManager.clearAllSessions()
     this.isInitialized = false
-    console.log('AI Agent服务已销毁')
+    // AI Agent service destroyed
   }
 }
 

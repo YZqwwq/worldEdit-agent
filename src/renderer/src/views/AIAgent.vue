@@ -813,7 +813,7 @@ const initializeAIAgent = async () => {
     const result = await window.electron.ipcRenderer.invoke('ai-agent:initialize', {
       currentModel: cleanModelConfig,
       availableModels: {},
-      systemPrompt: '',
+      systemPrompt: '你是一个有用的AI助手。当用户询问你无法直接获取的信息（如实时天气、股价等）时，请礼貌地说明你无法获取这些实时信息，并建议用户通过其他方式获取。对于你能够回答的问题，请尽力提供有用的帮助。',
       contextWindowSize: 20,
       enablePersistence: true,
       enableMCPTools: false,

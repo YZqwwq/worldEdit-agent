@@ -35,6 +35,24 @@ export interface ModelConfig {
   maxRetries: number
   /** 请求超时时间（毫秒） */
   timeout: number
+  /** 顶部采样概率 */
+  topP: number  
+  /** 频率惩罚 */
+  frequencyPenalty: number
+  /**  presence 惩罚 */
+  presencePenalty: number
+
+  /** 启用流式输出 */
+  stream: boolean
+
+  /** 重试次数 */
+  retries: number
+
+  /** 停止序列 */
+  stop: string[]
+
+
+
 }
 
 /**

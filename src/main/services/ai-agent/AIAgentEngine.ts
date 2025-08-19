@@ -79,22 +79,7 @@ export class AIAgentEngine {
       throw new Error('AI Agent未初始化')
     }
 
-    console.log('AIAgentEngine - sendMessage调用开始:', {
-      hasAgent: !!this.agent,
-      hasModel: !!this.model,
-      modelType: this.model?.constructor.name,
-      message: message.substring(0, 50) + '...'
-    })
-
-    // 检查模型的API Key配置
-    if (this.model) {
-      const modelConfig = (this.model as any).fields || (this.model as any).kwargs || {}
-      console.log('AIAgentEngine - 模型配置检查:', {
-        hasOpenAIApiKey: !!(modelConfig.openAIApiKey || modelConfig.apiKey),
-        hasAnthropicApiKey: !!(modelConfig.anthropicApiKey),
-        apiKeyLength: (modelConfig.openAIApiKey || modelConfig.anthropicApiKey || modelConfig.apiKey || '').length
-      })
-    }
+    // Processing message with AI agent
 
     try {
       this.setState({ status: AgentStatus.PROCESSING, message: '正在处理消息...' })
@@ -114,25 +99,38 @@ export class AIAgentEngine {
         chat_history: this.buildChatHistory(),
         context: context || {}
       }
-      
       console.log('AIAgentEngine - 准备调用agent.invoke:', {
-        inputKeys: Object.keys(input),
-        chatHistoryLength: input.chat_history.length
+        input,
+        chatHistoryLength: this.buildChatHistory().length
       })
-      
       // 调用Agent
       const result = await this.agent.invoke(input)
       
-      console.log('AIAgentEngine - agent.invoke调用成功:', {
-        hasOutput: !!result.output,
-        outputLength: result.output?.length || 0
-      })
+      console.log('AIAgentEngine - agent.invoke result get successfully:', result)
+      
+      let finalOutput = result.output
+      
+      // 如果Agent返回空字符串或无效输出，使用模型直接回答
+      if (!finalOutput || finalOutput.trim() === '') {
+        console.log('AIAgentEngine - Agent returned empty output, using direct model response')
+        try {
+          const directResponse = await this.model!.invoke([
+            new SystemMessage(this.config.systemPrompt),
+            ...this.buildChatHistory(),
+            new HumanMessage(message)
+          ])
+          finalOutput = directResponse.content as string
+        } catch (directError) {
+          console.error('AIAgentEngine - Direct model call failed:', directError)
+          finalOutput = '抱歉，我现在无法处理您的请求。请稍后再试。'
+        }
+      }
       
       // 添加AI回复到历史
       const aiMessage: ChatMessage = {
         id: this.generateMessageId(),
         type: MessageType.ASSISTANT,
-        content: result.output,
+        content: finalOutput,
         timestamp: Date.now(),
         metadata: {
           tokenUsage: this.extractTokenUsage(result),
@@ -146,7 +144,7 @@ export class AIAgentEngine {
       
       this.setState({ status: AgentStatus.IDLE, message: '消息处理完成' })
       
-      return result.output
+      return finalOutput
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误'
       console.error('AIAgentEngine - sendMessage调用失败:', {
@@ -226,12 +224,7 @@ export class AIAgentEngine {
    * 初始化模型
    */
   private async initializeModel(modelConfig: ModelConfig): Promise<void> {
-    console.log('AIAgentEngine - 初始化模型配置:', {
-      provider: modelConfig.provider,
-      modelName: modelConfig.modelName,
-      hasApiKey: !!modelConfig.apiKey,
-      apiKeyLength: modelConfig.apiKey?.length || 0
-    })
+    // Initializing model configuration
     
     switch (modelConfig.provider) {
       case ModelProvider.OPENAI:
@@ -315,8 +308,14 @@ export class AIAgentEngine {
         tools: this.tools,
         verbose: false,
         maxIterations: 10,
-        returnIntermediateSteps: true
+        returnIntermediateSteps: true,
+        // 当没有工具可用时，允许Agent直接回答
+        handleParsingErrors: true,
+        // 设置早期停止方法，当Agent无法找到合适工具时直接返回回答
+        earlyStoppingMethod: 'generate'
       })
+      
+      // Agent created successfully
     } catch (error) {
       throw new Error(`创建Agent失败: ${error instanceof Error ? error.message : '未知错误'}`)
     }

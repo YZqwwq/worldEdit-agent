@@ -74,7 +74,7 @@ export class MCPToolManager {
       await this.loadDefaultTools()
       
       this.isInitialized = true
-      console.log('MCP工具管理器初始化完成')
+      // MCP tool manager initialized successfully
     } catch (error) {
       console.error('MCP工具管理器初始化失败:', error)
       throw error
@@ -91,7 +91,7 @@ export class MCPToolManager {
       // 加载服务器提供的工具
       await this.loadServerTools(config)
       
-      console.log(`MCP服务器 ${config.name} 注册成功`)
+      // MCP server registered successfully: ${config.name}
     } catch (error) {
       console.error(`注册MCP服务器失败: ${config.name}`, error)
       throw error
@@ -108,7 +108,7 @@ export class MCPToolManager {
     const toolInstance = new MCPToolImplementation(tool, this)
     this.toolInstances.set(tool.name, toolInstance)
     
-    console.log(`MCP工具 ${tool.name} 注册成功`)
+    // MCP tool registered successfully: ${tool.name}
   }
 
   /**
@@ -272,7 +272,7 @@ export class MCPToolManager {
   private async loadServerTools(config: MCPServerConfig): Promise<void> {
     // 实际实现中应该连接到MCP服务器并获取工具列表
     // 这里是模拟实现
-    console.log(`正在加载服务器 ${config.name} 的工具...`)
+    // Loading tools from server: ${config.name}
     
     // 模拟从服务器获取工具列表
     const mockTools: MCPTool[] = [

@@ -87,7 +87,7 @@
             <label for="baseUrl">API基础URL</label>
             <input
               id="baseUrl"
-              v-model="config.baseUrl"
+              v-model="config.baseURL"
               type="url"
               class="form-input"
               placeholder="https://api.openai.com/v1"
@@ -107,7 +107,7 @@
           <label for="model">模型</label>
           <select
             id="model"
-            v-model="config.model"
+            v-model="config.modelName"
             class="form-select"
             :disabled="loading || !availableModels.length"
           >
@@ -305,22 +305,26 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import type { ModelConfig, ModelProvider } from '../types/agent'
+import type { ModelConfig } from '../../../shared/types/agent'
+import { ModelProvider } from '../../../shared/types/agent'
 import { aiAgentAPI } from '../services/ai-agent'
 
 // 响应式数据
 const config = ref<ModelConfig>({
-  provider: 'openai' as ModelProvider,
-  model: 'gpt-3.5-turbo',
+  provider: ModelProvider.OPENAI,
+  modelName: 'gpt-3.5-turbo',
   apiKey: '',
-  baseUrl: '',
+  baseURL: '',
   temperature: 0.7,
   maxTokens: 2000,
-  topP: 1,
+  maxRetries: 3,
+  timeout: 60000,
+  topP: 0.9,
   frequencyPenalty: 0,
-  stream: true,
-  timeout: 60,
-  retries: 3
+  presencePenalty: 0,
+  stream: false,
+  retries: 3,
+  stop: []
 })
 
 const loading = ref(false)
@@ -332,19 +336,19 @@ const testResult = ref<{ type: 'success' | 'error', message: string } | null>(nu
 // 可用的提供商
 const availableProviders = ref([
   {
-    value: 'openai' as ModelProvider,
+    value: ModelProvider.OPENAI,
     label: 'OpenAI',
     description: '最先进的GPT模型',
     icon: 'icon-openai'
   },
   {
-    value: 'anthropic' as ModelProvider,
+    value: ModelProvider.CLAUDE,
     label: 'Anthropic',
     description: 'Claude系列模型',
     icon: 'icon-anthropic'
   },
   {
-    value: 'deepseek' as ModelProvider,
+    value: ModelProvider.DEEPSEEK,
     label: 'DeepSeek',
     description: '国产优秀AI模型',
     icon: 'icon-deepseek'
@@ -354,17 +358,17 @@ const availableProviders = ref([
 // 可用的模型
 const availableModels = computed(() => {
   const modelMap = {
-    openai: [
+    [ModelProvider.OPENAI]: [
       { value: 'gpt-4', label: 'GPT-4', description: '最强大的模型' },
       { value: 'gpt-4-turbo', label: 'GPT-4 Turbo', description: '更快的GPT-4' },
       { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo', description: '性价比最高' }
     ],
-    anthropic: [
+    [ModelProvider.CLAUDE]: [
       { value: 'claude-3-opus', label: 'Claude 3 Opus', description: '最强大的Claude' },
       { value: 'claude-3-sonnet', label: 'Claude 3 Sonnet', description: '平衡性能' },
       { value: 'claude-3-haiku', label: 'Claude 3 Haiku', description: '最快速度' }
     ],
-    deepseek: [
+    [ModelProvider.DEEPSEEK]: [
       { value: 'deepseek-chat', label: 'DeepSeek Chat', description: '对话模型' },
       { value: 'deepseek-coder', label: 'DeepSeek Coder', description: '代码专用' }
     ]
@@ -377,41 +381,37 @@ const configPresets = ref([
   {
     name: '创意写作',
     description: '适合创意写作和头脑风暴',
-    provider: 'openai',
+    provider: ModelProvider.OPENAI,
     model: 'gpt-4',
-    temperature: 1.2,
-    topP: 0.9
+    temperature: 1.2
   },
   {
     name: '技术问答',
     description: '适合技术问题和代码生成',
-    provider: 'deepseek',
+    provider: ModelProvider.DEEPSEEK,
     model: 'deepseek-coder',
-    temperature: 0.3,
-    topP: 0.8
+    temperature: 0.3
   },
   {
     name: '日常对话',
     description: '适合日常聊天和一般问答',
-    provider: 'openai',
+    provider: ModelProvider.OPENAI,
     model: 'gpt-3.5-turbo',
-    temperature: 0.7,
-    topP: 1
+    temperature: 0.7
   },
   {
     name: '分析推理',
     description: '适合逻辑分析和推理任务',
-    provider: 'anthropic',
+    provider: ModelProvider.CLAUDE,
     model: 'claude-3-sonnet',
-    temperature: 0.2,
-    topP: 0.7
+    temperature: 0.2
   }
 ])
 
 // 计算属性
 const isConfigValid = computed(() => {
   return config.value.provider && 
-         config.value.model && 
+         config.value.modelName && 
          config.value.apiKey.trim() !== ''
 })
 
@@ -419,7 +419,7 @@ const isConfigValid = computed(() => {
 const selectProvider = (provider: ModelProvider) => {
   config.value.provider = provider
   // 重置模型选择
-  config.value.model = ''
+  config.value.modelName = ''
   // 清除测试结果
   testResult.value = null
 }
@@ -436,8 +436,23 @@ const getProviderStatus = (provider: ModelProvider) => {
 const resetToDefaults = async () => {
   try {
     loading.value = true
-    const defaults = await aiAgentAPI.getDefaultModelConfig()
-    config.value = { ...defaults }
+    // 使用默认配置
+    config.value = {
+      provider: ModelProvider.OPENAI,
+      modelName: 'gpt-3.5-turbo',
+      apiKey: '',
+      baseURL: '',
+      temperature: 0.7,
+      maxTokens: 2000,
+      maxRetries: 3,
+      timeout: 60000,
+      topP: 0.9,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      stream: false,
+      retries: 3,
+      stop: []
+    }
     testResult.value = null
     apiKeyError.value = ''
   } catch (error) {
@@ -450,10 +465,11 @@ const resetToDefaults = async () => {
 const saveConfig = async () => {
   try {
     loading.value = true
-    await aiAgentAPI.updateModelConfig(config.value)
+    // 使用updateConfig方法更新配置
+    const result = await aiAgentAPI.updateConfig({ currentModel: config.value })
     testResult.value = {
-      type: 'success',
-      message: '配置保存成功'
+      type: result.success ? 'success' : 'error',
+      message: result.success ? '配置保存成功' : (result.error || '保存配置失败')
     }
   } catch (error) {
     console.error('保存配置失败:', error)
@@ -471,10 +487,11 @@ const testConnection = async () => {
     testing.value = true
     testResult.value = null
     
-    const result = await aiAgentAPI.testModelConnection(config.value)
+    // 使用validateModelConfig方法测试连接
+    const isValid = await aiAgentAPI.validateModelConfig(config.value)
     testResult.value = {
-      type: result.success ? 'success' : 'error',
-      message: result.message
+      type: isValid ? 'success' : 'error',
+      message: isValid ? '连接测试成功' : '连接测试失败，请检查配置'
     }
   } catch (error) {
     console.error('测试连接失败:', error)
@@ -491,9 +508,8 @@ const applyPreset = (preset: any) => {
   config.value = {
     ...config.value,
     provider: preset.provider,
-    model: preset.model,
-    temperature: preset.temperature,
-    topP: preset.topP
+    modelName: preset.model,
+    temperature: preset.temperature
   }
   testResult.value = null
 }
@@ -516,9 +532,12 @@ watch(() => config.value.provider, () => {
 onMounted(async () => {
   try {
     loading.value = true
-    const currentConfig = await aiAgentAPI.getModelConfig()
-    if (currentConfig) {
-      config.value = { ...currentConfig }
+    // 获取当前状态中的配置信息
+    const state = await aiAgentAPI.getState()
+    if (state) {
+      // 这里需要根据实际的状态结构来获取配置
+      // 暂时使用默认配置
+      console.log('当前状态:', state)
     }
   } catch (error) {
     console.error('加载配置失败:', error)

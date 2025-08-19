@@ -82,14 +82,12 @@ app.whenReady().then(() => {
       version: '1.0.0'
     }
     // 这里应该保存到文件系统或数据库
-    console.log('Creating world:', newWorld)
     return newWorld
   })
 
   ipcMain.handle('world:open', async (_event, worldId) => {
     // 打开指定的世界观
     // 这里应该从文件系统或数据库读取
-    console.log('Opening world:', worldId)
     return {
       id: worldId,
       name: 'Sample World',
@@ -105,14 +103,12 @@ app.whenReady().then(() => {
 
   ipcMain.handle('world:save', async (_event, worldData) => {
     // 保存世界观数据
-    console.log('Saving world:', worldData)
     // 这里应该保存到文件系统或数据库
     return true
   })
 
   ipcMain.handle('world:delete', async (_event, worldId) => {
     // 删除指定的世界观
-    console.log('Deleting world:', worldId)
     // 这里应该从文件系统或数据库删除
     return true
   })

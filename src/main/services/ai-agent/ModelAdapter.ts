@@ -45,12 +45,7 @@ export class ModelAdapter {
    * 初始化模型
    */
   async initialize(config: ModelConfig): Promise<void> {
-    console.log('ModelAdapter - 初始化模型配置:', {
-      provider: config.provider,
-      modelName: config.modelName,
-      hasApiKey: !!config.apiKey,
-      apiKeyLength: config.apiKey?.length || 0
-    })
+    // Initializing model adapter configuration
     
     this.config = config
     this.model = await this.createModel(config)

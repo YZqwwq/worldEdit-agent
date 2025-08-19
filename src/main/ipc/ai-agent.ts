@@ -66,7 +66,7 @@ export const AI_AGENT_CHANNELS = {
  * 注册AI Agent IPC处理器
  */
 export function registerAIAgentIPC(): void {
-  console.log('注册AI Agent IPC处理器...')
+  // Registering AI Agent IPC handlers...
   
   // 服务管理
   ipcMain.handle(AI_AGENT_CHANNELS.INITIALIZE, handleInitialize)
@@ -100,14 +100,14 @@ export function registerAIAgentIPC(): void {
   ipcMain.handle(AI_AGENT_CHANNELS.EXPORT_SESSION, handleExportSession)
   ipcMain.handle(AI_AGENT_CHANNELS.IMPORT_SESSION, handleImportSession)
   
-  console.log('AI Agent IPC处理器注册完成')
+  // AI Agent IPC handlers registered successfully
 }
 
 /**
  * 移除AI Agent IPC处理器
  */
 export function unregisterAIAgentIPC(): void {
-  console.log('移除AI Agent IPC处理器...')
+  // Removing AI Agent IPC handlers...
   
   // 移除所有处理器
   Object.values(AI_AGENT_CHANNELS).forEach(channel => {
@@ -116,7 +116,7 @@ export function unregisterAIAgentIPC(): void {
     }
   })
   
-  console.log('AI Agent IPC处理器移除完成')
+  // AI Agent IPC handlers removed successfully
 }
 
 // ==================== 服务管理处理器 ====================
@@ -143,6 +143,7 @@ async function handleInitialize(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : '初始化失败'
     console.error('AI Agent初始化失败:', error)
+    console.log('AI Agent initialization failed:', error) // 添加console.log确保能看到
     
     // 发送错误事件
     event.sender.send(AI_AGENT_CHANNELS.ERROR_OCCURRED, errorMessage)
