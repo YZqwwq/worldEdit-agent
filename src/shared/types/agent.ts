@@ -56,6 +56,45 @@ export interface ModelConfig {
 }
 
 /**
+ * 提示词优先级枚举
+ */
+export enum PromptPriority {
+  USER = 'user',
+  SYSTEM = 'system', 
+  TOOL = 'tool'
+}
+
+/**
+ * 提示词层级配置
+ */
+export interface PromptLayerConfig {
+  /** 层级类型 */
+  type: PromptPriority
+  /** 提示词内容 */
+  content: string
+  /** 是否启用 */
+  enabled: boolean
+  /** 权重（用于排序） */
+  weight: number
+}
+
+/**
+ * 提示词管道配置
+ */
+export interface PromptPipelineConfig {
+  /** 用户自定义提示词 */
+  userPrompt?: string
+  /** 系统基础提示词 */
+  systemPrompt?: string
+  /** 是否启用工具提示词 */
+  enableToolPrompts: boolean
+  /** 提示词优先级顺序 */
+  promptPriority: PromptPriority[]
+  /** 提示词层级配置 */
+  layers: PromptLayerConfig[]
+}
+
+/**
  * AI Agent完整配置
  */
 export interface AgentConfig {
@@ -63,8 +102,10 @@ export interface AgentConfig {
   currentModel: ModelConfig
   /** 所有可用的模型配置 */
   availableModels: Record<string, ModelConfig>
-  /** 系统提示词 */
+  /** 系统提示词（向后兼容） */
   systemPrompt: string
+  /** 提示词管道配置 */
+  promptConfig?: PromptPipelineConfig
   /** 上下文窗口大小（消息数量） */
   contextWindowSize: number
   /** 是否启用持久化 */

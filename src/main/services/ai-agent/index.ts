@@ -7,7 +7,7 @@ import { AIAgentEngine } from './AIAgentEngine'
 import { ContextManager } from './ContextManager'
 import { ModelAdapter } from './ModelAdapter'
 import { MCPToolManager } from './MCPToolManager'
-import { MessageType } from '../../types/agent'
+import { MessageType } from '../../../shared/types/agent'
 import type {
   AgentConfig,
   ChatMessage,
@@ -16,7 +16,9 @@ import type {
   ModelConfig,
   MCPServerConfig,
   MCPTool
-} from '../../types/agent'
+} from '../../../shared/types/agent'
+import { PromptPipeline } from '../prompt/PromptPipeline'
+import { ToolPromptGenerator } from '../prompt/ToolPromptGenerator'
 
 /**
  * AI Agent服务类
@@ -27,6 +29,7 @@ export class AIAgentService {
   private contextManager: ContextManager
   private modelAdapter: ModelAdapter
   private toolManager: MCPToolManager
+  private promptPipeline: PromptPipeline | null = null
   private isInitialized = false
 
   constructor() {
@@ -43,6 +46,9 @@ export class AIAgentService {
     try {
       // Initializing AI Agent service...
       
+      // 初始化提示词管道
+      this.promptPipeline = new PromptPipeline(config.promptConfig)
+      
       // 初始化工具管理器
       await this.toolManager.initialize()
       
@@ -53,6 +59,12 @@ export class AIAgentService {
       const tools = this.toolManager.getAvailableTools()
       for (const tool of tools) {
         await this.engine.addTool(tool)
+      }
+      
+      // 设置工具提示词
+      if (this.promptPipeline && config.enableMCPTools && tools.length > 0) {
+        const toolPrompt = ToolPromptGenerator.generateToolPrompt(tools)
+        this.promptPipeline.setToolPrompt(toolPrompt)
       }
       
       // 初始化引擎
@@ -306,12 +318,60 @@ export class AIAgentService {
   }
 
   /**
+   * 更新用户提示词
+   */
+  updateUserPrompt(prompt: string): void {
+    if (this.promptPipeline) {
+      this.promptPipeline.setUserPrompt(prompt)
+    }
+  }
+
+  /**
+   * 更新系统提示词
+   */
+  updateSystemPrompt(prompt: string): void {
+    if (this.promptPipeline) {
+      this.promptPipeline.setSystemPrompt(prompt)
+    }
+  }
+
+  /**
+   * 启用/禁用工具提示词
+   */
+  setToolPromptEnabled(enabled: boolean): void {
+    if (this.promptPipeline) {
+      this.promptPipeline.setToolPromptsEnabled(enabled)
+    }
+  }
+
+  /**
+   * 获取当前提示词统计信息
+   */
+  getPromptStats() {
+    if (this.promptPipeline) {
+      return this.promptPipeline.getStats()
+    }
+    return null
+  }
+
+  /**
+   * 获取构建后的系统提示词
+   */
+  getBuiltSystemPrompt(): string {
+    if (this.promptPipeline) {
+      return this.promptPipeline.buildPrompt()
+    }
+    return ''
+  }
+
+  /**
    * 销毁服务
    */
   destroy(): void {
     this.toolManager.destroy()
     this.modelAdapter.destroy()
     this.contextManager.clearAllSessions()
+    this.promptPipeline = null
     this.isInitialized = false
     // AI Agent service destroyed
   }

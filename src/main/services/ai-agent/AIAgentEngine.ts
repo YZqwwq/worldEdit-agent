@@ -13,7 +13,7 @@ import {
   ModelProvider,
   MessageType,
   AgentStatus
-} from '../../types/agent'
+} from '../../../shared/types/agent'
 import type {
   AgentConfig,
   ModelConfig,
@@ -21,7 +21,9 @@ import type {
   AgentState,
   TokenUsage,
   ToolCall
-} from '../../types/agent'
+} from '../../../shared/types/agent'
+import { PromptPipeline } from '../prompt/PromptPipeline'
+import { buildMCPPromptWithTools } from '../../system-prompt/system-mcp-prompt'
 
 /**
  * AI Agent引擎类
@@ -36,6 +38,7 @@ export class AIAgentEngine {
     isInitialized: false
   }
   private conversationHistory: ChatMessage[] = []
+  private promptPipeline: PromptPipeline | null = null
 
   /**
    * 初始化AI Agent
@@ -287,9 +290,15 @@ export class AIAgentEngine {
     }
 
     try {
+      // 初始化提示词管道
+      this.initializePromptPipeline()
+      
+      // 构建最终系统提示词
+      const finalSystemPrompt = this.buildSystemPrompt()
+      
       // 创建提示模板
       const prompt = ChatPromptTemplate.fromMessages([
-        ['system', this.config.systemPrompt],
+        ['system', finalSystemPrompt],
         ['placeholder', '{chat_history}'],
         ['human', '{input}'],
         ['placeholder', '{agent_scratchpad}']
@@ -319,6 +328,76 @@ export class AIAgentEngine {
     } catch (error) {
       throw new Error(`创建Agent失败: ${error instanceof Error ? error.message : '未知错误'}`)
     }
+  }
+
+  /**
+   * 初始化提示词管道
+   */
+  private initializePromptPipeline(): void {
+    if (!this.config) return
+
+    // 如果配置中有提示词管道配置，使用它
+    if (this.config.promptConfig) {
+      this.promptPipeline = PromptPipeline.fromConfig(this.config.promptConfig)
+    } else {
+      // 否则创建默认管道，兼容旧配置
+      this.promptPipeline = PromptPipeline.createDefault(this.config.systemPrompt)
+      
+      // 如果启用了MCP工具，添加工具提示词
+      if (this.config.enableMCPTools && this.tools.length > 0) {
+        const mcpPrompt = buildMCPPromptWithTools(this.tools.map(tool => `${tool.name}: ${tool.description}`))
+        this.promptPipeline.setToolPrompt(mcpPrompt)
+      }
+    }
+  }
+
+  /**
+   * 构建最终系统提示词
+   */
+  private buildSystemPrompt(): string {
+    if (!this.promptPipeline) {
+      // 回退到传统方式
+      return this.config?.systemPrompt || 'You are a helpful AI assistant.'
+    }
+
+    return this.promptPipeline.buildPrompt()
+  }
+
+  /**
+   * 更新用户提示词
+   */
+  updateUserPrompt(userPrompt: string): void {
+    if (this.promptPipeline) {
+      this.promptPipeline.setUserPrompt(userPrompt)
+      // 重新创建Agent以应用新的提示词
+      if (this.state.isInitialized) {
+        this.createAgent().catch(error => {
+          console.error('更新用户提示词后重新创建Agent失败:', error)
+        })
+      }
+    }
+  }
+
+  /**
+   * 更新系统提示词
+   */
+  updateSystemPrompt(systemPrompt: string): void {
+    if (this.promptPipeline) {
+      this.promptPipeline.setSystemPrompt(systemPrompt)
+      // 重新创建Agent以应用新的提示词
+      if (this.state.isInitialized) {
+        this.createAgent().catch(error => {
+          console.error('更新系统提示词后重新创建Agent失败:', error)
+        })
+      }
+    }
+  }
+
+  /**
+   * 获取提示词管道统计信息
+   */
+  getPromptStats() {
+    return this.promptPipeline?.getStats() || null
   }
 
   /**
