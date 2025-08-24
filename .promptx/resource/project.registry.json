@@ -4,8 +4,8 @@
   "metadata": {
     "version": "2.0.0",
     "description": "project 级资源注册表",
-    "createdAt": "2025-08-22T16:53:15.096Z",
-    "updatedAt": "2025-08-22T16:53:15.146Z",
+    "createdAt": "2025-08-24T18:17:12.891Z",
+    "updatedAt": "2025-08-24T18:17:12.897Z",
     "resourceCount": 4
   },
   "resources": [
@@ -17,9 +17,9 @@
       "description": "专业角色，提供特定领域的专业能力",
       "reference": "@project://.promptx/resource/role/electron-expert/electron-expert.role.md",
       "metadata": {
-        "createdAt": "2025-08-22T16:53:15.109Z",
-        "updatedAt": "2025-08-22T16:53:15.109Z",
-        "scannedAt": "2025-08-22T16:53:15.109Z",
+        "createdAt": "2025-08-24T18:17:12.894Z",
+        "updatedAt": "2025-08-24T18:17:12.894Z",
+        "scannedAt": "2025-08-24T18:17:12.894Z",
         "path": "role/electron-expert/electron-expert.role.md"
       }
     },
@@ -31,9 +31,9 @@
       "description": "执行模式，定义具体的行为模式",
       "reference": "@project://.promptx/resource/role/electron-expert/execution/electron-workflow.execution.md",
       "metadata": {
-        "createdAt": "2025-08-22T16:53:15.119Z",
-        "updatedAt": "2025-08-22T16:53:15.119Z",
-        "scannedAt": "2025-08-22T16:53:15.119Z",
+        "createdAt": "2025-08-24T18:17:12.895Z",
+        "updatedAt": "2025-08-24T18:17:12.895Z",
+        "scannedAt": "2025-08-24T18:17:12.895Z",
         "path": "role/electron-expert/execution/electron-workflow.execution.md"
       }
     },
@@ -45,9 +45,9 @@
       "description": "知识库，提供专业知识和信息",
       "reference": "@project://.promptx/resource/role/electron-expert/knowledge/electron-stack.knowledge.md",
       "metadata": {
-        "createdAt": "2025-08-22T16:53:15.130Z",
-        "updatedAt": "2025-08-22T16:53:15.130Z",
-        "scannedAt": "2025-08-22T16:53:15.130Z",
+        "createdAt": "2025-08-24T18:17:12.896Z",
+        "updatedAt": "2025-08-24T18:17:12.896Z",
+        "scannedAt": "2025-08-24T18:17:12.896Z",
         "path": "role/electron-expert/knowledge/electron-stack.knowledge.md"
       }
     },
@@ -59,9 +59,9 @@
       "description": "思维模式，指导AI的思考方式",
       "reference": "@project://.promptx/resource/role/electron-expert/thought/electron-development.thought.md",
       "metadata": {
-        "createdAt": "2025-08-22T16:53:15.145Z",
-        "updatedAt": "2025-08-22T16:53:15.145Z",
-        "scannedAt": "2025-08-22T16:53:15.145Z",
+        "createdAt": "2025-08-24T18:17:12.897Z",
+        "updatedAt": "2025-08-24T18:17:12.897Z",
+        "scannedAt": "2025-08-24T18:17:12.897Z",
         "path": "role/electron-expert/thought/electron-development.thought.md"
       }
     }

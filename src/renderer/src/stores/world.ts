@@ -99,7 +99,7 @@ export const useWorldStore = defineStore('world', () => {
       setLoading(true)
       setError(undefined)
       
-      // 使用IndexedDB加载数据
+      // 通过IPC调用主进程SQLite服务加载数据
       const [worldList, recentList] = await Promise.all([
         databaseService.getWorldList(),
         databaseService.getRecentFiles()
@@ -134,7 +134,7 @@ export const useWorldStore = defineStore('world', () => {
         throw new Error(`数据验证失败: ${validation.errors?.join(', ')}`)
       }
       
-      // 使用IndexedDB创建世界观
+      // 通过IPC调用主进程SQLite服务创建世界观
       const newWorld = await databaseService.createWorld(worldData)
       
       // 更新本地状态
@@ -164,7 +164,7 @@ export const useWorldStore = defineStore('world', () => {
       setLoading(true)
       setError(undefined)
       
-      // 从IndexedDB加载完整世界观数据
+      // 通过IPC从主进程SQLite服务加载完整世界观数据
       let worldData = await databaseService.getWorldContent(worldId)
       
       // 如果没有完整数据，创建基础结构
@@ -242,7 +242,7 @@ export const useWorldStore = defineStore('world', () => {
         currentWorld.value = simpleValidator.normalizeUnifiedWorldData(currentWorld.value)
       }
       
-      // 保存到IndexedDB
+      // 通过IPC保存到主进程SQLite服务
       await databaseService.saveWorldContent(currentWorld.value)
       
       // 更新本地状态
@@ -270,7 +270,7 @@ export const useWorldStore = defineStore('world', () => {
       setLoading(true)
       setError(undefined)
       
-      // 从IndexedDB删除世界观
+      // 通过IPC从主进程SQLite服务删除世界观
       await databaseService.deleteWorld(worldId)
       
       // 删除相关的最近文件记录

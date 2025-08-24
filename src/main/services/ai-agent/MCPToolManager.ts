@@ -10,6 +10,7 @@ import type {
   MCPServerConfig,
   ToolCall
 } from '../../types/agent'
+import { DATABASE_TOOLS, DatabaseToolExecutor } from './DatabaseTools'
 
 /**
  * MCP工具实现类
@@ -261,7 +262,10 @@ export class MCPToolManager {
       }
     ]
 
-    for (const tool of defaultTools) {
+    // 注册数据库工具
+    const allTools = [...defaultTools, ...DATABASE_TOOLS]
+
+    for (const tool of allTools) {
       this.registerTool(tool)
     }
   }
@@ -317,8 +321,12 @@ export class MCPToolManager {
    * 执行工具
    */
   private async executeTool(tool: MCPTool, input: any): Promise<any> {
-    // 实际实现中应该调用真实的MCP服务器
-    // 这里是模拟实现
+    // 处理数据库工具
+    if (tool.serverName === 'database') {
+      return await DatabaseToolExecutor.executeTool(tool.name, input)
+    }
+
+    // 处理系统工具
     switch (tool.name) {
       case 'get_current_time':
         const format = input.format || 'YYYY-MM-DD HH:mm:ss'

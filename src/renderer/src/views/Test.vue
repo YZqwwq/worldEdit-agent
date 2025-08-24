@@ -2,7 +2,7 @@
   <div class="test-container">
     <div class="test-header">
       <h1>数据库测试页面</h1>
-      <p>测试 IndexedDB + JSON Schema 集成</p>
+      <p>测试 SQLite + JSON Schema 集成</p>
     </div>
 
     <div class="test-content">
@@ -100,8 +100,8 @@ const testCreateWorld = async () => {
   try {
     const testWorld: Omit<WorldData, 'id' | 'createdAt' | 'updatedAt'> = {
       name: `测试世界观 ${Date.now()}`,
-      description: '这是一个用于测试IndexedDB和JSON Schema集成的测试世界观',
-      tags: ['测试', 'IndexedDB', 'JSON Schema'],
+      description: '这是一个用于测试SQLite和JSON Schema集成的测试世界观',
+      tags: ['测试', 'SQLite', 'JSON Schema'],
       author: '系统测试',
       lastModified: new Date(),
       version: '1.0.0'
