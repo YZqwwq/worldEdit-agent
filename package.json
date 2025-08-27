@@ -32,6 +32,7 @@
     "electron-updater": "^6.3.9",
     "langchain": "^0.3.30",
     "pinia": "^3.0.3",
+    "reflect-metadata": "^0.2.2",
     "typeorm": "^0.3.26",
     "vue-router": "^4.5.1",
     "zod": "^3.25.76"

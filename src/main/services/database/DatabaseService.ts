@@ -5,19 +5,15 @@ import fs from 'fs'
 import type { 
   WorldData, 
   UnifiedWorldData, 
-  CharacterData, 
-  MapData, 
-  RelationshipData, 
   RecentFile 
 } from '../../../shared/types/world'
 
 // SQLite数据库类
 class WorldDatabase {
   private db: Database.Database
-  private dbPath: string
+
 
   constructor(dbPath: string) {
-    this.dbPath = dbPath
     this.db = new Database(dbPath)
     this.initializeTables()
   }
@@ -140,7 +136,7 @@ class WorldDatabase {
 
   // 备份数据库
   async backup(backupPath: string): Promise<void> {
-    const backup = await this.db.backup(backupPath)
+    await this.db.backup(backupPath)
     // backup 操作完成后会自动关闭，无需手动调用 close()
   }
 }
@@ -338,25 +334,27 @@ export class MainDatabaseService {
     stmt.run(
       worldContent.id,
       worldContent.name,
-      '', // description - UnifiedWorldData 没有此属性
-      '', // background - UnifiedWorldData 没有此属性
-      '', // rules - UnifiedWorldData 没有此属性
-      JSON.stringify(worldContent.text?.timeline || []),
-      JSON.stringify(worldContent.text?.geography || []), // 使用 geography 替代 locations
-      JSON.stringify(worldContent.text?.factions || []),
-      JSON.stringify([]), // items - UnifiedWorldData 没有此属性
-      JSON.stringify([]), // events - UnifiedWorldData 没有此属性
-      '', // notes - UnifiedWorldData 没有此属性
+      worldContent.description || '', // description
+      '', // background (removed)
+      '', // rules (removed)
+      JSON.stringify(worldContent.timeline || []),
+      JSON.stringify(worldContent.geography || []), // 使用 geography 替代 locations
+      JSON.stringify(worldContent.factions || []),
+      JSON.stringify(worldContent.items || []), // items
+      JSON.stringify(worldContent.events || []), // events
+      '', // notes (removed)
       worldContent.createdAt ? worldContent.createdAt.toISOString() : now,
       now,
       worldContent.version || '1.0.0'
     )
     
     // 同时更新基础世界观信息
-    await this.updateWorld(worldContent.id, {
-      name: worldContent.name,
-      lastModified: new Date()
-    })
+    if (worldContent.id && worldContent.name) {
+      await this.updateWorld(worldContent.id, {
+        name: worldContent.name,
+        lastModified: new Date()
+      })
+    }
   }
 
   async getWorldContent(id: string): Promise<UnifiedWorldData | undefined> {
@@ -371,23 +369,21 @@ export class MainDatabaseService {
       id: row.id,
       name: row.name,
       version: row.version || '1.0.0',
-      createdAt: new Date(row.createdAt),
-      updatedAt: new Date(row.updatedAt),
-      text: {
-        geography: JSON.parse(row.locations || '[]'), // 将 locations 映射到 geography
-        nations: [],
-        factions: JSON.parse(row.factions || '[]'),
-        powerSystems: [],
-        timeline: JSON.parse(row.timeline || '[]')
-      },
+      description: row.description || '',
+      author: row.author || 'Unknown',
+      tags: JSON.parse(row.tags || '[]'),
+      thumbnail: row.thumbnail,
+      lastModified: new Date(row.updatedAt),
+      geography: JSON.parse(row.locations || '[]'), // 将 locations 映射到 geography
+      nations: [],
+      factions: JSON.parse(row.factions || '[]'),
+      powerSystems: [],
+      timeline: JSON.parse(row.timeline || '[]'),
       characters: [],
       maps: [],
-      relationships: {
-        textToCharacter: [],
-        textToMap: [],
-        characterToMap: [],
-        crossReferences: []
-      }
+      relationships: {},
+      items: [],
+      events: []
     }
   }
 

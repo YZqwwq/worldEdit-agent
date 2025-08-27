@@ -1,9 +1,11 @@
+import 'reflect-metadata'
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { registerAIAgentIPC, unregisterAIAgentIPC } from './ipc/ai-agent'
 import { registerDatabaseHandlers, unregisterDatabaseHandlers } from './ipc/database'
+import { registerAIAgentIPC, unregisterAIAgentIPC } from './ipc/ai-agent'
+import { registerTypeORMDatabaseHandlers, unregisterTypeORMDatabaseHandlers } from './ipc/typeorm-database'
 
 function createWindow(): void {
   // Create the browser window.
@@ -59,6 +61,7 @@ app.whenReady().then(() => {
 
   // Register Database IPC handlers
   registerDatabaseHandlers()
+  registerTypeORMDatabaseHandlers()
 
   createWindow()
 
@@ -79,10 +82,11 @@ app.on('window-all-closed', () => {
 })
 
 // Clean up IPC handlers when app is quitting
-app.on('before-quit', () => {
-  unregisterAIAgentIPC()
-  unregisterDatabaseHandlers()
-})
+app.on('before-quit', async () => {
+    unregisterAIAgentIPC()
+    unregisterDatabaseHandlers()
+    await unregisterTypeORMDatabaseHandlers()
+  })
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.

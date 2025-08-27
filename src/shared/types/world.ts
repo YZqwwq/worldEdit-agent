@@ -206,8 +206,55 @@ export interface RelationshipData {
   isPublic: boolean
 }
 
-// 统一世界观数据模型
-export interface UnifiedWorldData extends BaseMetadata {
+// 统一世界观数据模型（简化版本，匹配WorldContent实体）
+export interface UnifiedWorldData {
+  // 基础信息
+  id?: string;
+  name?: string;
+  version?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+  tags?: string[];
+  author?: string;
+  description?: string;
+  thumbnail?: string;
+  lastModified?: Date;
+  
+
+  
+  // 时间线数据
+  timeline?: any[];
+  
+  // 地理数据
+  geography?: any[];
+  
+  // 国家数据
+  nations?: any[];
+  
+  // 势力数据
+  factions?: any[];
+  
+  // 力量体系数据
+  powerSystems?: any[];
+  
+  // 角色数据
+  characters?: any[];
+  
+  // 地图数据
+  maps?: any[];
+  
+  // 关系数据
+  relationships?: Record<string, any>;
+  
+  // 物品数据
+  items?: any[];
+  
+  // 事件数据
+  events?: any[];
+}
+
+// 完整的世界观数据模型（用于复杂场景）
+export interface CompleteWorldData extends BaseMetadata {
   // 三大模块数据
   text: {
     geography: GeographyData[]
@@ -341,7 +388,7 @@ export interface RecentFile {
 
 // UI状态类型
 export interface UIState {
-  currentWorld?: UnifiedWorldData
+  currentWorld?: CompleteWorldData
   activeModule: 'home' | 'text' | 'character' | 'map' | 'ai'
   loading: boolean
   error?: string

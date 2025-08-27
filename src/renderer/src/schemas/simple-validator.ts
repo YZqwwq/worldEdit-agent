@@ -75,17 +75,13 @@ export class SimpleValidator {
       return { valid: false, errors }
     }
 
-    // 验证text字段
-    if (!data.text || typeof data.text !== 'object') {
-      errors.push('text字段是必需的且必须是对象')
-    } else {
-      const textFields = ['geography', 'nations', 'factions', 'powerSystems', 'timeline']
-      textFields.forEach(field => {
-        if (!Array.isArray(data.text[field])) {
-          errors.push(`text.${field}字段必须是数组`)
-        }
-      })
-    }
+    // 验证世界观内容字段
+    const contentFields = ['geography', 'nations', 'factions', 'powerSystems', 'timeline']
+    contentFields.forEach(field => {
+      if (data[field] !== undefined && !Array.isArray(data[field])) {
+        errors.push(`${field}字段必须是数组`)
+      }
+    })
 
     // 验证characters字段
     if (!Array.isArray(data.characters)) {
@@ -223,13 +219,11 @@ export class SimpleValidator {
     
     return {
       ...baseData,
-      text: {
-        geography: Array.isArray(data.text?.geography) ? data.text.geography : [],
-        nations: Array.isArray(data.text?.nations) ? data.text.nations : [],
-        factions: Array.isArray(data.text?.factions) ? data.text.factions : [],
-        powerSystems: Array.isArray(data.text?.powerSystems) ? data.text.powerSystems : [],
-        timeline: Array.isArray(data.text?.timeline) ? data.text.timeline : []
-      },
+      geography: Array.isArray(data.geography) ? data.geography : (Array.isArray(data.text?.geography) ? data.text.geography : []),
+      nations: Array.isArray(data.nations) ? data.nations : (Array.isArray(data.text?.nations) ? data.text.nations : []),
+      factions: Array.isArray(data.factions) ? data.factions : (Array.isArray(data.text?.factions) ? data.text.factions : []),
+      powerSystems: Array.isArray(data.powerSystems) ? data.powerSystems : (Array.isArray(data.text?.powerSystems) ? data.text.powerSystems : []),
+      timeline: Array.isArray(data.timeline) ? data.timeline : (Array.isArray(data.text?.timeline) ? data.text.timeline : []),
       characters: Array.isArray(data.characters) ? data.characters : [],
       maps: Array.isArray(data.maps) ? data.maps : [],
       relationships: {

@@ -214,31 +214,33 @@ export const unifiedWorldDataSchema: JSONSchemaType<UnifiedWorldData> = {
   type: 'object',
   properties: {
     ...baseMetadataSchema.properties,
-    text: {
-      type: 'object',
-      properties: {
-        geography: {
-          type: 'array',
-          items: geographyDataSchema
-        },
-        nations: {
-          type: 'array',
-          items: nationDataSchema
-        },
-        factions: {
-          type: 'array',
-          items: factionDataSchema
-        },
-        powerSystems: {
-          type: 'array',
-          items: powerSystemDataSchema
-        },
-        timeline: {
-          type: 'array',
-          items: timelineEventSchema
-        }
-      },
-      required: ['geography', 'nations', 'factions', 'powerSystems', 'timeline']
+    description: { type: 'string' },
+    thumbnail: { type: 'string', nullable: true },
+    tags: {
+      type: 'array',
+      items: { type: 'string' }
+    },
+    author: { type: 'string' },
+    lastModified: { type: 'string', format: 'date-time' },
+    geography: {
+      type: 'array',
+      items: geographyDataSchema
+    },
+    nations: {
+      type: 'array',
+      items: nationDataSchema
+    },
+    factions: {
+      type: 'array',
+      items: factionDataSchema
+    },
+    powerSystems: {
+      type: 'array',
+      items: powerSystemDataSchema
+    },
+    timeline: {
+      type: 'array',
+      items: timelineEventSchema
     },
     characters: {
       type: 'array',
@@ -342,7 +344,7 @@ export const unifiedWorldDataSchema: JSONSchemaType<UnifiedWorldData> = {
       nullable: true
     }
   },
-  required: [...baseMetadataSchema.required, 'text', 'characters', 'maps', 'relationships'],
+  required: [...baseMetadataSchema.required, 'description', 'tags', 'author', 'lastModified', 'geography', 'nations', 'factions', 'powerSystems', 'timeline', 'characters', 'maps', 'relationships'],
   additionalProperties: false
 }
 

@@ -166,13 +166,11 @@ const testValidation = async () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       version: '1.0.0',
-      text: {
-        geography: [],
-        nations: [],
-        factions: [],
-        powerSystems: [],
-        timeline: []
-      },
+      geography: [],
+      nations: [],
+      factions: [],
+      powerSystems: [],
+      timeline: [],
       characters: [],
       maps: [],
       relationships: {

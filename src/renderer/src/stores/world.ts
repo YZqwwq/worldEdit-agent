@@ -177,13 +177,11 @@ export const useWorldStore = defineStore('world', () => {
         // 创建默认的完整世界观结构
         worldData = {
           ...basicWorld,
-          text: {
-            geography: [],
-            nations: [],
-            factions: [],
-            powerSystems: [],
-            timeline: []
-          },
+          geography: [],
+          nations: [],
+          factions: [],
+          powerSystems: [],
+          timeline: [],
           characters: [],
           maps: [],
           relationships: {

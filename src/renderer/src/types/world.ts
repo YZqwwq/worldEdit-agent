@@ -208,14 +208,19 @@ export interface RelationshipData {
 
 // 统一世界观数据模型
 export interface UnifiedWorldData extends BaseMetadata {
-  // 三大模块数据
-  text: {
-    geography: GeographyData[]
-    nations: NationData[]
-    factions: FactionData[]
-    powerSystems: PowerSystemData[]
-    timeline: TimelineEvent[]
-  }
+  // WorldData properties
+  description: string
+  thumbnail?: string
+  tags: string[]
+  author: string
+  lastModified: Date
+  
+  // 世界观内容数据
+  geography: GeographyData[]
+  nations: NationData[]
+  factions: FactionData[]
+  powerSystems: PowerSystemData[]
+  timeline: TimelineEvent[]
   characters: CharacterData[]
   maps: MapData[]
   

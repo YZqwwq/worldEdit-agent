@@ -348,7 +348,9 @@ const createWorld = async () => {
       name: newWorld.value.name.trim(),
       description: newWorld.value.description.trim(),
       tags,
-      thumbnail: ''
+      thumbnail: '',
+      author: 'User', // 默认作者
+      lastModified: new Date()
     }
 
     const created = await worldStore.createWorld(worldData)

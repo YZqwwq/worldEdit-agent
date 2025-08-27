@@ -230,6 +230,11 @@ export class DatabaseService {
     return await this.client.clearAllData()
   }
 
+  // 向后兼容性别名
+  async clear(): Promise<void> {
+    return await this.clearAllData()
+  }
+
   async exportData(): Promise<any> {
     return await this.client.exportData()
   }
