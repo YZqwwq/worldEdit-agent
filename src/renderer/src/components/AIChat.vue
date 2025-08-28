@@ -300,7 +300,7 @@ import type {
   AgentState,
   TokenUsage,
   ModelProvider
-} from '../types/agent'
+} from '../../../shared/types/agent'
 
 // 响应式数据
 const messages = ref<ChatMessage[]>([])

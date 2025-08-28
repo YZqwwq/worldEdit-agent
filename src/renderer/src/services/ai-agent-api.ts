@@ -26,7 +26,7 @@ import type {
   Notification,
   BatchOperation,
   SearchResult
-} from '../types/agent'
+} from '../../../shared/types/agent'
 
 import { eventBus, storage, debounce, throttle, generateId, retry } from '../utils/ai-agent'
 

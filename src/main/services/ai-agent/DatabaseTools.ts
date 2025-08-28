@@ -4,7 +4,7 @@
  */
 
 import type { MCPTool } from '../../types/agent'
-import { mainDatabaseService } from '../database/DatabaseService'
+import { mainTypeORMDatabaseService } from '../database/TypeORMDatabaseService'
 import type { RecentFile } from '../../../shared/types/world'
 
 /**
@@ -252,7 +252,7 @@ export class DatabaseToolExecutor {
     try {
       switch (toolName) {
         case 'database_create_world':
-          return await mainDatabaseService.createWorld({
+          return await mainTypeORMDatabaseService.createWorld({
             name: input.name,
             description: input.description,
             author: input.author || 'AI Agent',
@@ -262,39 +262,39 @@ export class DatabaseToolExecutor {
           })
 
         case 'database_get_world_list':
-          return await mainDatabaseService.getWorldList()
+          return await mainTypeORMDatabaseService.getWorldList()
 
         case 'database_get_world':
-          const world = await mainDatabaseService.getWorld(input.id)
+          const world = await mainTypeORMDatabaseService.getWorld(input.id)
           if (!world) {
             throw new Error(`未找到ID为 ${input.id} 的世界观`)
           }
           return world
 
         case 'database_get_world_content':
-          const content = await mainDatabaseService.getWorldContent(input.id)
+          const content = await mainTypeORMDatabaseService.getWorldContent(input.id)
           if (!content) {
             throw new Error(`未找到ID为 ${input.id} 的世界观内容`)
           }
           return content
 
         case 'database_update_world':
-          await mainDatabaseService.updateWorld(input.id, input.updates)
+          await mainTypeORMDatabaseService.updateWorld(input.id, input.updates)
           return { success: true, message: '世界观更新成功' }
 
         case 'database_save_world_content':
-          await mainDatabaseService.saveWorldContent(input.worldContent)
+          await mainTypeORMDatabaseService.saveWorldContent(input.worldContent)
           return { success: true, message: '世界观内容保存成功' }
 
         case 'database_delete_world':
-          await mainDatabaseService.deleteWorld(input.id)
+          await mainTypeORMDatabaseService.deleteWorld(input.id)
           return { success: true, message: '世界观删除成功' }
 
         case 'database_search_worlds':
-          return await mainDatabaseService.searchWorlds(input.query)
+          return await mainTypeORMDatabaseService.searchWorlds(input.query)
 
         case 'database_get_recent_files':
-          return await mainDatabaseService.getRecentFiles()
+          return await mainTypeORMDatabaseService.getRecentFiles()
 
         case 'database_add_recent_file':
           // 处理日期字段
@@ -302,14 +302,14 @@ export class DatabaseToolExecutor {
             ...input.file,
             lastOpened: input.file.lastOpened ? new Date(input.file.lastOpened) : new Date()
           }
-          await mainDatabaseService.addRecentFile(fileData)
+          await mainTypeORMDatabaseService.addRecentFile(fileData)
           return { success: true, message: '最近文件添加成功' }
 
         case 'database_export_data':
-          return await mainDatabaseService.exportData()
+          return await mainTypeORMDatabaseService.exportData()
 
         case 'database_import_data':
-          await mainDatabaseService.importData(input.data)
+          await mainTypeORMDatabaseService.importData(input.data)
           return { success: true, message: '数据导入成功' }
 
         default:

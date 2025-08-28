@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { UnifiedWorldData, RecentFile, UIState, WorldData } from '../types/world'
-import { databaseService } from '../services/database'
+import type { UnifiedWorldData, RecentFile, UIState, WorldData } from '../../../shared/types/world'
+import { typeormDatabaseService as databaseService } from '../services/typeorm-database'
 import { simpleValidator } from '../schemas/simple-validator'
 
 // 世界观数据管理store

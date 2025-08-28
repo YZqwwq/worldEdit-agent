@@ -1,4 +1,4 @@
-import { databaseService } from './database'
+import { typeormDatabaseService as databaseService } from './typeorm-database'
 import { simpleValidator } from '../schemas/simple-validator'
 
 /**

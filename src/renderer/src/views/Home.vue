@@ -149,6 +149,12 @@
               </svg>
               <span>AI 智能助手</span>
             </button>
+            <button class="action-btn" @click="openTest">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              <span>数据库测试</span>
+            </button>
           </div>
         </section>
       </aside>
@@ -258,7 +264,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useWorldStore } from '../stores/world'
-import type { WorldData, RecentFile } from '../types/world'
+import type { WorldData, RecentFile } from '../../../shared/types/world'
 
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -411,6 +417,10 @@ const deleteWorld = async (worldId?: string) => {
 
 const openAIAgent = () => {
   router.push('/ai-agent')
+}
+
+const openTest = () => {
+  router.push('/test')
 }
 
 const formatDate = (date: Date | string) => {

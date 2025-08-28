@@ -1,27 +1,44 @@
 // 世界观数据类型定义
 
-// 基础元数据
-export interface BaseMetadata {
+// 统一基础实体接口
+export interface BaseEntity {
   id: string
-  name: string
   createdAt: Date
   updatedAt: Date
+}
+
+export interface NamedEntity extends BaseEntity {
+  name: string
+}
+
+export interface VersionedEntity extends BaseEntity {
   version: string
 }
 
-// 世界观主体数据
-export interface WorldData extends BaseMetadata {
-  description: string
-  thumbnail?: string
+export interface TaggableEntity {
   tags: string[]
+}
+
+export interface AuthorableEntity {
   author: string
+}
+
+export interface ThumbnailableEntity {
+  thumbnail?: string
+}
+
+export interface SoftDeletableEntity {
+  deletedAt?: Date
+}
+
+// 世界观主体数据
+export interface WorldData extends NamedEntity, VersionedEntity, TaggableEntity, AuthorableEntity, ThumbnailableEntity {
+  description: string
   lastModified: Date
 }
 
 // 地域数据
-export interface GeographyData {
-  id: string
-  name: string
+export interface GeographyData extends NamedEntity {
   type: 'continent' | 'country' | 'region' | 'city' | 'landmark'
   description: string
   parentId?: string
@@ -31,22 +48,18 @@ export interface GeographyData {
 }
 
 // 国家数据
-export interface NationData {
-  id: string
-  name: string
+export interface NationData extends NamedEntity {
   description: string
   government: string
   culture: string
   economy: string
   military: string
   territories: string[] // GeographyData IDs
-  relationships: RelationshipData[]
+  relationships: EntityRelationship[]
 }
 
 // 势力数据
-export interface FactionData {
-  id: string
-  name: string
+export interface FactionData extends NamedEntity {
   type: 'political' | 'military' | 'religious' | 'economic' | 'secret'
   description: string
   goals: string[]
@@ -57,9 +70,7 @@ export interface FactionData {
 }
 
 // 武力体系数据
-export interface PowerSystemData {
-  id: string
-  name: string
+export interface PowerSystemData extends NamedEntity {
   type: 'magic' | 'technology' | 'martial' | 'divine' | 'other'
   description: string
   levels: PowerLevel[]
@@ -76,10 +87,10 @@ export interface PowerLevel {
 }
 
 // 人物数据
-export interface CharacterData extends BaseMetadata {
+export interface CharacterData extends NamedEntity, VersionedEntity {
   portrait?: {
     imageData: string
-    layers: Layer[]
+    layers: LayerData[]
     metadata: ImageMetadata
   }
   description: {
@@ -88,8 +99,8 @@ export interface CharacterData extends BaseMetadata {
     background: string
     abilities: Ability[]
   }
-  relationships: Relationship[]
-  timeline: CharacterEvent[]
+  relationships: EntityRelationship[]
+  timeline: TimelineEvent[]
   factionId?: string
   powerLevel?: {
     systemId: string
@@ -106,52 +117,65 @@ export interface Ability {
   powerSystemId?: string
 }
 
-export interface Relationship {
+// 统一关系数据模型
+export type RelationshipType = 'family' | 'friend' | 'enemy' | 'ally' | 'mentor' | 'student' | 'lover' | 'rival' | 'political' | 'economic' | 'military' | 'cultural'
+
+export interface EntityRelationship extends BaseEntity {
+  sourceId: string
   targetId: string
-  type: 'family' | 'friend' | 'enemy' | 'ally' | 'mentor' | 'student' | 'lover' | 'rival'
+  type: RelationshipType
   description: string
   strength: number // 1-10
+  isPublic: boolean
+  startDate?: string
+  endDate?: string
 }
 
-export interface CharacterEvent {
-  id: string
+// 统一时间线事件模型
+export type EventType = 'political' | 'military' | 'cultural' | 'natural' | 'personal' | 'economic' | 'other'
+
+export interface TimelineEvent extends NamedEntity {
   date: string
   title: string
   description: string
+  type: EventType
   importance: number // 1-10
-  relatedCharacters?: string[]
-  relatedLocations?: string[]
+  relatedEntities: {
+    characters: string[]
+    locations: string[]
+    factions: string[]
+    nations: string[]
+  }
 }
 
 // 地图数据
-export interface MapData extends BaseMetadata {
+export interface MapData extends NamedEntity, VersionedEntity {
   dimensions: { width: number; height: number }
   layers: {
     pixel: PixelLayerData[]
     vector: VectorLayerData[]
   }
-  landmarks: Landmark[]
-  regions: Region[]
-  routes: Route[]
+  landmarks: LandmarkData[]
+  regions: RegionData[]
+  routes: RouteData[]
   scale: number
   projection: string
 }
 
-export interface Layer {
-  id: string
-  name: string
+// 统一图层定义
+export interface LayerData extends NamedEntity {
   visible: boolean
   opacity: number
   zIndex: number
 }
 
-export interface PixelLayerData extends Layer {
+export interface PixelLayerData extends LayerData {
   type: 'pixel'
   imageData: string
   filters?: ImageFilter[]
 }
 
-export interface VectorLayerData extends Layer {
+export interface VectorLayerData extends LayerData {
   type: 'vector'
   elements: VectorElement[]
 }
@@ -168,9 +192,7 @@ export interface VectorElement {
   }
 }
 
-export interface Landmark {
-  id: string
-  name: string
+export interface LandmarkData extends NamedEntity {
   type: string
   coordinates: { x: number; y: number }
   description: string
@@ -179,100 +201,50 @@ export interface Landmark {
   relatedEvents?: string[]
 }
 
-export interface Region {
-  id: string
-  name: string
+export interface RegionData extends NamedEntity {
   boundaries: { x: number; y: number }[]
   type: string
   properties: Record<string, any>
 }
 
-export interface Route {
-  id: string
-  name: string
+export interface RouteData extends NamedEntity {
   points: { x: number; y: number }[]
   type: 'road' | 'river' | 'trade' | 'military' | 'other'
   description: string
 }
 
-// 关系数据
-export interface RelationshipData {
-  id: string
-  sourceId: string
-  targetId: string
-  type: string
-  description: string
-  strength: number
-  isPublic: boolean
+
+
+// 简化的世界观数据模型
+export interface WorldContent extends WorldData {
+  // 核心内容数据
+  geography: GeographyData[]
+  nations: NationData[]
+  factions: FactionData[]
+  powerSystems: PowerSystemData[]
+  characters: CharacterData[]
+  maps: MapData[]
+  timeline: TimelineEvent[]
+  relationships: EntityRelationship[]
+  
+  // 扩展数据
+  items?: ItemData[]
+  events?: TimelineEvent[]
 }
 
-// 统一世界观数据模型（简化版本，匹配WorldContent实体）
-export interface UnifiedWorldData {
-  // 基础信息
-  id?: string;
-  name?: string;
-  version?: string;
-  createdAt?: Date;
-  updatedAt?: Date;
-  tags?: string[];
-  author?: string;
-  description?: string;
-  thumbnail?: string;
-  lastModified?: Date;
-  
-
-  
-  // 时间线数据
-  timeline?: any[];
-  
-  // 地理数据
-  geography?: any[];
-  
-  // 国家数据
-  nations?: any[];
-  
-  // 势力数据
-  factions?: any[];
-  
-  // 力量体系数据
-  powerSystems?: any[];
-  
-  // 角色数据
-  characters?: any[];
-  
-  // 地图数据
-  maps?: any[];
-  
-  // 关系数据
-  relationships?: Record<string, any>;
-  
-  // 物品数据
-  items?: any[];
-  
-  // 事件数据
-  events?: any[];
+export interface ItemData extends NamedEntity {
+  type: string
+  description: string
+  properties: Record<string, any>
+  rarity?: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
+  value?: number
+  ownerId?: string
 }
 
 // 完整的世界观数据模型（用于复杂场景）
-export interface CompleteWorldData extends BaseMetadata {
-  // 三大模块数据
-  text: {
-    geography: GeographyData[]
-    nations: NationData[]
-    factions: FactionData[]
-    powerSystems: PowerSystemData[]
-    timeline: TimelineEvent[]
-  }
-  characters: CharacterData[]
-  maps: MapData[]
-  
+export interface CompleteWorldData extends WorldContent {
   // 关联关系
-  relationships: {
-    textToCharacter: TextCharacterLink[]
-    textToMap: TextMapLink[]
-    characterToMap: CharacterMapLink[]
-    crossReferences: CrossReference[]
-  }
+  crossReferences: CrossReference[]
   
   // AI分析结果
   analysis?: {
@@ -284,49 +256,15 @@ export interface CompleteWorldData extends BaseMetadata {
 }
 
 // 辅助类型
-export interface TimelineEvent {
-  id: string
-  date: string
-  title: string
-  description: string
-  type: 'political' | 'military' | 'cultural' | 'natural' | 'other'
-  importance: number
-  relatedEntities: {
-    characters: string[]
-    locations: string[]
-    factions: string[]
-  }
-}
 
-export interface TextCharacterLink {
-  textId: string
-  characterId: string
-  context: string
-  relevance: number
-}
-
-export interface TextMapLink {
-  textId: string
-  mapId: string
-  locationId?: string
-  context: string
-}
-
-export interface CharacterMapLink {
-  characterId: string
-  mapId: string
-  locationId?: string
-  relationship: string
-}
-
-export interface CrossReference {
-  id: string
-  sourceType: 'text' | 'character' | 'map'
+export interface CrossReference extends BaseEntity {
+  sourceType: 'geography' | 'nation' | 'faction' | 'character' | 'map' | 'item' | 'event'
   sourceId: string
-  targetType: 'text' | 'character' | 'map'
+  targetType: 'geography' | 'nation' | 'faction' | 'character' | 'map' | 'item' | 'event'
   targetId: string
   relationship: string
   confidence: number
+  context?: string
 }
 
 export interface ConsistencyReport {
@@ -389,7 +327,72 @@ export interface RecentFile {
 // UI状态类型
 export interface UIState {
   currentWorld?: CompleteWorldData
-  activeModule: 'home' | 'text' | 'character' | 'map' | 'ai'
+  activeModule: 'home' | 'world' | 'character' | 'map' | 'analysis'
   loading: boolean
   error?: string
+  selectedEntityId?: string
+  selectedEntityType?: string
 }
+
+// 类型工具和辅助函数
+export type EntityId = string
+
+export type EntityType = 'geography' | 'nation' | 'faction' | 'character' | 'map' | 'item' | 'event' | 'powerSystem'
+
+export interface EntityReference {
+  id: EntityId
+  type: EntityType
+  name?: string
+}
+
+// 创建实体数据类型（用于新建）
+export type CreateEntityData<T extends BaseEntity> = Omit<T, 'id' | 'createdAt' | 'updatedAt'>
+
+// 更新实体数据类型（用于编辑）
+export type UpdateEntityData<T extends BaseEntity> = Partial<Omit<T, 'id' | 'createdAt'>> & {
+  id: string
+  updatedAt: Date
+}
+
+// API响应类型
+export interface ApiResponse<T = any> {
+  success: boolean
+  data?: T
+  error?: string
+  message?: string
+}
+
+// 查询结果类型
+export interface QueryResult<T> {
+  items: T[]
+  total: number
+  page?: number
+  pageSize?: number
+}
+
+// 验证结果类型
+export interface ValidationResult {
+  isValid: boolean
+  errors: ValidationError[]
+}
+
+export interface ValidationError {
+  field: string
+  message: string
+  code: string
+}
+
+// 实体类型映射
+export interface EntityTypeMap {
+  geography: GeographyData
+  nation: NationData
+  faction: FactionData
+  character: CharacterData
+  map: MapData
+  item: ItemData
+  event: TimelineEvent
+  powerSystem: PowerSystemData
+}
+
+// 获取实体数据类型的工具类型
+export type GetEntityData<T extends EntityType> = EntityTypeMap[T]

@@ -4,9 +4,9 @@
   "metadata": {
     "version": "2.0.0",
     "description": "project 级资源注册表",
-    "createdAt": "2025-08-26T17:47:05.690Z",
-    "updatedAt": "2025-08-26T17:47:05.737Z",
-    "resourceCount": 4
+    "createdAt": "2025-08-28T17:14:38.031Z",
+    "updatedAt": "2025-08-28T17:14:38.102Z",
+    "resourceCount": 6
   },
   "resources": [
     {
@@ -17,9 +17,9 @@
       "description": "专业角色，提供特定领域的专业能力",
       "reference": "@project://.promptx/resource/role/electron-expert/electron-expert.role.md",
       "metadata": {
-        "createdAt": "2025-08-26T17:47:05.710Z",
-        "updatedAt": "2025-08-26T17:47:05.710Z",
-        "scannedAt": "2025-08-26T17:47:05.710Z",
+        "createdAt": "2025-08-28T17:14:38.052Z",
+        "updatedAt": "2025-08-28T17:14:38.052Z",
+        "scannedAt": "2025-08-28T17:14:38.052Z",
         "path": "role/electron-expert/electron-expert.role.md"
       }
     },
@@ -31,9 +31,9 @@
       "description": "执行模式，定义具体的行为模式",
       "reference": "@project://.promptx/resource/role/electron-expert/execution/electron-workflow.execution.md",
       "metadata": {
-        "createdAt": "2025-08-26T17:47:05.720Z",
-        "updatedAt": "2025-08-26T17:47:05.720Z",
-        "scannedAt": "2025-08-26T17:47:05.720Z",
+        "createdAt": "2025-08-28T17:14:38.065Z",
+        "updatedAt": "2025-08-28T17:14:38.065Z",
+        "scannedAt": "2025-08-28T17:14:38.065Z",
         "path": "role/electron-expert/execution/electron-workflow.execution.md"
       }
     },
@@ -45,9 +45,9 @@
       "description": "知识库，提供专业知识和信息",
       "reference": "@project://.promptx/resource/role/electron-expert/knowledge/electron-stack.knowledge.md",
       "metadata": {
-        "createdAt": "2025-08-26T17:47:05.727Z",
-        "updatedAt": "2025-08-26T17:47:05.727Z",
-        "scannedAt": "2025-08-26T17:47:05.727Z",
+        "createdAt": "2025-08-28T17:14:38.080Z",
+        "updatedAt": "2025-08-28T17:14:38.080Z",
+        "scannedAt": "2025-08-28T17:14:38.080Z",
         "path": "role/electron-expert/knowledge/electron-stack.knowledge.md"
       }
     },
@@ -59,23 +59,51 @@
       "description": "思维模式，指导AI的思考方式",
       "reference": "@project://.promptx/resource/role/electron-expert/thought/electron-development.thought.md",
       "metadata": {
-        "createdAt": "2025-08-26T17:47:05.736Z",
-        "updatedAt": "2025-08-26T17:47:05.736Z",
-        "scannedAt": "2025-08-26T17:47:05.736Z",
+        "createdAt": "2025-08-28T17:14:38.095Z",
+        "updatedAt": "2025-08-28T17:14:38.095Z",
+        "scannedAt": "2025-08-28T17:14:38.095Z",
         "path": "role/electron-expert/thought/electron-development.thought.md"
+      }
+    },
+    {
+      "id": "typescript-worldbuilding",
+      "source": "project",
+      "protocol": "knowledge",
+      "name": "Typescript Worldbuilding 知识库",
+      "description": "知识库，提供专业知识和信息",
+      "reference": "@project://.promptx/resource/role/worldbuilder-architect/knowledge/typescript-worldbuilding.knowledge.md",
+      "metadata": {
+        "createdAt": "2025-08-28T17:14:38.099Z",
+        "updatedAt": "2025-08-28T17:14:38.099Z",
+        "scannedAt": "2025-08-28T17:14:38.099Z",
+        "path": "role/worldbuilder-architect/knowledge/typescript-worldbuilding.knowledge.md"
+      }
+    },
+    {
+      "id": "worldbuilder-architect",
+      "source": "project",
+      "protocol": "role",
+      "name": "Worldbuilder Architect 角色",
+      "description": "专业角色，提供特定领域的专业能力",
+      "reference": "@project://.promptx/resource/role/worldbuilder-architect/worldbuilder-architect.role.md",
+      "metadata": {
+        "createdAt": "2025-08-28T17:14:38.101Z",
+        "updatedAt": "2025-08-28T17:14:38.101Z",
+        "scannedAt": "2025-08-28T17:14:38.101Z",
+        "path": "role/worldbuilder-architect/worldbuilder-architect.role.md"
       }
     }
   ],
   "stats": {
-    "totalResources": 4,
+    "totalResources": 6,
     "byProtocol": {
-      "role": 1,
+      "role": 2,
       "execution": 1,
-      "knowledge": 1,
+      "knowledge": 2,
       "thought": 1
     },
     "bySource": {
-      "project": 4
+      "project": 6
     }
   }
 }

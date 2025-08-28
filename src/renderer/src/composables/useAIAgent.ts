@@ -18,7 +18,7 @@ import type {
   OptimizationSuggestion,
   Notification,
   APIResponse
-} from '../types/agent'
+} from '../../../shared/types/agent'
 import { AIAgentAPIService } from '../services/ai-agent'
 import {
   generateId,

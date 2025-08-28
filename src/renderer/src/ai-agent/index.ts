@@ -46,7 +46,7 @@ export type {
   Notification,
   BatchOperation,
   SearchResult
-} from '../types/agent'
+} from '../../../shared/types/agent'
 
 // ==================== 服务导出 ====================
 export {
@@ -158,7 +158,7 @@ export {
 export {
   DEFAULT_MODEL_CONFIGS,
   DEFAULT_AGENT_CONFIG
-} from '../types/agent'
+} from '../../../shared/types/agent'
 
 // ==================== 版本信息 ====================
 export const AI_AGENT_VERSION = '1.0.0'

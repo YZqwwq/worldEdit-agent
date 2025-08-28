@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<memory>
+  <item id="mem_1756322628344_nyn56ulwh" time="2025/08/28 03:23">
+    <content>
+      用户需要创建一个世界观创建与数据结构设计专家角色，专门了解TypeScript数据结构，用于帮助设计项目世界观的数据架构。项目是一个Electron应用，使用TypeORM作为数据库ORM，已有完整的世界观类型定义在src/shared/types/world.ts中，包含BaseMetadata、WorldData、GeographyData、NationData、FactionData等复杂数据结构。用户希望这个专家能够基于现有的TypeScript类型系统，为世界观项目提供更合理的数据结构设计建议。
+    </content>
+    <tags>#其他</tags>
+  </item>
+</memory>

@@ -3,7 +3,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { registerDatabaseHandlers, unregisterDatabaseHandlers } from './ipc/database'
+// import { registerDatabaseHandlers, unregisterDatabaseHandlers } from './ipc/database' // 已迁移到TypeORM
 import { registerAIAgentIPC, unregisterAIAgentIPC } from './ipc/ai-agent'
 import { registerTypeORMDatabaseHandlers, unregisterTypeORMDatabaseHandlers } from './ipc/typeorm-database'
 
@@ -60,7 +60,7 @@ app.whenReady().then(() => {
   registerAIAgentIPC()
 
   // Register Database IPC handlers
-  registerDatabaseHandlers()
+  // registerDatabaseHandlers() // 已迁移到TypeORM
   registerTypeORMDatabaseHandlers()
 
   createWindow()
@@ -84,7 +84,7 @@ app.on('window-all-closed', () => {
 // Clean up IPC handlers when app is quitting
 app.on('before-quit', async () => {
     unregisterAIAgentIPC()
-    unregisterDatabaseHandlers()
+    // unregisterDatabaseHandlers() // 已迁移到TypeORM
     await unregisterTypeORMDatabaseHandlers()
   })
 

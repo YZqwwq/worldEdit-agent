@@ -70,10 +70,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { databaseService } from '../services/database'
+import { typeormDatabaseService as databaseService } from '../services/typeorm-database'
 import { simpleValidator } from '../schemas/simple-validator'
 import { initService } from '../services/init'
-import type { WorldData } from '../types/world'
+import type { BaseMetadata, UnifiedWorldData, WorldData } from '../../shared/types/world'
 
 interface TestResult {
   title: string
@@ -100,8 +100,8 @@ const testCreateWorld = async () => {
   try {
     const testWorld: Omit<WorldData, 'id' | 'createdAt' | 'updatedAt'> = {
       name: `测试世界观 ${Date.now()}`,
-      description: '这是一个用于测试SQLite和JSON Schema集成的测试世界观',
-      tags: ['测试', 'SQLite', 'JSON Schema'],
+      description: '这是一个用于测试TypeORM和JSON Schema集成的测试世界观',
+      tags: ['测试', 'TypeORM', 'JSON Schema'],
       author: '系统测试',
       lastModified: new Date(),
       version: '1.0.0'
@@ -156,7 +156,7 @@ const testValidation = async () => {
   loading.value = true
   try {
     // 测试有效数据
-    const validData = {
+    const validData: UnifiedWorldData = {
       id: 'test-validation',
       name: '验证测试世界观',
       description: '用于测试JSON Schema验证的世界观',
@@ -173,12 +173,7 @@ const testValidation = async () => {
       timeline: [],
       characters: [],
       maps: [],
-      relationships: {
-        textToCharacter: [],
-        textToMap: [],
-        characterToMap: [],
-        crossReferences: []
-      }
+      relationships: []
     }
 
     const validation = simpleValidator.validateUnifiedWorldData(validData)

@@ -11,7 +11,7 @@ import type {
   ModelConfig,
   MCPServerConfig,
   MCPTool
-} from '../types/agent'
+} from '../../../shared/types/agent'
 
 /**
  * AI Agent API服务类

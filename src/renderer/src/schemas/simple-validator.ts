@@ -1,4 +1,4 @@
-import type { WorldData, UnifiedWorldData, CharacterData, MapData } from '../types/world'
+import type { WorldData, UnifiedWorldData, CharacterData, MapData } from '../../../shared/types/world'
 
 /**
  * 简单的数据验证器

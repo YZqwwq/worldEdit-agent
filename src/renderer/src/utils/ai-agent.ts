@@ -15,7 +15,7 @@ import type {
   ExportOptions,
   SearchResult,
   BatchOperation
-} from '../types/agent'
+} from '../../../shared/types/agent'
 
 /**
  * 格式化时间戳

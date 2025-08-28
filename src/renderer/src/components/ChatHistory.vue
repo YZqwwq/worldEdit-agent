@@ -290,7 +290,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { aiAgentAPI } from '../services/ai-agent'
-import type { ChatSession } from '../types/agent'
+import type { ChatSession } from '../../../shared/types/agent'
 
 // Props
 interface Props {
