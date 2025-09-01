@@ -7,6 +7,17 @@ export interface BaseEntity {
   updatedAt: Date
 }
 
+// 基础元数据接口（用于世界观基本信息）
+export interface BaseMetadata extends BaseEntity {
+  name: string
+  description: string
+  version: string
+  tags: string[]
+  author: string
+  thumbnail?: string
+  lastModified: Date
+}
+
 export interface NamedEntity extends BaseEntity {
   name: string
 }
@@ -131,6 +142,67 @@ export interface EntityRelationship extends BaseEntity {
   endDate?: string
 }
 
+// 关系历史事件接口
+export interface RelationshipHistoryEvent {
+  date: string
+  event: string
+  description?: string
+  impact?: string
+  strengthChange?: number
+}
+
+// 关系属性接口
+export interface RelationshipProperties {
+  isPublic?: boolean
+  isOfficial?: boolean
+  duration?: string
+  conditions?: string[]
+  benefits?: string[]
+  obligations?: string[]
+}
+
+// 关系文档接口
+export interface RelationshipDocument {
+  name: string
+  type: string
+  date: string
+  description?: string
+}
+
+// 关系影响因素接口
+export interface RelationshipInfluences {
+  externalFactors?: string[]
+  keyEvents?: string[]
+  mediators?: string[]
+  obstacles?: string[]
+}
+
+// 关系未来展望接口
+export interface RelationshipFuture {
+  trajectory?: string
+  potentialChanges?: string[]
+  risks?: string[]
+  opportunities?: string[]
+}
+
+// 完整的关系数据模型（与TypeORM实体对应）
+export interface RelationshipData extends BaseEntity {
+  worldId: string
+  sourceId: string
+  sourceType: string // character, nation, faction, geography等
+  targetId: string
+  targetType: string // character, nation, faction, geography等
+  relationshipType: string // ally, enemy, neutral, family, trade, etc.
+  status: string // active, inactive, historical, secret等
+  strength?: number // -100 to 100, 负数表示敌对，正数表示友好
+  description?: string
+  history?: RelationshipHistoryEvent[]
+  properties?: RelationshipProperties
+  documents?: RelationshipDocument[]
+  influences?: RelationshipInfluences
+  future?: RelationshipFuture
+}
+
 // 统一时间线事件模型
 export type EventType = 'political' | 'military' | 'cultural' | 'natural' | 'personal' | 'economic' | 'other'
 
@@ -149,8 +221,9 @@ export interface TimelineEvent extends NamedEntity {
 }
 
 // 地图数据
-export interface MapData extends NamedEntity, VersionedEntity {
+export interface MapData extends NamedEntity {
   dimensions: { width: number; height: number }
+  type: string
   layers: {
     pixel: PixelLayerData[]
     vector: VectorLayerData[]
@@ -214,6 +287,23 @@ export interface RouteData extends NamedEntity {
 }
 
 
+
+// 统一世界观数据模型（用于数据传输和存储）
+export interface UnifiedWorldData extends BaseMetadata {
+  // 核心内容数据
+  geography: GeographyData[]
+  nations: NationData[]
+  factions: FactionData[]
+  powerSystems: PowerSystemData[]
+  characters: CharacterData[]
+  maps: MapData[]
+  timeline: TimelineEvent[]
+  relationships: EntityRelationship[]
+  
+  // 扩展数据
+  items?: ItemData[]
+  events?: TimelineEvent[]
+}
 
 // 简化的世界观数据模型
 export interface WorldContent extends WorldData {
@@ -314,15 +404,7 @@ export interface ImageFilter {
   parameters: Record<string, any>
 }
 
-// 最近使用的文件
-export interface RecentFile {
-  id: string
-  name: string
-  path: string
-  lastOpened: Date
-  thumbnail?: string
-  type: 'world'
-}
+// 最近使用的文件类型已移至 shared/entities/RecentFile.entity.ts
 
 // UI状态类型
 export interface UIState {

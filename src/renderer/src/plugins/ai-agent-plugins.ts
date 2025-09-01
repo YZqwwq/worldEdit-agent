@@ -6,7 +6,7 @@
 import type { App } from 'vue'
 import type { Router } from 'vue-router'
 import { aiAgentRoutes, shortcuts } from '../router/ai-agent'
-import { eventBus, storage } from '../utils/ai-agent'
+import { eventBus, storage } from '../utils/ai-agent-utils'
 
 /**
  * AI Agent 插件选项

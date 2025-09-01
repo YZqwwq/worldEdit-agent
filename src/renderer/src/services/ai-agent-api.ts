@@ -28,7 +28,7 @@ import type {
   SearchResult
 } from '../../../shared/types/agent'
 
-import { eventBus, storage, debounce, throttle, generateId, retry } from '../utils/ai-agent'
+import { eventBus, storage, debounce, throttle, generateId, retry } from '../utils/ai-agent-utils'
 
 /**
  * API配置

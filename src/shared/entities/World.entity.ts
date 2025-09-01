@@ -61,9 +61,14 @@ export class World {
     return {
       id: this.id,
       name: this.name,
+      description: this.description || '',
+      version: this.version || '1.0.0',
+      tags: this.tags || [],
+      author: this.author || '',
+      thumbnail: this.thumbnail,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
-      version: this.version
+      lastModified: this.updatedAt
     };
   }
 

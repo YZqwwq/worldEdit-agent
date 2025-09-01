@@ -31,13 +31,13 @@ export class ContextManager {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       config: config || DEFAULT_AGENT_CONFIG as AgentConfig,
+      tokenUsage: {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0
+      },
       metadata: {
-        messageCount: 0,
-        tokenUsage: {
-          promptTokens: 0,
-          completionTokens: 0,
-          totalTokens: 0
-        }
+        messageCount: 0
       }
     }
 
@@ -96,8 +96,8 @@ export class ContextManager {
     }
 
     // 更新令牌使用统计
-    if (message.metadata?.tokenUsage && session.metadata?.tokenUsage) {
-      const usage = session.metadata.tokenUsage
+    if (message.metadata?.tokenUsage && session.tokenUsage) {
+      const usage = session.tokenUsage
       usage.promptTokens += message.metadata.tokenUsage.promptTokens || 0
       usage.completionTokens += message.metadata.tokenUsage.completionTokens || 0
       usage.totalTokens += message.metadata.tokenUsage.totalTokens || 0
@@ -285,9 +285,9 @@ export class ContextManager {
     return {
       messageCount: session.metadata?.messageCount || 0,
       tokenUsage: {
-        promptTokens: session.metadata?.tokenUsage?.promptTokens || 0,
-        completionTokens: session.metadata?.tokenUsage?.completionTokens || 0,
-        totalTokens: session.metadata?.tokenUsage?.totalTokens || 0
+        promptTokens: session.tokenUsage?.promptTokens || 0,
+        completionTokens: session.tokenUsage?.completionTokens || 0,
+        totalTokens: session.tokenUsage?.totalTokens || 0
       },
       duration: session.updatedAt - session.createdAt
     }
@@ -306,7 +306,7 @@ export class ContextManager {
 
     for (const session of Array.from(this.sessions.values())) {
       totalMessages += session.metadata?.messageCount || 0
-      totalTokens += session.metadata?.tokenUsage?.totalTokens || 0
+      totalTokens += session.tokenUsage?.totalTokens || 0
     }
 
     return {

@@ -50,9 +50,6 @@ export interface ModelConfig {
 
   /** 停止序列 */
   stop: string[]
-
-
-
 }
 
 /**
@@ -146,6 +143,8 @@ export interface ChatMessage {
     error?: string
     /** Token使用情况 */
     tokenUsage?: TokenUsage
+    /** 是否正在流式传输 */
+    isStreaming?: boolean
   }
 }
 
@@ -195,6 +194,8 @@ export interface ChatSession {
   updatedAt: number
   /** 会话配置 */
   config: AgentConfig
+  /** Token使用情况 */
+  tokenUsage: TokenUsage
   /** 元数据 */
   metadata?: {
     /** 世界ID */
@@ -203,8 +204,6 @@ export interface ChatSession {
     tags?: string[]
     /** 消息数量 */
     messageCount?: number
-    /** Token使用情况 */
-    tokenUsage?: TokenUsage
   }
 }
 
@@ -363,8 +362,9 @@ export interface WritingTemplate {
   prompt: string
   variables?: {
     name: string
+    label: string
     description: string
-    type: 'text' | 'number' | 'select'
+    type: 'text' | 'number' | 'select' | 'textarea' | 'date'
     options?: string[]
     required?: boolean
   }[]
@@ -395,7 +395,8 @@ export interface WritingTask {
  * 优化建议接口
  */
 export interface OptimizationSuggestion {
-  type: 'grammar' | 'style' | 'clarity' | 'structure' | 'tone'
+  id?: string
+  type: 'grammar' | 'style' | 'clarity' | 'structure' | 'tone' | 'engagement'
   severity: 'low' | 'medium' | 'high'
   message: string
   suggestion: string
@@ -421,8 +422,16 @@ export interface ConnectionStatus {
  */
 export interface UsageStats {
   messages: number
+  totalMessages: number
   tokens: number
+  totalTokens: number
   sessions: number
+  totalSessions: number
+  todaySessions: number
+  weekSessions: number
+  monthSessions: number
+  averageMessagesPerSession: number
+  averageTokensPerSession: number
   cost?: number
   date?: string
 }

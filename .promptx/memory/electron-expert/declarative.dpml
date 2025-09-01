@@ -6,4 +6,10 @@
     </content>
     <tags>#其他</tags>
   </item>
+  <item id="mem_1756409879132_i5xxa0hhm" time="2025/08/29 03:37">
+    <content>
+      项目数据类型规范：所有数据基准都应该基于shared/types中的文件数据类型。当其他文件出现type不存在的或格式与type不同（比如type中是name：string 其他文件却是name：int）的数据类型时，一切以types为准。处理原则：1）删除不存在的格式；2）调整类型与type相同；3）不允许随意删除或新建格式，除非用户发出改动types的指令。这是项目的核心数据一致性原则，确保shared/types作为唯一数据源的权威性。
+    </content>
+    <tags>#其他</tags>
+  </item>
 </memory>

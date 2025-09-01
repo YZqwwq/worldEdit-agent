@@ -226,12 +226,7 @@ export class SimpleValidator {
       timeline: Array.isArray(data.timeline) ? data.timeline : (Array.isArray(data.text?.timeline) ? data.text.timeline : []),
       characters: Array.isArray(data.characters) ? data.characters : [],
       maps: Array.isArray(data.maps) ? data.maps : [],
-      relationships: {
-        textToCharacter: Array.isArray(data.relationships?.textToCharacter) ? data.relationships.textToCharacter : [],
-        textToMap: Array.isArray(data.relationships?.textToMap) ? data.relationships.textToMap : [],
-        characterToMap: Array.isArray(data.relationships?.characterToMap) ? data.relationships.characterToMap : [],
-        crossReferences: Array.isArray(data.relationships?.crossReferences) ? data.relationships.crossReferences : []
-      }
+      relationships: Array.isArray(data.relationships) ? data.relationships : []
     }
   }
 
@@ -255,18 +250,21 @@ export class SimpleValidator {
     
     return {
       id: data.id || '',
-      worldId: data.worldId || '',
       name: data.name || '未命名角色',
-      description: data.description || '',
-      tags: Array.isArray(data.tags) ? data.tags : [],
-      appearance: data.appearance || '',
-      personality: data.personality || '',
-      background: data.background || '',
-      abilities: Array.isArray(data.abilities) ? data.abilities : [],
-      relationships: Array.isArray(data.relationships) ? data.relationships : [],
-      images: Array.isArray(data.images) ? data.images : [],
+      version: data.version || '1.0.0',
       createdAt: parseDate(data.createdAt),
-      updatedAt: parseDate(data.updatedAt)
+      updatedAt: parseDate(data.updatedAt),
+      portrait: data.portrait || undefined,
+      description: {
+        appearance: data.appearance || data.description?.appearance || '',
+        personality: data.personality || data.description?.personality || '',
+        background: data.background || data.description?.background || '',
+        abilities: Array.isArray(data.abilities) ? data.abilities : (Array.isArray(data.description?.abilities) ? data.description.abilities : [])
+      },
+      relationships: Array.isArray(data.relationships) ? data.relationships : [],
+      timeline: Array.isArray(data.timeline) ? data.timeline : [],
+      factionId: data.factionId || undefined,
+      powerLevel: data.powerLevel || undefined
     }
   }
 
@@ -290,21 +288,21 @@ export class SimpleValidator {
     
     return {
       id: data.id || '',
-      worldId: data.worldId || '',
       name: data.name || '未命名地图',
-      description: data.description || '',
-      tags: Array.isArray(data.tags) ? data.tags : [],
       type: data.type || 'region',
       scale: typeof data.scale === 'number' ? data.scale : 1,
-      bounds: data.bounds || { north: 0, south: 0, east: 0, west: 0 },
+      projection: data.projection || 'mercator',
+      dimensions: {
+        width: typeof data.dimensions?.width === 'number' ? data.dimensions.width : 0,
+        height: typeof data.dimensions?.height === 'number' ? data.dimensions.height : 0
+      },
       layers: {
-        vector: Array.isArray(data.layers?.vector) ? data.layers.vector : [],
-        raster: Array.isArray(data.layers?.raster) ? data.layers.raster : []
+        pixel: Array.isArray(data.layers?.pixel)? data.layers.pixel : [],
+        vector: Array.isArray(data.layers?.vector) ? data.layers.vector : []
       },
       landmarks: Array.isArray(data.landmarks) ? data.landmarks : [],
       regions: Array.isArray(data.regions) ? data.regions : [],
       routes: Array.isArray(data.routes) ? data.routes : [],
-      images: Array.isArray(data.images) ? data.images : [],
       createdAt: parseDate(data.createdAt),
       updatedAt: parseDate(data.updatedAt)
     }

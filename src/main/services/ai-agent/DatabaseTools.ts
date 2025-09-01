@@ -4,8 +4,8 @@
  */
 
 import type { MCPTool } from '../../types/agent'
-import { mainTypeORMDatabaseService } from '../database/TypeORMDatabaseService'
-import type { RecentFile } from '../../../shared/types/world'
+import { typeORMService } from '../database/TypeORMService'
+// RecentFile import removed as it's not used
 
 /**
  * 数据库工具定义
@@ -252,65 +252,76 @@ export class DatabaseToolExecutor {
     try {
       switch (toolName) {
         case 'database_create_world':
-          return await mainTypeORMDatabaseService.createWorld({
+          await typeORMService.saveWorld({
+            id: input.id,
             name: input.name,
             description: input.description,
-            author: input.author || 'AI Agent',
             tags: input.tags || [],
-            version: input.version || '1.0.0',
-            lastModified: new Date()
+            author: input.author || 'AI Agent',
+            lastModified: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            version: '1.0.0'
           })
+          return { success: true, message: '世界创建成功' }
 
         case 'database_get_world_list':
-          return await mainTypeORMDatabaseService.getWorldList()
+          return await typeORMService.getAllWorlds()
 
         case 'database_get_world':
-          const world = await mainTypeORMDatabaseService.getWorld(input.id)
+          const world = await typeORMService.getWorld(input.id)
           if (!world) {
             throw new Error(`未找到ID为 ${input.id} 的世界观`)
           }
           return world
 
         case 'database_get_world_content':
-          const content = await mainTypeORMDatabaseService.getWorldContent(input.id)
+          const content = await typeORMService.getWorldContent(input.id)
           if (!content) {
             throw new Error(`未找到ID为 ${input.id} 的世界观内容`)
           }
           return content
 
         case 'database_update_world':
-          await mainTypeORMDatabaseService.updateWorld(input.id, input.updates)
+          await typeORMService.updateWorld(input.id, input.updates)
           return { success: true, message: '世界观更新成功' }
 
         case 'database_save_world_content':
-          await mainTypeORMDatabaseService.saveWorldContent(input.worldContent)
+          await typeORMService.saveWorldContent(input.worldContent.id, input.worldContent)
           return { success: true, message: '世界观内容保存成功' }
 
         case 'database_delete_world':
-          await mainTypeORMDatabaseService.deleteWorld(input.id)
+          await typeORMService.deleteWorld(input.id)
           return { success: true, message: '世界观删除成功' }
 
         case 'database_search_worlds':
-          return await mainTypeORMDatabaseService.searchWorlds(input.query)
+          throw new Error('搜索功能暂未实现')
 
         case 'database_get_recent_files':
-          return await mainTypeORMDatabaseService.getRecentFiles()
+          return await typeORMService.getRecentFiles()
 
         case 'database_add_recent_file':
-          // 处理日期字段
-          const fileData: RecentFile = {
-            ...input.file,
-            lastOpened: input.file.lastOpened ? new Date(input.file.lastOpened) : new Date()
+          // 创建符合addRecentFile参数要求的对象
+          const fileData = {
+            name: input.file.name,
+            path: input.file.path,
+            type: input.file.type,
+            size: input.file.size,
+            metadata: input.file.metadata,
+            accessCount: input.file.accessCount || 0,
+            exists: input.file.exists !== undefined ? input.file.exists : true,
+            isFavorite: input.file.isFavorite || false,
+            thumbnailPath: input.file.thumbnailPath,
+            preview: input.file.preview
           }
-          await mainTypeORMDatabaseService.addRecentFile(fileData)
+          await typeORMService.addRecentFile(fileData)
           return { success: true, message: '最近文件添加成功' }
 
         case 'database_export_data':
-          return await mainTypeORMDatabaseService.exportData()
+          throw new Error('数据导出功能暂未实现')
 
         case 'database_import_data':
-          await mainTypeORMDatabaseService.importData(input.data)
-          return { success: true, message: '数据导入成功' }
+          throw new Error('数据导入功能暂未实现')
 
         default:
           throw new Error(`未知的数据库工具: ${toolName}`)

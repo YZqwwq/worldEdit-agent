@@ -264,7 +264,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useWorldStore } from '../stores/world'
-import type { WorldData, RecentFile } from '../../../shared/types/world'
+import type { WorldData } from '../../../shared/types/world'
+import type { RecentFile } from '../../../shared/entities'
 
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -380,7 +381,7 @@ const openWorld = async (worldId?: string) => {
   }
 }
 
-const openRecentFile = async (file: RecentFile) => {
+const openRecentFile = async (file: Omit<RecentFile, 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize' | 'toSimpleObject'>) => {
   if (file.type === 'world') {
     await openWorld(file.id)
   }

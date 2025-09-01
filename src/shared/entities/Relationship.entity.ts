@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import type { RelationshipData } from '../types/world';
 
 @Entity('relationships')
 export class Relationship {
@@ -143,5 +144,159 @@ export class Relationship {
   isNeutral(): boolean {
     const strength = this.strength || 0;
     return strength >= -30 && strength <= 30;
+  }
+
+  // 添加历史事件
+  addHistoryEvent(event: string, description?: string, strengthChange?: number): void {
+    if (!this.history) {
+      this.history = [];
+    }
+    
+    this.history.push({
+      date: new Date().toISOString(),
+      event,
+      description,
+      strengthChange,
+      impact: strengthChange ? `Strength ${strengthChange > 0 ? 'increased' : 'decreased'} by ${Math.abs(strengthChange)}` : undefined
+    });
+    
+    if (strengthChange) {
+      this.updateStrength(strengthChange);
+    }
+  }
+
+  // 添加文档
+  addDocument(name: string, type: string, description?: string): void {
+    if (!this.documents) {
+      this.documents = [];
+    }
+    
+    this.documents.push({
+      name,
+      type,
+      date: new Date().toISOString(),
+      description
+    });
+  }
+
+  // 设置关系属性
+  setProperties(properties: Partial<{
+    isPublic?: boolean;
+    isOfficial?: boolean;
+    duration?: string;
+    conditions?: string[];
+    benefits?: string[];
+    obligations?: string[];
+  }>): void {
+    this.properties = {
+      ...this.properties,
+      ...properties
+    };
+  }
+
+  // 添加影响因素
+  addInfluence(type: 'externalFactors' | 'keyEvents' | 'mediators' | 'obstacles', value: string): void {
+    if (!this.influences) {
+      this.influences = {};
+    }
+    
+    if (!this.influences[type]) {
+      this.influences[type] = [];
+    }
+    
+    this.influences[type]!.push(value);
+  }
+
+  // 设置未来展望
+  setFuture(future: Partial<{
+    trajectory?: string;
+    potentialChanges?: string[];
+    risks?: string[];
+    opportunities?: string[];
+  }>): void {
+    this.future = {
+      ...this.future,
+      ...future
+    };
+  }
+
+  // 获取关系强度描述
+  getStrengthDescription(): string {
+    const strength = this.strength || 0;
+    if (strength >= 80) return '极其友好';
+    if (strength >= 60) return '非常友好';
+    if (strength >= 30) return '友好';
+    if (strength >= 10) return '较为友好';
+    if (strength >= -10) return '中立';
+    if (strength >= -30) return '较为敌对';
+    if (strength >= -60) return '敌对';
+    if (strength >= -80) return '非常敌对';
+    return '极其敌对';
+  }
+
+  // 获取关系状态描述
+  getStatusDescription(): string {
+    switch (this.status) {
+      case 'active': return '活跃';
+      case 'inactive': return '非活跃';
+      case 'historical': return '历史性';
+      case 'secret': return '秘密';
+      default: return this.status;
+    }
+  }
+
+  // 检查关系是否可以公开
+  isPublic(): boolean {
+    return this.properties?.isPublic !== false && this.status !== 'secret';
+  }
+
+  // 检查关系是否为官方关系
+  isOfficial(): boolean {
+    return this.properties?.isOfficial === true;
+  }
+
+  // 获取最近的历史事件
+  getRecentHistory(limit: number = 5): Array<{
+    date: string;
+    event: string;
+    description?: string;
+    impact?: string;
+    strengthChange?: number;
+  }> {
+    if (!this.history) return [];
+    
+    return this.history
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, limit);
+  }
+
+  // 计算关系持续时间（天数）
+  getDurationInDays(): number {
+    const now = new Date();
+    const created = new Date(this.createdAt);
+    return Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
+  // 转换为RelationshipData格式
+  toRelationshipData(): RelationshipData {
+    return {
+      id: this.id,
+      worldId: this.worldId,
+      sourceId: this.sourceId,
+      sourceType: this.sourceType,
+      targetId: this.targetId,
+      targetType: this.targetType,
+      relationshipType: this.relationshipType,
+      status: this.status,
+      strength: this.strength,
+      description: this.description,
+      history: this.history,
+      properties: this.properties,
+      documents: this.documents,
+      influences: this.influences,
+      future: this.future,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt
+    };
   }
 }

@@ -417,7 +417,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import type { ChatMessage, ModelConfig, ChatSession, TokenUsage, AgentStatus } from '../../../shared/types/agent'
+import type { ChatMessage, ChatSession } from '../../../shared/types/agent'
 import { ModelProvider, MessageType } from '../../../shared/types/agent'
 
 const router = useRouter()
@@ -766,7 +766,7 @@ const loadSavedConfig = () => {
 // 设置IPC事件监听器
 const setupIPCListeners = () => {
   // 监听AI回复消息
-  window.electron.ipcRenderer.on('ai-agent:message-received', (event, data) => {
+  window.electron.ipcRenderer.on('ai-agent:message-received', (_event, data) => {
     if (data.response) {
       const assistantMessage: ChatMessage = {
         id: data.messageId || (Date.now() + 1).toString(),
@@ -784,12 +784,12 @@ const setupIPCListeners = () => {
   })
   
   // 监听状态变化
-  window.electron.ipcRenderer.on('ai-agent:state-changed', (event, state) => {
+  window.electron.ipcRenderer.on('ai-agent:state-changed', (_event, state) => {
     console.log('AI Agent状态变化:', state)
   })
   
   // 监听错误事件
-  window.electron.ipcRenderer.on('ai-agent:error-occurred', (event, error) => {
+  window.electron.ipcRenderer.on('ai-agent:error-occurred', (_event, error) => {
     console.error('AI Agent错误:', error)
     const errorMessage: ChatMessage = {
       id: Date.now().toString(),

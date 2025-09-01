@@ -7,7 +7,7 @@
 export { default as AIAgentHub } from '../components/AIAgentHub.vue'
 export { default as AIChat } from '../components/AIChat.vue'
 export { default as ChatHistory } from '../components/ChatHistory.vue'
-export { default as ModelConfig } from '../components/ModelConfig.vue'
+export { default as ModelConfigComponent } from '../components/ModelConfig.vue'
 export { default as SmartWritingAssistant } from '../components/SmartWritingAssistant.vue'
 
 // ==================== 类型定义导出 ====================
@@ -82,22 +82,22 @@ export {
   truncateText,
   highlightText,
   extractCodeBlocks,
-  calculateTextSimilarity,
+  calculateSimilarity,
   
   // 聊天相关
   exportChatHistory,
   searchChatHistory,
-  executeBatchOperation,
+  batchOperateSessions,
   
   // 状态相关
   getConnectionStatusText,
-  getConnectionStatusColor,
+  getConnectionStatusClass,
   
   // 配置相关
   validateModelConfig,
   
   // 写作相关
-  generateWritingTemplate,
+  generateWritingTemplates,
   applyWritingTemplate,
   generateOptimizationSuggestions,
   
@@ -111,12 +111,11 @@ export {
   eventBus,
   
   // 错误处理
-  createError,
   handleError,
   
   // 重试机制
   retry
-} from '../utils/ai-agent'
+} from '../utils/ai-agent-utils'
 
 // ==================== 组合式API导出 ====================
 export {
@@ -125,18 +124,25 @@ export {
   useTheme
 } from '../composables/useAIAgent'
 
+// ==================== 路由配置导入 ====================
+import {
+  aiAgentRoutes,
+  quickTools,
+  aiAgentGuards as routeGuards,
+  breadcrumbConfig,
+  pageTitles as pageTitleConfig,
+  shortcuts
+} from '../router/ai-agent'
+
 // ==================== 路由配置导出 ====================
 export {
   aiAgentRoutes,
-  navigationMenu,
   quickTools,
   routeGuards,
   breadcrumbConfig,
   pageTitleConfig,
-  shortcuts,
-  permissionConfig,
-  defaultConfig
-} from '../router/ai-agent'
+  shortcuts
+}
 
 // ==================== 插件导出 ====================
 export {
@@ -148,7 +154,7 @@ export {
   ThemeManager,
   PerformanceMonitor,
   type AIAgentPluginOptions
-} from '../plugins/ai-agent'
+} from '../plugins/ai-agent-plugins'
 
 // ==================== 样式导出 ====================
 // 注意：CSS文件需要在使用的地方手动导入

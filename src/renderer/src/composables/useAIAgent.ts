@@ -28,7 +28,7 @@ import {
   eventBus,
   handleError,
   retry
-} from '../utils/ai-agent'
+} from '../utils/ai-agent-utils'
 
 /**
  * AI Agent 主要状态管理
@@ -436,7 +436,7 @@ export function useAIAgent() {
       const lastUserMessage = messagesToKeep
         .slice()
         .reverse()
-        .find(m => m.role === 'user')
+        .find(m => m.type === 'user')
 
       if (lastUserMessage) {
         await sendMessage(lastUserMessage.content, lastUserMessage.attachments)

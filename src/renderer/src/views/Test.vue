@@ -73,7 +73,7 @@ import { ref, onMounted } from 'vue'
 import { typeormDatabaseService as databaseService } from '../services/typeorm-database'
 import { simpleValidator } from '../schemas/simple-validator'
 import { initService } from '../services/init'
-import type { BaseMetadata, UnifiedWorldData, WorldData } from '../../shared/types/world'
+import type { UnifiedWorldData, WorldData } from '../../../shared/types/world'
 
 interface TestResult {
   title: string

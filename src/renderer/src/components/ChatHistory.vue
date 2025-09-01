@@ -195,7 +195,7 @@
               <div class="meta-left">
                 <span class="meta-item">
                   <i class="icon-message"></i>
-                  {{ session.messageCount }} 条消息
+                  {{ session.metadata?.messageCount || session.messages.length || 0 }} 条消息
                 </span>
                 <span class="meta-item">
                   <i class="icon-time"></i>
@@ -214,9 +214,9 @@
             </div>
 
             <!-- 标签 -->
-            <div class="session-tags" v-if="session.tags && session.tags.length > 0">
+            <div class="session-tags" v-if="session.metadata?.tags && session.metadata.tags.length > 0">
               <span 
-                v-for="tag in session.tags" 
+                v-for="tag in session.metadata.tags" 
                 :key="tag"
                 class="session-tag"
               >
@@ -336,7 +336,7 @@ const filteredSessions = computed(() => {
     const query = searchQuery.value.toLowerCase()
     result = result.filter(session => 
       session.title.toLowerCase().includes(query) ||
-      (session.preview && session.preview.toLowerCase().includes(query))
+      (getSessionPreview(session) && getSessionPreview(session).toLowerCase().includes(query))
     )
   }
 
@@ -384,8 +384,8 @@ const filteredSessions = computed(() => {
         bValue = new Date(b[field]).getTime()
         break
       case 'messageCount':
-        aValue = a.messageCount || 0
-        bValue = b.messageCount || 0
+        aValue = a.metadata?.messageCount || a.messages.length || 0
+        bValue = b.metadata?.messageCount || b.messages.length || 0
         break
       case 'title':
         aValue = a.title.toLowerCase()
@@ -416,7 +416,7 @@ const paginatedSessions = computed(() => {
 })
 
 const totalMessages = computed(() => {
-  return sessions.value.reduce((sum, session) => sum + (session.messageCount || 0), 0)
+  return sessions.value.reduce((sum, session) => sum + (session.metadata?.messageCount || session.messages.length || 0), 0)
 })
 
 const totalTokens = computed(() => {
@@ -463,19 +463,15 @@ async function loadSessions() {
 }
 
 async function loadSessionPreviews() {
-  // 为每个会话加载前几条消息作为预览
+  // 预览信息已经通过 getSessionPreview 方法动态生成，无需额外加载
+  // 如果需要更新消息数量，可以在这里处理
   for (const session of sessions.value) {
-    try {
-      const messages = await aiAgentAPI.getSessionMessages(session.id)
-      if (messages.length > 0) {
-        // 找到第一条用户消息作为预览
-        const firstUserMessage = messages.find(m => m.role === 'user')
-        if (firstUserMessage) {
-          session.preview = firstUserMessage.content.substring(0, 100)
-        }
+    if (!session.metadata?.messageCount) {
+      // 如果没有缓存的消息数量，使用当前消息数组长度
+      if (!session.metadata) {
+        session.metadata = {}
       }
-    } catch (error) {
-      console.error(`加载会话 ${session.id} 预览失败:`, error)
+      session.metadata.messageCount = session.messages.length
     }
   }
 }
@@ -550,8 +546,8 @@ async function duplicateSession(session: ChatSession) {
       // 修改标题并导入
       sessionData.title = `${session.title} (副本)`
       sessionData.id = Date.now().toString() // 生成新ID
-      sessionData.createdAt = new Date()
-      sessionData.updatedAt = new Date()
+      sessionData.createdAt = Date.now()
+      sessionData.updatedAt = Date.now()
       
       const success = await aiAgentAPI.importSession(sessionData)
       if (success) {
@@ -626,7 +622,7 @@ async function bulkExport() {
   if (selectedSessions.value.length === 0) return
 
   try {
-    const exportData = []
+    const exportData: ChatSession[] = []
     for (const sessionId of selectedSessions.value) {
       const sessionData = await aiAgentAPI.exportSession(sessionId)
       if (sessionData) {
@@ -655,7 +651,7 @@ async function bulkExport() {
 
 async function exportHistory() {
   try {
-    const exportData = []
+    const exportData: ChatSession[] = []
     for (const session of sessions.value) {
       const sessionData = await aiAgentAPI.exportSession(session.id)
       if (sessionData) {
@@ -683,20 +679,34 @@ async function exportHistory() {
 }
 
 function getSessionPreview(session: ChatSession): string {
-  return session.preview || '暂无预览'
+  if (session.messages && session.messages.length > 0) {
+    // 找到第一条用户消息作为预览
+    const firstUserMessage = session.messages.find(m => m.type === 'user')
+    if (firstUserMessage) {
+      return firstUserMessage.content.substring(0, 100) + (firstUserMessage.content.length > 100 ? '...' : '')
+    }
+    // 如果没有用户消息，使用第一条消息
+    const firstMessage = session.messages[0]
+    if (firstMessage) {
+      return firstMessage.content.substring(0, 100) + (firstMessage.content.length > 100 ? '...' : '')
+    }
+  }
+  return '暂无预览'
 }
 
-function formatDate(date: Date): string {
+function formatDate(date: number | Date): string {
+  const targetDate = typeof date === 'number' ? new Date(date) : date
   return new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
-  }).format(new Date(date))
+  }).format(targetDate)
 }
 
-function formatRelativeTime(date: Date): string {
+function formatRelativeTime(date: number | Date): string {
   const now = new Date()
-  const diff = now.getTime() - new Date(date).getTime()
+  const targetDate = typeof date === 'number' ? new Date(date) : date
+  const diff = now.getTime() - targetDate.getTime()
   const minutes = Math.floor(diff / (1000 * 60))
   const hours = Math.floor(diff / (1000 * 60 * 60))
   const days = Math.floor(diff / (1000 * 60 * 60 * 24))
@@ -705,7 +715,7 @@ function formatRelativeTime(date: Date): string {
   if (minutes < 60) return `${minutes}分钟前`
   if (hours < 24) return `${hours}小时前`
   if (days < 7) return `${days}天前`
-  return formatDate(date)
+  return formatDate(targetDate)
 }
 </script>
 

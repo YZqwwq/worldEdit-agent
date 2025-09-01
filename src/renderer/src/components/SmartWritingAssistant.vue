@@ -493,7 +493,7 @@ const processText = async () => {
     const messages: ChatMessage[] = [
       {
         id: Date.now().toString(),
-        role: 'user',
+        type: 'user',
         content: prompt,
         timestamp: Date.now()
       }

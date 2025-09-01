@@ -33,7 +33,7 @@
       <div class="settings-content">
         <div class="setting-group">
           <label>模型提供商</label>
-          <select v-model="config.modelConfig.provider" @change="updateConfig">
+          <select v-model="config.currentModel.provider" @change="updateConfig">
             <option value="openai">OpenAI</option>
             <option value="anthropic">Anthropic</option>
             <option value="deepseek">DeepSeek</option>
@@ -43,7 +43,8 @@
           <label>模型名称</label>
           <input 
             type="text" 
-            v-model="config.modelConfig.model" 
+            v-model="config.currentModel.modelName" 
+
             @blur="updateConfig"
             placeholder="输入模型名称"
           >
@@ -52,19 +53,19 @@
           <label>API密钥</label>
           <input 
             type="password" 
-            v-model="config.modelConfig.apiKey" 
+            v-model="config.currentModel.apiKey" 
             @blur="updateConfig"
             placeholder="输入API密钥"
           >
         </div>
         <div class="setting-group">
-          <label>温度 ({{ config.modelConfig.temperature }})</label>
+          <label>温度 ({{ config.currentModel.temperature }})</label>
           <input 
             type="range" 
             min="0" 
             max="2" 
             step="0.1" 
-            v-model.number="config.modelConfig.temperature"
+            v-model.number="config.currentModel.temperature"
             @input="updateConfig"
           >
         </div>
@@ -72,7 +73,7 @@
           <label>最大令牌数</label>
           <input 
             type="number" 
-            v-model.number="config.modelConfig.maxTokens" 
+            v-model.number="config.currentModel.maxTokens" 
             @blur="updateConfig"
             min="1"
             max="32000"
@@ -100,7 +101,7 @@
           <div class="session-title">{{ session.title }}</div>
           <div class="session-meta">
             <span class="session-date">{{ formatDate(session.updatedAt) }}</span>
-            <span class="session-count">{{ session.messageCount }}条消息</span>
+            <span class="session-count">{{ session.metadata?.messageCount || session.messages.length || 0 }}条消息</span>
           </div>
           <div class="session-actions">
             <button 
@@ -156,21 +157,21 @@
             :key="message.id"
             class="message-item"
             :class="{
-              'user-message': message.role === 'user',
-              'assistant-message': message.role === 'assistant',
-              'system-message': message.role === 'system'
+              'user-message': message.type === 'user',
+              'assistant-message': message.type === 'assistant',
+              'system-message': message.type === 'system'
             }"
           >
             <div class="message-avatar">
-              <i :class="getMessageIcon(message.role)"></i>
+              <i :class="getMessageIcon(message.type)"></i>
             </div>
             <div class="message-content">
               <div class="message-header">
-                <span class="message-role">{{ getRoleName(message.role) }}</span>
+                <span class="message-role">{{ getRoleName(message.type) }}</span>
                 <span class="message-time">{{ formatTime(message.timestamp) }}</span>
               </div>
               <div class="message-body">
-                <div v-if="message.role === 'assistant' && message.isStreaming" class="streaming-indicator">
+                <div v-if="message.type === 'assistant' && message.metadata?.isStreaming" class="streaming-indicator">
                   <div class="typing-dots">
                     <span></span>
                     <span></span>
@@ -178,10 +179,10 @@
                   </div>
                 </div>
                 <div class="message-text" v-html="formatMessageContent(message.content)"></div>
-                <div v-if="message.toolCalls && message.toolCalls.length > 0" class="tool-calls">
+                <div v-if="message.metadata?.toolCalls && message.metadata.toolCalls.length > 0" class="tool-calls">
                   <div class="tool-calls-header">🔧 工具调用</div>
                   <div 
-                    v-for="toolCall in message.toolCalls" 
+                    v-for="toolCall in message.metadata.toolCalls" 
                     :key="toolCall.id"
                     class="tool-call-item"
                   >
@@ -190,7 +191,7 @@
                   </div>
                 </div>
               </div>
-              <div class="message-actions" v-if="message.role === 'assistant'">
+              <div class="message-actions" v-if="message.type === 'assistant'">
                 <button 
                   class="btn-action"
                   @click="copyMessage(message.content)"
@@ -275,7 +276,7 @@
           {{ getStatusText(agentState.status) }}
         </span>
         <span class="status-item" v-if="currentSession">
-          {{ currentSession.messageCount }} 条消息
+          {{ currentSession.metadata?.messageCount || currentSession.messages.length || 0 }} 条消息
         </span>
       </div>
       <div class="status-right">
@@ -283,7 +284,7 @@
           已用: {{ tokenUsage.totalTokens }} tokens
         </span>
         <span class="status-item">
-          {{ config.modelConfig.provider }} / {{ config.modelConfig.model }}
+          {{ config.currentModel.provider }} / {{ config.currentModel.modelName }}
         </span>
       </div>
     </div>
@@ -301,6 +302,7 @@ import type {
   TokenUsage,
   ModelProvider
 } from '../../../shared/types/agent'
+import { MessageType } from '../../../shared/types/agent'
 
 // 响应式数据
 const messages = ref<ChatMessage[]>([])
@@ -316,17 +318,29 @@ const estimatedTokens = ref(0)
 
 // 配置
 const config = reactive<AgentConfig>({
-  modelConfig: {
+  currentModel: {
     provider: 'openai' as ModelProvider,
-    model: 'gpt-3.5-turbo',
+    modelName: 'gpt-4',
     apiKey: '',
     temperature: 0.7,
     maxTokens: 2000,
-    baseURL: ''
+    maxRetries: 4,
+    timeout: 200000,
+    baseURL: '',
+    displayName: 'GPT-3.5 Turbo',
+    topP: 1,
+    frequencyPenalty: 0,
+    presencePenalty: 0,
+    stream: true, // 确保总是使用流式传输
+    retries: 0,
+    stop: []
   },
-  systemPrompt: '你是一个有用的AI助手。',
-  enableTools: true,
-  maxHistoryLength: 50
+  availableModels: {},
+  systemPrompt: '',
+  contextWindowSize: 50,
+  enablePersistence: true,
+  enableMCPTools: true,
+  enabledTools: []
 })
 
 // 快捷操作
@@ -428,56 +442,42 @@ async function sendMessage() {
     // 添加用户消息
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
-      role: 'user',
+      type: MessageType.USER,
       content: message,
-      timestamp: new Date()
+      timestamp: Date.now()
     }
     messages.value.push(userMessage)
     await scrollToBottom()
 
-    // 发送消息到AI
+    // 创建空的AI回复消息，用于流式更新
+    const assistantMessage: ChatMessage = {
+      id: (Date.now() + 1).toString(),
+      type: MessageType.ASSISTANT,
+      content: '',
+      timestamp: Date.now(),
+      metadata: {
+        isStreaming: true
+      }
+    }
+    messages.value.push(assistantMessage)
+    await scrollToBottom()
+
+    // 发送消息到AI（流式传输）
     const result = await aiAgentAPI.sendMessage(message, currentSession.value?.id)
     
-    if (result.success && result.data) {
-      // 添加AI回复
-      const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: result.data.content || '',
-        timestamp: new Date(),
-        toolCalls: result.data.toolCalls
-      }
-      messages.value.push(assistantMessage)
-      
-      // 更新token使用情况
-      if (result.data.tokenUsage) {
-        tokenUsage.value = result.data.tokenUsage
-      }
-      
-      // 更新会话信息
-      if (currentSession.value) {
-        currentSession.value.messageCount = messages.value.length
-        currentSession.value.updatedAt = new Date()
-      }
-    } else {
-      // 显示错误消息
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `抱歉，发生了错误: ${result.error || '未知错误'}`,
-        timestamp: new Date()
-      }
-      messages.value.push(errorMessage)
+    if (!result.success) {
+      // 更新错误消息
+      assistantMessage.content = `抱歉，发生了错误: ${result.error || '未知错误'}`
+      assistantMessage.metadata = { isStreaming: false }
     }
   } catch (error) {
     console.error('发送消息失败:', error)
-    const errorMessage: ChatMessage = {
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: '抱歉，发送消息时发生了错误，请稍后重试。',
-      timestamp: new Date()
+    // 更新最后一条消息为错误消息
+    const lastMessage = messages.value[messages.value.length - 1]
+    if (lastMessage && lastMessage.type === MessageType.ASSISTANT) {
+      lastMessage.content = '抱歉，发送消息时发生了错误，请稍后重试。'
+      lastMessage.metadata = { isStreaming: false }
     }
-    messages.value.push(errorMessage)
   } finally {
     isLoading.value = false
     await scrollToBottom()
@@ -496,7 +496,7 @@ async function regenerateMessage(index: number) {
   if (index <= 0 || index >= messages.value.length) return
   
   const userMessage = messages.value[index - 1]
-  if (userMessage.role !== 'user') return
+  if (userMessage.type !== MessageType.USER) return
 
   // 移除之前的AI回复
   messages.value.splice(index)
@@ -621,23 +621,25 @@ function formatMessageContent(content: string): string {
     .replace(/\n/g, '<br>')
 }
 
-function formatDate(date: Date): string {
+function formatDate(date: number | Date): string {
+  const targetDate = typeof date === 'number' ? new Date(date) : date
   return new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric',
     month: 'short',
     day: 'numeric'
-  }).format(new Date(date))
+  }).format(targetDate)
 }
 
-function formatTime(date: Date): string {
+function formatTime(date: number | Date): string {
+  const targetDate = typeof date === 'number' ? new Date(date) : date
   return new Intl.DateTimeFormat('zh-CN', {
     hour: '2-digit',
     minute: '2-digit'
-  }).format(new Date(date))
+  }).format(targetDate)
 }
 
-function getMessageIcon(role: string): string {
-  switch (role) {
+function getMessageIcon(type: string): string {
+  switch (type) {
     case 'user': return 'icon-user'
     case 'assistant': return 'icon-robot'
     case 'system': return 'icon-system'
@@ -645,8 +647,8 @@ function getMessageIcon(role: string): string {
   }
 }
 
-function getRoleName(role: string): string {
-  switch (role) {
+function getRoleName(type: string): string {
+  switch (type) {
     case 'user': return '用户'
     case 'assistant': return 'AI助手'
     case 'system': return '系统'
@@ -680,17 +682,55 @@ function setupEventListeners() {
 
   aiAgentAPI.addEventListener('message-received', (data: any) => {
     // 处理流式消息
-    if (data.isStreaming && messages.value.length > 0) {
+    if (messages.value.length > 0) {
       const lastMessage = messages.value[messages.value.length - 1]
-      if (lastMessage.role === 'assistant') {
-        lastMessage.content += data.content
-        lastMessage.isStreaming = data.isStreaming
+      if (lastMessage.type === MessageType.ASSISTANT) {
+        // 追加内容
+        if (data.content) {
+          lastMessage.content += data.content
+        }
+        
+        // 更新流式状态和元数据
+        if (!lastMessage.metadata) {
+          lastMessage.metadata = {}
+        }
+        lastMessage.metadata.isStreaming = !data.isComplete
+        
+        // 如果传输完成，更新最终数据
+        if (data.isComplete) {
+          if (data.toolCalls) {
+            lastMessage.metadata.toolCalls = data.toolCalls
+          }
+          if (data.tokenUsage) {
+            tokenUsage.value = data.tokenUsage
+          }
+          
+          // 更新会话信息
+          if (currentSession.value) {
+            if (!currentSession.value.metadata) {
+              currentSession.value.metadata = {}
+            }
+            currentSession.value.metadata.messageCount = messages.value.length
+            currentSession.value.updatedAt = Date.now()
+          }
+        }
+        
+        // 自动滚动到底部
+        scrollToBottom()
       }
     }
   })
 
   aiAgentAPI.addEventListener('error-occurred', (error: string) => {
     console.error('AI Agent错误:', error)
+    // 更新最后一条消息的错误状态
+    if (messages.value.length > 0) {
+      const lastMessage = messages.value[messages.value.length - 1]
+      if (lastMessage.type === MessageType.ASSISTANT && lastMessage.metadata?.isStreaming) {
+        lastMessage.content = `抱歉，发生了错误: ${error}`
+        lastMessage.metadata.isStreaming = false
+      }
+    }
   })
 }
 

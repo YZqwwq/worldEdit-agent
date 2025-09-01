@@ -49,7 +49,7 @@ export class WorldContent {
 
   // 关系数据
   @Column({ type: 'json', nullable: true })
-  relationships?: Record<string, any>;
+  relationships?: any[];
 
   // 物品数据
   @Column({ type: 'json', nullable: true })
@@ -70,14 +70,14 @@ export class WorldContent {
     return {
       id: this.id,
       name: '',
-      createdAt: this.createdAt.toISOString(),
-      updatedAt: this.updatedAt.toISOString(),
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt,
       version: '1.0.0',
       description: '',
-      thumbnail: null,
+      thumbnail: undefined,
       tags: [],
       author: '',
-      lastModified: this.updatedAt.toISOString(),
+      lastModified: this.updatedAt,
       timeline: this.timeline || [],
       geography: this.geography || [],
       nations: this.nations || [],
@@ -85,7 +85,7 @@ export class WorldContent {
       powerSystems: this.powerSystems || [],
       characters: this.characters || [],
       maps: this.maps || [],
-      relationships: this.relationships || {},
+      relationships: this.relationships || [],
       items: this.items || [],
       events: this.events || []
     };

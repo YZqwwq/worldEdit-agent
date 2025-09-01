@@ -383,7 +383,7 @@ export class TypeORMClient {
   /**
    * 添加最近文件
    */
-  async addRecentFile(file: RecentFile): Promise<void> {
+  async addRecentFile(file: Omit<RecentFile, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt' | 'toSimpleObject' | 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize'>): Promise<void> {
     return await this.invoke<void>(TYPEORM_DATABASE_CHANNELS.ADD_RECENT_FILE, file)
   }
 
@@ -554,7 +554,7 @@ export class TypeORMService {
   }
 
   // 最近文件操作
-  async addRecentFile(file: RecentFile): Promise<void> {
+  async addRecentFile(file: Omit<RecentFile, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt' | 'toSimpleObject' | 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize'>): Promise<void> {
     return await this.client.addRecentFile(file)
   }
 

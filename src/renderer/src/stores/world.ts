@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { UnifiedWorldData, RecentFile, UIState, WorldData } from '../../../shared/types/world'
+import type { UnifiedWorldData, UIState, WorldData } from '../../../shared/types/world'
+import type { RecentFile } from '../../../shared/entities'
 import { typeormDatabaseService as databaseService } from '../services/typeorm-database'
 import { simpleValidator } from '../schemas/simple-validator'
 
@@ -8,7 +9,7 @@ import { simpleValidator } from '../schemas/simple-validator'
 export const useWorldStore = defineStore('world', () => {
   // 状态
   const currentWorld = ref<UnifiedWorldData | null>(null)
-  const recentFiles = ref<RecentFile[]>([])
+  const recentFiles = ref<Omit<RecentFile, 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize' | 'toSimpleObject'>[]>([])
   const uiState = ref<UIState>({
     activeModule: 'home',
     loading: false
@@ -39,7 +40,12 @@ export const useWorldStore = defineStore('world', () => {
         name: world.name,
         path: '', // 实际路径由主进程管理
         lastOpened: new Date(),
-        type: 'world'
+        type: 'world',
+        accessCount: 1,
+        exists: true,
+        isFavorite: false,
+        createdAt: new Date(),
+        updatedAt: new Date()
       })
     }
   }
@@ -79,7 +85,7 @@ export const useWorldStore = defineStore('world', () => {
     }
   }
 
-  const addToRecentFiles = (file: RecentFile) => {
+  const addToRecentFiles = (file: Omit<RecentFile, 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize' | 'toSimpleObject'>) => {
     // 移除已存在的相同文件
     recentFiles.value = recentFiles.value.filter(f => f.id !== file.id)
     // 添加到开头
@@ -135,18 +141,22 @@ export const useWorldStore = defineStore('world', () => {
       }
       
       // 通过IPC调用主进程SQLite服务创建世界观
-      const newWorld = await databaseService.createWorld(worldData)
+      const newWorld = await databaseService.createWorld({
+        ...worldData,
+        version: '1.0.0'
+      })
       
       // 更新本地状态
       addWorld(newWorld)
       
       // 添加到最近文件
       await databaseService.addRecentFile({
-        id: newWorld.id,
         name: newWorld.name,
         path: '',
-        lastOpened: new Date(),
-        type: 'world'
+        type: 'world',
+        accessCount: 1,
+        exists: true,
+        isFavorite: false
       })
       
       return newWorld
@@ -184,12 +194,7 @@ export const useWorldStore = defineStore('world', () => {
           timeline: [],
           characters: [],
           maps: [],
-          relationships: {
-            textToCharacter: [],
-            textToMap: [],
-            characterToMap: [],
-            crossReferences: []
-          }
+          relationships: []
         }
         
         // 保存默认结构
@@ -207,13 +212,20 @@ export const useWorldStore = defineStore('world', () => {
       setCurrentWorld(worldData)
       
       // 更新最近文件
-      await databaseService.addRecentFile({
-        id: worldData.id,
-        name: worldData.name,
-        path: '',
-        lastOpened: new Date(),
-        type: 'world'
-      })
+      if (worldData) {
+        await databaseService.addRecentFile({
+          id: worldData.id,
+          name: worldData.name,
+          path: '',
+          lastOpened: new Date(),
+          type: 'world',
+          accessCount: 1,
+          exists: true,
+          isFavorite: false,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        } as any)
+      }
       
       return worldData
     } catch (error) {
