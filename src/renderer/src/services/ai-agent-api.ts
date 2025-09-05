@@ -635,6 +635,13 @@ class AIAgentAPIService {
   }
 
   /**
+   * 获取今日使用统计
+   */
+  async getTodayUsageStats(): Promise<UsageStats> {
+    return this.getUsageStats('today')
+  }
+
+  /**
    * 记录使用情况
    */
   async recordUsage(event: string, data?: any): Promise<void> {

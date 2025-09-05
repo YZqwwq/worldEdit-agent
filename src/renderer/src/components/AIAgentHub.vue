@@ -295,7 +295,7 @@ import SmartWritingAssistant from './SmartWritingAssistant.vue'
 import ChatHistory from './ChatHistory.vue'
 import ModelConfig from './ModelConfig.vue'
 import { aiAgentAPI } from '../services/ai-agent'
-import type { ModelConfig as ModelConfigType } from '../../../shared/types/agent'
+import type { ModelConfig as ModelConfigType, ConnectionStatus } from '../../../shared/types/agent'
 
 // 响应式数据
 const activeFeature = ref('welcome')
@@ -305,10 +305,9 @@ const selectedModel = ref('')
 const selectedTool = ref<any>(null)
 
 // 连接状态
-const connectionStatus = ref({
+const connectionStatus = ref<ConnectionStatus>({
   connected: false,
-  model: '',
-  lastCheck: 0
+  error: undefined
 })
 
 // 快速设置
@@ -443,8 +442,7 @@ const refreshConnection = async () => {
     const status = await aiAgentAPI.getConnectionStatus()
     connectionStatus.value = {
       connected: status.connected,
-      model: status.model || '',
-      lastCheck: Date.now()
+      error: status.error
     }
     
     if (status.connected) {
@@ -463,9 +461,9 @@ const refreshConnection = async () => {
 const switchModel = async () => {
   try {
     const modelConfig: Partial<ModelConfigType> = {
-      model: selectedModel.value
+      modelName: selectedModel.value
     }
-    await aiAgentAPI.updateModelConfig(modelConfig)
+    await aiAgentAPI.updateModelConfig('default', modelConfig)
     showNotification('success', '模型切换', `已切换到 ${currentModel.value}`)
     await refreshConnection()
   } catch (error) {
@@ -480,7 +478,7 @@ const updateQuickSettings = async () => {
       temperature: quickSettings.value.temperature,
       maxTokens: quickSettings.value.maxTokens
     }
-    await aiAgentAPI.updateModelConfig(modelConfig)
+    await aiAgentAPI.updateModelConfig('default', modelConfig)
   } catch (error) {
     console.error('更新设置失败:', error)
   }
@@ -629,9 +627,9 @@ const loadTodayStats = async () => {
 
 const loadCurrentConfig = async () => {
   try {
-    const config = await aiAgentAPI.getModelConfig()
+    const config = await aiAgentAPI.getModelConfig('current')
     if (config) {
-      selectedModel.value = config.model || ''
+      selectedModel.value = config.modelName || ''
       quickSettings.value.temperature = config.temperature || 0.7
       quickSettings.value.maxTokens = config.maxTokens || 2000
     }

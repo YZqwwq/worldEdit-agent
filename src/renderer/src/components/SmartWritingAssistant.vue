@@ -490,16 +490,22 @@ const processText = async () => {
     const prompt = buildPrompt(selectedTool.value, inputText.value, settings.value)
     
     // 调用AI API
-    const messages: ChatMessage[] = [
-      {
-        id: Date.now().toString(),
-        type: 'user',
-        content: prompt,
-        timestamp: Date.now()
-      }
-    ]
+    // 创建或获取当前会话
+    const sessions = await aiAgentAPI.getChatSessions()
+    let sessionId = sessions.data?.[0]?.id
+    
+    if (!sessionId) {
+      const newSession = await aiAgentAPI.createChatSession({
+        title: '智能创作助手',
+        agentConfig: {} // 使用默认配置
+      })
+      sessionId = newSession.id
+    }
 
-    const response = await aiAgentAPI.sendMessage(messages)
+    const response = await aiAgentAPI.sendMessage(sessionId, {
+      type: 'user',
+      content: prompt
+    })
     outputText.value = response.content
     
     processingTime.value = Date.now() - startTime

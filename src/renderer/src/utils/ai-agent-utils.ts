@@ -806,7 +806,7 @@ export const storage = {
  * 事件总线
  */
 class EventBus {
-  private events: Map<string, Function[]> = new Map()
+  public events: Map<string, Function[]> = new Map()
   
   on(event: string, callback: Function): void {
     if (!this.events.has(event)) {
@@ -847,6 +847,10 @@ class EventBus {
       this.off(event, onceCallback)
     }
     this.on(event, onceCallback)
+  }
+  
+  removeAllListeners(): void {
+    this.events.clear()
   }
 }
 

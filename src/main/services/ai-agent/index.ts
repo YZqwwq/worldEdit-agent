@@ -19,6 +19,8 @@ import type {
 } from '../../../shared/types/agent'
 import { PromptPipeline } from '../prompt/PromptPipeline'
 import { ToolPromptGenerator } from '../prompt/ToolPromptGenerator'
+import { ModelConfigService } from '../ModelConfigService'
+import { TypeORMService } from '../TypeORMService'
 
 /**
  * AI Agent服务类
@@ -30,13 +32,15 @@ export class AIAgentService {
   private modelAdapter: ModelAdapter
   private toolManager: MCPToolManager
   private promptPipeline: PromptPipeline | null = null
+  private modelConfigService: ModelConfigService
   private isInitialized = false
 
-  constructor() {
+  constructor(typeormService: TypeORMService) {
     this.engine = new AIAgentEngine()
     this.contextManager = new ContextManager()
     this.modelAdapter = new ModelAdapter()
     this.toolManager = new MCPToolManager()
+    this.modelConfigService = new ModelConfigService(typeormService)
   }
 
   /**
@@ -48,6 +52,9 @@ export class AIAgentService {
       
       // 初始化提示词管道
       this.promptPipeline = new PromptPipeline(config.promptConfig)
+      
+      // 初始化模型配置服务
+      await this.modelConfigService.initialize()
       
       // 初始化工具管理器
       await this.toolManager.initialize()
@@ -301,6 +308,71 @@ export class AIAgentService {
    */
   getSupportedModels() {
     return ModelAdapter.getSupportedModels()
+  }
+
+  /**
+   * 获取模型配置
+   */
+  async getModelConfig(id: string): Promise<ModelConfig | null> {
+    try {
+      if (id === 'current' || id === 'default') {
+        // 获取默认配置
+        const defaultConfig = await this.modelConfigService.getDefaultConfig()
+        if (defaultConfig) {
+          return defaultConfig.toApiConfig()
+        }
+        // 如果没有默认配置，返回当前引擎配置
+        const config = this.engine.getConfig()
+        if (config && config.currentModel) {
+          return config.currentModel
+        }
+      } else {
+        // 根据ID获取配置
+        const modelConfig = await this.modelConfigService.getConfigById(id)
+        if (modelConfig) {
+          return modelConfig.toApiConfig()
+        }
+      }
+      return null
+    } catch (error) {
+      console.error('获取模型配置失败:', error)
+      return null
+    }
+  }
+
+  /**
+   * 获取所有模型配置
+   */
+  async getAllModelConfigs(): Promise<import('../../shared/entities/ModelConfig.entity').ModelConfig[]> {
+    return await this.modelConfigService.getAllConfigs()
+  }
+
+  /**
+   * 创建模型配置
+   */
+  async createModelConfig(configData: Partial<import('../../shared/entities/ModelConfig.entity').ModelConfig>): Promise<import('../../shared/entities/ModelConfig.entity').ModelConfig> {
+    return await this.modelConfigService.createConfig(configData)
+  }
+
+  /**
+   * 更新模型配置
+   */
+  async updateModelConfig(id: string, configData: Partial<import('../../shared/entities/ModelConfig.entity').ModelConfig>): Promise<import('../../shared/entities/ModelConfig.entity').ModelConfig | null> {
+    return await this.modelConfigService.updateConfig(id, configData)
+  }
+
+  /**
+   * 删除模型配置
+   */
+  async deleteModelConfig(id: string): Promise<boolean> {
+    return await this.modelConfigService.deleteConfig(id)
+  }
+
+  /**
+   * 设置默认模型配置
+   */
+  async setDefaultModelConfig(id: string): Promise<boolean> {
+    return await this.modelConfigService.setDefaultConfig(id)
   }
 
   /**

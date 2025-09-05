@@ -3,6 +3,13 @@
  * 整合所有AI Agent相关功能并提供统一的导出接口
  */
 
+// ==================== 内部导入 ====================
+import { createAIAgentAPIService, AIAgentAPIService, aiAgentAPI } from '../services/ai-agent-api'
+import { createAIAgentPlugin, AIAgentPlugin, aiAgentPlugin } from '../plugins/ai-agent-plugins'
+import { storage, eventBus, generateId, debounce, throttle, retry } from '../utils/ai-agent-utils'
+import { useAIAgent, useSmartWriting, useTheme } from '../composables/useAIAgent'
+import { DEFAULT_MODEL_CONFIGS, DEFAULT_AGENT_CONFIG } from '../../../shared/types/agent'
+
 // ==================== 组件导出 ====================
 export { default as AIAgentHub } from '../components/AIAgentHub.vue'
 export { default as AIChat } from '../components/AIChat.vue'
@@ -59,6 +66,9 @@ export {
   type ResponseInterceptor,
   type RequestInterceptor
 } from '../services/ai-agent-api'
+
+// 从ai-agent.ts导出的服务（重命名以避免冲突）
+export { AIAgentAPIService as LegacyAIAgentAPIService } from '../services/ai-agent'
 
 // ==================== 工具函数导出 ====================
 export {
@@ -271,10 +281,8 @@ export function initializeAIAgent(options: AIAgentInitOptions = {}): {
     apiConfig: mergedOptions.apiConfig
   })
 
-  // 设置存储前缀
-  if (mergedOptions.storage?.prefix) {
-    storage.setPrefix(mergedOptions.storage.prefix)
-  }
+  // 注意：存储前缀功能暂未实现
+  // TODO: 实现storage.setPrefix方法或使用其他方式处理存储前缀
 
   // 记录初始化信息
   console.log('[AI Agent] 模块初始化完成', {

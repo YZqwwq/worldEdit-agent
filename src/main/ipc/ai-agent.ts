@@ -41,6 +41,12 @@ export const AI_AGENT_CHANNELS = {
   
   // 模型管理
   VALIDATE_MODEL_CONFIG: 'ai-agent:validate-model-config',
+  GET_MODEL_CONFIG: 'ai-agent:get-model-config',
+  GET_ALL_MODEL_CONFIGS: 'ai-agent:get-all-model-configs',
+  CREATE_MODEL_CONFIG: 'ai-agent:create-model-config',
+  UPDATE_MODEL_CONFIG: 'ai-agent:update-model-config',
+  DELETE_MODEL_CONFIG: 'ai-agent:delete-model-config',
+  SET_DEFAULT_MODEL_CONFIG: 'ai-agent:set-default-model-config',
   GET_MODEL_INFO: 'ai-agent:get-model-info',
   GET_SUPPORTED_MODELS: 'ai-agent:get-supported-models',
   ESTIMATE_TOKENS: 'ai-agent:estimate-tokens',
@@ -85,6 +91,12 @@ export function registerAIAgentIPC(): void {
   
   // 模型管理
   ipcMain.handle(AI_AGENT_CHANNELS.VALIDATE_MODEL_CONFIG, handleValidateModelConfig)
+  ipcMain.handle(AI_AGENT_CHANNELS.GET_MODEL_CONFIG, handleGetModelConfig)
+  ipcMain.handle(AI_AGENT_CHANNELS.GET_ALL_MODEL_CONFIGS, handleGetAllModelConfigs)
+  ipcMain.handle(AI_AGENT_CHANNELS.CREATE_MODEL_CONFIG, handleCreateModelConfig)
+  ipcMain.handle(AI_AGENT_CHANNELS.UPDATE_MODEL_CONFIG, handleUpdateModelConfig)
+  ipcMain.handle(AI_AGENT_CHANNELS.DELETE_MODEL_CONFIG, handleDeleteModelConfig)
+  ipcMain.handle(AI_AGENT_CHANNELS.SET_DEFAULT_MODEL_CONFIG, handleSetDefaultModelConfig)
   ipcMain.handle(AI_AGENT_CHANNELS.GET_MODEL_INFO, handleGetModelInfo)
   ipcMain.handle(AI_AGENT_CHANNELS.GET_SUPPORTED_MODELS, handleGetSupportedModels)
   ipcMain.handle(AI_AGENT_CHANNELS.ESTIMATE_TOKENS, handleEstimateTokens)
@@ -352,6 +364,21 @@ async function handleValidateModelConfig(
 }
 
 /**
+ * 获取模型配置
+ */
+async function handleGetModelConfig(
+  _event: IpcMainInvokeEvent,
+  id: string
+): Promise<ModelConfig | null> {
+  try {
+    return await aiAgentService?.getModelConfig(id) || null
+  } catch (error) {
+    console.error('获取模型配置失败:', error)
+    return null
+  }
+}
+
+/**
  * 获取模型信息
  */
 async function handleGetModelInfo(_event: IpcMainInvokeEvent) {
@@ -496,6 +523,91 @@ async function handleImportSession(
     return aiAgentService?.importSession(sessionData) || false
   } catch (error) {
     console.error('导入会话失败:', error)
+    return false
+  }
+}
+
+/**
+ * 获取所有模型配置
+ */
+async function handleGetAllModelConfigs(
+  _event: IpcMainInvokeEvent
+): Promise<import('../entities/ModelConfig.entity').ModelConfig[]> {
+  if (!aiAgentService) {
+    return []
+  }
+  return await aiAgentService.getAllModelConfigs()
+}
+
+/**
+ * 创建模型配置
+ */
+async function handleCreateModelConfig(
+  _event: IpcMainInvokeEvent,
+  configData: Partial<import('../entities/ModelConfig.entity').ModelConfig>
+): Promise<import('../entities/ModelConfig.entity').ModelConfig | null> {
+  if (!aiAgentService) {
+    return null
+  }
+  try {
+    return await aiAgentService.createModelConfig(configData)
+  } catch (error) {
+    console.error('创建模型配置失败:', error)
+    return null
+  }
+}
+
+/**
+ * 更新模型配置
+ */
+async function handleUpdateModelConfig(
+  _event: IpcMainInvokeEvent,
+  id: string,
+  configData: Partial<import('../entities/ModelConfig.entity').ModelConfig>
+): Promise<import('../entities/ModelConfig.entity').ModelConfig | null> {
+  if (!aiAgentService) {
+    return null
+  }
+  try {
+    return await aiAgentService.updateModelConfig(id, configData)
+  } catch (error) {
+    console.error('更新模型配置失败:', error)
+    return null
+  }
+}
+
+/**
+ * 删除模型配置
+ */
+async function handleDeleteModelConfig(
+  _event: IpcMainInvokeEvent,
+  id: string
+): Promise<boolean> {
+  if (!aiAgentService) {
+    return false
+  }
+  try {
+    return await aiAgentService.deleteModelConfig(id)
+  } catch (error) {
+    console.error('删除模型配置失败:', error)
+    return false
+  }
+}
+
+/**
+ * 设置默认模型配置
+ */
+async function handleSetDefaultModelConfig(
+  _event: IpcMainInvokeEvent,
+  id: string
+): Promise<boolean> {
+  if (!aiAgentService) {
+    return false
+  }
+  try {
+    return await aiAgentService.setDefaultModelConfig(id)
+  } catch (error) {
+    console.error('设置默认模型配置失败:', error)
     return false
   }
 }

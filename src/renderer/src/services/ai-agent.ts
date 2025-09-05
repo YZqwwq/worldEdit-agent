@@ -10,7 +10,9 @@ import type {
   AgentState,
   ModelConfig,
   MCPServerConfig,
-  MCPTool
+  MCPTool,
+  ConnectionStatus,
+  UsageStats
 } from '../../../shared/types/agent'
 
 /**
@@ -233,6 +235,117 @@ export class AIAgentAPIService {
     }
   }
 
+  /**
+   * 获取连接状态
+   */
+  async getConnectionStatus(): Promise<ConnectionStatus> {
+    try {
+      return await window.electron.ipcRenderer.invoke('ai-agent:get-connection-status')
+    } catch (error) {
+      console.error('获取连接状态失败:', error)
+      return {
+        connected: false,
+        error: error instanceof Error ? error.message : '获取连接状态失败'
+      }
+    }
+  }
+
+  /**
+   * 更新模型配置
+   */
+  async updateModelConfig(id: string, config: Partial<ModelConfig>): Promise<ModelConfig> {
+    try {
+      return await window.electron.ipcRenderer.invoke('ai-agent:update-model-config', id, config)
+    } catch (error) {
+      console.error('更新模型配置失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 获取今日使用统计
+   */
+  async getTodayUsageStats(): Promise<UsageStats> {
+    try {
+      return await window.electron.ipcRenderer.invoke('ai-agent:get-today-usage-stats')
+    } catch (error) {
+      console.error('获取今日使用统计失败:', error)
+      return {
+        messages: 0,
+        totalMessages: 0,
+        tokens: 0,
+        totalTokens: 0,
+        sessions: 0,
+        totalSessions: 0,
+        todaySessions: 0,
+        weekSessions: 0,
+        monthSessions: 0,
+        averageMessagesPerSession: 0,
+        averageTokensPerSession: 0
+      }
+    }
+  }
+
+  /**
+   * 获取模型配置
+   */
+  async getModelConfig(id: string): Promise<ModelConfig> {
+    try {
+      return await window.electron.ipcRenderer.invoke('ai-agent:get-model-config', id)
+    } catch (error) {
+      console.error('获取模型配置失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 获取所有模型配置
+   */
+  async getAllModelConfigs(): Promise<ModelConfig[]> {
+    try {
+      return await window.electron.ipcRenderer.invoke('ai-agent:get-all-model-configs')
+    } catch (error) {
+      console.error('获取所有模型配置失败:', error)
+      return []
+    }
+  }
+
+  /**
+   * 创建模型配置
+   */
+  async createModelConfig(configData: Partial<ModelConfig>): Promise<ModelConfig | null> {
+    try {
+      return await window.electron.ipcRenderer.invoke('ai-agent:create-model-config', configData)
+    } catch (error) {
+      console.error('创建模型配置失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 删除模型配置
+   */
+  async deleteModelConfig(id: string): Promise<boolean> {
+    try {
+      return await window.electron.ipcRenderer.invoke('ai-agent:delete-model-config', id)
+    } catch (error) {
+      console.error('删除模型配置失败:', error)
+      return false
+    }
+  }
+
+  /**
+   * 设置默认模型配置
+   */
+  async setDefaultModelConfig(id: string): Promise<boolean> {
+    try {
+      return await window.electron.ipcRenderer.invoke('ai-agent:set-default-model-config', id)
+    } catch (error) {
+      console.error('设置默认模型配置失败:', error)
+      return false
+    }
+  }
+
   // ==================== 工具管理 ====================
 
   /**
@@ -427,6 +540,14 @@ export const {
   getModelInfo,
   getSupportedModels,
   estimateTokens,
+  getConnectionStatus,
+  updateModelConfig,
+  getTodayUsageStats,
+  getModelConfig,
+  getAllModelConfigs,
+  createModelConfig,
+  deleteModelConfig,
+  setDefaultModelConfig,
   registerMCPServer,
   getAvailableTools,
   searchMessages,

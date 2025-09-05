@@ -77,9 +77,12 @@ export function useAIAgent() {
 
   // 统计信息
   const usageStats = ref<UsageStats>({
-    totalSessions: 0,
+    messages: 0,
     totalMessages: 0,
+    tokens: 0,
     totalTokens: 0,
+    sessions: 0,
+    totalSessions: 0,
     todaySessions: 0,
     weekSessions: 0,
     monthSessions: 0,
