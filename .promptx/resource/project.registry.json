@@ -4,8 +4,8 @@
   "metadata": {
     "version": "2.0.0",
     "description": "project 级资源注册表",
-    "createdAt": "2025-09-01T04:33:14.113Z",
-    "updatedAt": "2025-09-01T04:33:14.253Z",
+    "createdAt": "2025-09-07T13:19:39.242Z",
+    "updatedAt": "2025-09-07T13:19:39.380Z",
     "resourceCount": 6
   },
   "resources": [
@@ -17,9 +17,9 @@
       "description": "专业角色，提供特定领域的专业能力",
       "reference": "@project://.promptx/resource/role/electron-expert/electron-expert.role.md",
       "metadata": {
-        "createdAt": "2025-09-01T04:33:14.126Z",
-        "updatedAt": "2025-09-01T04:33:14.126Z",
-        "scannedAt": "2025-09-01T04:33:14.126Z",
+        "createdAt": "2025-09-07T13:19:39.254Z",
+        "updatedAt": "2025-09-07T13:19:39.254Z",
+        "scannedAt": "2025-09-07T13:19:39.254Z",
         "path": "role/electron-expert/electron-expert.role.md"
       }
     },
@@ -31,9 +31,9 @@
       "description": "执行模式，定义具体的行为模式",
       "reference": "@project://.promptx/resource/role/electron-expert/execution/electron-workflow.execution.md",
       "metadata": {
-        "createdAt": "2025-09-01T04:33:14.136Z",
-        "updatedAt": "2025-09-01T04:33:14.136Z",
-        "scannedAt": "2025-09-01T04:33:14.136Z",
+        "createdAt": "2025-09-07T13:19:39.275Z",
+        "updatedAt": "2025-09-07T13:19:39.275Z",
+        "scannedAt": "2025-09-07T13:19:39.275Z",
         "path": "role/electron-expert/execution/electron-workflow.execution.md"
       }
     },
@@ -45,9 +45,9 @@
       "description": "知识库，提供专业知识和信息",
       "reference": "@project://.promptx/resource/role/electron-expert/knowledge/electron-stack.knowledge.md",
       "metadata": {
-        "createdAt": "2025-09-01T04:33:14.146Z",
-        "updatedAt": "2025-09-01T04:33:14.146Z",
-        "scannedAt": "2025-09-01T04:33:14.146Z",
+        "createdAt": "2025-09-07T13:19:39.289Z",
+        "updatedAt": "2025-09-07T13:19:39.289Z",
+        "scannedAt": "2025-09-07T13:19:39.289Z",
         "path": "role/electron-expert/knowledge/electron-stack.knowledge.md"
       }
     },
@@ -59,9 +59,9 @@
       "description": "思维模式，指导AI的思考方式",
       "reference": "@project://.promptx/resource/role/electron-expert/thought/electron-development.thought.md",
       "metadata": {
-        "createdAt": "2025-09-01T04:33:14.155Z",
-        "updatedAt": "2025-09-01T04:33:14.156Z",
-        "scannedAt": "2025-09-01T04:33:14.155Z",
+        "createdAt": "2025-09-07T13:19:39.306Z",
+        "updatedAt": "2025-09-07T13:19:39.306Z",
+        "scannedAt": "2025-09-07T13:19:39.306Z",
         "path": "role/electron-expert/thought/electron-development.thought.md"
       }
     },
@@ -73,9 +73,9 @@
       "description": "知识库，提供专业知识和信息",
       "reference": "@project://.promptx/resource/role/worldbuilder-architect/knowledge/typescript-worldbuilding.knowledge.md",
       "metadata": {
-        "createdAt": "2025-09-01T04:33:14.176Z",
-        "updatedAt": "2025-09-01T04:33:14.176Z",
-        "scannedAt": "2025-09-01T04:33:14.176Z",
+        "createdAt": "2025-09-07T13:19:39.343Z",
+        "updatedAt": "2025-09-07T13:19:39.343Z",
+        "scannedAt": "2025-09-07T13:19:39.343Z",
         "path": "role/worldbuilder-architect/knowledge/typescript-worldbuilding.knowledge.md"
       }
     },
@@ -87,9 +87,9 @@
       "description": "专业角色，提供特定领域的专业能力",
       "reference": "@project://.promptx/resource/role/worldbuilder-architect/worldbuilder-architect.role.md",
       "metadata": {
-        "createdAt": "2025-09-01T04:33:14.252Z",
-        "updatedAt": "2025-09-01T04:33:14.252Z",
-        "scannedAt": "2025-09-01T04:33:14.252Z",
+        "createdAt": "2025-09-07T13:19:39.378Z",
+        "updatedAt": "2025-09-07T13:19:39.378Z",
+        "scannedAt": "2025-09-07T13:19:39.378Z",
         "path": "role/worldbuilder-architect/worldbuilder-architect.role.md"
       }
     }

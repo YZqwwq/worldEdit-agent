@@ -1,5 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm'
-import { ModelProvider } from '../types/agent'
+import { ModelProvider,ModelConfig as ModelConfigType } from '../types/agent'
 
 /**
  * 模型配置实体
@@ -72,7 +72,7 @@ export class ModelConfig {
   /**
    * 转换为API使用的ModelConfig类型
    */
-  toApiConfig(): import('../types/agent').ModelConfig {
+  toApiConfig(): ModelConfigType {
     return {
       provider: this.provider,
       modelName: this.modelName,
@@ -82,12 +82,16 @@ export class ModelConfig {
       maxTokens: this.maxTokens,
       maxRetries: this.maxRetries,
       timeout: this.timeout,
-      topP: this.topP,
-      frequencyPenalty: this.frequencyPenalty,
-      presencePenalty: this.presencePenalty,
+      topP: this.topP || 0,
+      // 频率惩罚
+      frequencyPenalty: this.frequencyPenalty || 0,
+      // 存在惩罚
+      presencePenalty: this.presencePenalty || 0,
+      // 流式响应
       stream: this.stream,
       retries: this.retries,
-      stop: this.stop
+      // 停止序列
+      stop: this.stop || []
     }
   }
 

@@ -14,6 +14,8 @@ import {
   MCPServerConfig,
   MCPTool
 } from '../types/agent'
+import { ModelConfig as ModelConfigEntity } from '../../shared/entities/ModelConfig.entity'
+import { typeORMService } from '../services/database/TypeORMService'
 
 /**
  * AI Agent服务实例
@@ -145,7 +147,8 @@ async function handleInitialize(
       aiAgentService.destroy()
     }
     
-    aiAgentService = new AIAgentService()
+    // 向AIAgent服务传递数据库工具
+    aiAgentService = new AIAgentService(typeORMService)
     await aiAgentService.initialize(config)
     
     // 发送状态变化事件
@@ -532,7 +535,7 @@ async function handleImportSession(
  */
 async function handleGetAllModelConfigs(
   _event: IpcMainInvokeEvent
-): Promise<import('../entities/ModelConfig.entity').ModelConfig[]> {
+): Promise<ModelConfigEntity[]> {
   if (!aiAgentService) {
     return []
   }
@@ -544,8 +547,8 @@ async function handleGetAllModelConfigs(
  */
 async function handleCreateModelConfig(
   _event: IpcMainInvokeEvent,
-  configData: Partial<import('../entities/ModelConfig.entity').ModelConfig>
-): Promise<import('../entities/ModelConfig.entity').ModelConfig | null> {
+  configData: Partial<ModelConfigEntity>
+): Promise<ModelConfigEntity | null> {
   if (!aiAgentService) {
     return null
   }
@@ -563,8 +566,8 @@ async function handleCreateModelConfig(
 async function handleUpdateModelConfig(
   _event: IpcMainInvokeEvent,
   id: string,
-  configData: Partial<import('../entities/ModelConfig.entity').ModelConfig>
-): Promise<import('../entities/ModelConfig.entity').ModelConfig | null> {
+  configData: Partial<ModelConfigEntity>
+): Promise<ModelConfigEntity | null> {
   if (!aiAgentService) {
     return null
   }

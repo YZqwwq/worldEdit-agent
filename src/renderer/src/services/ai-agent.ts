@@ -8,12 +8,13 @@ import type {
   ChatMessage,
   ChatSession,
   AgentState,
-  ModelConfig,
   MCPServerConfig,
   MCPTool,
   ConnectionStatus,
-  UsageStats
+  UsageStats,
+  ModelConfig as ApiModelConfig
 } from '../../../shared/types/agent'
+import type { ModelConfig } from '../../../shared/entities/ModelConfig.entity'
 
 /**
  * AI Agent API服务类
@@ -190,7 +191,7 @@ export class AIAgentAPIService {
   /**
    * 验证模型配置
    */
-  async validateModelConfig(config: ModelConfig): Promise<boolean> {
+  async validateModelConfig(config: ApiModelConfig): Promise<boolean> {
     try {
       return await window.electron.ipcRenderer.invoke('ai-agent:validate-model-config', config)
     } catch (error) {

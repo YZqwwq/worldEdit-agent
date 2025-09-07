@@ -83,6 +83,14 @@ export class TypeORMService {
     }
   }
 
+  /**
+   * 获取数据源实例
+   */
+  async getDataSource() {
+    this.ensureInitialized();
+    return getDataSource();
+  }
+
   // 世界管理方法
   async saveWorld(metadata: BaseMetadata): Promise<void> {
     this.ensureInitialized();

@@ -177,7 +177,7 @@
             <div class="form-field">
               <label>显示名称</label>
               <input 
-                v-model="currentConfig.displayName"
+                v-model="currentConfig.modelName"
                 type="text"
                 placeholder="自定义显示名称（可选）"
                 class="form-input"
@@ -387,9 +387,8 @@ const testResult = ref<{ type: 'success' | 'error', message: string } | null>(nu
 const currentConfig = ref<Partial<ModelConfig>>({
   name: '',
   description: '',
-  provider: '',
+  provider: undefined,
   modelName: '',
-  displayName: '',
   apiKey: '',
   baseURL: '',
   temperature: 0.7,
