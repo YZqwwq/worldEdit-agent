@@ -15,9 +15,6 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
  * @param(updatedAt) 世界观更新时间
  * @param(lastModified) 世界观最近修改时间
  * @param(type) 世界观类型
- * @param(background) 世界观背景
- * @param(rules) 世界观规则
- * @param(notes) 世界观备注
  * @param(isActive) 世界观是否激活
  * @param(filePath) 世界观文件路径
  */
@@ -59,16 +56,6 @@ export class World {
 
   @Column({ type: 'varchar', length: 50, default: 'world' })
   type!: string;
-
-  // 世界基础设定
-  @Column({ type: 'text', nullable: true })
-  background?: string;
-
-  @Column({ type: 'json', nullable: true })
-  rules?: Record<string, any>;
-
-  @Column({ type: 'text', nullable: true })
-  notes?: string;
 
   // 世界状态
   @Column({ type: 'boolean', default: false })
