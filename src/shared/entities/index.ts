@@ -9,7 +9,7 @@ export { RecentFile } from './RecentFile.entity'
 export { Relationship } from './Relationship.entity'
 export { World } from './World.entity'
 export { WorldContent } from './WorldContent.entity'
-export { ModelConfig } from './ModelConfig.entity'
+export { ModelConfig, ModelProvider, MessageType, PromptPriority } from './model/ModelConfig.entity'
 
 import { World } from './World.entity';
 import { WorldContent } from './WorldContent.entity';
@@ -21,7 +21,11 @@ import { Character } from './Character.entity';
 import { Map } from './Map.entity';
 import { Relationship } from './Relationship.entity';
 import { RecentFile } from './RecentFile.entity';
-import { ModelConfig } from './ModelConfig.entity';
+import { ModelConfig } from './model/ModelConfig.entity';
+import { agentEntities } from './agent';
+
+// 重新导出agent相关实体和枚举
+export * from './agent';
 
 // 实体数组，用于TypeORM配置
 export const entities = [
@@ -35,5 +39,6 @@ export const entities = [
   Map,
   Relationship,
   RecentFile,
-  ModelConfig
+  ModelConfig,
+  ...agentEntities
 ];

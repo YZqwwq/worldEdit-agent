@@ -1,10 +1,30 @@
 import { ipcMain } from 'electron';
 import { TypeORMService } from '../services/database/TypeORMService';
-import type { 
-  BaseMetadata, 
-  UnifiedWorldData
-} from '../../shared/types/world';
-import type { RecentFile } from '../../shared/entities';
+// 基础类型定义
+export interface BaseMetadata {
+  id: string
+  name: string
+  description: string
+  version: string
+  tags: string[]
+  author: string
+  thumbnail?: string
+  lastModified: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface UnifiedWorldData extends BaseMetadata {
+  geography: any[]
+  nations: any[]
+  factions: any[]
+  powerSystems: any[]
+  timeline: any[]
+  characters: any[]
+  maps: any[]
+  relationships: any[]
+}
+import { RecentFile as RecentFileData } from '../../shared/entities';
 
 // 创建TypeORM服务实例
 const typeormService = new TypeORMService();
@@ -77,7 +97,12 @@ export const TYPEORM_DATABASE_CHANNELS = {
  */
 export async function registerTypeORMDatabaseHandlers(): Promise<void> {
   // 初始化TypeORM服务
-  await typeormService.initialize();
+  try {
+    await typeormService.initialize();
+    console.log('TypeORM服务初始化成功，注册IPC处理器');
+  } catch (error) {
+    console.error('TypeORM服务初始化失败，但仍会注册IPC处理器:', error);
+  }
   
   // 世界观基础操作
   ipcMain.handle(TYPEORM_DATABASE_CHANNELS.CREATE_WORLD, async (_event, worldData: BaseMetadata) => {
@@ -373,7 +398,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
   });
 
   // 最近文件操作
-  ipcMain.handle(TYPEORM_DATABASE_CHANNELS.ADD_RECENT_FILE, async (_event, file: Omit<RecentFile, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt' | 'toSimpleObject' | 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize'>) => {
+  ipcMain.handle(TYPEORM_DATABASE_CHANNELS.ADD_RECENT_FILE, async (_event, file: Omit<RecentFileData, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt'>) => {
     try {
       await typeormService.addRecentFile(file);
     } catch (error) {
@@ -385,7 +410,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
   ipcMain.handle(TYPEORM_DATABASE_CHANNELS.GET_RECENT_FILES, async (_event) => {
     try {
       const recentFiles = await typeormService.getRecentFiles();
-      return recentFiles.map(file => file.toSimpleObject());
+      return recentFiles; // 直接返回Entity对象
     } catch (error) {
       console.error('获取最近文件失败:', error);
       throw error;

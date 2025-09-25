@@ -1,29 +1,35 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { UnifiedWorldData, UIState, WorldData } from '../../../shared/types/world'
-import type { RecentFile } from '../../../shared/entities'
-import { typeormDatabaseService as databaseService } from '../services/typeorm-database'
+import { World, WorldContent, RecentFile } from '../../../shared/entities'
+import { typeormDatabaseService as databaseService } from '../services/serviceImpl/world'
 import { simpleValidator } from '../schemas/simple-validator'
+
+// UI状态接口定义
+interface UIState {
+  activeModule: 'home' | 'world' | 'character' | 'timeline' | 'geography' | 'nation' | 'faction' | 'powerSystem' | 'map' | 'relationship'
+  loading: boolean
+  error?: string
+}
 
 // 世界观数据管理store
 export const useWorldStore = defineStore('world', () => {
   // 状态
-  const currentWorld = ref<UnifiedWorldData | null>(null)
-  const recentFiles = ref<Omit<RecentFile, 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize' | 'toSimpleObject'>[]>([])
+  const currentWorld = ref<WorldContent | null>(null)
+  const recentFiles = ref<RecentFile[]>([])
   const uiState = ref<UIState>({
     activeModule: 'home',
     loading: false
   })
   const searchQuery = ref('')
-  const worlds = ref<WorldData[]>([])
+  const worlds = ref<World[]>([])
 
   // 计算属性
   const filteredWorlds = computed(() => {
     if (!searchQuery.value) return worlds.value
     return worlds.value.filter(world => 
       world.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      world.description.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      world.tags.some(tag => tag.toLowerCase().includes(searchQuery.value.toLowerCase()))
+      (world.description?.toLowerCase().includes(searchQuery.value.toLowerCase()) ?? false) ||
+      (world.tags?.some(tag => tag.toLowerCase().includes(searchQuery.value.toLowerCase())) ?? false)
     )
   })
 
@@ -32,21 +38,33 @@ export const useWorldStore = defineStore('world', () => {
   const recentFilesLimited = computed(() => recentFiles.value.slice(0, 10))
 
   // 动作
-  const setCurrentWorld = (world: UnifiedWorldData | null) => {
+  const setCurrentWorld = (world: WorldContent | null) => {
     currentWorld.value = world
     if (world) {
-      addToRecentFiles({
-        id: world.id,
-        name: world.name,
-        path: '', // 实际路径由主进程管理
-        lastOpened: new Date(),
-        type: 'world',
-        accessCount: 1,
-        exists: true,
-        isFavorite: false,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
+      // WorldContent没有name属性，需要通过worldId获取World信息
+      const worldInfo = worlds.value.find(w => w.id === world.worldId)
+      if (worldInfo) {
+        const recentFile = new RecentFile()
+        recentFile.id = world.id
+        recentFile.name = worldInfo.name
+        recentFile.path = '' // 实际路径由主进程管理
+        recentFile.lastOpened = new Date()
+        recentFile.type = 'world'
+        recentFile.accessCount = 1
+        recentFile.exists = true
+        recentFile.isFavorite = false
+        recentFile.createdAt = new Date()
+        recentFile.updatedAt = new Date()
+        recentFile.metadata = {
+          worldId: world.worldId,
+          worldName: worldInfo.name,
+          author: worldInfo.author,
+          version: worldInfo.version,
+          tags: worldInfo.tags,
+          description: worldInfo.description
+        }
+        addToRecentFiles(recentFile)
+      }
     }
   }
 
@@ -66,11 +84,11 @@ export const useWorldStore = defineStore('world', () => {
     searchQuery.value = query
   }
 
-  const addWorld = (world: WorldData) => {
+  const addWorld = (world: World) => {
     worlds.value.push(world)
   }
 
-  const updateWorld = (worldId: string, updates: Partial<WorldData>) => {
+  const updateWorld = (worldId: string, updates: Partial<World>) => {
     const index = worlds.value.findIndex(w => w.id === worldId)
     if (index !== -1) {
       worlds.value[index] = { ...worlds.value[index], ...updates }
@@ -85,7 +103,7 @@ export const useWorldStore = defineStore('world', () => {
     }
   }
 
-  const addToRecentFiles = (file: Omit<RecentFile, 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize' | 'toSimpleObject'>) => {
+  const addToRecentFiles = (file: RecentFile) => {
     // 移除已存在的相同文件
     recentFiles.value = recentFiles.value.filter(f => f.id !== file.id)
     // 添加到开头
@@ -121,7 +139,7 @@ export const useWorldStore = defineStore('world', () => {
     }
   }
 
-  const createWorld = async (worldData: Omit<WorldData, 'id' | 'createdAt' | 'updatedAt' | 'version'>) => {
+  const createWorld = async (worldData: Omit<World, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
       setLoading(true)
       setError(undefined)
@@ -132,6 +150,7 @@ export const useWorldStore = defineStore('world', () => {
         id: 'temp',
         createdAt: new Date(),
         updatedAt: new Date(),
+        lastModified: new Date(),
         version: '1.0.0'
       })
       
@@ -141,23 +160,30 @@ export const useWorldStore = defineStore('world', () => {
       }
       
       // 通过IPC调用主进程SQLite服务创建世界观
-      const newWorld = await databaseService.createWorld({
-        ...worldData,
-        version: '1.0.0'
-      })
+      const newWorld = await databaseService.createWorld(worldData)
       
       // 更新本地状态
       addWorld(newWorld)
       
-      // 添加到最近文件
-      await databaseService.addRecentFile({
-        name: newWorld.name,
-        path: '',
-        type: 'world',
-        accessCount: 1,
-        exists: true,
-        isFavorite: false
-      })
+      // 创建RecentFile实例并添加到最近文件
+      const recentFile = new RecentFile()
+      recentFile.name = newWorld.name
+      recentFile.path = ''
+      recentFile.type = 'world'
+      recentFile.accessCount = 1
+      recentFile.exists = true
+      recentFile.isFavorite = false
+      recentFile.lastOpened = new Date()
+      recentFile.metadata = {
+        worldId: newWorld.id,
+        worldName: newWorld.name,
+        author: newWorld.author,
+        version: newWorld.version,
+        tags: newWorld.tags,
+        description: newWorld.description
+      }
+      
+      await databaseService.addRecentFile(recentFile)
       
       return newWorld
     } catch (error) {
@@ -185,16 +211,23 @@ export const useWorldStore = defineStore('world', () => {
         }
         
         // 创建默认的完整世界观结构
-        worldData = {
-          ...basicWorld,
-          geography: [],
-          nations: [],
-          factions: [],
-          powerSystems: [],
-          timeline: [],
-          characters: [],
-          maps: [],
-          relationships: []
+        worldData = new WorldContent()
+        worldData.worldId = worldId
+        worldData.geography = []
+        worldData.nations = []
+        worldData.factions = []
+        worldData.powerSystems = []
+        worldData.timeline = []
+        worldData.characters = []
+        worldData.maps = []
+        worldData.relationships = []
+        worldData.items = []
+        worldData.events = []
+        worldData.text = {
+          description: basicWorld.description || '',
+          background: basicWorld.background || '',
+          rules: basicWorld.rules ? JSON.stringify(basicWorld.rules) : '',
+          notes: basicWorld.notes || ''
         }
         
         // 保存默认结构
@@ -213,18 +246,27 @@ export const useWorldStore = defineStore('world', () => {
       
       // 更新最近文件
       if (worldData) {
-        await databaseService.addRecentFile({
-          id: worldData.id,
-          name: worldData.name,
-          path: '',
-          lastOpened: new Date(),
-          type: 'world',
-          accessCount: 1,
-          exists: true,
-          isFavorite: false,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        } as any)
+        const worldInfo = worlds.value.find(w => w.id === worldData.worldId)
+        if (worldInfo) {
+          const recentFile = new RecentFile()
+          recentFile.id = worldData.id
+          recentFile.name = worldInfo.name
+          recentFile.path = ''
+          recentFile.lastOpened = new Date()
+          recentFile.type = 'world'
+          recentFile.accessCount = 1
+          recentFile.exists = true
+          recentFile.isFavorite = false
+          recentFile.metadata = {
+            worldId: worldData.worldId,
+            worldName: worldInfo.name,
+            author: worldInfo.author,
+            version: worldInfo.version,
+            tags: worldInfo.tags,
+            description: worldInfo.description
+          }
+          await databaseService.addRecentFile(recentFile)
+        }
       }
       
       return worldData
@@ -253,14 +295,15 @@ export const useWorldStore = defineStore('world', () => {
       }
       
       // 通过IPC保存到主进程SQLite服务
-      await databaseService.saveWorldContent(currentWorld.value)
+      if (currentWorld.value) {
+        await databaseService.saveWorldContent(currentWorld.value)
+      }
       
       // 更新本地状态
-      const worldIndex = worlds.value.findIndex(w => w.id === currentWorld.value!.id)
+      const worldIndex = worlds.value.findIndex(w => w.id === currentWorld.value!.worldId)
       if (worldIndex !== -1) {
         worlds.value[worldIndex] = {
           ...worlds.value[worldIndex],
-          name: currentWorld.value.name,
           lastModified: new Date(),
           updatedAt: new Date()
         }
@@ -290,7 +333,7 @@ export const useWorldStore = defineStore('world', () => {
       removeWorld(worldId)
       
       // 如果删除的是当前世界观，清空当前状态
-      if (currentWorld.value?.id === worldId) {
+      if (currentWorld.value?.worldId === worldId) {
         currentWorld.value = null
       }
     } catch (error) {

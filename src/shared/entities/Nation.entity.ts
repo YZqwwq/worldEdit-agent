@@ -166,29 +166,6 @@ export class Nation {
     };
   }
 
-  // 转换为NationData格式
-  toNationData(): any {
-    return {
-      id: this.id,
-      name: this.name,
-      description: this.description || '',
-      government: this.government?.type || '',
-      culture: JSON.stringify(this.culture || {}),
-      economy: JSON.stringify(this.economy || {}),
-      military: JSON.stringify(this.military || {}),
-      territories: this.territories?.map(t => t.id) || [],
-      relationships: this.relationships ? Object.entries(this.relationships).map(([targetId, rel]) => ({
-        id: `${this.id}-${targetId}`,
-        sourceId: this.id,
-        targetId,
-        type: rel.type,
-        description: rel.description || '',
-        strength: 5,
-        isPublic: true
-      })) : []
-    };
-  }
-
   // 从数据创建实体
   static fromData(worldId: string, data: any): Partial<Nation> {
     return {

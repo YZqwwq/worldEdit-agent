@@ -98,25 +98,4 @@ export class RecentFile {
     
     return `${size.toFixed(1)} ${units[unitIndex]}`;
   }
-
-  // 转换为简单对象
-  toSimpleObject(): {
-    id: string;
-    name: string;
-    path: string;
-    type?: string;
-    lastOpened: Date;
-    accessCount: number;
-    isFavorite: boolean;
-  } {
-    return {
-      id: this.id,
-      name: this.name,
-      path: this.path,
-      type: this.type,
-      lastOpened: this.lastOpened,
-      accessCount: this.accessCount,
-      isFavorite: this.isFavorite
-    };
-  }
 }

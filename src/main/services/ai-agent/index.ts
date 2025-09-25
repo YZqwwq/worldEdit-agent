@@ -7,20 +7,20 @@ import { AIAgentEngine } from './AIAgentEngine'
 import { ContextManager } from './ContextManager'
 import { ModelAdapter } from './ModelAdapter'
 import { MCPToolManager } from './MCPToolManager'
-import { MessageType } from '../../../shared/types/agent'
+import { MessageType } from '../../../shared/entities'
 import type {
   AgentConfig,
   ChatMessage,
   ChatSession,
-  AgentState,
+  RuntimeAgentState,
   ModelConfig,
   MCPServerConfig,
   MCPTool
-} from '../../../shared/types/agent'
+} from '../../types/agent'
 import { PromptPipeline } from '../prompt/PromptPipeline'
 import { ToolPromptGenerator } from '../prompt/ToolPromptGenerator'
 import { ModelConfigService } from '../ModelConfigService'
-import { TypeORMService } from '../TypeORMService'
+import { TypeORMService } from '../database/TypeORMService'
 
 /**
  * AI Agent服务类
@@ -191,7 +191,7 @@ export class AIAgentService {
   /**
    * 获取当前状态
    */
-  getState(): AgentState {
+  getState(): RuntimeAgentState {
     return this.engine.getState()
   }
 
@@ -343,21 +343,21 @@ export class AIAgentService {
   /**
    * 获取所有模型配置
    */
-  async getAllModelConfigs(): Promise<import('../../shared/entities/ModelConfig.entity').ModelConfig[]> {
+  async getAllModelConfigs(): Promise<ModelConfig[]> {
     return await this.modelConfigService.getAllConfigs()
   }
 
   /**
    * 创建模型配置
    */
-  async createModelConfig(configData: Partial<import('../../shared/entities/ModelConfig.entity').ModelConfig>): Promise<import('../../shared/entities/ModelConfig.entity').ModelConfig> {
+  async createModelConfig(configData: Partial<ModelConfig>): Promise<ModelConfig> {
     return await this.modelConfigService.createConfig(configData)
   }
 
   /**
    * 更新模型配置
    */
-  async updateModelConfig(id: string, configData: Partial<import('../../shared/entities/ModelConfig.entity').ModelConfig>): Promise<import('../../shared/entities/ModelConfig.entity').ModelConfig | null> {
+  async updateModelConfig(id: string, configData: Partial<ModelConfig>): Promise<ModelConfig | null> {
     return await this.modelConfigService.updateConfig(id, configData)
   }
 
@@ -461,7 +461,7 @@ export type {
   AgentConfig,
   ChatMessage,
   ChatSession,
-  AgentState,
+  RuntimeAgentState,
   ModelConfig,
   MCPServerConfig,
   MCPTool

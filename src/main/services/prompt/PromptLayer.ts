@@ -3,7 +3,7 @@
  * 定义单个提示词层级的行为和属性
  */
 
-import { PromptPriority, PromptLayerConfig } from '../../../shared/types/agent'
+import { PromptPriority } from '../../../shared/entities'
 
 /**
  * 提示词层级类

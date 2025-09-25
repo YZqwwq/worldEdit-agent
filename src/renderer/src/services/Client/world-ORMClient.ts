@@ -1,15 +1,15 @@
-import type { 
-  BaseMetadata,
-  UnifiedWorldData, 
-  GeographyData,
-  NationData,
-  FactionData,
-  PowerSystemData,
-  CharacterData,
-  MapData,
-  RelationshipData
-} from '../../../shared/types/world'
-import type { RecentFile } from '../../../shared/entities'
+import {
+  World as BaseMetadata,
+  WorldContent as UnifiedWorldData,
+  Geography as GeographyData,
+  Nation as NationData,
+  Faction as FactionData,
+  PowerSystem as PowerSystemData,
+  Character as CharacterData,
+  Map as MapData,
+  Relationship as RelationshipData,
+  RecentFile as RecentFileData
+} from '../../../../shared/entities'
 
 // TypeORM IPC 通道常量（与主进程保持一致）
 const TYPEORM_DATABASE_CHANNELS = {
@@ -383,15 +383,15 @@ export class TypeORMClient {
   /**
    * 添加最近文件
    */
-  async addRecentFile(file: Omit<RecentFile, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt' | 'toSimpleObject' | 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize'>): Promise<void> {
+  async addRecentFile(file: Omit<RecentFileData, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt' | 'toSimpleObject' | 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize'>): Promise<void> {
     return await this.invoke<void>(TYPEORM_DATABASE_CHANNELS.ADD_RECENT_FILE, file)
   }
 
   /**
    * 获取最近文件列表
    */
-  async getRecentFiles(): Promise<RecentFile[]> {
-    return await this.invoke<RecentFile[]>(TYPEORM_DATABASE_CHANNELS.GET_RECENT_FILES)
+  async getRecentFiles(): Promise<RecentFileData[]> {
+    return await this.invoke<RecentFileData[]>(TYPEORM_DATABASE_CHANNELS.GET_RECENT_FILES)
   }
 
   /**
@@ -554,11 +554,11 @@ export class TypeORMService {
   }
 
   // 最近文件操作
-  async addRecentFile(file: Omit<RecentFile, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt' | 'toSimpleObject' | 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize'>): Promise<void> {
+  async addRecentFile(file: Omit<RecentFileData, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt'>): Promise<void> {
     return await this.client.addRecentFile(file)
   }
 
-  async getRecentFiles(): Promise<RecentFile[]> {
+  async getRecentFiles(): Promise<RecentFileData[]> {
     return await this.client.getRecentFiles()
   }
 

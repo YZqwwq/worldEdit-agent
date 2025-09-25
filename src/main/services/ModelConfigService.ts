@@ -1,13 +1,13 @@
 import { Repository } from 'typeorm'
-import { ModelConfig } from '../../shared/entities/ModelConfig.entity'
-import { TypeORMService } from './TypeORMService'
-import type { ModelConfig as ApiModelConfig } from '../../shared/types/agent'
+import { ModelConfig as ModelConfigEntity } from '../../shared/entities/model/ModelConfig.entity'
+import { TypeORMService } from './database/TypeORMService'
+// 注意：现在直接使用Entity类型，无需API类型转换
 
 /**
  * 模型配置服务类
  */
 export class ModelConfigService {
-  private repository: Repository<ModelConfig> | null = null
+  private repository: Repository<ModelConfigEntity> | null = null
 
   constructor(private typeormService: TypeORMService) {}
 
@@ -16,25 +16,23 @@ export class ModelConfigService {
    */
   async initialize(): Promise<void> {
     const dataSource = await this.typeormService.getDataSource()
-    this.repository = dataSource.getRepository(ModelConfig)
+    this.repository = dataSource.getRepository(ModelConfigEntity)
   }
 
   /**
    * 获取所有模型配置
    */
-  async getAllConfigs(): Promise<ModelConfig[]> {
+  async getAllConfigs(): Promise<ModelConfigEntity[]> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
-    return await this.repository.find({
-      order: { createdAt: 'DESC' }
-    })
+    return await this.repository.find({ order: { createdAt: 'DESC' } })
   }
 
   /**
    * 根据ID获取模型配置
    */
-  async getConfigById(id: string): Promise<ModelConfig | null> {
+  async getConfigById(id: string): Promise<ModelConfigEntity | null> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -44,7 +42,7 @@ export class ModelConfigService {
   /**
    * 获取默认模型配置
    */
-  async getDefaultConfig(): Promise<ModelConfig | null> {
+  async getDefaultConfig(): Promise<ModelConfigEntity | null> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -54,7 +52,7 @@ export class ModelConfigService {
   /**
    * 根据名称获取模型配置
    */
-  async getConfigByName(name: string): Promise<ModelConfig | null> {
+  async getConfigByName(name: string): Promise<ModelConfigEntity | null> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -64,7 +62,7 @@ export class ModelConfigService {
   /**
    * 创建新的模型配置
    */
-  async createConfig(configData: Partial<ModelConfig>): Promise<ModelConfig> {
+  async createConfig(configData: Partial<ModelConfigEntity>): Promise<ModelConfigEntity> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -81,7 +79,7 @@ export class ModelConfigService {
   /**
    * 更新模型配置
    */
-  async updateConfig(id: string, configData: Partial<ModelConfig>): Promise<ModelConfig | null> {
+  async updateConfig(id: string, configData: Partial<ModelConfigEntity>): Promise<ModelConfigEntity | null> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -96,8 +94,8 @@ export class ModelConfigService {
       await this.repository.update({ isDefault: true }, { isDefault: false })
     }
 
-    await this.repository.update(id, configData)
-    return await this.repository.findOne({ where: { id } })
+    Object.assign(existingConfig, configData)
+    return await this.repository.save(existingConfig)
   }
 
   /**
@@ -134,17 +132,9 @@ export class ModelConfigService {
   }
 
   /**
-   * 从API配置创建数据库配置
-   */
-  async createFromApiConfig(apiConfig: ApiModelConfig, name: string, description?: string): Promise<ModelConfig> {
-    const configData = ModelConfig.fromApiConfig(apiConfig, name, description)
-    return await this.createConfig(configData)
-  }
-
-  /**
    * 获取活跃的配置列表
    */
-  async getActiveConfigs(): Promise<ModelConfig[]> {
+  async getActiveConfigs(): Promise<ModelConfigEntity[]> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }

@@ -23,7 +23,7 @@ export const AppDataSource = new DataSource({
   database: getDatabasePath(),
   entities: entities,
   synchronize: true, // 开发环境自动同步表结构
-  logging: process.env.NODE_ENV === 'development', // 开发环境启用日志
+  logging: process.env.NODE_ENV === 'development' ? ['error'] : false, // 只显示错误日志
   migrations: [],
   subscribers: [],
 });

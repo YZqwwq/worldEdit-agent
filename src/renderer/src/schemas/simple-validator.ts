@@ -1,4 +1,10 @@
-import type { WorldData, UnifiedWorldData, CharacterData, MapData } from '../../../shared/types/world'
+import { World, WorldContent } from '../../../shared/entities'
+
+// 为了兼容性，定义类型别名
+type WorldData = World
+type UnifiedWorldData = WorldContent
+type CharacterData = any // 暂时使用any，后续可以定义具体的Character实体
+type MapData = any // 暂时使用any，后续可以定义具体的Map实体
 
 /**
  * 简单的数据验证器

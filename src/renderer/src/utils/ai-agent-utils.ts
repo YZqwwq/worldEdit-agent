@@ -14,8 +14,8 @@ import type {
   ExportOptions,
   SearchResult,
   BatchOperation
-} from '../../../shared/types/agent'
-import { MessageType } from '../../../shared/types/agent'
+} from '../../../shared/types/agent/agent'
+import { MessageType } from '../../../shared/entities'
 
 /**
  * 格式化时间戳

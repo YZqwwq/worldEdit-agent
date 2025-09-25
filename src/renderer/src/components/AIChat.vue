@@ -293,22 +293,22 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { aiAgentAPI } from '../services/ai-agent'
+import { aiAgentAPI } from '../services/serviceImpl/ai-agent'
 import type {
   AgentConfig,
   ChatMessage,
   ChatSession,
-  AgentState,
+  RuntimeAgentState,
   TokenUsage,
   ModelProvider
-} from '../../../shared/types/agent'
-import { MessageType } from '../../../shared/types/agent'
+} from '../../../shared/types/agent/agent'
+import { MessageType } from '../../../shared/entities'
 
 // 响应式数据
 const messages = ref<ChatMessage[]>([])
 const sessions = ref<ChatSession[]>([])
 const currentSession = ref<ChatSession | null>(null)
-const agentState = ref<AgentState | null>(null)
+const agentState = ref<RuntimeAgentState | null>(null)
 const tokenUsage = ref<TokenUsage | null>(null)
 const inputMessage = ref('')
 const isLoading = ref(false)
@@ -676,7 +676,7 @@ function getStatusText(status: string): string {
 
 // 事件监听
 function setupEventListeners() {
-  aiAgentAPI.addEventListener('state-changed', (state: AgentState) => {
+  aiAgentAPI.addEventListener('state-changed', (state: RuntimeAgentState) => {
     agentState.value = state
   })
 

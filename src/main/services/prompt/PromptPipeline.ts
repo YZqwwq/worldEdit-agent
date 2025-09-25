@@ -5,11 +5,11 @@
 
 import { PromptLayer } from './PromptLayer'
 import { PromptBuilder, PromptBuildOptions } from './PromptBuilder'
-import { 
-  PromptPipelineConfig, 
-  PromptPriority, 
-  PromptLayerConfig 
-} from '../../../shared/types/agent'
+import type {
+  PromptPipelineConfig,
+  PromptLayerConfig
+} from '../../types/agent'
+import { PromptPriority } from '../../../shared/entities'
 
 /**
  * 提示词管道事件

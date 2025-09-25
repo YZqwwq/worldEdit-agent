@@ -16,7 +16,8 @@ import {
   closeDataSource, 
   getDataSource 
 } from '../../../shared/database/data-source';
-import { BaseMetadata, UnifiedWorldData } from '../../../shared/types/world';
+// 导入基础类型
+import type { BaseMetadata, UnifiedWorldData } from '../../ipc/typeorm-database';
 
 import * as fs from 'fs';
 
@@ -120,7 +121,18 @@ export class TypeORMService {
     
     try {
       const world = await this.worldRepository.findOne({ where: { id } });
-      return world ? world.toBaseMetadata() : null;
+      return world ? {
+        id: world.id,
+        name: world.name,
+        description: world.description || '',
+        version: world.version,
+        tags: world.tags || [],
+        author: world.author || '',
+        thumbnail: world.thumbnail,
+        lastModified: world.lastModified,
+        createdAt: world.createdAt,
+        updatedAt: world.updatedAt
+      } : null;
     } catch (error) {
       console.error('获取世界失败:', error);
       throw error;
@@ -134,7 +146,18 @@ export class TypeORMService {
       const worlds = await this.worldRepository.find({
         order: { lastModified: 'DESC' }
       });
-      return worlds.map(world => world.toBaseMetadata());
+      return worlds.map(world => ({
+        id: world.id,
+        name: world.name,
+        description: world.description || '',
+        version: world.version,
+        tags: world.tags || [],
+        author: world.author || '',
+        thumbnail: world.thumbnail,
+        lastModified: world.lastModified,
+        createdAt: world.createdAt,
+        updatedAt: world.updatedAt
+      }));
     } catch (error) {
       console.error('获取所有世界失败:', error);
       throw error;
@@ -227,7 +250,7 @@ export class TypeORMService {
   }
 
   // 最近文件管理
-  async addRecentFile(file: Omit<import('../../../shared/entities').RecentFile, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt' | 'toSimpleObject' | 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize'>): Promise<void> {
+  async addRecentFile(file: Omit<import('../../../shared/entities').RecentFile, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt'>): Promise<void> {
     this.ensureInitialized();
     
     const existingFile = await this.recentFileRepository.findOne({ 
@@ -238,8 +261,9 @@ export class TypeORMService {
       existingFile.lastOpened = new Date();
       await this.recentFileRepository.save(existingFile);
     } else {
+      const entityData = RecentFile.fromApiData(file as any);
       const recentFile = this.recentFileRepository.create({
-        ...file,
+        ...entityData,
         lastOpened: new Date()
       });
       await this.recentFileRepository.save(recentFile);

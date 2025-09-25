@@ -4,7 +4,7 @@
  */
 
 import { PromptLayer } from './PromptLayer'
-import { PromptPriority } from '../../../shared/types/agent'
+import { PromptPriority } from '../../../shared/entities'
 
 /**
  * 提示词构建选项

@@ -57,7 +57,7 @@
               <div class="world-meta">
                 <span class="world-date">{{ formatDate(world.updatedAt) }}</span>
                 <div class="world-tags">
-                  <span v-for="tag in world.tags.slice(0, 3)" :key="tag" class="tag">{{ tag }}</span>
+                  <span v-for="tag in world.tags?.slice(0, 3) || []" :key="tag" class="tag">{{ tag }}</span>
                 </div>
               </div>
             </div>
@@ -263,9 +263,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { useWorldStore } from '../stores/world'
-import type { WorldData } from '../../../shared/types/world'
-import type { RecentFile } from '../../../shared/entities'
+import { useWorldStore } from '../stores/worldStore'
+import { World as WorldData, RecentFile as RecentFileData } from '../../../shared/entities'
 
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -370,6 +369,7 @@ const createWorld = async () => {
   }
 }
 
+// 打开世界
 const openWorld = async (worldId?: string) => {
   if (!worldId) return
   
@@ -381,7 +381,7 @@ const openWorld = async (worldId?: string) => {
   }
 }
 
-const openRecentFile = async (file: Omit<RecentFile, 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize' | 'toSimpleObject'>) => {
+const openRecentFile = async (file: RecentFileData) => {
   if (file.type === 'world') {
     await openWorld(file.id)
   }

@@ -1,16 +1,16 @@
-import { typeormClient, typeormService } from './TypeORMClient'
+import { typeormClient, typeormService } from '../Client/world-ORMClient'
 import type { 
-  BaseMetadata,
-  UnifiedWorldData, 
-  GeographyData,
-  NationData,
-  FactionData,
-  PowerSystemData,
-  CharacterData,
-  MapData,
-  RelationshipData
-} from '../../../shared/types/world'
-import type { RecentFile } from '../../../shared/entities'
+  World ,
+  WorldContent,
+  Geography,
+  Nation,
+  Faction,
+  PowerSystem,
+  Character,
+  Map,
+  Relationship
+} from '../../../../shared/entities'
+import { RecentFile as RecentFileData } from '../../../../shared/entities'
 
 /**
  * TypeORM数据库服务
@@ -51,7 +51,7 @@ class TypeORMDatabaseService {
   /**
    * 创建世界观
    */
-  async createWorld(worldData: Omit<BaseMetadata, 'id' | 'createdAt' | 'updatedAt'>): Promise<BaseMetadata> {
+  async createWorld(worldData: Omit<World, 'id' | 'createdAt' | 'updatedAt'>): Promise<World> {
     await this.ensureInitialized()
     return await typeormService.createWorld(worldData)
   }
@@ -59,7 +59,7 @@ class TypeORMDatabaseService {
   /**
    * 获取世界观列表
    */
-  async getWorldList(): Promise<BaseMetadata[]> {
+  async getWorldList(): Promise<World[]> {
     await this.ensureInitialized()
     return await typeormService.getWorldList()
   }
@@ -67,7 +67,7 @@ class TypeORMDatabaseService {
   /**
    * 获取单个世界观
    */
-  async getWorld(id: string): Promise<BaseMetadata | undefined> {
+  async getWorld(id: string): Promise<World | undefined> {
     await this.ensureInitialized()
     return await typeormService.getWorld(id)
   }
@@ -75,7 +75,7 @@ class TypeORMDatabaseService {
   /**
    * 更新世界观
    */
-  async updateWorld(id: string, updates: Partial<BaseMetadata>): Promise<void> {
+  async updateWorld(id: string, updates: Partial<World>): Promise<void> {
     await this.ensureInitialized()
     return await typeormService.updateWorld(id, updates)
   }
@@ -91,7 +91,7 @@ class TypeORMDatabaseService {
   /**
    * 加载世界观（兼容性方法）
    */
-  async loadWorld(id: string): Promise<BaseMetadata | undefined> {
+  async loadWorld(id: string): Promise<World | undefined> {
     return await this.getWorld(id)
   }
 
@@ -100,7 +100,7 @@ class TypeORMDatabaseService {
   /**
    * 保存完整世界观内容
    */
-  async saveWorldContent(worldContent: UnifiedWorldData): Promise<void> {
+  async saveWorldContent(worldContent: WorldContent): Promise<void> {
     await this.ensureInitialized()
     return await typeormService.saveWorldContent(worldContent)
   }
@@ -108,7 +108,7 @@ class TypeORMDatabaseService {
   /**
    * 获取完整世界观内容
    */
-  async getWorldContent(id: string): Promise<UnifiedWorldData | undefined> {
+  async getWorldContent(id: string): Promise<WorldContent | undefined> {
     await this.ensureInitialized()
     return await typeormService.getWorldContent(id)
   }
@@ -116,7 +116,7 @@ class TypeORMDatabaseService {
   /**
    * 加载世界观内容（兼容性方法）
    */
-  async loadWorldContent(id: string): Promise<UnifiedWorldData | undefined> {
+  async loadWorldContent(id: string): Promise<WorldContent | undefined> {
     return await this.getWorldContent(id)
   }
 
@@ -125,7 +125,7 @@ class TypeORMDatabaseService {
   /**
    * 保存地理位置
    */
-  async saveGeography(geography: GeographyData): Promise<void> {
+  async saveGeography(geography: Geography): Promise<void> {
     await this.ensureInitialized()
     return await typeormClient.saveGeography(geography)
   }
@@ -133,7 +133,7 @@ class TypeORMDatabaseService {
   /**
    * 获取世界观的所有地理位置
    */
-  async getGeographies(worldId: string): Promise<GeographyData[]> {
+  async getGeographies(worldId: string): Promise<Geography[]> {
     await this.ensureInitialized()
     return await typeormClient.getGeographies(worldId)
   }
@@ -151,7 +151,7 @@ class TypeORMDatabaseService {
   /**
    * 保存国家
    */
-  async saveNation(nation: NationData): Promise<void> {
+  async saveNation(nation: Nation ): Promise<void> {
     await this.ensureInitialized()
     return await typeormClient.saveNation(nation)
   }
@@ -159,7 +159,7 @@ class TypeORMDatabaseService {
   /**
    * 获取世界观的所有国家
    */
-  async getNations(worldId: string): Promise<NationData[]> {
+  async getNations(worldId: string): Promise<Nation []> {
     await this.ensureInitialized()
     return await typeormClient.getNations(worldId)
   }
@@ -177,7 +177,7 @@ class TypeORMDatabaseService {
   /**
    * 保存派系
    */
-  async saveFaction(faction: FactionData): Promise<void> {
+  async saveFaction(faction: Faction): Promise<void> {
     await this.ensureInitialized()
     return await typeormClient.saveFaction(faction)
   }
@@ -185,7 +185,7 @@ class TypeORMDatabaseService {
   /**
    * 获取世界观的所有派系
    */
-  async getFactions(worldId: string): Promise<FactionData[]> {
+  async getFactions(worldId: string): Promise<Faction[]> {
     await this.ensureInitialized()
     return await typeormClient.getFactions(worldId)
   }
@@ -203,7 +203,7 @@ class TypeORMDatabaseService {
   /**
    * 保存力量体系
    */
-  async savePowerSystem(powerSystem: PowerSystemData): Promise<void> {
+  async savePowerSystem(powerSystem: PowerSystem): Promise<void> {
     await this.ensureInitialized()
     return await typeormClient.savePowerSystem(powerSystem)
   }
@@ -211,7 +211,7 @@ class TypeORMDatabaseService {
   /**
    * 获取世界观的所有力量体系
    */
-  async getPowerSystems(worldId: string): Promise<PowerSystemData[]> {
+  async getPowerSystems(worldId: string): Promise<PowerSystem[]> {
     await this.ensureInitialized()
     return await typeormClient.getPowerSystems(worldId)
   }
@@ -229,7 +229,7 @@ class TypeORMDatabaseService {
   /**
    * 保存角色
    */
-  async saveCharacter(character: CharacterData): Promise<void> {
+  async saveCharacter(character: Character): Promise<void> {
     await this.ensureInitialized()
     return await typeormClient.saveCharacter(character)
   }
@@ -237,7 +237,7 @@ class TypeORMDatabaseService {
   /**
    * 获取世界观的所有角色
    */
-  async getCharacters(worldId: string): Promise<CharacterData[]> {
+  async getCharacters(worldId: string): Promise<Character[]> {
     await this.ensureInitialized()
     return await typeormClient.getCharacters(worldId)
   }
@@ -255,7 +255,7 @@ class TypeORMDatabaseService {
   /**
    * 保存地图
    */
-  async saveMap(map: MapData): Promise<void> {
+  async saveMap(map: Map): Promise<void> {
     await this.ensureInitialized()
     return await typeormClient.saveMap(map)
   }
@@ -263,7 +263,7 @@ class TypeORMDatabaseService {
   /**
    * 获取世界观的所有地图
    */
-  async getMaps(worldId: string): Promise<MapData[]> {
+  async getMaps(worldId: string): Promise<Map[]> {
     await this.ensureInitialized()
     return await typeormClient.getMaps(worldId)
   }
@@ -281,7 +281,7 @@ class TypeORMDatabaseService {
   /**
    * 保存关系
    */
-  async saveRelationship(relationship: RelationshipData): Promise<void> {
+  async saveRelationship(relationship: Relationship ): Promise<void> {
     await this.ensureInitialized()
     return await typeormClient.saveRelationship(relationship)
   }
@@ -289,7 +289,7 @@ class TypeORMDatabaseService {
   /**
    * 获取世界观的所有关系
    */
-  async getRelationships(worldId: string): Promise<RelationshipData[]> {
+  async getRelationships(worldId: string): Promise<Relationship []> {
     await this.ensureInitialized()
     return await typeormClient.getRelationships(worldId)
   }
@@ -297,7 +297,7 @@ class TypeORMDatabaseService {
   /**
    * 获取实体的关系
    */
-  async getEntityRelationships(entityId: string, entityType: string): Promise<RelationshipData[]> {
+  async getEntityRelationships(entityId: string, entityType: string): Promise<Relationship []> {
     await this.ensureInitialized()
     return await typeormClient.getEntityRelationships(entityId, entityType)
   }
@@ -315,7 +315,7 @@ class TypeORMDatabaseService {
   /**
    * 添加最近文件
    */
-  async addRecentFile(file: Omit<RecentFile, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt' | 'toSimpleObject' | 'updateAccess' | 'checkExists' | 'getExtension' | 'getDirectory' | 'getFormattedSize'>): Promise<void> {
+  async addRecentFile(file: Omit<RecentFileData, 'id' | 'lastOpened' | 'createdAt' | 'updatedAt'>): Promise<void> {
     await this.ensureInitialized()
     return await typeormService.addRecentFile(file)
   }
@@ -323,7 +323,7 @@ class TypeORMDatabaseService {
   /**
    * 获取最近文件列表
    */
-  async getRecentFiles(): Promise<RecentFile[]> {
+  async getRecentFiles(): Promise<RecentFileData[]> {
     await this.ensureInitialized()
     return await typeormService.getRecentFiles()
   }
@@ -349,7 +349,7 @@ class TypeORMDatabaseService {
   /**
    * 搜索世界观
    */
-  async searchWorlds(query: string): Promise<BaseMetadata[]> {
+  async searchWorlds(query: string): Promise<World[]> {
     await this.ensureInitialized()
     return await typeormService.searchWorlds(query)
   }
@@ -357,7 +357,7 @@ class TypeORMDatabaseService {
   /**
    * 搜索（兼容性方法）
    */
-  async search(query: string): Promise<BaseMetadata[]> {
+  async search(query: string): Promise<World[]> {
     return await this.searchWorlds(query)
   }
 
@@ -409,7 +409,7 @@ class TypeORMDatabaseService {
   /**
    * 验证世界观数据
    */
-  async validateWorld(worldData: BaseMetadata): Promise<{ valid: boolean; errors: string[] }> {
+  async validateWorld(worldData: World): Promise<{ valid: boolean; errors: string[] }> {
     const errors: string[] = []
     
     if (!worldData.name || worldData.name.trim() === '') {
@@ -433,7 +433,7 @@ class TypeORMDatabaseService {
   /**
    * 验证世界观内容数据
    */
-  async validateWorldContent(content: UnifiedWorldData): Promise<{ valid: boolean; errors: string[] }> {
+  async validateWorldContent(content: WorldContent): Promise<{ valid: boolean; errors: string[] }> {
     const errors: string[] = []
     
     if (!content.id) {
@@ -453,7 +453,7 @@ class TypeORMDatabaseService {
   /**
    * 批量保存世界观及其内容
    */
-  async saveWorldWithContent(worldData: BaseMetadata, content: UnifiedWorldData): Promise<void> {
+  async saveWorldWithContent(worldData: World, content: WorldContent): Promise<void> {
     await this.ensureInitialized()
     return await typeormClient.saveWorldWithContent(worldData, content)
   }

@@ -11,17 +11,17 @@ import { ChatPromptTemplate } from '@langchain/core/prompts'
 import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages'
 import {
   ModelProvider,
-  MessageType,
-  AgentStatus
-} from '../../../shared/types/agent'
+  MessageType
+} from '../../../shared/entities'
 import type {
   AgentConfig,
-  ModelConfig,
   ChatMessage,
-  AgentState,
   TokenUsage,
-  ToolCall
-} from '../../../shared/types/agent'
+  ToolCall,
+} from '../../../shared/entities/agent';
+import type { RuntimeAgentState } from '../../types/agent';
+import { AgentStatus } from '../../../shared/entities/agent';
+import type { ModelConfig } from '../../../shared/entities';
 import { PromptPipeline } from '../prompt/PromptPipeline'
 import { buildMCPPromptWithTools } from '../../system-prompt/system-mcp-prompt'
 
@@ -33,9 +33,9 @@ export class AIAgentEngine {
   private model: ChatOpenAI | ChatAnthropic | null = null
   private tools: Tool[] = []
   private config: AgentConfig | null = null
-  private state: AgentState = {
+  private state: RuntimeAgentState = {
     status: AgentStatus.IDLE,
-    isInitialized: false
+    
   }
   private conversationHistory: ChatMessage[] = []
   private promptPipeline: PromptPipeline | null = null
@@ -60,7 +60,6 @@ export class AIAgentEngine {
       
       this.setState({
         status: AgentStatus.IDLE,
-        isInitialized: true,
         message: 'AI Agent初始化完成'
       })
     } catch (error) {
@@ -212,7 +211,7 @@ export class AIAgentEngine {
   /**
    * 获取当前状态
    */
-  getState(): AgentState {
+  getState(): RuntimeAgentState {
     return { ...this.state }
   }
 
@@ -370,7 +369,7 @@ export class AIAgentEngine {
     if (this.promptPipeline) {
       this.promptPipeline.setUserPrompt(userPrompt)
       // 重新创建Agent以应用新的提示词
-      if (this.state.isInitialized) {
+      if (this.agent !== null) {
         this.createAgent().catch(error => {
           console.error('更新用户提示词后重新创建Agent失败:', error)
         })
@@ -385,7 +384,7 @@ export class AIAgentEngine {
     if (this.promptPipeline) {
       this.promptPipeline.setSystemPrompt(systemPrompt)
       // 重新创建Agent以应用新的提示词
-      if (this.state.isInitialized) {
+      if (this.agent !== null) {
         this.createAgent().catch(error => {
           console.error('更新系统提示词后重新创建Agent失败:', error)
         })
@@ -482,7 +481,7 @@ export class AIAgentEngine {
   /**
    * 更新状态
    */
-  private setState(newState: Partial<AgentState>): void {
+  private setState(newState: Partial<RuntimeAgentState>): void {
     this.state = { ...this.state, ...newState }
   }
 }

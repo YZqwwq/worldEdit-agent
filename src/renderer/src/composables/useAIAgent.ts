@@ -18,8 +18,8 @@ import type {
   OptimizationSuggestion,
   Notification,
   APIResponse
-} from '../../../shared/types/agent'
-import { AIAgentAPIService } from '../services/ai-agent'
+} from ''
+import { AIAgentAPIService } from '../services/serviceImpl/ai-agent'
 import {
   generateId,
   formatTimestamp,

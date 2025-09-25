@@ -1,4 +1,4 @@
-import { typeormDatabaseService as databaseService } from './typeorm-database'
+import { typeormDatabaseService as databaseService } from './serviceImpl/world'
 import { simpleValidator } from '../schemas/simple-validator'
 
 /**
@@ -112,18 +112,14 @@ export class InitService {
     relationshipCount: number
     recentFileCount: number
   }> {
-    const worlds = await databaseService.getWorldList()
-    const characters = await databaseService.db.characters.count()
-    const maps = await databaseService.db.maps.count()
-    const relationships = await databaseService.db.relationships.count()
-    const recentFiles = await databaseService.getRecentFiles()
+    const stats = await databaseService.getStatistics()
     
     return {
-      worldCount: worlds.length,
-      characterCount: characters,
-      mapCount: maps,
-      relationshipCount: relationships,
-      recentFileCount: recentFiles.length
+      worldCount: stats.worldCount,
+      characterCount: stats.totalCharacters,
+      mapCount: stats.totalMaps,
+      relationshipCount: stats.totalRelationships,
+      recentFileCount: stats.recentFileCount
     }
   }
 }

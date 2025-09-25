@@ -111,40 +111,6 @@ export class PowerSystem {
   @UpdateDateColumn()
   updatedAt!: Date;
 
-  // 转换为简单对象格式
-  toSimpleObject(): any {
-    return {
-      id: this.id,
-      name: this.name,
-      description: this.description,
-      type: this.type as any,
-      source: this.source,
-      rules: this.rules,
-      abilities: this.abilities,
-      mastery: this.mastery,
-      socialImpact: this.socialImpact,
-      history: this.history,
-      notableUsers: this.notableUsers || [],
-      manifestation: this.manifestation,
-      interactions: this.interactions
-    };
-  }
-
-  // 转换为PowerSystemData格式
-  toPowerSystemData(): any {
-    return {
-      id: this.id,
-      name: this.name,
-      type: this.type as any || 'magic',
-      description: this.description || '',
-      source: this.source?.origin || '',
-      rules: this.rules?.activation || '',
-      abilities: this.abilities?.categories || [],
-      limitations: this.source?.limitations || [],
-      users: this.notableUsers?.map(user => user.name) || []
-    };
-  }
-
   // 从数据创建实体
   static fromData(worldId: string, data: any): Partial<PowerSystem> {
     return {

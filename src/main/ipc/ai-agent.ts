@@ -9,12 +9,11 @@ import {
   AgentConfig,
   ChatMessage,
   ChatSession,
-  AgentState,
-  ModelConfig,
+  RuntimeAgentState,
   MCPServerConfig,
   MCPTool
 } from '../types/agent'
-import { ModelConfig as ModelConfigEntity } from '../../shared/entities/ModelConfig.entity'
+import { ModelConfig } from '../../shared/entities'
 import { typeORMService } from '../services/database/TypeORMService'
 
 /**
@@ -170,7 +169,7 @@ async function handleInitialize(
 /**
  * 获取当前状态
  */
-async function handleGetState(_event: IpcMainInvokeEvent): Promise<AgentState | null> {
+async function handleGetState(_event: IpcMainInvokeEvent): Promise<RuntimeAgentState | null> {
   try {
     return aiAgentService?.getState() || null
   } catch (error) {
@@ -535,7 +534,7 @@ async function handleImportSession(
  */
 async function handleGetAllModelConfigs(
   _event: IpcMainInvokeEvent
-): Promise<ModelConfigEntity[]> {
+): Promise<ModelConfig[]> {
   if (!aiAgentService) {
     return []
   }
@@ -547,8 +546,8 @@ async function handleGetAllModelConfigs(
  */
 async function handleCreateModelConfig(
   _event: IpcMainInvokeEvent,
-  configData: Partial<ModelConfigEntity>
-): Promise<ModelConfigEntity | null> {
+  configData: Partial<ModelConfig>
+): Promise<ModelConfig | null> {
   if (!aiAgentService) {
     return null
   }
@@ -566,8 +565,8 @@ async function handleCreateModelConfig(
 async function handleUpdateModelConfig(
   _event: IpcMainInvokeEvent,
   id: string,
-  configData: Partial<ModelConfigEntity>
-): Promise<ModelConfigEntity | null> {
+  configData: Partial<ModelConfig>
+): Promise<ModelConfig | null> {
   if (!aiAgentService) {
     return null
   }

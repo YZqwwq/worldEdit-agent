@@ -370,8 +370,9 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import type { ModelConfig } from '../../../shared/entities/ModelConfig.entity'
-import { aiAgentAPI } from '../services/ai-agent'
+import { ModelConfig } from '../../../shared/entities'
+import { aiAgentAPI } from '../services/serviceImpl/ai-agent'
+
 
 // 响应式数据
 const modelConfigs = ref<ModelConfig[]>([])
@@ -470,7 +471,7 @@ const refreshConfigs = async () => {
   await loadConfigs()
 }
 
-const selectProvider = (provider: string) => {
+const selectProvider = (provider: ModelProvider) => {
   currentConfig.value.provider = provider
   currentConfig.value.modelName = ''
   testResult.value = null
@@ -492,9 +493,8 @@ const resetCurrentConfig = () => {
   currentConfig.value = {
     name: '',
     description: '',
-    provider: '',
+    provider: undefined,
     modelName: '',
-    displayName: '',
     apiKey: '',
     baseURL: '',
     temperature: 0.7,

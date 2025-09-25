@@ -1,5 +1,4 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import type { RelationshipData } from '../types/world';
 
 @Entity('relationships')
 export class Relationship {
@@ -275,28 +274,5 @@ export class Relationship {
     const now = new Date();
     const created = new Date(this.createdAt);
     return Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
-  }
-
-  // 转换为RelationshipData格式
-  toRelationshipData(): RelationshipData {
-    return {
-      id: this.id,
-      worldId: this.worldId,
-      sourceId: this.sourceId,
-      sourceType: this.sourceType,
-      targetId: this.targetId,
-      targetType: this.targetType,
-      relationshipType: this.relationshipType,
-      status: this.status,
-      strength: this.strength,
-      description: this.description,
-      history: this.history,
-      properties: this.properties,
-      documents: this.documents,
-      influences: this.influences,
-      future: this.future,
-      createdAt: this.createdAt,
-      updatedAt: this.updatedAt
-    };
   }
 }

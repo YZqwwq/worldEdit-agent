@@ -70,10 +70,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { typeormDatabaseService as databaseService } from '../services/typeorm-database'
+import { typeormDatabaseService as databaseService } from '../services/serviceImpl/world'
 import { simpleValidator } from '../schemas/simple-validator'
 import { initService } from '../services/init'
-import type { UnifiedWorldData, WorldData } from '../../../shared/types/world'
+import type { UnifiedWorldData, WorldData } from '../../../shared/types/world/world'
 
 interface TestResult {
   title: string

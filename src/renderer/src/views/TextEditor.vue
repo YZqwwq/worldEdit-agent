@@ -85,7 +85,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { useWorldStore } from '../stores/world'
+import { useWorldStore } from '../stores/worldStore'
 
 // Props
 const props = defineProps<{

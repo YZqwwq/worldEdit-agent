@@ -1,5 +1,32 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm'
-import { ModelProvider,ModelConfig as ModelConfigType } from '../types/agent'
+
+/**
+ * 支持的AI模型提供商
+ */
+export enum ModelProvider {
+  OPENAI = 'openai',
+  CLAUDE = 'claude',
+  DEEPSEEK = 'deepseek'
+}
+
+/**
+ * 消息类型枚举
+ */
+export enum MessageType {
+  USER = 'user',
+  ASSISTANT = 'assistant',
+  SYSTEM = 'system',
+  TOOL = 'tool'
+}
+
+/**
+ * 提示词优先级枚举
+ */
+export enum PromptPriority {
+  USER = 'user',
+  SYSTEM = 'system',
+  TOOL = 'tool'
+}
 
 /**
  * 模型配置实体
@@ -68,54 +95,4 @@ export class ModelConfig {
 
   @UpdateDateColumn()
   updatedAt!: Date
-
-  /**
-   * 转换为API使用的ModelConfig类型
-   */
-  toApiConfig(): ModelConfigType {
-    return {
-      provider: this.provider,
-      modelName: this.modelName,
-      apiKey: this.apiKey,
-      baseURL: this.baseURL,
-      temperature: this.temperature,
-      maxTokens: this.maxTokens,
-      maxRetries: this.maxRetries,
-      timeout: this.timeout,
-      topP: this.topP || 0,
-      // 频率惩罚
-      frequencyPenalty: this.frequencyPenalty || 0,
-      // 存在惩罚
-      presencePenalty: this.presencePenalty || 0,
-      // 流式响应
-      stream: this.stream,
-      retries: this.retries,
-      // 停止序列
-      stop: this.stop || []
-    }
-  }
-
-  /**
-   * 从API的ModelConfig类型创建实体
-   */
-  static fromApiConfig(apiConfig: import('../types/agent').ModelConfig, name: string, description?: string): Partial<ModelConfig> {
-    return {
-      name,
-      description,
-      provider: apiConfig.provider,
-      modelName: apiConfig.modelName,
-      apiKey: apiConfig.apiKey,
-      baseURL: apiConfig.baseURL,
-      temperature: apiConfig.temperature,
-      maxTokens: apiConfig.maxTokens,
-      maxRetries: apiConfig.maxRetries,
-      timeout: apiConfig.timeout,
-      topP: apiConfig.topP,
-      frequencyPenalty: apiConfig.frequencyPenalty,
-      presencePenalty: apiConfig.presencePenalty,
-      stream: apiConfig.stream,
-      retries: apiConfig.retries,
-      stop: apiConfig.stop
-    }
-  }
 }

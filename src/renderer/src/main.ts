@@ -24,9 +24,9 @@ async function initApp() {
     // 挂载应用
     app.mount('#app')
     
-    console.log('应用初始化完成')
+    console.log('application initialized')
   } catch (error) {
-    console.error('应用初始化失败:', error)
+    console.error('application initialization failed:', error)
     
     // 显示错误信息给用户
     document.body.innerHTML = `
