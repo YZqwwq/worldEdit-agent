@@ -60,9 +60,9 @@ export class TypeORMService {
       this.relationshipRepository = dataSource.getRepository(Relationship);
       this.recentFileRepository = dataSource.getRepository(RecentFile);
       this.isInitialized = true;
-      console.log('TypeORM服务初始化成功');
+      console.log('TypeORM database service initialized successfully');
     } catch (error) {
-      console.error('TypeORM服务初始化失败:', error);
+      console.error('TypeORM database initialize error:', error);
       throw error;
     }
   }
@@ -71,16 +71,16 @@ export class TypeORMService {
     try {
       await closeDataSource();
       this.isInitialized = false;
-      console.log('TypeORM服务已关闭');
+      console.log('TypeORM database service closed');
     } catch (error) {
-      console.error('关闭TypeORM服务时出错:', error);
+      console.error('TypeORM database close error:', error);
       throw error;
     }
   }
 
   private ensureInitialized(): void {
     if (!this.isInitialized) {
-      throw new Error('TypeORM服务未初始化，请先调用initialize()');
+      throw new Error('TypeORM database service not initialized, please call initialize() first');
     }
   }
 
@@ -111,7 +111,7 @@ export class TypeORMService {
         await this.worldRepository.save(newWorld);
       }
     } catch (error) {
-      console.error('保存世界失败:', error);
+      console.error('TypeORM database save world error:', error);
       throw error;
     }
   }
@@ -134,7 +134,7 @@ export class TypeORMService {
         updatedAt: world.updatedAt
       } : null;
     } catch (error) {
-      console.error('获取世界失败:', error);
+      console.error('TypeORM database get world error:', error);
       throw error;
     }
   }
@@ -159,7 +159,7 @@ export class TypeORMService {
         updatedAt: world.updatedAt
       }));
     } catch (error) {
-      console.error('获取所有世界失败:', error);
+      console.error('TypeORM database get all worlds error:', error);
       throw error;
     }
   }
@@ -173,7 +173,7 @@ export class TypeORMService {
       // 删除世界
       await this.worldRepository.delete({ id });
     } catch (error) {
-      console.error('删除世界失败:', error);
+      console.error('TypeORM database delete world error:', error);
       throw error;
     }
   }
@@ -199,7 +199,7 @@ export class TypeORMService {
         await this.worldContentRepository.save(newContent);
       }
     } catch (error) {
-      console.error('保存世界内容失败:', error);
+      console.error('TypeORM database save world content error:', error);
       throw error;
     }
   }
@@ -213,7 +213,7 @@ export class TypeORMService {
       });
       return content ? content.toUnifiedWorldData() : null;
     } catch (error) {
-      console.error('获取世界内容失败:', error);
+      console.error('TypeORM database get world content error:', error);
       throw error;
     }
   }
@@ -226,7 +226,7 @@ export class TypeORMService {
         where: { worldId } 
       });
     } catch (error) {
-      console.error('获取世界内容失败:', error);
+      console.error('TypeORM database get world content error:', error);
       throw error;
     }
   }
@@ -244,7 +244,7 @@ export class TypeORMService {
       world.lastModified = new Date();
       return await this.worldRepository.save(world);
     } catch (error) {
-      console.error('更新世界失败:', error);
+      console.error('TypeORM database update world error:', error);
       throw error;
     }
   }
@@ -306,7 +306,7 @@ export class TypeORMService {
         path: backupPath
       };
     } catch (error) {
-      console.error('备份失败:', error);
+      console.error('TypeORM database backup error:', error);
       throw error;
     }
   }
@@ -492,7 +492,7 @@ export class TypeORMService {
       await this.worldRepository.count();
       return true;
     } catch (error) {
-      console.error('健康检查失败:', error);
+      console.error('TypeORM database health check error:', error);
       return false;
     }
   }

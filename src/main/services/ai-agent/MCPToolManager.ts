@@ -77,7 +77,7 @@ export class MCPToolManager {
       this.isInitialized = true
       // MCP tool manager initialized successfully
     } catch (error) {
-      console.error('MCP工具管理器初始化失败:', error)
+      console.error('MCP tool manager initialize error:', error)
       throw error
     }
   }
@@ -94,7 +94,7 @@ export class MCPToolManager {
       
       // MCP server registered successfully: ${config.name}
     } catch (error) {
-      console.error(`注册MCP服务器失败: ${config.name}`, error)
+      console.error(`MCP server register error: ${config.name}`, error)
       throw error
     }
   }
@@ -151,7 +151,7 @@ export class MCPToolManager {
       
       return result
     } catch (error) {
-      console.error(`工具调用失败: ${toolName}`, error)
+      console.error(`MCP tool call error: ${toolName}`, error)
       throw error
     }
   }

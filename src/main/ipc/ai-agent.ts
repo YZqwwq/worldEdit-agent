@@ -156,7 +156,7 @@ async function handleInitialize(
     return { success: true }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : '初始化失败'
-    console.error('AI Agent初始化失败:', error)
+    console.error('AI Agent initialization error:', error)
     console.log('AI Agent initialization failed:', error) // 添加console.log确保能看到
     
     // 发送错误事件

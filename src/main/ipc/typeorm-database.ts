@@ -99,9 +99,9 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
   // 初始化TypeORM服务
   try {
     await typeormService.initialize();
-    console.log('TypeORM服务初始化成功，注册IPC处理器');
+    console.log('TypeORM database service initialized, IPC handlers registered');
   } catch (error) {
-    console.error('TypeORM服务初始化失败，但仍会注册IPC处理器:', error);
+    console.error('TypeORM database service initialization error:', error);
   }
   
   // 世界观基础操作
@@ -110,7 +110,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
       await typeormService.saveWorld(worldData);
       return worldData;
     } catch (error) {
-      console.error('创建世界观失败:', error);
+      console.error('TypeORM database create world error:', error);
       throw error;
     }
   });
@@ -120,7 +120,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
       const worlds = await typeormService.getAllWorlds();
       return worlds;
     } catch (error) {
-      console.error('获取世界观列表失败:', error);
+      console.error('TypeORM database get world list error:', error);
       throw error;
     }
   });
@@ -130,7 +130,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
       const world = await typeormService.getWorld(id);
       return world || undefined;
     } catch (error) {
-      console.error('获取世界观失败:', error);
+      console.error('TypeORM database get world error:', error);
       throw error;
     }
   });
@@ -143,7 +143,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
       }
       return updatedWorld.toBaseMetadata();
     } catch (error) {
-      console.error('更新世界观失败:', error);
+      console.error('TypeORM database update world error:', error);
       throw error;
     }
   });
@@ -152,7 +152,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
     try {
       await typeormService.deleteWorldWithAllContent(id);
     } catch (error) {
-      console.error('删除世界观失败:', error);
+      console.error('TypeORM database delete world error:', error);
       throw error;
     }
   });
@@ -164,7 +164,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
       const worldContent = await typeormService.getWorldContentByWorldId(worldId);
       return worldContent ? worldContent.toUnifiedWorldData() : null;
     } catch (error) {
-      console.error('保存世界观内容失败:', error);
+      console.error('TypeORM database save world content error:', error);
       throw error;
     }
   });
@@ -174,7 +174,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
       const content = await typeormService.getWorldContentByWorldId(worldId);
       return content ? content.toUnifiedWorldData() : undefined;
     } catch (error) {
-      console.error('获取世界观内容失败:', error);
+      console.error('TypeORM database get world content error:', error);
       throw error;
     }
   });
@@ -185,7 +185,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
       const savedGeography = await typeormService.saveGeography(worldId, geography);
       return savedGeography.toGeographyData();
     } catch (error) {
-      console.error('保存地理位置失败:', error);
+      console.error('TypeORM database save geography error:', error);
       throw error;
     }
   });
@@ -195,7 +195,7 @@ export async function registerTypeORMDatabaseHandlers(): Promise<void> {
       const geographies = await typeormService.getGeographiesByWorldId(worldId);
       return geographies.map(geo => geo.toGeographyData());
     } catch (error) {
-      console.error('获取地理位置列表失败:', error);
+      console.error('TypeORM database get geographies error:', error);
       throw error;
     }
   });

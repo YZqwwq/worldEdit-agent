@@ -39,6 +39,7 @@ export class World {
   @Column({ type: 'varchar', length: 255, nullable: true })
   author?: string;
 
+  // 世界观父ID
   @Column({ type: 'varchar', length: 255, nullable: true })
   parentId?: string;
 
@@ -64,4 +65,23 @@ export class World {
   @Column({ type: 'varchar', length: 500, nullable: true })
   filePath?: string;
 
+  // 从数据创建实体
+  static fromWorldData(data: any): Partial<World> {
+    return {
+      id: data.id,
+      name: data.name,
+      description: data.description,
+      thumbnail: data.thumbnail,
+      tags: data.tags,
+      author: data.author,
+      parentId: data.parentId,
+      version: data.version || '1.0',
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt,
+      lastModified: data.lastModified,
+      type: data.type || 'world',
+      isActive: data.isActive || false,
+      filePath: data.filePath
+    };
+  }
 }

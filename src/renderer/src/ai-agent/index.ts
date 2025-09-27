@@ -285,7 +285,7 @@ export function initializeAIAgent(options: AIAgentInitOptions = {}): {
   // TODO: 实现storage.setPrefix方法或使用其他方式处理存储前缀
 
   // 记录初始化信息
-  console.log('[AI Agent] 模块初始化完成', {
+  console.log('[AI Agent] initialize module completed', {
     version: AI_AGENT_VERSION,
     buildDate: AI_AGENT_BUILD_DATE,
     options: mergedOptions
@@ -440,9 +440,9 @@ export function cleanup(): void {
     // 销毁插件
     aiAgentPlugin.destroy()
     
-    console.log('[AI Agent] 模块清理完成')
+    console.log('[AI Agent] cleanup module completed')
   } catch (error) {
-    console.error('[AI Agent] 模块清理失败:', error)
+    console.error('[AI Agent] cleanup module error:', error)
   }
 }
 

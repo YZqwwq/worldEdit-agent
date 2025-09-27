@@ -83,7 +83,7 @@ export class AIAgentService {
       this.isInitialized = true
       // AI Agent service initialized successfully
     } catch (error) {
-      console.error('AI Agent服务初始化失败:', error)
+      console.error('AI Agent service initialize error:', error)
       throw error
     }
   }
@@ -148,7 +148,7 @@ export class AIAgentService {
         sessionId: session.id
       }
     } catch (error) {
-      console.error('发送消息失败:', error)
+      console.error('AI Agent send message error:', error)
       throw error
     }
   }
@@ -335,7 +335,7 @@ export class AIAgentService {
       }
       return null
     } catch (error) {
-      console.error('获取模型配置失败:', error)
+      console.error('TypeORM database model config get error:', error)
       return null
     }
   }

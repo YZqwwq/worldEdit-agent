@@ -209,6 +209,7 @@
             <button type="button" class="btn btn-secondary" @click="closeCreateDialog">
               取消
             </button>
+            <!--当世界观名不为空时创建-->
             <button type="submit" class="btn btn-primary" :disabled="!newWorld.name.trim()">
               创建
             </button>
@@ -253,7 +254,7 @@
     </div>
 
     <!-- 加载状态 -->
-    <div v-if="uiState.loading" class="loading-overlay">
+    <div v-if="loading" class="loading-overlay">
       <div class="loading-spinner"></div>
     </div>
   </div>
@@ -264,7 +265,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useWorldStore } from '../stores/worldStore'
-import { World as WorldData, RecentFile as RecentFileData } from '../../../shared/entities'
+import { World as WorldData } from '../../../shared/entities'
+import { storage } from '../utils/localStorage'
 
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -273,12 +275,12 @@ const worldStore = useWorldStore()
 const { 
   searchQuery, 
   filteredWorlds, 
-  recentFilesLimited, 
-  uiState 
 } = storeToRefs(worldStore)
 
 // 本地状态
 const showCreateDialog = ref(false)
+const recentFiles = ref<{id: string, name: string, lastOpened: Date}[]>([])
+const loading = ref(false)
 const newWorld = ref({
   name: '',
   description: '',
@@ -300,6 +302,8 @@ const worldContextMenu = ref({
 })
 
 // 计算属性
+const recentFilesLimited = computed(() => recentFiles.value.slice(0, 10))
+
 const contextMenuStyle = computed(() => ({
   left: `${contextMenu.value.x}px`,
   top: `${contextMenu.value.y}px`
@@ -309,6 +313,46 @@ const worldContextMenuStyle = computed(() => ({
   left: `${worldContextMenu.value.x}px`,
   top: `${worldContextMenu.value.y}px`
 }))
+
+// 最近文件管理方法
+const loadRecentFiles = async () => {
+  try {
+    const stored = await storage.get<{id: string, name: string, lastOpened: Date}[]>('recentFiles', [])
+    recentFiles.value = stored || []
+  } catch (error) {
+    console.error('Failed to load recent files:', error)
+    recentFiles.value = []
+  }
+}
+
+const addToRecentFiles = async (world: WorldData) => {
+  const recentFile = {
+    id: world.id,
+    name: world.name,
+    lastOpened: new Date()
+  }
+  
+  // 移除已存在的相同文件
+  const filtered = recentFiles.value.filter(f => f.id !== world.id)
+  // 添加到开头
+  recentFiles.value = [recentFile, ...filtered].slice(0, 20) // 最多保存20个
+  
+  // 保存到storage
+  try {
+    await storage.set('recentFiles', recentFiles.value)
+  } catch (error) {
+    console.error('Failed to save recent files:', error)
+  }
+}
+
+const removeFromRecentFiles = async (fileId: string) => {
+  recentFiles.value = recentFiles.value.filter(f => f.id !== fileId)
+  try {
+    await storage.set('recentFiles', recentFiles.value)
+  } catch (error) {
+    console.error('Failed to save recent files:', error)
+  }
+}
 
 // 方法
 const handleSearch = () => {
@@ -356,7 +400,12 @@ const createWorld = async () => {
       tags,
       thumbnail: '',
       author: 'User', // 默认作者
-      lastModified: new Date()
+      lastModified: new Date(),
+      type: 'world', // 世界观类型
+      version: '1.0', // 默认版本
+      isActive: false, // 默认未激活
+      parentId: undefined, // 父世界观ID
+      filePath: undefined // 文件路径
     }
 
     const created = await worldStore.createWorld(worldData)
@@ -374,21 +423,23 @@ const openWorld = async (worldId?: string) => {
   if (!worldId) return
   
   try {
-    await worldStore.openWorld(worldId)
+    // 从store中获取世界数据
+    const world = worldStore.worlds.find(w => w.id === worldId)
+    if (world) {
+      await addToRecentFiles(world)
+    }
     router.push(`/editor/${worldId}`)
   } catch (error) {
     console.error('Failed to open world:', error)
   }
 }
 
-const openRecentFile = async (file: RecentFileData) => {
-  if (file.type === 'world') {
-    await openWorld(file.id)
-  }
+const openRecentFile = async (file: {id: string, name: string, lastOpened: Date}) => {
+  await openWorld(file.id)
 }
 
-const removeFromRecent = (fileId: string) => {
-  worldStore.removeFromRecentFiles(fileId)
+const removeFromRecent = async (fileId: string) => {
+  await removeFromRecentFiles(fileId)
 }
 
 const renameWorld = (world: WorldData | null) => {
@@ -444,7 +495,13 @@ const handleClickOutside = () => {
 // 生命周期
 onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
-  await worldStore.initialize()
+  loading.value = true
+  try {
+    await worldStore.initialize()
+    await loadRecentFiles()
+  } finally {
+    loading.value = false
+  }
 })
 
 onUnmounted(() => {

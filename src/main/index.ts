@@ -6,6 +6,7 @@ import icon from '../../resources/icon.png?asset'
 // import { registerDatabaseHandlers, unregisterDatabaseHandlers } from './ipc/database' // 已迁移到TypeORM
 import { registerAIAgentIPC, unregisterAIAgentIPC } from './ipc/ai-agent'
 import { registerTypeORMDatabaseHandlers, unregisterTypeORMDatabaseHandlers } from './ipc/typeorm-database'
+import { registerElectronStoreIPC, unregisterElectronStoreIPC } from './ipc/electron-store'
 
 function createWindow(): void {
   // Create the browser window.
@@ -17,7 +18,9 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false
     }
   })
 
@@ -42,7 +45,7 @@ function createWindow(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -62,6 +65,9 @@ app.whenReady().then(() => {
   // Register Database IPC handlers
   // registerDatabaseHandlers() // 已迁移到TypeORM
   registerTypeORMDatabaseHandlers()
+
+  // Register Electron Store IPC handlers
+  await registerElectronStoreIPC()
 
   createWindow()
 
@@ -86,6 +92,7 @@ app.on('before-quit', async () => {
     unregisterAIAgentIPC()
     // unregisterDatabaseHandlers() // 已迁移到TypeORM
     await unregisterTypeORMDatabaseHandlers()
+    unregisterElectronStoreIPC()
   })
 
 // In this file you can include the rest of your app's specific main process

@@ -93,7 +93,7 @@ export class ModelAdapter {
       
       return true
     } catch (error) {
-      console.error('模型配置验证失败:', error)
+      console.error('TypeORM database model config validate error:', error)
       return false
     }
   }

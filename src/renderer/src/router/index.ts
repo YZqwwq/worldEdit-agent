@@ -68,6 +68,16 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/prosemirror-editor/:worldId',
+    name: 'ProseMirrorEditor',
+    component: () => import('../views/ProseMirrorEditor.vue'),
+    props: true,
+    meta: {
+      title: '富文本编辑器',
+      requiresWorld: true
+    }
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     redirect: '/'

@@ -9,35 +9,28 @@
             <path d="m19 12H5"/>
           </svg>
         </button>
-        <h1 class="world-title">{{ currentWorld?.name || '世界观编辑器' }}</h1>
-      </div>
-      
-      <div class="header-right">
-        <button class="save-btn" @click="saveWorld" :disabled="uiState.loading">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-            <polyline points="17,21 17,13 7,13 7,21"/>
-            <polyline points="7,3 7,8 15,8"/>
-          </svg>
-          保存
-        </button>
+        <h1 class="world-title">{{ world?.name || '世界观编辑器' }}</h1>
       </div>
     </header>
 
     <!-- 主编辑区域 -->
     <main class="editor-main">
-      <!-- 左侧模块导航 -->
-      <aside class="module-sidebar">
-        <nav class="module-nav">
+      <!-- 左侧工具导航 -->
+      <aside class="tool-sidebar">
+        <nav class="tool-nav">
           <div class="nav-section">
-            <h3>编辑模块</h3>
+            <h3>世界观工具</h3>
             <ul class="nav-list">
               <li>
-                <router-link 
-                  :to="`/text-editor/${worldId}`" 
-                  class="nav-item"
-                  active-class="active"
-                >
+                <button class="nav-item" @click="setActiveSection('overview')" :class="{ active: activeSection === 'overview' }">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 3h18v18H3zM9 9h6v6H9z"/>
+                  </svg>
+                  概览
+                </button>
+              </li>
+              <li>
+                <button class="nav-item" @click="setActiveSection('text-editor')" :class="{ active: activeSection === 'text-editor' }">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                     <polyline points="14,2 14,8 20,8"/>
@@ -45,78 +38,17 @@
                     <line x1="16" y1="17" x2="8" y2="17"/>
                     <polyline points="10,9 9,9 8,9"/>
                   </svg>
-                  文本编辑器
-                </router-link>
+                  富文本编辑器
+                </button>
               </li>
               <li>
-                <router-link 
-                  :to="`/character-editor/${worldId}`" 
-                  class="nav-item"
-                  active-class="active"
-                >
+                <button class="nav-item" @click="setActiveSection('settings')" :class="{ active: activeSection === 'settings' }">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                    <circle cx="12" cy="7" r="4"/>
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1m17-4a4 4 0 0 1-8 0 4 4 0 0 1 8 0zM7 21a4 4 0 0 1-8 0 4 4 0 0 1 8 0z"/>
                   </svg>
-                  角色编辑器
-                </router-link>
-              </li>
-              <li>
-                <router-link 
-                  :to="`/map-editor/${worldId}`" 
-                  class="nav-item"
-                  active-class="active"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/>
-                    <path d="M9 3v15"/>
-                    <path d="M15 6v15"/>
-                  </svg>
-                  地图编辑器
-                </router-link>
-              </li>
-            </ul>
-          </div>
-          
-          <div class="nav-section">
-            <h3>世界观要素</h3>
-            <ul class="nav-list">
-              <li>
-                <a href="#" class="nav-item" @click="setActiveSection('geography')">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-                    <circle cx="12" cy="10" r="3"/>
-                  </svg>
-                  地理环境
-                </a>
-              </li>
-              <li>
-                <a href="#" class="nav-item" @click="setActiveSection('nations')">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
-                    <line x1="4" y1="22" x2="4" y2="15"/>
-                  </svg>
-                  国家势力
-                </a>
-              </li>
-              <li>
-                <a href="#" class="nav-item" @click="setActiveSection('factions')">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                    <circle cx="9" cy="7" r="4"/>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                  </svg>
-                  组织派系
-                </a>
-              </li>
-              <li>
-                <a href="#" class="nav-item" @click="setActiveSection('power-systems')">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-                  </svg>
-                  力量体系
-                </a>
+                  设置
+                </button>
               </li>
             </ul>
           </div>
@@ -125,95 +57,93 @@
 
       <!-- 右侧内容区域 -->
       <section class="content-area">
-        <div class="welcome-content">
-          <div class="welcome-header">
-            <h2>欢迎来到世界观编辑器</h2>
-            <p>选择左侧的编辑模块开始创建你的世界观</p>
+        <!-- 概览内容 -->
+        <div v-if="activeSection === 'overview'" class="section-content">
+          <div class="section-header">
+            <h2>世界观概览</h2>
+            <p>查看和管理你的世界观基本信息</p>
           </div>
           
-          <div class="quick-actions">
-            <div class="action-grid">
-              <div class="action-card" @click="$router.push(`/text-editor/${worldId}`)">
-                <div class="action-icon">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14,2 14,8 20,8"/>
-                    <line x1="16" y1="13" x2="8" y2="13"/>
-                    <line x1="16" y1="17" x2="8" y2="17"/>
-                  </svg>
-                </div>
-                <h3>文本编辑</h3>
-                <p>使用富文本编辑器创建世界观描述、故事背景等文本内容</p>
-              </div>
-              
-              <div class="action-card" @click="$router.push(`/character-editor/${worldId}`)">
-                <div class="action-icon">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                    <circle cx="12" cy="7" r="4"/>
-                  </svg>
-                </div>
-                <h3>角色设计</h3>
-                <p>创建和编辑角色信息，包括外观、性格、背景等详细设定</p>
-              </div>
-              
-              <div class="action-card" @click="$router.push(`/map-editor/${worldId}`)">
-                <div class="action-icon">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/>
-                    <path d="M9 3v15"/>
-                    <path d="M15 6v15"/>
-                  </svg>
-                </div>
-                <h3>地图绘制</h3>
-                <p>使用画布工具绘制世界地图，标记重要地点和区域</p>
-              </div>
-            </div>
-          </div>
-          
-          <div class="world-info" v-if="currentWorld">
-            <h3>当前世界观信息</h3>
+          <div class="world-info" v-if="world">
             <div class="info-grid">
               <div class="info-item">
                 <label>名称:</label>
-                <span>{{ currentWorld.name }}</span>
+                <span>{{ world.name }}</span>
               </div>
               <div class="info-item">
                 <label>描述:</label>
-                <span>{{ currentWorld.description || '暂无描述' }}</span>
+                <span>{{ world.description || '暂无描述' }}</span>
               </div>
               <div class="info-item">
                 <label>创建时间:</label>
-                <span>{{ formatDate(currentWorld.createdAt) }}</span>
+                <span>{{ formatDate(world.createdAt) }}</span>
               </div>
               <div class="info-item">
                 <label>最后修改:</label>
-                <span>{{ formatDate(currentWorld.updatedAt) }}</span>
+                <span>{{ formatDate(world.updatedAt) }}</span>
               </div>
-              <div class="info-item" v-if="currentWorld.tags && currentWorld.tags.length > 0">
+              <div class="info-item" v-if="world.tags && world.tags.length > 0">
                 <label>标签:</label>
                 <div class="tags">
-                  <span v-for="tag in currentWorld.tags" :key="tag" class="tag">{{ tag }}</span>
+                  <span v-for="tag in world.tags" :key="tag" class="tag">{{ tag }}</span>
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- 设置内容 -->
+        <div v-else-if="activeSection === 'settings'" class="section-content">
+          <div class="section-header">
+            <h2>世界观设置</h2>
+            <p>配置世界观的基本参数和选项</p>
+          </div>
+          
+          <div class="settings-panel">
+            <div class="setting-group">
+              <h3>基本设置</h3>
+              <div class="setting-item">
+                <label>世界观名称</label>
+                <input v-model="editForm.name" type="text" class="form-input" />
+              </div>
+              <div class="setting-item">
+                <label>描述</label>
+                <textarea v-model="editForm.description" class="form-textarea" rows="3"></textarea>
+              </div>
+              <div class="setting-item">
+                <label>标签</label>
+                <input v-model="editForm.tagsInput" type="text" class="form-input" placeholder="用逗号分隔多个标签" />
+              </div>
+              <div class="setting-actions">
+                <button @click="saveSettings" class="btn-primary" :disabled="loading">保存设置</button>
+                <button @click="resetForm" class="btn-secondary">重置</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 默认欢迎内容 -->
+        <div v-else class="section-content">
+          <div class="welcome-header">
+            <h2>欢迎来到世界观编辑器</h2>
+            <p>选择左侧的工具开始管理你的世界观</p>
           </div>
         </div>
       </section>
     </main>
 
     <!-- 加载状态 -->
-    <div v-if="uiState.loading" class="loading-overlay">
+    <div v-if="loading" class="loading-overlay">
       <div class="loading-spinner"></div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { storeToRefs } from 'pinia'
 import { useWorldStore } from '../stores/worldStore'
+
 
 // Props
 const props = defineProps<{
@@ -223,30 +153,29 @@ const props = defineProps<{
 const router = useRouter()
 const worldStore = useWorldStore()
 
-// 从store获取响应式数据
-const { currentWorld, uiState } = storeToRefs(worldStore)
-
 // 本地状态
-const activeSection = ref('')
+const activeSection = ref('overview')
+const loading = ref(false)
+const world = ref<any>(null)
+
+// 编辑表单
+const editForm = reactive({
+  name: '',
+  description: '',
+  tagsInput: ''
+})
 
 // 方法
 const goBack = () => {
   router.push('/')
 }
 
-const saveWorld = async () => {
-  try {
-    await worldStore.saveWorld()
-    // 可以添加保存成功的提示
-  } catch (error) {
-    console.error('Failed to save world:', error)
-    // 可以添加保存失败的提示
-  }
-}
-
 const setActiveSection = (section: string) => {
-  activeSection.value = section
-  // 这里可以添加显示对应内容的逻辑
+  if (section === 'text-editor') {
+    router.push(`/prosemirror-editor/${props.worldId}`)
+  } else {
+    activeSection.value = section
+  }
 }
 
 const formatDate = (date: Date | string) => {
@@ -260,17 +189,39 @@ const formatDate = (date: Date | string) => {
   })
 }
 
-// 生命周期
-onMounted(async () => {
-  // 如果当前没有加载世界观数据，则加载
-  if (!currentWorld.value || currentWorld.value.id !== props.worldId) {
-    try {
-      await worldStore.openWorld(props.worldId)
-    } catch (error) {
-      console.error('Failed to load world:', error)
-      router.push('/')
+const saveSettings = async () => {
+  if (!world.value) return
+  
+  try {
+    loading.value = true
+    const updatedData = {
+      ...world.value,
+      name: editForm.name,
+      description: editForm.description,
+      tags: editForm.tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag)
     }
+    
+    await worldStore.updateWorld(updatedData)
+    world.value = updatedData
+    console.log('World settings saved successfully')
+  } catch (error) {
+    console.error('Failed to save world settings:', error)
+  } finally {
+    loading.value = false
   }
+}
+
+const resetForm = () => {
+  if (world.value) {
+    editForm.name = world.value.name || ''
+    editForm.description = world.value.description || ''
+    editForm.tagsInput = world.value.tags ? world.value.tags.join(', ') : ''
+  }
+}
+
+// 生命周期
+onMounted(() => {
+  console.log(props.worldId)
 })
 </script>
 
@@ -331,34 +282,7 @@ onMounted(async () => {
   margin: 0;
 }
 
-.header-right {
-  display: flex;
-  gap: 12px;
-}
 
-.save-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.save-btn:hover {
-  background: #0056b3;
-}
-
-.save-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
 
 .editor-main {
   display: flex;
@@ -367,14 +291,14 @@ onMounted(async () => {
   min-height: 0;
 }
 
-.module-sidebar {
+.tool-sidebar {
   width: 280px;
   background: white;
   border-right: 1px solid #e9ecef;
   overflow-y: auto;
 }
 
-.module-nav {
+.tool-nav {
   padding: 24px 0;
 }
 
@@ -408,6 +332,12 @@ onMounted(async () => {
   font-weight: 500;
   transition: all 0.3s;
   border-left: 3px solid transparent;
+  background: none;
+  border: none;
+  border-left: 3px solid transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
 }
 
 .nav-item:hover {
@@ -450,50 +380,124 @@ onMounted(async () => {
   margin: 0;
 }
 
-.quick-actions {
+.section-content {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.section-header {
+  text-align: center;
   margin-bottom: 48px;
 }
 
-.action-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 24px;
-}
-
-.action-card {
-  background: white;
-  border-radius: 12px;
-  padding: 32px 24px;
-  text-align: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  cursor: pointer;
-  transition: all 0.3s;
-  border: 2px solid transparent;
-}
-
-.action-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-  border-color: #007bff;
-}
-
-.action-icon {
-  color: #007bff;
-  margin-bottom: 16px;
-}
-
-.action-card h3 {
-  font-size: 18px;
-  font-weight: 600;
+.section-header h2 {
+  font-size: 32px;
+  font-weight: 700;
   color: #212529;
   margin: 0 0 12px 0;
 }
 
-.action-card p {
-  font-size: 14px;
+.section-header p {
+  font-size: 16px;
   color: #6c757d;
-  line-height: 1.5;
   margin: 0;
+}
+
+.settings-panel {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.setting-group h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #212529;
+  margin: 0 0 20px 0;
+}
+
+.setting-item {
+  margin-bottom: 20px;
+}
+
+.setting-item label {
+  display: block;
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 8px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.3s;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.form-textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  font-size: 14px;
+  resize: vertical;
+  transition: border-color 0.3s;
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.setting-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.btn-primary {
+  padding: 12px 24px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-primary:hover {
+  background: #0056b3;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  padding: 12px 24px;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-secondary:hover {
+  background: #545b62;
 }
 
 .world-info {
@@ -574,4 +578,6 @@ onMounted(async () => {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+
 </style>

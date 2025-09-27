@@ -327,7 +327,7 @@ export class DatabaseToolExecutor {
           throw new Error(`未知的数据库工具: ${toolName}`)
       }
     } catch (error) {
-      console.error(`数据库工具执行失败 [${toolName}]:`, error)
+      console.error(`Database tool execute error [${toolName}]:`, error)
       throw error
     }
   }
