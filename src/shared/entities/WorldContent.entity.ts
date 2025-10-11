@@ -63,4 +63,62 @@ export class WorldContent {
 
   @UpdateDateColumn()
   updatedAt!: Date;
+
+  /**
+   * 更新内容
+   */
+  updateContent(content: any): void {
+    if (content.text) this.text = content.text;
+    if (content.timeline) this.timeline = content.timeline;
+    if (content.geography) this.geography = content.geography;
+    if (content.nations) this.nations = content.nations;
+    if (content.factions) this.factions = content.factions;
+    if (content.powerSystems) this.powerSystems = content.powerSystems;
+    if (content.characters) this.characters = content.characters;
+    if (content.maps) this.maps = content.maps;
+    if (content.relationships) this.relationships = content.relationships;
+    if (content.items) this.items = content.items;
+    if (content.events) this.events = content.events;
+  }
+
+  /**
+   * 转换为统一世界数据格式
+   */
+  toUnifiedWorldData(): any {
+    return {
+      text: this.text || {},
+      timeline: this.timeline || [],
+      geography: this.geography || [],
+      nations: this.nations || [],
+      factions: this.factions || [],
+      powerSystems: this.powerSystems || [],
+      characters: this.characters || [],
+      maps: this.maps || [],
+      relationships: this.relationships || [],
+      items: this.items || [],
+      events: this.events || [],
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt
+    };
+  }
+
+  /**
+   * 从统一世界数据创建实例
+   */
+  static fromUnifiedWorldData(worldId: string, content: any): Partial<WorldContent> {
+    return {
+      worldId,
+      text: content.text || {},
+      timeline: content.timeline || [],
+      geography: content.geography || [],
+      nations: content.nations || [],
+      factions: content.factions || [],
+      powerSystems: content.powerSystems || [],
+      characters: content.characters || [],
+      maps: content.maps || [],
+      relationships: content.relationships || [],
+      items: content.items || [],
+      events: content.events || []
+    };
+  }
 }

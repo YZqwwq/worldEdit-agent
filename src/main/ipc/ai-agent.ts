@@ -12,7 +12,7 @@ import {
   RuntimeAgentState,
   MCPServerConfig,
   MCPTool
-} from '../types/agent'
+} from '../../shared/cache-types/agent/agent'
 import { ModelConfig } from '../../shared/entities'
 import { typeORMService } from '../services/database/TypeORMService'
 

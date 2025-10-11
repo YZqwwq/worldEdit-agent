@@ -2,18 +2,11 @@
  * AI Agent相关类型定义
  */
 
-// 重新导出Entity中的枚举
-export { ModelProvider, MessageType, PromptPriority } from '../../shared/entities'
-
-/**
- * Agent状态枚举
- */
-export enum AgentStatus {
-  IDLE = 'idle',
-  INITIALIZING = 'initializing', 
-  PROCESSING = 'processing',
-  ERROR = 'error'
-}
+// 导入Entity中的枚举
+import { MessageType } from './chatMessageTypeEnum'
+import { PromptPriority } from './promptEnum'
+import { ModelProvider } from './modelEnum';
+import { AgentStatus } from './agentStatusEnum';
 
 /**
  * 连接状态枚举
@@ -25,21 +18,33 @@ export enum ConnectionStatus {
   ERROR = 'error'
 }
 
-/**
- * Agent配置接口
- */
-export interface AgentConfig {
-  id: string
+// 服务层使用的 AgentConfig 接口，扩展实体类型
+export interface ServiceAgentConfig {
+  id?: string
   name: string
   description?: string
-  modelProvider: ModelProvider
+  systemPrompt: string
+  // 模型配置字段 (现在直接包含在AgentConfig中)
+  provider: ModelProvider
   modelName: string
+  apiKey: string
+  baseURL?: string
   temperature?: number
   maxTokens?: number
-  systemPrompt?: string
+  maxRetries?: number
+  timeout?: number
+  topP?: number
+  frequencyPenalty?: number
+  presencePenalty?: number
+  stream?: boolean
+  retries?: number
+  stop?: string[]
+  isDefault?: boolean
   tools?: string[]
-  createdAt: Date
-  updatedAt: Date
+  mcpServers?: string[]
+  enableMCPTools?: boolean
+  contextWindowSize?: number
+  promptConfig?: any
 }
 
 /**
@@ -152,7 +157,7 @@ export interface PromptStage {
 /**
  * 默认Agent配置
  */
-export const DEFAULT_AGENT_CONFIG: Partial<AgentConfig> = {
+export const DEFAULT_AGENT_CONFIG: Partial<ServiceAgentConfig> = {
   name: 'Default Agent',
   description: 'Default AI Agent configuration',
   temperature: 0.7,

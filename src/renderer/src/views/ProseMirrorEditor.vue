@@ -9,7 +9,6 @@
         </button>
         <div class="page-title">
           <h1>富文本编辑器</h1>
-          <span class="world-name" v-if="world">{{ world.name }}</span>
         </div>
       </div>
       <div class="nav-right">
@@ -25,7 +24,8 @@
       <div class="editor-wrapper">
         <TextEditor 
           ref="textEditorRef"
-          @content-change="onContentChange"
+          :worldId="props.worldId"
+          @change="onContentChange"
         />
       </div>
     </div>
@@ -38,9 +38,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useWorldStore } from '../stores/worldStore'
+import { useWorldTextStore } from '../stores/worldTextStore'
 import TextEditor from '../components/prosemirror/textEditor.vue'
 
 // Props
@@ -49,7 +49,7 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
-const worldStore = useWorldStore()
+const worldTextStore = useWorldTextStore()
 
 // 状态
 const loading = ref(false)
@@ -79,41 +79,43 @@ const saveContent = async () => {
   saving.value = true
   try {
     const content = textEditorRef.value.getContent()
-    // 这里可以添加保存到数据库的逻辑
-    console.log('保存内容:', content)
     
-    // 模拟保存延迟
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    // 通过 worldTextStore 保存文本数据
+    const success = await worldTextStore.saveWorldText(props.worldId, {
+      description: content
+    })
     
-    hasUnsavedChanges.value = false
-    // 可以添加成功提示
+    if (success) {
+      hasUnsavedChanges.value = false
+      console.log('内容保存成功')
+    } else {
+      throw new Error('保存失败')
+    }
   } catch (error) {
     console.error('保存失败:', error)
-    // 可以添加错误提示
+    alert('保存失败，请重试')
   } finally {
     saving.value = false
   }
 }
 
-const loadWorld = async () => {
-  loading.value = true
-  try {
-    world.value = await worldStore.getWorldById(props.worldId)
-    if (!world.value) {
-      router.push('/')
-      return
-    }
-  } catch (error) {
-    console.error('加载世界观失败:', error)
-    router.push('/')
-  } finally {
-    loading.value = false
+// 键盘快捷键处理
+const handleKeyDown = (e: KeyboardEvent) => {
+  if (e.ctrlKey && e.key === 's') {
+    e.preventDefault()
+    saveContent()
   }
 }
 
+
+
 // 生命周期
 onMounted(() => {
-  loadWorld()
+  document.addEventListener('keydown', handleKeyDown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeyDown)
 })
 
 // 页面离开前确认
@@ -128,19 +130,22 @@ window.addEventListener('beforeunload', (e) => {
 <style scoped>
 .prosemirror-editor-page {
   height: 100vh;
+  width: 100vw;
   display: flex;
   flex-direction: column;
   background: #f8f9fa;
+  padding-top: 0px; 
 }
 
 .top-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 24px;
+  padding: 8px 16px; /* 减少顶部导航栏的padding */
   background: white;
   border-bottom: 1px solid #e9ecef;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); /* 减少阴影 */
+  flex-shrink: 0; /* 防止导航栏被压缩 */
 }
 
 .nav-left {
@@ -209,17 +214,24 @@ window.addEventListener('beforeunload', (e) => {
 
 .editor-container {
   flex: 1;
-  padding: 24px;
-  overflow: auto;
+  padding: 4px 8px 8px 8px; /* 进一步减少padding */
+  overflow: hidden; /* 防止滚动条 */
+  display: flex;
+  flex-direction: column;
 }
 
 .editor-wrapper {
-  max-width: 1200px;
-  margin: 0 auto;
+  flex: 1;
+  max-width: none; /* 移除最大宽度限制 */
+  margin: 0;
   background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  min-height: calc(100vh - 200px);
+  border-radius: 4px; /* 减少圆角 */
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05); /* 减少阴影 */
+  height: 100%; /* 使用100%高度而不是calc */
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden; /* 防止溢出 */
 }
 
 .loading-overlay {

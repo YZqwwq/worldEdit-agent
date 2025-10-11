@@ -9,19 +9,19 @@ import { AgentExecutor, createOpenAIFunctionsAgent } from 'langchain/agents'
 import { Tool } from '@langchain/core/tools'
 import { ChatPromptTemplate } from '@langchain/core/prompts'
 import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages'
+
 import {
-  ModelProvider,
   MessageType
 } from '../../../shared/entities'
 import type {
-  AgentConfig,
   ChatMessage,
   TokenUsage,
   ToolCall,
 } from '../../../shared/entities/agent';
-import type { RuntimeAgentState } from '../../types/agent';
+import type { RuntimeAgentState } from '../../../shared/cache-types/agent/agent';
 import { AgentStatus } from '../../../shared/entities/agent';
-import type { ModelConfig } from '../../../shared/entities';
+import { ModelProvider } from '../../../shared/cache-types/agent/modelEnum';
+import { ServiceAgentConfig } from '../../../shared/cache-types/agent/agent'
 import { PromptPipeline } from '../prompt/PromptPipeline'
 import { buildMCPPromptWithTools } from '../../system-prompt/system-mcp-prompt'
 
@@ -32,25 +32,24 @@ export class AIAgentEngine {
   private agent: AgentExecutor | null = null
   private model: ChatOpenAI | ChatAnthropic | null = null
   private tools: Tool[] = []
-  private config: AgentConfig | null = null
+  private config: ServiceAgentConfig | null = null
   private state: RuntimeAgentState = {
     status: AgentStatus.IDLE,
-    
   }
   private conversationHistory: ChatMessage[] = []
   private promptPipeline: PromptPipeline | null = null
 
   /**
-   * 初始化AI Agent
+   * 初始化AI Agent(为index 提供 initialize方法)
    */
-  async initialize(config: AgentConfig): Promise<void> {
+  async initialize(config: ServiceAgentConfig): Promise<void> {
     try {
-      this.setState({ status: AgentStatus.INITIALIZING, message: '正在初始化AI Agent...' })
+      this.setState({ status: AgentStatus.INITIALIZING, message: 'initializeing AI Agent...' })
       
       this.config = config
       
       // 初始化模型
-      await this.initializeModel(config.currentModel)
+      await this.initializeModel(config)
       
       // 初始化工具
       await this.initializeTools()
@@ -60,14 +59,13 @@ export class AIAgentEngine {
       
       this.setState({
         status: AgentStatus.IDLE,
-        message: 'AI Agent初始化完成'
+        message: 'AI Agent initialized successfully'
       })
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '未知错误'
+      const errorMessage = error instanceof Error ? error.message : 'unknown error'
       this.setState({
         status: AgentStatus.ERROR,
-        error: errorMessage,
-        message: `初始化失败: ${errorMessage}`
+        message: `initialize error: ${errorMessage}`
       })
       throw error
     }
@@ -91,7 +89,7 @@ export class AIAgentEngine {
         id: this.generateMessageId(),
         type: MessageType.USER,
         content: message,
-        timestamp: Date.now()
+        createdAt: new Date.now()
       }
       this.conversationHistory.push(userMessage)
       
@@ -177,7 +175,7 @@ export class AIAgentEngine {
   /**
    * 更新配置
    */
-  async updateConfig(newConfig: Partial<AgentConfig>): Promise<void> {
+  async updateConfig(newConfig: Partial<ServiceAgentConfig>): Promise<void> {
     if (!this.config) {
       throw new Error('AI Agent未初始化')
     }
@@ -185,9 +183,11 @@ export class AIAgentEngine {
     const updatedConfig = { ...this.config, ...newConfig }
     
     // 如果模型配置发生变化，重新初始化模型
-    if (newConfig.currentModel && 
-        JSON.stringify(newConfig.currentModel) !== JSON.stringify(this.config.currentModel)) {
-      await this.initializeModel(updatedConfig.currentModel)
+    if ((newConfig.provider && newConfig.provider !== this.config.provider) ||
+        (newConfig.modelName && newConfig.modelName !== this.config.modelName) ||
+        (newConfig.apiKey && newConfig.apiKey !== this.config.apiKey) ||
+        (newConfig.baseURL && newConfig.baseURL !== this.config.baseURL)) {
+      await this.initializeModel(updatedConfig)
       await this.createAgent()
     }
     
@@ -218,57 +218,57 @@ export class AIAgentEngine {
   /**
    * 获取当前配置
    */
-  getConfig(): AgentConfig | null {
+  getConfig(): ServiceAgentConfig | null {
     return this.config ? { ...this.config } : null
   }
 
   /**
-   * 初始化模型
+   * 初始化模型(加载模型配置)
    */
-  private async initializeModel(modelConfig: ModelConfig): Promise<void> {
+  private async initializeModel(config: ServiceAgentConfig): Promise<void> {
     // Initializing model configuration
     
-    switch (modelConfig.provider) {
+    switch (config.provider) {
       case ModelProvider.OPENAI:
         this.model = new ChatOpenAI({
-          apiKey: modelConfig.apiKey,
-          modelName: modelConfig.modelName,
-          temperature: modelConfig.temperature,
-          maxTokens: modelConfig.maxTokens,
-          maxRetries: modelConfig.maxRetries,
-          timeout: modelConfig.timeout,
-          ...(modelConfig.baseURL && { configuration: { baseURL: modelConfig.baseURL } })
+          apiKey: config.apiKey,
+          modelName: config.modelName,
+          temperature: config.temperature,
+          maxTokens: config.maxTokens,
+          maxRetries: config.maxRetries,
+          timeout: config.timeout,
+          ...(config.baseURL && { configuration: { baseURL: config.baseURL } })
         })
         break
         
       case ModelProvider.CLAUDE:
         this.model = new ChatAnthropic({
-          anthropicApiKey: modelConfig.apiKey,
-          modelName: modelConfig.modelName,
-          temperature: modelConfig.temperature,
-          maxTokens: modelConfig.maxTokens,
-          maxRetries: modelConfig.maxRetries,
-          ...(modelConfig.baseURL && { baseURL: modelConfig.baseURL })
+          anthropicApiKey: config.apiKey,
+          modelName: config.modelName,
+          temperature: config.temperature,
+          maxTokens: config.maxTokens,
+          maxRetries: config.maxRetries,
+          ...(config.baseURL && { baseURL: config.baseURL })
         })
         break
         
       case ModelProvider.DEEPSEEK:
         // DeepSeek使用OpenAI兼容接口
         this.model = new ChatOpenAI({
-          openAIApiKey: modelConfig.apiKey,
-          modelName: modelConfig.modelName,
-          temperature: modelConfig.temperature,
-          maxTokens: modelConfig.maxTokens,
-          maxRetries: modelConfig.maxRetries,
-          timeout: modelConfig.timeout,
+          openAIApiKey: config.apiKey,
+          modelName: config.modelName,
+          temperature: config.temperature,
+          maxTokens: config.maxTokens,
+          maxRetries: config.maxRetries,
+          timeout: config.timeout,
           configuration: {
-            baseURL: modelConfig.baseURL || 'https://api.deepseek.com/v1'
+            baseURL: config.baseURL || 'https://api.deepseek.com/v1'
           }
         })
         break
         
       default:
-        throw new Error(`不支持的模型提供商: ${modelConfig.provider}`)
+        throw new Error(`不支持的模型提供商: ${config.provider}`)
     }
   }
 
@@ -304,10 +304,12 @@ export class AIAgentEngine {
       ])
 
       // 创建Agent
+      // 使用langchain的createOpenAIFunctionsAgent创建Agent
       const agent = await createOpenAIFunctionsAgent({
         llm: this.model,
         tools: this.tools,
-        prompt
+        prompt,
+        streamRunnable: true
       })
 
       // 创建Agent执行器
@@ -406,7 +408,8 @@ export class AIAgentEngine {
     const history: (HumanMessage | AIMessage | SystemMessage)[] = []
     
     // 只取最近的消息，避免上下文过长
-    const recentMessages = this.conversationHistory.slice(-this.config!.contextWindowSize)
+    const contextWindowSize = this.config!.contextWindowSize || 10
+    const recentMessages = this.conversationHistory.slice(-contextWindowSize)
     
     for (const message of recentMessages) {
       switch (message.type) {
@@ -431,7 +434,8 @@ export class AIAgentEngine {
   private trimConversationHistory(): void {
     if (!this.config) return
     
-    const maxHistory = this.config.contextWindowSize * 2 // 保留更多历史用于持久化
+    const contextWindowSize = this.config.contextWindowSize || 10
+    const maxHistory = contextWindowSize * 2 // 保留更多历史用于持久化
     if (this.conversationHistory.length > maxHistory) {
       this.conversationHistory = this.conversationHistory.slice(-maxHistory)
     }

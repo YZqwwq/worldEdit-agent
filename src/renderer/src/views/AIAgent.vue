@@ -417,7 +417,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import type { ChatMessage, ChatSession } from '../../../shared/types/agent/agent'
+import type { ChatMessage, ChatSession } from '../../../shared/cache-types/agent/agent'
 import { ModelProvider, MessageType } from '../../../shared/entities'
 
 const router = useRouter()

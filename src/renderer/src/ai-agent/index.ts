@@ -8,7 +8,7 @@ import { createAIAgentAPIService, AIAgentAPIService, aiAgentAPI } from '../servi
 import { createAIAgentPlugin, AIAgentPlugin, aiAgentPlugin } from '../plugins/ai-agent-plugins'
 import { storage, eventBus, generateId, debounce, throttle, retry } from '../utils/ai-agent-utils'
 import { useAIAgent, useSmartWriting, useTheme } from '../composables/useAIAgent'
-import { DEFAULT_MODEL_CONFIGS, DEFAULT_AGENT_CONFIG } from '../../../shared/types/agent/agent'
+import { DEFAULT_MODEL_CONFIGS, DEFAULT_AGENT_CONFIG } from '../../../shared/cache-types/agent/agent'
 
 // ==================== 组件导出 ====================
 export { default as AIAgentHub } from '../components/AIAgentHub.vue'
@@ -53,7 +53,7 @@ export type {
   Notification,
   BatchOperation,
   SearchResult
-} from '../../../shared/types/agent/agent'
+} from '../../../shared/cache-types/agent/agent'
 
 // ==================== 服务导出 ====================
 export {
@@ -174,7 +174,7 @@ export {
 export {
   DEFAULT_MODEL_CONFIGS,
   DEFAULT_AGENT_CONFIG
-} from '../../../shared/types/agent/agent'
+} from '../../../shared/cache-types/agent/agent'
 
 // ==================== 版本信息 ====================
 export const AI_AGENT_VERSION = '1.0.0'

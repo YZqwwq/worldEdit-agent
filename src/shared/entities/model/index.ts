@@ -1,1 +1,0 @@
-export {ModelConfig} from './ModelConfig.entity' 

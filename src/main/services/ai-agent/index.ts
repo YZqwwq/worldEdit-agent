@@ -7,20 +7,29 @@ import { AIAgentEngine } from './AIAgentEngine'
 import { ContextManager } from './ContextManager'
 import { ModelAdapter } from './ModelAdapter'
 import { MCPToolManager } from './MCPToolManager'
-import { MessageType } from '../../../shared/entities'
+import { MessageRole, MessageType } from '../../../shared/entities'
+import type {
+  RuntimeAgentState,
+  MCPServerConfig,
+  MCPTool
+} from '../../../shared/cache-types/agent/agent'
 import type {
   AgentConfig,
   ChatMessage,
-  ChatSession,
-  RuntimeAgentState,
-  ModelConfig,
-  MCPServerConfig,
-  MCPTool
-} from '../../types/agent'
+  ChatSession
+} from '../../../shared/entities/agent'
+// ModelConfig已合并到AgentConfig中
 import { PromptPipeline } from '../prompt/PromptPipeline'
 import { ToolPromptGenerator } from '../prompt/ToolPromptGenerator'
 import { ModelConfigService } from '../ModelConfigService'
 import { TypeORMService } from '../database/TypeORMService'
+
+// 服务层使用的 AgentConfig 接口，扩展实体类型
+interface ServiceAgentConfig extends Partial<AgentConfig> {
+  // AgentConfig现在已包含所有模型配置字段
+  promptConfig?: any
+  enableMCPTools?: boolean
+}
 
 /**
  * AI Agent服务类
@@ -46,7 +55,7 @@ export class AIAgentService {
   /**
    * 初始化AI Agent服务
    */
-  async initialize(config: AgentConfig): Promise<void> {
+  async initialize(config: ServiceAgentConfig): Promise<void> {
     try {
       // Initializing AI Agent service...
       
@@ -118,9 +127,14 @@ export class AIAgentService {
       // 添加用户消息到上下文
       const userMessage: ChatMessage = {
         id: this.generateMessageId(),
-        type: MessageType.USER,
+        sessionId: session.id,
+        role: MessageRole.USER,
+        type: MessageType.TEXT,
         content: message,
-        timestamp: Date.now()
+        createdAt: new Date(),
+        session: session,
+        tokenCount: 0,
+        isDeleted: false
       }
       this.contextManager.addMessage(userMessage)
 
@@ -136,9 +150,14 @@ export class AIAgentService {
       // 添加AI回复到上下文
       const aiMessage: ChatMessage = {
         id: this.generateMessageId(),
-        type: MessageType.ASSISTANT,
+        sessionId: session.id,
+        role: MessageRole.ASSISTANT,
+        type: MessageType.TEXT,
         content: response,
-        timestamp: Date.now()
+        createdAt: new Date(),
+        session: session,
+        tokenCount: 0,
+        isDeleted: false
       }
       this.contextManager.addMessage(aiMessage)
 
@@ -198,9 +217,9 @@ export class AIAgentService {
   /**
    * 更新配置
    */
-  async updateConfig(newConfig: Partial<AgentConfig>): Promise<void> {
+  async updateConfig(newConfig: Partial<ServiceAgentConfig>): Promise<void> {
     if (!this.isInitialized) {
-      throw new Error('AI Agent服务未初始化')
+      throw new Error('AI Agent reinitialize failed')
     }
 
     await this.engine.updateConfig(newConfig)
@@ -214,7 +233,7 @@ export class AIAgentService {
   /**
    * 验证模型配置
    */
-  async validateModelConfig(config: ModelConfig): Promise<boolean> {
+  async validateModelConfig(config: Partial<AgentConfig>): Promise<boolean> {
     return await this.modelAdapter.validateConfig(config)
   }
 
@@ -313,7 +332,7 @@ export class AIAgentService {
   /**
    * 获取模型配置
    */
-  async getModelConfig(id: string): Promise<ModelConfig | null> {
+  async getModelConfig(id: string): Promise<Partial<AgentConfig> | null> {
     try {
       if (id === 'current' || id === 'default') {
         // 获取默认配置
@@ -343,21 +362,21 @@ export class AIAgentService {
   /**
    * 获取所有模型配置
    */
-  async getAllModelConfigs(): Promise<ModelConfig[]> {
+  async getAllModelConfigs(): Promise<Partial<AgentConfig>[]> {
     return await this.modelConfigService.getAllConfigs()
   }
 
   /**
    * 创建模型配置
    */
-  async createModelConfig(configData: Partial<ModelConfig>): Promise<ModelConfig> {
+  async createModelConfig(configData: Partial<AgentConfig>): Promise<Partial<AgentConfig>> {
     return await this.modelConfigService.createConfig(configData)
   }
 
   /**
    * 更新模型配置
    */
-  async updateModelConfig(id: string, configData: Partial<ModelConfig>): Promise<ModelConfig | null> {
+  async updateModelConfig(id: string, configData: Partial<AgentConfig>): Promise<Partial<AgentConfig> | null> {
     return await this.modelConfigService.updateConfig(id, configData)
   }
 
@@ -373,6 +392,13 @@ export class AIAgentService {
    */
   async setDefaultModelConfig(id: string): Promise<boolean> {
     return await this.modelConfigService.setDefaultConfig(id)
+  }
+
+  /**
+   * 检查服务是否已初始化
+   */
+  isReady(): boolean {
+    return this.isInitialized
   }
 
   /**
@@ -462,7 +488,6 @@ export type {
   ChatMessage,
   ChatSession,
   RuntimeAgentState,
-  ModelConfig,
   MCPServerConfig,
   MCPTool
-} from '../../types/agent'
+} from '../../../shared/cache-types/agent/agent'

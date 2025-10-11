@@ -9,7 +9,7 @@ import type {
   MCPTool,
   MCPServerConfig,
   ToolCall
-} from '../../types/agent'
+} from '../../../shared/cache-types/agent/agent'
 import { DATABASE_TOOLS, DatabaseToolExecutor } from './DatabaseTools'
 
 /**

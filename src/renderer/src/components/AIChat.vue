@@ -301,7 +301,7 @@ import type {
   RuntimeAgentState,
   TokenUsage,
   ModelProvider
-} from '../../../shared/types/agent/agent'
+} from '../../../shared/cache-types/agent/agent'
 import { MessageType } from '../../../shared/entities'
 
 // 响应式数据

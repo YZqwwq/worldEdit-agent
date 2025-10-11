@@ -14,7 +14,7 @@ import type {
   ExportOptions,
   SearchResult,
   BatchOperation
-} from '../../../shared/types/agent/agent'
+} from '../../../shared/cache-types/agent/agent'
 import { MessageType } from '../../../shared/entities'
 
 /**

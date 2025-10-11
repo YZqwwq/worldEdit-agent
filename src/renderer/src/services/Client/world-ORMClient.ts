@@ -136,8 +136,31 @@ export class TypeORMClient {
       case TYPEORM_DATABASE_CHANNELS.GET_RECENT_FILES:
         return [] as T
       case TYPEORM_DATABASE_CHANNELS.GET_WORLD:
-      case TYPEORM_DATABASE_CHANNELS.GET_WORLD_CONTENT:
         return undefined as T
+      case TYPEORM_DATABASE_CHANNELS.GET_WORLD_CONTENT:
+        // 为浏览器环境提供模拟的世界观内容
+        return {
+          id: 'mock-world-content-' + args[0],
+          worldId: args[0],
+          text: {
+            description: '这是一个模拟的世界观描述，用于浏览器环境测试。',
+            background: '世界观背景故事...',
+            rules: '世界观规则设定...',
+            notes: '备注信息...'
+          },
+          timeline: [],
+          geography: [],
+          nations: [],
+          factions: [],
+          powerSystems: [],
+          characters: [],
+          maps: [],
+          relationships: [],
+          items: [],
+          events: [],
+          createdAt: new Date(),
+          updatedAt: new Date()
+        } as T
       case TYPEORM_DATABASE_CHANNELS.CREATE_WORLD:
         return {
           id: 'mock-' + Date.now(),
@@ -150,6 +173,9 @@ export class TypeORMClient {
           lastModified: new Date(),
           version: '1.0.0'
         } as T
+      case TYPEORM_DATABASE_CHANNELS.SAVE_WORLD_CONTENT:
+        // 模拟保存成功
+        return undefined as T
       case TYPEORM_DATABASE_CHANNELS.HEALTH_CHECK:
         return true as T
       default:
@@ -200,7 +226,12 @@ export class TypeORMClient {
    * 保存完整世界观内容
    */
   async saveWorldContent(worldContent: UnifiedWorldData): Promise<void> {
-    return await this.invoke<void>(TYPEORM_DATABASE_CHANNELS.SAVE_WORLD_CONTENT, worldContent)
+    // 从worldContent中提取worldId，如果没有则使用id字段
+    const worldId = (worldContent as any).worldId || worldContent.id
+    if (!worldId) {
+      throw new Error('WorldContent must have worldId or id field')
+    }
+    return await this.invoke<void>(TYPEORM_DATABASE_CHANNELS.SAVE_WORLD_CONTENT, worldId, worldContent)
   }
 
   /**
@@ -546,6 +577,11 @@ export class TypeORMService {
 
   // 世界观内容操作
   async saveWorldContent(worldContent: UnifiedWorldData): Promise<void> {
+    // 从worldContent中提取worldId，如果没有则使用id字段
+    const worldId = (worldContent as any).worldId || worldContent.id
+    if (!worldId) {
+      throw new Error('WorldContent must have worldId or id field')
+    }
     return await this.client.saveWorldContent(worldContent)
   }
 

@@ -4,11 +4,13 @@
  */
 
 import type {
-  ChatSession,
-  ChatMessage,
   AgentConfig
-} from '../../types/agent'
-import { DEFAULT_AGENT_CONFIG } from '../../types/agent'
+} from '../../../shared/cache-types/agent/agent'
+import { DEFAULT_AGENT_CONFIG } from '../../../shared/cache-types/agent/agent'
+import type {
+  ChatSession,
+  ChatMessage
+} from '../../../shared/entities/agent'
 
 /**
  * 上下文管理器类

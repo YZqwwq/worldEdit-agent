@@ -22,36 +22,6 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/text-editor/:worldId',
-    name: 'TextEditor',
-    component: () => import('../views/TextEditor.vue'),
-    props: true,
-    meta: {
-      title: '文本编辑器',
-      requiresWorld: true
-    }
-  },
-  {
-    path: '/character-editor/:worldId',
-    name: 'CharacterEditor',
-    component: () => import('../views/CharacterEditor.vue'),
-    props: true,
-    meta: {
-      title: '角色编辑器',
-      requiresWorld: true
-    }
-  },
-  {
-    path: '/map-editor/:worldId',
-    name: 'MapEditor',
-    component: () => import('../views/MapEditor.vue'),
-    props: true,
-    meta: {
-      title: '地图编辑器',
-      requiresWorld: true
-    }
-  },
-  {
     path: '/test',
     name: 'Test',
     component: () => import('../views/Test.vue'),

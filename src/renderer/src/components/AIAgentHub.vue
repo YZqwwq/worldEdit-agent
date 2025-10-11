@@ -295,7 +295,7 @@ import SmartWritingAssistant from './SmartWritingAssistant.vue'
 import ChatHistory from './ChatHistory.vue'
 import ModelConfig from './ModelConfig.vue'
 import { aiAgentAPI } from '../services/serviceImpl/ai-agent'
-import type { ModelConfig as ModelConfigType, ConnectionStatus } from '../../../shared/types/agent/agent'
+import type { ModelConfig as ModelConfigType, ConnectionStatus } from '../../../shared/cache-types/agent/agent'
 
 // 响应式数据
 const activeFeature = ref('welcome')

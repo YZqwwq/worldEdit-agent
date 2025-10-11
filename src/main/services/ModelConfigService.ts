@@ -1,13 +1,13 @@
 import { Repository } from 'typeorm'
-import { ModelConfig as ModelConfigEntity } from '../../shared/entities/model/ModelConfig.entity'
+import { AgentConfig } from '../../shared/entities/agent/AgentConfig.entity'
 import { TypeORMService } from './database/TypeORMService'
-// 注意：现在直接使用Entity类型，无需API类型转换
+// 注意：ModelConfig已合并到AgentConfig中
 
 /**
- * 模型配置服务类
+ * 模型配置服务类（现在基于AgentConfig）
  */
 export class ModelConfigService {
-  private repository: Repository<ModelConfigEntity> | null = null
+  private repository: Repository<AgentConfig> | null = null
 
   constructor(private typeormService: TypeORMService) {}
 
@@ -16,13 +16,13 @@ export class ModelConfigService {
    */
   async initialize(): Promise<void> {
     const dataSource = await this.typeormService.getDataSource()
-    this.repository = dataSource.getRepository(ModelConfigEntity)
+    this.repository = dataSource.getRepository(AgentConfig)
   }
 
   /**
    * 获取所有模型配置
    */
-  async getAllConfigs(): Promise<ModelConfigEntity[]> {
+  async getAllConfigs(): Promise<AgentConfig[]> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -32,7 +32,7 @@ export class ModelConfigService {
   /**
    * 根据ID获取模型配置
    */
-  async getConfigById(id: string): Promise<ModelConfigEntity | null> {
+  async getConfigById(id: string): Promise<AgentConfig | null> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -42,7 +42,7 @@ export class ModelConfigService {
   /**
    * 获取默认模型配置
    */
-  async getDefaultConfig(): Promise<ModelConfigEntity | null> {
+  async getDefaultConfig(): Promise<AgentConfig | null> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -52,7 +52,7 @@ export class ModelConfigService {
   /**
    * 根据名称获取模型配置
    */
-  async getConfigByName(name: string): Promise<ModelConfigEntity | null> {
+  async getConfigByName(name: string): Promise<AgentConfig | null> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -62,7 +62,7 @@ export class ModelConfigService {
   /**
    * 创建新的模型配置
    */
-  async createConfig(configData: Partial<ModelConfigEntity>): Promise<ModelConfigEntity> {
+  async createConfig(configData: Partial<AgentConfig>): Promise<AgentConfig> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -79,7 +79,7 @@ export class ModelConfigService {
   /**
    * 更新模型配置
    */
-  async updateConfig(id: string, configData: Partial<ModelConfigEntity>): Promise<ModelConfigEntity | null> {
+  async updateConfig(id: string, configData: Partial<AgentConfig>): Promise<AgentConfig | null> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }
@@ -134,7 +134,7 @@ export class ModelConfigService {
   /**
    * 获取活跃的配置列表
    */
-  async getActiveConfigs(): Promise<ModelConfigEntity[]> {
+  async getActiveConfigs(): Promise<AgentConfig[]> {
     if (!this.repository) {
       throw new Error('ModelConfigService not initialized')
     }

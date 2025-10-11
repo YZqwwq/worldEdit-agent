@@ -8,7 +8,7 @@ import { PromptBuilder, PromptBuildOptions } from './PromptBuilder'
 import type {
   PromptPipelineConfig,
   PromptLayerConfig
-} from '../../types/agent'
+} from '../../../shared/cache-types/agent/agent'
 import { PromptPriority } from '../../../shared/entities'
 
 /**

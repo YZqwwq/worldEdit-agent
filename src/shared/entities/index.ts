@@ -9,7 +9,7 @@ export { RecentFile } from './RecentFile.entity'
 export { Relationship } from './Relationship.entity'
 export { World } from './World.entity'
 export { WorldContent } from './WorldContent.entity'
-export { ModelConfig, ModelProvider, MessageType, PromptPriority } from './model/ModelConfig.entity'
+// ModelConfig已合并到AgentConfig中
 
 import { World } from './World.entity';
 import { WorldContent } from './WorldContent.entity';
@@ -21,7 +21,7 @@ import { Character } from './Character.entity';
 import { Map } from './Map.entity';
 import { Relationship } from './Relationship.entity';
 import { RecentFile } from './RecentFile.entity';
-import { ModelConfig } from './model/ModelConfig.entity';
+// ModelConfig已合并到AgentConfig中
 import { agentEntities } from './agent';
 
 // 重新导出agent相关实体和枚举
@@ -39,6 +39,5 @@ export const entities = [
   Map,
   Relationship,
   RecentFile,
-  ModelConfig,
   ...agentEntities
 ];

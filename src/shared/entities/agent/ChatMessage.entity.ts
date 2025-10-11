@@ -1,19 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { ChatSession } from './ChatSession.entity';
-
-export enum MessageRole {
-  USER = 'user',
-  ASSISTANT = 'assistant',
-  SYSTEM = 'system',
-  TOOL = 'tool'
-}
-
-export enum MessageType {
-  TEXT = 'text',
-  IMAGE = 'image',
-  TOOL_CALL = 'tool_call',
-  TOOL_RESULT = 'tool_result'
-}
+import { MessageRole, MessageType } from '../../cache-types/agent/chatMessageTypeEnum';
 
 @Entity('chat_messages')
 export class ChatMessage {

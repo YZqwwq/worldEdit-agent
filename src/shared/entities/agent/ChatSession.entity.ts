@@ -2,13 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 import { AgentConfig } from './AgentConfig.entity';
 import { ChatMessage } from './ChatMessage.entity';
 import { TokenUsage } from './TokenUsage.entity';
-
-export enum SessionStatus {
-  ACTIVE = 'active',
-  PAUSED = 'paused',
-  COMPLETED = 'completed',
-  ERROR = 'error'
-}
+import { SessionStatus } from '../../cache-types/session/session-manager.types';
 
 @Entity('chat_sessions')
 export class ChatSession {

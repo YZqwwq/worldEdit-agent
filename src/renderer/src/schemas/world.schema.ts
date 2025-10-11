@@ -1,5 +1,5 @@
 import Ajv, { JSONSchemaType } from 'ajv'
-import type { WorldData, UnifiedWorldData, CharacterData, MapData } from '../../../shared/types/world/world'
+import type { WorldData, UnifiedWorldData, CharacterData, MapData } from '../../../shared/cache-types/world/world'
 
 // 基础元数据Schema
 const baseMetadataSchema = {

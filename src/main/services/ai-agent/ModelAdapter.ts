@@ -8,12 +8,12 @@ import { ChatAnthropic } from '@langchain/anthropic'
 import { BaseLanguageModel } from '@langchain/core/language_models/base'
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages'
 import {
-  ModelConfig,
   ModelProvider,
   TokenUsage,
   ChatMessage,
   MessageType
-} from '../../types/agent'
+} from '../../../shared/cache-types/agent/agent'
+import { AgentConfig } from '../../../shared/entities/agent/AgentConfig.entity'
 
 /**
  * 模型响应接口
@@ -39,12 +39,12 @@ export interface StreamCallback {
  */
 export class ModelAdapter {
   private model: BaseLanguageModel | null = null
-  private config: ModelConfig | null = null
+  private config: Partial<AgentConfig> | null = null
 
   /**
    * 初始化模型
    */
-  async initialize(config: ModelConfig): Promise<void> {
+  async initialize(config: Partial<AgentConfig>): Promise<void> {
     // Initializing model adapter configuration
     
     this.config = config
@@ -83,7 +83,7 @@ export class ModelAdapter {
   /**
    * 验证模型配置
    */
-  async validateConfig(config: ModelConfig): Promise<boolean> {
+  async validateConfig(config: Partial<AgentConfig>): Promise<boolean> {
     try {
       const testModel = await this.createModel(config)
       
@@ -120,7 +120,7 @@ export class ModelAdapter {
   /**
    * 更新模型配置
    */
-  async updateConfig(newConfig: Partial<ModelConfig>): Promise<void> {
+  async updateConfig(newConfig: Partial<AgentConfig>): Promise<void> {
     if (!this.config) {
       throw new Error('模型未初始化')
     }
@@ -170,7 +170,7 @@ export class ModelAdapter {
   /**
    * 创建模型实例
    */
-  private async createModel(config: ModelConfig): Promise<BaseLanguageModel> {
+  private async createModel(config: Partial<AgentConfig>): Promise<BaseLanguageModel> {
 
     switch (config.provider) {
       case ModelProvider.OPENAI:

@@ -1,4 +1,4 @@
-import { Repository } from 'typeorm';
+import { Repository, EntityTarget, ObjectLiteral } from 'typeorm';
 import { 
   World, 
   WorldContent, 
@@ -11,6 +11,11 @@ import {
   Relationship,
   RecentFile 
 } from '../../../shared/entities';
+import { 
+  ChatSession,
+  ChatMessage,
+  AgentConfig 
+} from '../../../shared/entities/agent';
 import { 
   initializeDataSource, 
   closeDataSource, 
@@ -41,6 +46,9 @@ export class TypeORMService {
   private mapRepository!: Repository<Map>;
   private relationshipRepository!: Repository<Relationship>;
   private recentFileRepository!: Repository<RecentFile>;
+  private chatSessionRepository!: Repository<ChatSession>;
+  private chatMessageRepository!: Repository<ChatMessage>;
+  private agentConfigRepository!: Repository<AgentConfig>;
   private isInitialized = false;
 
   async initialize(): Promise<void> {
@@ -59,6 +67,9 @@ export class TypeORMService {
       this.mapRepository = dataSource.getRepository(Map);
       this.relationshipRepository = dataSource.getRepository(Relationship);
       this.recentFileRepository = dataSource.getRepository(RecentFile);
+      this.chatSessionRepository = dataSource.getRepository(ChatSession);
+      this.chatMessageRepository = dataSource.getRepository(ChatMessage);
+      this.agentConfigRepository = dataSource.getRepository(AgentConfig);
       this.isInitialized = true;
       console.log('TypeORM database service initialized successfully');
     } catch (error) {
@@ -261,9 +272,8 @@ export class TypeORMService {
       existingFile.lastOpened = new Date();
       await this.recentFileRepository.save(existingFile);
     } else {
-      const entityData = RecentFile.fromApiData(file as any);
       const recentFile = this.recentFileRepository.create({
-        ...entityData,
+        ...file,
         lastOpened: new Date()
       });
       await this.recentFileRepository.save(recentFile);
@@ -484,16 +494,102 @@ export class TypeORMService {
   // 健康检查
   async healthCheck(): Promise<boolean> {
     try {
-      if (!this.isInitialized) {
+      const dataSource = getDataSource();
+      if (!dataSource || !dataSource.isInitialized) {
         return false;
       }
       
-      // 执行简单查询测试连接
-      await this.worldRepository.count();
+      // 简单查询测试连接
+      await dataSource.query('SELECT 1');
       return true;
     } catch (error) {
-      console.error('TypeORM database health check error:', error);
+      console.error('Database health check failed:', error);
       return false;
+    }
+  }
+
+  // 通用方法：获取任意实体的Repository
+  getRepository<Entity extends ObjectLiteral>(entityClass: EntityTarget<Entity>): Repository<Entity> {
+    this.ensureInitialized();
+    const dataSource = getDataSource();
+    return dataSource.getRepository(entityClass);
+  }
+
+  // ChatSession相关的CRUD操作
+  async createChatSession(sessionData: Partial<ChatSession>): Promise<ChatSession> {
+    this.ensureInitialized();
+    try {
+      const session = this.chatSessionRepository.create(sessionData);
+      return await this.chatSessionRepository.save(session);
+    } catch (error) {
+      console.error('Failed to create chat session:', error);
+      throw error;
+    }
+  }
+
+  async getChatSession(id: string): Promise<ChatSession | null> {
+    this.ensureInitialized();
+    try {
+      return await this.chatSessionRepository.findOne({ 
+        where: { id },
+        relations: ['messages', 'tokenUsages']
+      });
+    } catch (error) {
+      console.error('Failed to get chat session:', error);
+      throw error;
+    }
+  }
+
+  async getAllChatSessions(): Promise<ChatSession[]> {
+    this.ensureInitialized();
+    try {
+      return await this.chatSessionRepository.find({
+        relations: ['messages', 'tokenUsages'],
+        order: { updatedAt: 'DESC' }
+      });
+    } catch (error) {
+      console.error('Failed to get all chat sessions:', error);
+      throw error;
+    }
+  }
+
+  async updateChatSession(id: string, updates: Partial<ChatSession>): Promise<ChatSession | null> {
+    this.ensureInitialized();
+    try {
+      const session = await this.chatSessionRepository.findOne({ where: { id } });
+      if (!session) {
+        return null;
+      }
+      
+      Object.assign(session, updates);
+      return await this.chatSessionRepository.save(session);
+    } catch (error) {
+      console.error('Failed to update chat session:', error);
+      throw error;
+    }
+  }
+
+  async deleteChatSession(id: string): Promise<void> {
+    this.ensureInitialized();
+    try {
+      await this.chatSessionRepository.delete(id);
+    } catch (error) {
+      console.error('Failed to delete chat session:', error);
+      throw error;
+    }
+  }
+
+  async getChatSessionsByAgentConfig(agentConfigId: string): Promise<ChatSession[]> {
+    this.ensureInitialized();
+    try {
+      return await this.chatSessionRepository.find({
+        where: { agentConfigId },
+        relations: ['messages', 'tokenUsages'],
+        order: { updatedAt: 'DESC' }
+      });
+    } catch (error) {
+      console.error('Failed to get chat sessions by agent config:', error);
+      throw error;
     }
   }
 }

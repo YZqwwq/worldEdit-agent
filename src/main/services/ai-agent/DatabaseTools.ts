@@ -3,7 +3,7 @@
  * 为AI Agent提供数据库操作工具
  */
 
-import type { MCPTool } from '../../types/agent'
+import type { MCPTool } from '../../../shared/cache-types/agent/agent'
 import { typeORMService } from '../database/TypeORMService'
 // RecentFile import removed as it's not used
 

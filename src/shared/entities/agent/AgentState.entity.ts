@@ -1,23 +1,8 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { AgentConfig } from './AgentConfig.entity';
 import { ChatSession } from './ChatSession.entity';
-
-export enum AgentStatus {
-  IDLE = 'idle',
-  THINKING = 'thinking',
-  RESPONDING = 'responding',
-  TOOL_CALLING = 'tool_calling',
-  WAITING = 'waiting',
-  ERROR = 'error',
-  STOPPED = 'stopped'
-}
-
-export enum AgentMode {
-  CHAT = 'chat',
-  TASK = 'task',
-  WORKFLOW = 'workflow',
-  AUTONOMOUS = 'autonomous'
-}
+import { AgentStatus } from '../../cache-types/agent/agentStatusEnum';
+import { AgentMode } from '../../cache-types/agent/modelEnum';
 
 @Entity('agent_states')
 export class AgentState {

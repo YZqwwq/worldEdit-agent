@@ -143,6 +143,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
+import { useWorldTextStore } from '../stores/worldTextStore'
 
 
 // Props
@@ -152,6 +153,7 @@ const props = defineProps<{
 
 const router = useRouter()
 const worldStore = useWorldStore()
+const worldTextStore = useWorldTextStore()
 
 // 本地状态
 const activeSection = ref('overview')
@@ -170,9 +172,18 @@ const goBack = () => {
   router.push('/')
 }
 
-const setActiveSection = (section: string) => {
+const setActiveSection = async (section: string) => {
   if (section === 'text-editor') {
-    router.push(`/prosemirror-editor/${props.worldId}`)
+    try {
+      loading.value = true
+      // 确保 WorldContent 存在，如果不存在则创建
+      await worldTextStore.getWorldText(props.worldId)
+      router.push(`/prosemirror-editor/${props.worldId}`)
+    } catch (error) {
+      console.error('Failed to initialize world content:', error)
+    } finally {
+      loading.value = false
+    }
   } else {
     activeSection.value = section
   }
@@ -201,7 +212,11 @@ const saveSettings = async () => {
       tags: editForm.tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag)
     }
     
-    await worldStore.updateWorld(updatedData)
+    await worldStore.updateWorld(world.value.id, {
+      name: editForm.name,
+      description: editForm.description,
+      tags: editForm.tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag)
+    })
     world.value = updatedData
     console.log('World settings saved successfully')
   } catch (error) {
@@ -220,8 +235,8 @@ const resetForm = () => {
 }
 
 // 生命周期
-onMounted(() => {
-  console.log(props.worldId)
+onMounted(async () => {
+  console.log('Loading world:', props.worldId)
 })
 </script>
 
