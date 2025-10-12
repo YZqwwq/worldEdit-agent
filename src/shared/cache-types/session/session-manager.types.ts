@@ -43,12 +43,12 @@ export interface SessionFindOptions {
  * 会话统计信息
  */
 export interface SessionStats {
-  messageCount: number
-  lastMessageAt: Date | null
-  totalTokens: number
-  averageResponseTime: number
-  createdAt: Date
-  updatedAt: Date
+  messageCount: number // 对话数量
+  lastMessageAt: Date | null // 最后一条消息时间
+  totalTokens: number // 总令牌数
+  averageResponseTime: number // 平均响应时间（毫秒）
+  createdAt: Date // 创建时间
+  updatedAt: Date // 更新时间
 }
 
 /**
@@ -133,8 +133,10 @@ export interface IMessageSyncService {
   clearSessionMessages(sessionId: string): Promise<void>
   updateSessionStats(sessionId: string): Promise<void>
   getMessageStats(sessionId: string): Promise<{
-    count: number
-    lastMessage: ChatMessage | null
+    count: number // 对话数量
+    lastMessageAt: Date | null // 最后一条消息时间
+    totalTokens: number // 总令牌数
+    averageResponseTime: number // 平均响应时间（毫秒）
   }>
   
   // 格式转换

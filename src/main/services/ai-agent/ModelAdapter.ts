@@ -112,7 +112,7 @@ export class ModelAdapter {
 
     return {
       provider: this.config.provider,
-      modelName: this.config.modelName,
+      modelName: this.config.modelName || "",
       isInitialized: this.model !== null
     }
   }
@@ -144,7 +144,7 @@ export class ModelAdapter {
   /**
    * 获取支持的模型列表
    */
-  static getSupportedModels(): Record<ModelProvider, string[]> {
+  getSupportedModels(): Record<ModelProvider, string[]> {
     return {
       [ModelProvider.OPENAI]: [
         'gpt-4o',

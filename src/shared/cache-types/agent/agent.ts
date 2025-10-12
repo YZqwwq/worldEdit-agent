@@ -77,21 +77,11 @@ export interface ChatSession {
  */
 export interface RuntimeAgentState {
   status: AgentStatus
-  message?: string
-  currentSession?: string
-  tokenUsage?: TokenUsage
-  lastActivity?: Date
+  currentSessionId?: string
+  tokenUsage?: number 
+  lastActivity?: Date 
 }
 
-/**
- * Token使用统计接口
- */
-export interface TokenUsage {
-  promptTokens: number
-  completionTokens: number
-  totalTokens: number
-  cost?: number
-}
 
 /**
  * 工具调用接口

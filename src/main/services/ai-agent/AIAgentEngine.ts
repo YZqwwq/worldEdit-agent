@@ -209,6 +209,31 @@ export class AIAgentEngine {
   }
 
   /**
+   * 添加消息到对话历史
+   */
+  addMessageToHistory(message: ChatMessage): void {
+    this.conversationHistory.push(message)
+    this.trimConversationHistory()
+  }
+
+  /**
+   * 批量添加消息到对话历史
+   */
+  addMessagesToHistory(messages: ChatMessage[]): void {
+    this.conversationHistory.push(...messages)
+    this.trimConversationHistory()
+  }
+
+  /**
+   * 加载消息历史到引擎
+   * 替换当前的对话历史
+   */
+  loadMessageHistory(messages: ChatMessage[]): void {
+    this.conversationHistory = [...messages]
+    this.trimConversationHistory()
+  }
+
+  /**
    * 获取当前状态
    */
   getState(): RuntimeAgentState {

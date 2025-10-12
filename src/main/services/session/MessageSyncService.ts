@@ -1,39 +1,25 @@
-import { Repository } from 'typeorm'
-import { ChatMessage } from '../../../shared/entities/agent/ChatMessage.entity'
-import { ChatSession } from '../../../shared/entities/agent/ChatSession.entity'
-import { AIAgentEngine } from '../ai-agent/AIAgentEngine'
+import { TypeORMService } from '../database/TypeORMService'
+import { ChatMessage, ChatSession } from '../../../shared/entities'
 import {
   IMessageSyncService,
   IEngineLifecycleManager,
   SERVICE_TOKENS
 } from '../../../shared/cache-types/session/session-manager.types'
-import { TypeORMService } from '../database/TypeORMService'
-import { Injectable } from './ServiceContainer'
+import { Injectable, serviceContainer } from './ServiceContainer'
 
 @Injectable(SERVICE_TOKENS.MESSAGE_SYNC_SERVICE)
 export class MessageSyncService implements IMessageSyncService {
-  private messageRepository!: Repository<ChatMessage>
-  private sessionRepository!: Repository<ChatSession>
+  private typeormService: TypeORMService
 
-  constructor(
-    private typeormService: TypeORMService,
-    private engineLifecycleManager: IEngineLifecycleManager
-  ) {}
+  constructor(typeormService: TypeORMService) {
+    this.typeormService = typeormService
+  }
 
   /**
    * 初始化服务
    */
   async initialize(): Promise<void> {
-    try {
-      // 获取数据库仓库
-      this.messageRepository = this.typeormService.getRepository(ChatMessage)
-      this.sessionRepository = this.typeormService.getRepository(ChatSession)
-      
-      console.log('[MessageSyncService] Initialized successfully')
-    } catch (error) {
-      console.error('[MessageSyncService] Failed to initialize:', error)
-      throw error
-    }
+    console.log('MessageSyncService - 服务已初始化')
   }
 
   /**
@@ -64,84 +50,54 @@ export class MessageSyncService implements IMessageSyncService {
   }
 
   /**
-   * 同步消息到数据库和引擎
+   * 同步单个消息到数据库
    */
-  async syncMessage(sessionId: string, message: ChatMessage): Promise<void> {
+  async syncMessage(message: ChatMessage): Promise<void> {
     try {
-      // 1. 保存到数据库
-      const savedMessage = await this.saveToDatabase(sessionId, message)
-
-      // 2. 更新引擎内存
-      const engine = await this.engineLifecycleManager.getOrCreateEngine(sessionId)
-      await this.addToEngineHistory(engine, savedMessage)
-
-      // 3. 更新会话统计
-      await this.updateSessionStats(sessionId, savedMessage)
-
-      console.log('[MessageSyncService] Message synced successfully:', {
-        sessionId,
-        messageId: savedMessage.id,
-        type: savedMessage.type
-      })
+      // 保存到数据库
+      await this.typeormService.getRepository(ChatMessage).save(message)
+      
+      console.log('MessageSyncService - 消息已同步到数据库:', message.id)
     } catch (error) {
-      console.error('[MessageSyncService] Failed to sync message:', error)
+      console.error('MessageSyncService - 同步消息失败:', error)
       throw error
     }
   }
 
   /**
-   * 批量同步消息
+   * 批量同步消息到数据库
    */
-  async syncMessages(sessionId: string, messages: ChatMessage[]): Promise<void> {
+  async syncMessages(messages: ChatMessage[]): Promise<void> {
+    if (messages.length === 0) return
+
     try {
       // 批量保存到数据库
-      const savedMessages = await this.saveBatchToDatabase(sessionId, messages)
-
-      // 更新引擎内存
-      const engine = await this.engineLifecycleManager.getOrCreateEngine(sessionId)
-      for (const message of savedMessages) {
-        await this.addToEngineHistory(engine, message)
-      }
-
-      // 更新会话统计
-      for (const message of savedMessages) {
-        await this.updateSessionStats(sessionId, message)
-      }
-
-      console.log('[MessageSyncService] Batch messages synced successfully:', {
-        sessionId,
-        count: savedMessages.length
-      })
+      await this.typeormService.getRepository(ChatMessage).save(messages)
+      
+      console.log(`MessageSyncService - ${messages.length}条消息已同步到数据库`)
     } catch (error) {
-      console.error('[MessageSyncService] Failed to sync batch messages:', error)
+      console.error('MessageSyncService - 批量同步消息失败:', error)
       throw error
     }
   }
 
   /**
-   * 从数据库加载消息历史到引擎
+   * 从数据库加载消息历史
    */
-  async loadMessageHistory(sessionId: string, limit: number = 100): Promise<ChatMessage[]> {
+  async loadMessageHistory(sessionId: string, limit: number = 50): Promise<ChatMessage[]> {
     try {
-      // 从数据库加载消息历史
-      const messages = await this.messageRepository.find({
-        where: { sessionId },
-        order: { createdAt: 'ASC' },
-        take: limit
-      })
+      const messages = await this.typeormService
+        .getRepository(ChatMessage)
+        .find({
+          where: { sessionId, isDeleted: false },
+          order: { createdAt: 'ASC' },
+          take: limit
+        })
 
-      // 加载到引擎
-      const engine = await this.engineLifecycleManager.getOrCreateEngine(sessionId)
-      await this.loadMessagesToEngine(engine, messages)
-
-      console.log('[MessageSyncService] Message history loaded:', {
-        sessionId,
-        count: messages.length
-      })
-
+      console.log(`MessageSyncService - 从数据库加载了${messages.length}条消息`)
       return messages
     } catch (error) {
-      console.error('[MessageSyncService] Failed to load message history:', error)
+      console.error('MessageSyncService - 加载消息历史失败:', error)
       throw error
     }
   }
@@ -154,20 +110,20 @@ export class MessageSyncService implements IMessageSyncService {
   }
 
   /**
-   * 清理会话的消息历史
+   * 清空会话的消息历史（软删除）
    */
   async clearMessageHistory(sessionId: string): Promise<void> {
     try {
-      // 从数据库删除消息
-      await this.messageRepository.delete({ sessionId })
+      await this.typeormService
+        .getRepository(ChatMessage)
+        .update(
+          { sessionId, isDeleted: false },
+          { isDeleted: true, updatedAt: new Date() }
+        )
 
-      // 清理引擎内存
-      const engine = await this.engineLifecycleManager.getOrCreateEngine(sessionId)
-      await this.clearEngineHistory(engine)
-
-      console.log('[MessageSyncService] Message history cleared:', { sessionId })
+      console.log(`MessageSyncService - 已清空会话 ${sessionId} 的消息历史`)
     } catch (error) {
-      console.error('[MessageSyncService] Failed to clear message history:', error)
+      console.error('MessageSyncService - 清空消息历史失败:', error)
       throw error
     }
   }
@@ -176,23 +132,31 @@ export class MessageSyncService implements IMessageSyncService {
    * 获取会话消息统计
    */
   async getMessageStats(sessionId: string): Promise<{
-    count: number
-    lastMessage: ChatMessage | null
+    count: number // 对话数量
+    lastMessageAt: Date | null // 最后一条消息时间
+    totalTokens: number // 总令牌数
+    averageResponseTime: number // 平均响应时间（毫秒）
   }> {
     try {
-      const count = await this.messageRepository.count({
-        where: { sessionId }
+      const count = await this.typeormService.getRepository(ChatMessage).count({
+        where: { sessionId, isDeleted: false }
       })
 
-      const lastMessage = await this.messageRepository.findOne({
-        where: { sessionId },
+      // 找到最后一条消息的创建时间
+      const lastMessage = await this.typeormService.getRepository(ChatMessage).findOne({
+        where: { sessionId, isDeleted: false },
         order: { createdAt: 'DESC' }
       })
 
-      return { count, lastMessage }
+      return { 
+        count, 
+        lastMessageAt: lastMessage?.createdAt || null,
+        totalTokens: 0,
+        averageResponseTime: 0 
+      }
     } catch (error) {
-      console.error('[MessageSyncService] Failed to get message stats:', error)
-      return { count: 0, lastMessage: null }
+      console.error('MessageSyncService - 获取消息统计失败:', error)
+      return { count: 0, lastMessageAt: null, totalTokens: 0, averageResponseTime: 0 }
     }
   }
 
@@ -202,7 +166,7 @@ export class MessageSyncService implements IMessageSyncService {
   private async saveToDatabase(sessionId: string, message: ChatMessage): Promise<ChatMessage> {
     try {
       // 确保会话存在
-      const session = await this.sessionRepository.findOne({
+      const session = await this.typeormService.getRepository(ChatSession).findOne({
         where: { id: sessionId }
       })
       if (!session) {
@@ -210,7 +174,7 @@ export class MessageSyncService implements IMessageSyncService {
       }
 
       // 创建消息实体
-      const messageEntity = this.messageRepository.create({
+      const messageEntity = this.typeormService.getRepository(ChatMessage).create({
         ...message,
         sessionId,
         session,
@@ -218,7 +182,7 @@ export class MessageSyncService implements IMessageSyncService {
         updatedAt: new Date()
       })
 
-      return await this.messageRepository.save(messageEntity)
+      return await this.typeormService.getRepository(ChatMessage).save(messageEntity)
     } catch (error) {
       console.error('[MessageSyncService] Failed to save message to database:', error)
       throw error
@@ -231,7 +195,7 @@ export class MessageSyncService implements IMessageSyncService {
   private async saveBatchToDatabase(sessionId: string, messages: ChatMessage[]): Promise<ChatMessage[]> {
     try {
       // 确保会话存在
-      const session = await this.sessionRepository.findOne({
+      const session = await this.typeormService.getRepository(ChatSession).findOne({
         where: { id: sessionId }
       })
       if (!session) {
@@ -240,7 +204,7 @@ export class MessageSyncService implements IMessageSyncService {
 
       // 创建消息实体数组
       const messageEntities = messages.map(message => 
-        this.messageRepository.create({
+        this.typeormService.getRepository(ChatMessage).create({
           ...message,
           sessionId,
           session,
@@ -249,80 +213,10 @@ export class MessageSyncService implements IMessageSyncService {
         })
       )
 
-      return await this.messageRepository.save(messageEntities)
+      return await this.typeormService.getRepository(ChatMessage).save(messageEntities)
     } catch (error) {
       console.error('[MessageSyncService] Failed to save batch messages to database:', error)
       throw error
-    }
-  }
-
-  /**
-   * 添加消息到引擎历史
-   */
-  private async addToEngineHistory(engine: AIAgentEngine, message: ChatMessage): Promise<void> {
-    try {
-      // 转换消息格式以适配引擎
-      const engineMessage = this.convertToEngineMessage(message)
-      
-      // 添加到引擎的对话历史
-      if (engine.conversationHistory) {
-        engine.conversationHistory.push(engineMessage)
-      } else {
-        engine.conversationHistory = [engineMessage]
-      }
-
-      // 限制历史长度，避免内存溢出
-      const maxHistoryLength = 1000
-      if (engine.conversationHistory.length > maxHistoryLength) {
-        engine.conversationHistory = engine.conversationHistory.slice(-maxHistoryLength)
-      }
-    } catch (error) {
-      console.error('[MessageSyncService] Failed to add message to engine history:', error)
-      throw error
-    }
-  }
-
-  /**
-   * 加载消息到引擎
-   */
-  private async loadMessagesToEngine(engine: AIAgentEngine, messages: ChatMessage[]): Promise<void> {
-    try {
-      // 转换消息格式
-      const engineMessages = messages.map(message => this.convertToEngineMessage(message))
-      
-      // 设置引擎的对话历史
-      engine.conversationHistory = engineMessages
-    } catch (error) {
-      console.error('[MessageSyncService] Failed to load messages to engine:', error)
-      throw error
-    }
-  }
-
-  /**
-   * 清理引擎历史
-   */
-  private async clearEngineHistory(engine: AIAgentEngine): Promise<void> {
-    try {
-      engine.conversationHistory = []
-    } catch (error) {
-      console.error('[MessageSyncService] Failed to clear engine history:', error)
-      throw error
-    }
-  }
-
-  /**
-   * 转换消息格式以适配引擎
-   */
-  convertToEngineMessage(message: ChatMessage): any {
-    // 根据AIAgentEngine的消息格式进行转换
-    // 这里需要根据实际的引擎消息格式进行调整
-    return {
-      id: message.id,
-      type: message.type,
-      content: message.content,
-      role: message.role,
-      timestamp: message.createdAt,
-      metadata: message.metadata
     }
   }
 
@@ -354,7 +248,7 @@ export class MessageSyncService implements IMessageSyncService {
   /**
    * 转换消息格式以适配引擎
    */
-  private convertToEngineMessage(message: ChatMessage): any {
+  convertToEngineMessage(message: ChatMessage): any {
     // 根据AIAgentEngine的消息格式进行转换
     // 这里需要根据实际的引擎消息格式进行调整
     return {
@@ -368,35 +262,19 @@ export class MessageSyncService implements IMessageSyncService {
   }
 
   /**
-   * 更新会话统计信息（公共方法）
+   * 更新会话统计信息
    */
   async updateSessionStats(sessionId: string): Promise<void> {
     try {
       // 更新会话的最后活动时间
-      await this.sessionRepository.update(sessionId, {
+      await this.typeormService.getRepository(ChatSession).update(sessionId, {
         updatedAt: new Date()
       })
 
       // TODO: 更新token使用统计等其他统计信息
     } catch (error) {
-      console.error('[MessageSyncService] Failed to update session stats:', error)
+      console.error('MessageSyncService - 更新会话统计失败:', error)
       throw error
-    }
-  }
-
-  /**
-   * 更新会话统计信息（私有方法）
-   */
-  private async updateSessionStats(sessionId: string, message: ChatMessage): Promise<void> {
-    try {
-      // 更新会话的最后活动时间
-      await this.sessionRepository.update(sessionId, {
-        updatedAt: new Date()
-      })
-
-      // TODO: 更新token使用统计等其他统计信息
-    } catch (error) {
-      console.error('[MessageSyncService] Failed to update session stats:', error)
     }
   }
 }

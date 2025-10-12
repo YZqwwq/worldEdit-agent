@@ -23,21 +23,21 @@ import { ContextManager } from './ContextManager'
 import { ModelAdapter } from './ModelAdapter'
 import { MCPToolManager } from './MCPToolManager'
 import { PromptPipeline } from '../prompt/PromptPipeline'
-import { ToolPromptGenerator } from '../prompt/ToolPromptGenerator'
 import { ModelConfigService } from '../ModelConfigService'
+import {DEFAULT_CONFIGS } from '../../../shared/cache-types/session/service-configs.types'
 import { TypeORMService } from '../database/TypeORMService'
 
-import { MessageRole, MessageType } from '../../../shared/entities'
+import { AgentStatus, MessageRole, MessageType } from '../../../shared/entities'
 import type {
   RuntimeAgentState,
   MCPServerConfig,
-  MCPTool
 } from '../../../shared/cache-types/agent/agent'
 import type {
   AgentConfig,
   ChatMessage,
   ChatSession
 } from '../../../shared/entities/agent'
+import { Tool } from '@langchain/core/tools'
 
 // 服务层使用的 AgentConfig 接口
 interface ServiceAgentConfig extends Partial<AgentConfig> {
@@ -50,20 +50,20 @@ interface ServiceAgentConfig extends Partial<AgentConfig> {
  * 集成会话管理框架，提供完整的会话生命周期管理
  */
 export class AIAgentServiceV2 implements ISessionEventListener {
-  private sessionManager: ISessionManager // 会话管理器
-  private contextManager: ContextManager // 内容管理器
-  private modelAdapter: ModelAdapter // 模型适配器
-  private toolManager: MCPToolManager // 工具管理器
+  private sessionManager!: SessionManager // 会话管理器
+  private contextManager!: ContextManager // 内容管理器
+  private modelAdapter!: ModelAdapter // 模型适配器
+  private toolManager!: MCPToolManager // 工具管理器
   private promptPipeline: PromptPipeline | null = null // 提示管道
-  private modelConfigService: ModelConfigService // 模型配置服务
+  private modelConfigService!: ModelConfigService // 模型配置服务
   private isInitialized = false // 是否初始化
   private currentConfig: ServiceAgentConfig | null = null // 当前配置
   private typeormService!: TypeORMService // TypeORM服务
-
-  constructor() {}
-
   /**
    * 初始化服务
+   * @param typeormService TypeORM服务实例
+   * @param mcpToolManager MCP工具管理器实例
+   * @param modelAdapter 模型适配器实例
    */
   async initializeService(
     typeormService: TypeORMService,
@@ -86,7 +86,7 @@ export class AIAgentServiceV2 implements ISessionEventListener {
       await this.registerServices()
 
       // 获取会话管理器
-      this.sessionManager = serviceContainer.get<ISessionManager>(SERVICE_TOKENS.SESSION_MANAGER)
+      this.sessionManager = serviceContainer.get<SessionManager>(SERVICE_TOKENS.SESSION_MANAGER)
 
       // 初始化会话管理器
       await this.sessionManager.initialize()
@@ -109,78 +109,28 @@ export class AIAgentServiceV2 implements ISessionEventListener {
     // 注册配置加载器
     const configLoader = new SessionConfigLoader(
       this.typeormService,
-      {
-        maxEngineInstances: 5, // 最大引擎实例数
-        engineIdleTimeout: 30 * 60 * 1000, // 引擎空闲超时时间
-        defaultSessionTitle: 'New Chat', // 默认会话标题
-        autoCleanupInterval: 10 * 60 * 1000, // 自动清理间隔
-        messageHistoryLimit: 1000, // 消息历史记录限制
-        messageBatchSize: 50, // 消息批量大小
-        configCacheSize: 100, // 配置缓存大小
-        configCacheTTL: 5 * 60 * 1000, // 配置缓存TTL
-        databasePath: './data/sessions.db', // 数据库路径
-        enableWAL: true // 启用WAL模式
-      }
+      DEFAULT_CONFIGS.configLoader
     )
-
-    // 注册配置加载器
     serviceContainer.registerInstance(SERVICE_TOKENS.SESSION_CONFIG_LOADER, configLoader)
 
     // 注册引擎生命周期管理器
-    const engineLifecycleManager = new EngineLifecycleManager({
-      maxEngineInstances: 5,
-      engineIdleTimeout: 30 * 60 * 1000
-    })
+    const engineLifecycleManager = new EngineLifecycleManager(
+      DEFAULT_CONFIGS.engineLifecycle
+    )
     serviceContainer.registerInstance(SERVICE_TOKENS.ENGINE_LIFECYCLE_MANAGER, engineLifecycleManager)
 
     // 注册消息同步服务
-    const messageSyncService = new MessageSyncService(this.typeormService)
+    const messageSyncService = new MessageSyncService(
+      this.typeormService
+    )
     serviceContainer.registerInstance(SERVICE_TOKENS.MESSAGE_SYNC_SERVICE, messageSyncService)
 
     // 注册会话管理器
     const sessionManager = new SessionManager(
       this.typeormService,
-      {
-        maxEngineInstances: 5,
-        engineIdleTimeout: 30 * 60 * 1000,
-        defaultSessionTitle: 'New Chat',
-        autoCleanupInterval: 10 * 60 * 1000,
-        messageHistoryLimit: 1000,
-        messageBatchSize: 50,
-        configCacheSize: 100,
-        configCacheTTL: 5 * 60 * 1000,
-        databasePath: './data/sessions.db',
-        enableWAL: true
-      }
+      DEFAULT_CONFIGS.sessionManager
     )
-
-
     serviceContainer.registerInstance(SERVICE_TOKENS.SESSION_MANAGER, sessionManager)
-  }
-
-  /**
-   * 初始化服务（可选，用于全局配置）
-   */
-  async initialize(config?: ServiceAgentConfig): Promise<void> {
-    try {
-      this.currentConfig = config || {}
-      
-      // 初始化工具管理器
-      if (config?.enableMCPTools) {
-        await this.toolManager.initialize()
-      }
-
-      // 初始化提示管道
-      if (config?.promptConfig) {
-        this.promptPipeline = new PromptPipeline(config.promptConfig)
-      }
-
-      this.isInitialized = true
-      console.log('[AIAgentServiceV2] Service initialized successfully')
-    } catch (error) {
-      console.error('[AIAgentServiceV2] Failed to initialize service:', error)
-      throw error
-    }
   }
 
   /**
@@ -226,15 +176,20 @@ export class AIAgentServiceV2 implements ISessionEventListener {
     session: ChatSession
   }> {
     try {
-      // 确保有活跃会话
+      // 确保有活跃会话并获取引擎
       let currentSession = this.sessionManager.getActiveSession()
+      let engine: AIAgentEngine
+      
       if (!currentSession || (sessionId && currentSession.id !== sessionId)) {
+        // 需要切换会话时，enterSession已经返回了引擎实例
         const result = await this.enterSession(sessionId)
         currentSession = result.session
+        engine = result.engine
+      } else {
+        // 使用当前会话时，获取对应的引擎
+        console.log('[AIAgentServiceV2] Using existing session engine:', currentSession.id)
+        engine = await this.getSessionEngine(currentSession.id)
       }
-
-      // 获取会话引擎
-      const engine = await this.getSessionEngine(currentSession.id)
       
       // 创建用户消息
       const userMessage: Partial<ChatMessage> = {
@@ -376,13 +331,33 @@ export class AIAgentServiceV2 implements ISessionEventListener {
   getState(): RuntimeAgentState {
     const currentSession = this.getCurrentSession()
     
+    // 确定当前状态
+    let status = AgentStatus.IDLE
+    if (this.isInitialized) {
+      status = currentSession ? AgentStatus.RUNNING : AgentStatus.IDLE
+    }
+    
+    // 获取Token使用统计
+    let tokenUsage: number | undefined
+    if (currentSession) {
+      // 从当前引擎获取Token使用情况
+      try {
+        const engineLifecycleManager = serviceContainer.get<EngineLifecycleManager>(SERVICE_TOKENS.ENGINE_LIFECYCLE_MANAGER)
+        const engine = engineLifecycleManager.getEngine(currentSession.id)
+        if (engine) {
+          const engineState = engine.getState()
+          tokenUsage = engineState.tokenUsage || undefined
+        }
+      } catch (error) {
+        console.warn('[AIAgentServiceV2] Failed to get token usage from engine:', error)
+      }
+    }
+    
     return {
-      isInitialized: this.isInitialized,
-      currentSessionId: currentSession?.id || null,
-      sessionCount: 0, // 需要实现
-      messageCount: 0, // 需要实现
-      lastActivity: currentSession?.updatedAt || null,
-      config: this.currentConfig
+      status,
+      currentSessionId: currentSession?.id || undefined,
+      tokenUsage,
+      lastActivity: currentSession?.updatedAt || undefined,
     }
   }
 
@@ -398,7 +373,7 @@ export class AIAgentServiceV2 implements ISessionEventListener {
     }
   }
 
-  getAvailableTools(): MCPTool[] {
+  getAvailableTools(): Tool[] {
     return this.toolManager.getAvailableTools()
   }
 
@@ -407,7 +382,7 @@ export class AIAgentServiceV2 implements ISessionEventListener {
    */
   async getModelConfig(id: string): Promise<Partial<AgentConfig> | null> {
     try {
-      return await this.modelConfigService.getConfig(id)
+      return await this.modelConfigService.getConfigById(id)
     } catch (error) {
       console.error('[AIAgentServiceV2] Failed to get model config:', error)
       return null
@@ -468,7 +443,7 @@ export class AIAgentServiceV2 implements ISessionEventListener {
   /**
    * 清理资源
    */
-  async destroy(): void {
+  async destroy(): Promise<void> {
     try {
       if (!this.isInitialized) {
         return
@@ -540,9 +515,24 @@ export class AIAgentServiceV2 implements ISessionEventListener {
    * 私有辅助方法
    */
   private async getSessionEngine(sessionId: string): Promise<AIAgentEngine> {
-    // 这里需要通过EngineLifecycleManager获取引擎实例
-    // 暂时返回一个新实例，实际应该从生命周期管理器获取
-    return new AIAgentEngine()
+    try {
+      const engineLifecycleManager = serviceContainer.get<EngineLifecycleManager>(SERVICE_TOKENS.ENGINE_LIFECYCLE_MANAGER)
+      const engine = engineLifecycleManager.getEngine(sessionId)
+      
+      if (!engine) {
+        // 如果引擎不存在，尝试创建一个
+        const session = await this.sessionManager.findSessionById(sessionId)
+        if (!session) {
+          throw new Error(`Session with id ${sessionId} not found`)
+        }
+        return await engineLifecycleManager.initializeForSession(session)
+      }
+      
+      return engine
+    } catch (error) {
+      console.error('[AIAgentServiceV2] Failed to get session engine:', error)
+      throw error
+    }
   }
 
   private async syncMessage(sessionId: string, message: ChatMessage): Promise<void> {

@@ -14,9 +14,9 @@ import {
   SessionStatus,
   SessionEvent,
   SessionEventType,
-  SessionManagerConfig,
   SERVICE_TOKENS
 } from '../../../shared/cache-types/session/session-manager.types'
+import { SessionManagerConfig, DEFAULT_CONFIGS, ConfigUtils } from '../../../shared/cache-types/session/service-configs.types'
 import { TypeORMService } from '../database/TypeORMService'
 import { Injectable, serviceContainer } from './ServiceContainer'
 
@@ -37,20 +37,11 @@ export class SessionManager implements ISessionManager {
     private typeormService: TypeORMService,
     config?: Partial<SessionManagerConfig>
   ) {
-    this.config = {
-      maxEngineInstances: 5,
-      engineIdleTimeout: 30 * 60 * 1000, // 30分钟
-      autoCleanupInterval: 10 * 60 * 1000, // 10分钟
-      defaultSessionTitle: '新对话',
-      enableEventLogging: true,
-      messageHistoryLimit: 1000,
-      messageBatchSize: 50,
-      configCacheSize: 100,
-      configCacheTTL: 5 * 60 * 1000, // 5分钟
-      databasePath: './data/sessions.db',
-      enableWAL: true,
-      ...config
-    }
+    // 使用专门的SessionManagerConfig，只包含会话管理相关的配置
+    this.config = ConfigUtils.mergeWithDefaults(
+      config || {},
+      DEFAULT_CONFIGS.sessionManager
+    )
   }
 
   /**
@@ -391,9 +382,11 @@ export class SessionManager implements ISessionManager {
 
       return {
         messageCount: messageStats.count,
-        tokenUsage,
-        lastActivity: session.updatedAt,
-        duration
+        lastMessageAt: messageStats.lastMessageAt,
+        totalTokens: tokenUsage.totalTokens,
+        averageResponseTime: messageStats.averageResponseTime,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
       }
     } catch (error) {
       console.error('[SessionManager] Failed to get session stats:', error)
@@ -475,12 +468,19 @@ export class SessionManager implements ISessionManager {
   }
 
   /**
-   * 根据ID查找会话
+   * 根据ID查找会话（公共方法）
    */
-  private async findSessionById(sessionId: string): Promise<ChatSession | null> {
+  async findSessionById(sessionId: string): Promise<ChatSession | null> {
     return await this.sessionRepository.findOne({
       where: { id: sessionId },
       relations: ['agentConfig']
     })
+  }
+
+  /**
+   * 根据ID查找会话（私有方法，保持向后兼容）
+   */
+  private async findSessionByIdPrivate(sessionId: string): Promise<ChatSession | null> {
+    return await this.findSessionById(sessionId)
   }
 }

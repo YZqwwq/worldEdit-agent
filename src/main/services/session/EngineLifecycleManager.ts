@@ -5,26 +5,23 @@ import {
   IEngineLifecycleManager,
   ISessionConfigLoader,
   EngineInstance,
-  SessionManagerConfig,
   SERVICE_TOKENS
 } from '../../../shared/cache-types/session/session-manager.types'
+import { EngineLifecycleConfig, DEFAULT_CONFIGS, ConfigUtils } from '../../../shared/cache-types/session/service-configs.types'
 import { Injectable, serviceContainer } from './ServiceContainer'
 
 @Injectable(SERVICE_TOKENS.ENGINE_LIFECYCLE_MANAGER)
 export class EngineLifecycleManager implements IEngineLifecycleManager {
   private engineInstances: Map<string, EngineInstance> = new Map()
-  private config: SessionManagerConfig
+  private config: EngineLifecycleConfig
   private configLoader!: ISessionConfigLoader
 
-  constructor(config?: Partial<SessionManagerConfig>) {
-    this.config = {
-      maxEngineInstances: 5,
-      engineIdleTimeout: 30 * 60 * 1000, // 30分钟
-      autoCleanupInterval: 10 * 60 * 1000, // 10分钟
-      defaultSessionTitle: '新对话',
-      enableEventLogging: true,
-      ...config
-    }
+  constructor(config?: Partial<EngineLifecycleConfig>) {
+    // 使用专门的EngineLifecycleConfig，只包含引擎生命周期相关的配置
+    this.config = ConfigUtils.mergeWithDefaults(
+      config || {},
+      DEFAULT_CONFIGS.engineLifecycle
+    )
   }
 
   /**

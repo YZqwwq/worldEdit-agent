@@ -16,6 +16,7 @@ import { DATABASE_TOOLS, DatabaseToolExecutor } from './DatabaseTools'
  * MCP工具实现类
  * 继承Langchain的Tool基类，用于集成到Agent中
  */
+
 class MCPToolImplementation extends Tool {
   name: string
   description: string

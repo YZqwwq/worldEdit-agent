@@ -4,9 +4,9 @@ import { AgentConfig } from '../../../shared/entities/agent/AgentConfig.entity'
 import { ModelProvider } from '../../../shared/cache-types/agent/modelEnum'
 import {
   ISessionConfigLoader,
-  SessionManagerConfig,
   SERVICE_TOKENS
 } from '../../../shared/cache-types/session/session-manager.types'
+import { SessionConfigLoaderConfig, DEFAULT_CONFIGS, ConfigUtils } from '../../../shared/cache-types/session/service-configs.types'
 
 import { TypeORMService } from '../database/TypeORMService'
 import { Injectable } from './ServiceContainer'
@@ -14,15 +14,21 @@ import { Injectable } from './ServiceContainer'
 @Injectable(SERVICE_TOKENS.SESSION_CONFIG_LOADER)
 export class SessionConfigLoader implements ISessionConfigLoader {
   private systemDefaultConfig: AgentConfig | null = null
-  private userDefaultConfigs: Map<string, AgentConfig> = new Map()
-  private configCache: Map<string, { config: AgentConfig; timestamp: number }> = new Map()
+  private configCache: Map<string, AgentConfig> = new Map()
   private sessionRepository!: Repository<ChatSession>
   private agentConfigRepository!: Repository<AgentConfig>
+  private config: SessionConfigLoaderConfig
 
   constructor(
     private typeormService: TypeORMService,
-    private config: SessionManagerConfig
-  ) {}
+    config?: Partial<SessionConfigLoaderConfig>
+  ) {
+    // 使用专门的SessionConfigLoaderConfig，只包含配置加载相关的配置
+    this.config = ConfigUtils.mergeWithDefaults(
+      config || {},
+      DEFAULT_CONFIGS.configLoader
+    )
+  }
 
   /**
    * 初始化服务
@@ -50,7 +56,6 @@ export class SessionConfigLoader implements ISessionConfigLoader {
     try {
       // 清理缓存
       this.configCache.clear()
-      this.userDefaultConfigs.clear()
       this.systemDefaultConfig = null
       
       console.log('[SessionConfigLoader] Destroyed successfully')
@@ -63,51 +68,19 @@ export class SessionConfigLoader implements ISessionConfigLoader {
   /**
    * 加载会话的Agent配置
    */
-  async loadConfigForSession(sessionId: string): Promise<AgentConfig> {
+  async loadSessionConfig(sessionId: string): Promise<AgentConfig> {
     try {
-      // 检查缓存
-      const cached = this.configCache.get(sessionId)
-      if (cached && Date.now() - cached.timestamp < this.config.configCacheTTL!) {
-        return cached.config
-      }
-      
-      // 查找会话
+      // 首先查找会话
       const session = await this.sessionRepository.findOne({
         where: { id: sessionId },
         relations: ['agentConfig']
       })
-      
-      let config: AgentConfig
-      
-      if (session?.agentConfig) {
-        // 使用会话特定配置
-        config = session.agentConfig
-      } else {
-        // 使用用户默认配置或系统默认配置
-        config = await this.loadDefaultConfig(session?.userId)
-      }
-      
-      // 缓存配置
-      this.configCache.set(sessionId, {
-        config,
-        timestamp: Date.now()
-      })
-      
-      // 清理过期缓存
-      this.cleanupExpiredCache()
-      
-      return config
-    } catch (error) {
-      console.error('[SessionConfigLoader] Failed to load config for session:', error)
-      throw error
-    }
-  }
 
-  /**
-   * 加载会话的Agent配置（兼容旧接口）
-   */
-  async loadSessionConfig(session: ChatSession): Promise<AgentConfig> {
-    try {
+      if (!session) {
+        console.warn(`[SessionConfigLoader] Session ${sessionId} not found, using system default config`)
+        return await this.loadSystemDefaultConfig()
+      }
+
       // 如果会话已经关联了agentConfig，直接返回
       if (session.agentConfig) {
         return session.agentConfig
@@ -124,72 +97,40 @@ export class SessionConfigLoader implements ISessionConfigLoader {
         }
       }
 
-      // 如果没有找到特定配置，使用用户默认配置
-      const userDefaultConfig = await this.getUserDefaultConfig(session.userId)
-      if (userDefaultConfig) {
-        return userDefaultConfig
-      }
-
       // 最后使用系统默认配置
-      return await this.getSystemDefaultConfig()
+      return await this.loadSystemDefaultConfig()
     } catch (error) {
       console.error('[SessionConfigLoader] Failed to load session config:', error)
       // 出错时返回系统默认配置
-      return await this.getSystemDefaultConfig()
+      return await this.loadSystemDefaultConfig()
     }
   }
 
   /**
-   * 获取用户默认配置
+   * 加载用户默认配置
    */
-  async getUserDefaultConfig(userId?: string): Promise<AgentConfig | null> {
+  async loadUserDefaultConfig(userId: string): Promise<AgentConfig | null> {
     try {
-      if (!userId) {
-        return null
-      }
-
-      // 检查缓存
-      const cachedConfig = this.userDefaultConfigs.get(userId)
-      if (cachedConfig) {
-        return cachedConfig
-      }
-
-      // 从数据库查找用户的默认配置
+      // 查找用户的默认配置
       const userConfig = await this.agentConfigRepository.findOne({
-        where: {
-          userId,
-          isDefault: true
-        }
+        where: { isDefault: true }
       })
 
       if (userConfig) {
-        // 缓存用户配置
-        this.userDefaultConfigs.set(userId, userConfig)
         return userConfig
-      }
-
-      // 如果用户没有默认配置，查找用户的第一个配置
-      const firstUserConfig = await this.agentConfigRepository.findOne({
-        where: { userId },
-        order: { createdAt: 'ASC' }
-      })
-
-      if (firstUserConfig) {
-        this.userDefaultConfigs.set(userId, firstUserConfig)
-        return firstUserConfig
       }
 
       return null
     } catch (error) {
-      console.error('[SessionConfigLoader] Failed to get user default config:', error)
+      console.error('[SessionConfigLoader] Failed to load user default config:', error)
       return null
     }
   }
 
   /**
-   * 获取系统默认配置
+   * 加载系统默认配置
    */
-  async getSystemDefaultConfig(): Promise<AgentConfig> {
+  async loadSystemDefaultConfig(): Promise<AgentConfig> {
     try {
       // 如果已缓存，直接返回
       if (this.systemDefaultConfig) {
@@ -198,9 +139,7 @@ export class SessionConfigLoader implements ISessionConfigLoader {
 
       // 从数据库查找系统默认配置
       let systemConfig = await this.agentConfigRepository.findOne({
-        where: {
-          isSystemDefault: true
-        }
+        where: { isDefault: true }
       })
 
       // 如果没有系统默认配置，创建一个
@@ -212,163 +151,40 @@ export class SessionConfigLoader implements ISessionConfigLoader {
       this.systemDefaultConfig = systemConfig
       return systemConfig
     } catch (error) {
-      console.error('[SessionConfigLoader] Failed to get system default config:', error)
+      console.error('[SessionConfigLoader] Failed to load system default config:', error)
       throw error
     }
   }
 
   /**
-   * 更新会话配置
+   * 获取缓存的配置
    */
-  async updateSessionConfig(sessionId: string, configId: string): Promise<void> {
-    try {
-      // 验证配置是否存在
-      const config = await this.agentConfigRepository.findOne({
-        where: { id: configId }
-      })
-
-      if (!config) {
-        throw new Error(`AgentConfig with id ${configId} not found`)
-      }
-
-      // 更新会话的配置ID
-      // 这里需要注入ChatSession的Repository
-      // 为了简化，暂时不实现具体的更新逻辑
-      
-      console.log('[SessionConfigLoader] Session config updated:', {
-        sessionId,
-        configId
-      })
-    } catch (error) {
-      console.error('[SessionConfigLoader] Failed to update session config:', error)
-      throw error
-    }
+  getCachedConfig(configId: string): AgentConfig | null {
+    return this.configCache.get(configId) || null
   }
 
   /**
-   * 清除用户配置缓存
+   * 设置缓存的配置
    */
-  clearUserConfigCache(userId: string): void {
-    this.userDefaultConfigs.delete(userId)
+  setCachedConfig(configId: string, config: AgentConfig): void {
+    this.configCache.set(configId, config)
   }
 
   /**
-   * 清除所有缓存
+   * 清除配置缓存
    */
-  clearAllCache(): void {
+  clearConfigCache(): void {
+    this.configCache.clear()
     this.systemDefaultConfig = null
-    this.userDefaultConfigs.clear()
-  }
-
-  /**
-   * 初始化系统默认配置
-   */
-  private async initializeSystemDefaultConfig(): Promise<void> {
-    try {
-      await this.getSystemDefaultConfig()
-    } catch (error) {
-      console.error('[SessionConfigLoader] Failed to initialize system default config:', error)
-    }
-  }
-
-  /**
-   * 加载默认配置
-   */
-  private async loadDefaultConfig(userId?: string): Promise<AgentConfig> {
-    if (userId) {
-      // 尝试加载用户默认配置
-      const userDefault = await this.agentConfigRepository.findOne({
-        where: { userId, isDefault: true }
-      })
-      if (userDefault) {
-        return userDefault
-      }
-    }
-    
-    // 加载系统默认配置
-    const systemDefault = await this.agentConfigRepository.findOne({
-      where: { isSystemDefault: true }
-    })
-    
-    if (!systemDefault) {
-      // 创建系统默认配置
-      return await this.createSystemDefaultConfig()
-    }
-    
-    return systemDefault
-  }
-
-  /**
-   * 创建系统默认配置
-   */
-  private async createSystemDefaultConfig(): Promise<AgentConfig> {
-    try {
-      const defaultConfig = this.agentConfigRepository.create({
-        name: '系统默认配置',
-        description: '系统默认的AI Agent配置',
-        modelProvider: ModelProvider.OPENAI,
-        modelName: 'gpt-3.5-turbo',
-        temperature: 0.7,
-        maxTokens: 2048,
-        systemPrompt: '你是一个有用的AI助手，请尽力帮助用户解决问题。',
-        enableTools: true,
-        toolConfigs: {},
-        isSystemDefault: true,
-        isDefault: false,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-
-      const savedConfig = await this.agentConfigRepository.save(defaultConfig)
-      
-      console.log('[SessionConfigLoader] System default config created:', {
-        configId: savedConfig.id,
-        modelProvider: savedConfig.modelProvider,
-        modelName: savedConfig.modelName
-      })
-
-      return savedConfig
-    } catch (error) {
-      console.error('[SessionConfigLoader] Failed to create system default config:', error)
-      throw error
-    }
-  }
-
-  /**
-   * 确保系统默认配置存在
-   */
-  private async ensureSystemDefaultConfig(): Promise<void> {
-    const systemDefault = await this.agentConfigRepository.findOne({
-      where: { isSystemDefault: true }
-    })
-    
-    if (!systemDefault) {
-      await this.createSystemDefaultConfig()
-      console.log('[SessionConfigLoader] Created system default config')
-    }
-  }
-
-  /**
-   * 清理过期缓存
-   */
-  private cleanupExpiredCache(): void {
-    const now = Date.now()
-    const ttl = this.config.configCacheTTL!
-    
-    for (const [key, value] of this.configCache.entries()) {
-      if (now - value.timestamp > ttl) {
-        this.configCache.delete(key)
-      }
-    }
   }
 
   /**
    * 验证配置的完整性
    */
-  private validateConfig(config: AgentConfig): boolean {
+  validateConfig(config: Partial<AgentConfig>): boolean {
     try {
       // 检查必要字段
-      if (!config.modelProvider || !config.modelName) {
+      if (!config.provider || !config.modelName) {
         return false
       }
 
@@ -389,9 +205,50 @@ export class SessionConfigLoader implements ISessionConfigLoader {
   }
 
   /**
-   * 获取配置的摘要信息
+   * 创建系统默认配置
    */
-  getConfigSummary(config: AgentConfig): string {
-    return `${config.name} (${config.modelProvider}/${config.modelName})`
+  private async createSystemDefaultConfig(): Promise<AgentConfig> {
+    try {
+      const defaultConfig = this.agentConfigRepository.create({
+        name: '系统默认配置',
+        description: '系统默认的AI Agent配置',
+        provider: ModelProvider.OPENAI,
+        modelName: 'gpt-3.5-turbo',
+        apiKey: '',
+        temperature: 0.7,
+        maxTokens: 2048,
+        systemPrompt: '你是一个有用的AI助手，请尽力帮助用户解决问题。',
+        isDefault: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+
+      const savedConfig = await this.agentConfigRepository.save(defaultConfig)
+      
+      console.log('[SessionConfigLoader] System default config created:', {
+        configId: savedConfig.id,
+        provider: savedConfig.provider,
+        modelName: savedConfig.modelName
+      })
+
+      return savedConfig
+    } catch (error) {
+      console.error('[SessionConfigLoader] Failed to create system default config:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 确保系统默认配置存在
+   */
+  private async ensureSystemDefaultConfig(): Promise<void> {
+    const systemDefault = await this.agentConfigRepository.findOne({
+      where: { isDefault: true }
+    })
+    
+    if (!systemDefault) {
+      await this.createSystemDefaultConfig()
+      console.log('[SessionConfigLoader] Created system default config')
+    }
   }
 }

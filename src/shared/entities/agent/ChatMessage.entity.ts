@@ -38,6 +38,9 @@ export class ChatMessage {
   @CreateDateColumn()
   createdAt!: Date;
 
+  @CreateDateColumn()
+  updatedAt!: Date;
+
   @Column({ type: 'json', nullable: true })
   metadata?: Record<string, any>;
 

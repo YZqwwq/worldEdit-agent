@@ -67,7 +67,13 @@ export class AIAgentService {
 - AI 模型的初始化和配置
 - 消息处理和响应生成
 - 工具调用管理
-- 对话历史维护
+- **对话历史维护**（引擎内部状态管理）
+- **消息管理公共接口**：
+  - `addMessageToHistory(message)` - 添加单条消息到历史
+  - `addMessagesToHistory(messages)` - 批量添加消息到历史
+  - `loadMessageHistory(messages)` - 加载消息历史到引擎
+  - `getConversationHistory()` - 获取对话历史
+  - `clearConversationHistory()` - 清空对话历史
 
 **支持的模型提供商**:
 - OpenAI (GPT-3.5, GPT-4 系列)
@@ -78,9 +84,18 @@ export class AIAgentService {
 **角色**: 对话上下文管理器
 **职责**:
 - 会话生命周期管理
-- 消息历史存储和检索
 - 上下文窗口控制
 - 会话统计和分析
+- 协调会话层和引擎层的交互
+
+#### 3.1. `/src/main/services/session/MessageSyncService.ts`
+**角色**: 消息同步服务（会话层）
+**职责**:
+- 消息的数据库持久化操作
+- 消息历史的存储和检索
+- 会话统计信息维护
+- 消息格式转换（数据库格式 ↔ 引擎格式）
+- **注意**: 不直接操作引擎内部状态，通过引擎公共接口交互
 
 #### 4. `/src/main/services/ai-agent/ModelAdapter.ts`
 **角色**: 模型适配器
@@ -394,6 +409,48 @@ export interface ChatMessage {
 - ⚡ 防抖节流
 
 ## 🔄 数据流向
+
+## 🏛️ 架构设计原则
+
+### 层次职责边界
+
+#### 1. 引擎层（AIAgentEngine）
+**核心职责**：
+- 管理AI模型的对话状态和历史
+- 提供消息管理的公共接口
+- 维护对话上下文的完整性
+- 处理AI模型的调用和响应
+
+**设计原则**：
+- 封装内部状态，不允许外部直接访问 `conversationHistory`
+- 通过公共方法提供消息操作能力
+- 保证对话历史的一致性和完整性
+
+#### 2. 会话层（MessageSyncService）
+**核心职责**：
+- 负责消息的数据库持久化
+- 提供消息历史的存储和检索
+- 维护会话统计信息
+- 处理消息格式转换
+
+**设计原则**：
+- 只通过引擎的公共接口操作消息历史
+- 专注于数据持久化，不直接管理引擎状态
+- 保持与引擎层的松耦合关系
+
+#### 3. 交互规范
+```
+会话层 (MessageSyncService)
+       ↓ 通过公共接口
+引擎层 (AIAgentEngine)
+       ↓ 管理内部状态
+对话历史 (conversationHistory)
+```
+
+**正确的交互方式**：
+- ✅ `MessageSyncService` → `engine.addMessageToHistory(message)`
+- ✅ `MessageSyncService` → `engine.loadMessageHistory(messages)`
+- ❌ `MessageSyncService` → `engine.conversationHistory.push(message)`
 
 ### 消息发送流程
 ```

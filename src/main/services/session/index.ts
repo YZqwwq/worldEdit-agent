@@ -12,7 +12,7 @@ export { SessionConfigLoader } from './SessionConfigLoader'
 export { ServiceContainer, serviceContainer, Injectable } from './ServiceContainer'
 
 // 接口和类型
-export {
+export type{
   ISessionManager,
   IEngineLifecycleManager,
   IMessageSyncService,
