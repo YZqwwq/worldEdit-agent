@@ -1,6 +1,6 @@
 export enum AgentStatus {
   IDLE = 'idle',
-  BUSY = 'busy',
+  RUNNING = 'running',
   ERROR = 'error',
   OFFLINE = 'offline'
 }

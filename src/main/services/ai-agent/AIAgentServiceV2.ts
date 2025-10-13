@@ -35,8 +35,10 @@ import type {
 import type {
   AgentConfig,
   ChatMessage,
-  ChatSession
+  ChatSession,
 } from '../../../shared/entities/agent'
+
+import type { TokenUsage } from '../../../shared/cache-types/agent/agent'
 import { Tool } from '@langchain/core/tools'
 
 // 服务层使用的 AgentConfig 接口
@@ -135,24 +137,23 @@ export class AIAgentServiceV2 implements ISessionEventListener {
 
   /**
    * 进入会话（核心方法）
+   * 现在通过EngineLifecycleManager统一处理会话进入和引擎初始化
    */
   async enterSession(sessionId?: string, options?: SessionCreateOptions): Promise<{
     session: ChatSession
     engine: AIAgentEngine
   }> {
     try {
-      // 使用SessionManager进入会话
-      const session = await this.sessionManager.enterSession(sessionId, options)
-      
-      // 获取当前会话的引擎实例
-      const engine = await this.getSessionEngine(session.id)
+      // 通过EngineLifecycleManager统一处理会话进入和引擎初始化
+      const engineLifecycleManager = serviceContainer.get<EngineLifecycleManager>(SERVICE_TOKENS.ENGINE_LIFECYCLE_MANAGER)
+      const result = await engineLifecycleManager.enterSessionWithEngine(sessionId, options)
       
       console.log('[AIAgentServiceV2] Entered session successfully:', {
-        sessionId: session.id,
-        title: session.title
+        sessionId: result.session.id,
+        title: result.session.title
       })
       
-      return { session, engine }
+      return result
     } catch (error) {
       console.error('[AIAgentServiceV2] Failed to enter session:', error)
       throw error
@@ -338,7 +339,7 @@ export class AIAgentServiceV2 implements ISessionEventListener {
     }
     
     // 获取Token使用统计
-    let tokenUsage: number | undefined
+    let tokenUsage: TokenUsage | undefined
     if (currentSession) {
       // 从当前引擎获取Token使用情况
       try {
@@ -520,12 +521,8 @@ export class AIAgentServiceV2 implements ISessionEventListener {
       const engine = engineLifecycleManager.getEngine(sessionId)
       
       if (!engine) {
-        // 如果引擎不存在，尝试创建一个
-        const session = await this.sessionManager.findSessionById(sessionId)
-        if (!session) {
-          throw new Error(`Session with id ${sessionId} not found`)
-        }
-        return await engineLifecycleManager.initializeForSession(session)
+        // 如果引擎不存在，抛出错误，因为现在应该通过enterSessionWithEngine来确保引擎存在
+        throw new Error(`Engine for session ${sessionId} not found. Please use enterSession to initialize the session and engine.`)
       }
       
       return engine

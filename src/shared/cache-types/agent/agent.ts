@@ -18,6 +18,12 @@ export enum ConnectionStatus {
   ERROR = 'error'
 }
 
+export type TokenUsage = {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
 // 服务层使用的 AgentConfig 接口，扩展实体类型
 export interface ServiceAgentConfig {
   id?: string
@@ -78,7 +84,7 @@ export interface ChatSession {
 export interface RuntimeAgentState {
   status: AgentStatus
   currentSessionId?: string
-  tokenUsage?: number 
+  tokenUsage?: TokenUsage 
   lastActivity?: Date 
 }
 

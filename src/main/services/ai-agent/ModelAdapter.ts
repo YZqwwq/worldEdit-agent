@@ -8,11 +8,12 @@ import { ChatAnthropic } from '@langchain/anthropic'
 import { BaseLanguageModel } from '@langchain/core/language_models/base'
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages'
 import {
-  ModelProvider,
   TokenUsage,
   ChatMessage,
-  MessageType
 } from '../../../shared/cache-types/agent/agent'
+
+import { ModelProvider } from '../../../shared/cache-types/agent/modelEnum';
+import { MessageType } from '../../../shared/cache-types/agent/chatMessageTypeEnum'
 import { AgentConfig } from '../../../shared/entities/agent/AgentConfig.entity'
 
 /**
@@ -111,7 +112,7 @@ export class ModelAdapter {
     }
 
     return {
-      provider: this.config.provider,
+      provider: this.config.provider || ModelProvider.OPENAI,
       modelName: this.config.modelName || "",
       isInitialized: this.model !== null
     }

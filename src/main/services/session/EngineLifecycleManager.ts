@@ -4,7 +4,9 @@ import { AIAgentEngine } from '../ai-agent/AIAgentEngine'
 import {
   IEngineLifecycleManager,
   ISessionConfigLoader,
+  ISessionManager,
   EngineInstance,
+  SessionCreateOptions,
   SERVICE_TOKENS
 } from '../../../shared/cache-types/session/session-manager.types'
 import { EngineLifecycleConfig, DEFAULT_CONFIGS, ConfigUtils } from '../../../shared/cache-types/session/service-configs.types'
@@ -15,6 +17,7 @@ export class EngineLifecycleManager implements IEngineLifecycleManager {
   private engineInstances: Map<string, EngineInstance> = new Map()
   private config: EngineLifecycleConfig
   private configLoader!: ISessionConfigLoader
+  private sessionManager!: ISessionManager
 
   constructor(config?: Partial<EngineLifecycleConfig>) {
     // 使用专门的EngineLifecycleConfig，只包含引擎生命周期相关的配置
@@ -31,6 +34,7 @@ export class EngineLifecycleManager implements IEngineLifecycleManager {
     try {
       // 从服务容器获取依赖
       this.configLoader = serviceContainer.get<ISessionConfigLoader>(SERVICE_TOKENS.SESSION_CONFIG_LOADER)
+      this.sessionManager = serviceContainer.get<ISessionManager>(SERVICE_TOKENS.SESSION_MANAGER)
       
       // 初始化依赖服务
       await this.configLoader.initialize()
@@ -64,6 +68,34 @@ export class EngineLifecycleManager implements IEngineLifecycleManager {
   }
 
   /**
+   * 统一的会话进入和引擎初始化方法
+   * 这是新的核心方法，确保会话获取和引擎初始化的正确顺序
+   */
+  async enterSessionWithEngine(sessionId?: string, options?: SessionCreateOptions): Promise<{
+    session: ChatSession
+    engine: AIAgentEngine
+  }> {
+    try {
+      // 1. 首先通过SessionManager进入会话
+      const session = await this.sessionManager.enterSession(sessionId, options)
+      
+      // 2. 然后为该会话初始化或获取引擎
+      const engine = await this.initializeForSession(session)
+      
+      console.log('[EngineLifecycleManager] Session entered with engine initialized:', {
+        sessionId: session.id,
+        title: session.title,
+        totalEngines: this.engineInstances.size
+      })
+      
+      return { session, engine }
+    } catch (error) {
+      console.error('[EngineLifecycleManager] Failed to enter session with engine:', error)
+      throw error
+    }
+  }
+
+  /**
    * 为会话初始化引擎
    */
   async initializeForSession(session: ChatSession): Promise<AIAgentEngine> {
@@ -75,6 +107,9 @@ export class EngineLifecycleManager implements IEngineLifecycleManager {
         return existingInstance.engine
       }
 
+      // 如果不存在引擎实例或实例不活跃，创建新的引擎实例
+      console.log('[EngineLifecycleManager] Creating new engine for session:', session.id)
+      
       // 加载会话配置
       const agentConfig = await this.configLoader.loadSessionConfig(session.id)
       
@@ -406,7 +441,7 @@ export class EngineLifecycleManager implements IEngineLifecycleManager {
    * 强制执行引擎数量限制
    */
   async enforceEngineLimit(): Promise<void> {
-    const maxEngines = this.config.maxEngineInstances || 5
+    const maxEngines = this.config.maxEngineInstances || 10
     
     if (this.engineInstances.size >= maxEngines) {
       // 找到最久未访问的引擎
