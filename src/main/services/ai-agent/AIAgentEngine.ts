@@ -20,10 +20,10 @@ import type {
 } from '../../../shared/entities/agent';
 import type { RuntimeAgentState } from '../../../shared/cache-types/agent/agent';
 import { AgentStatus } from '../../../shared/entities/agent';
-import { ModelProvider } from '../../../shared/cache-types/agent/modelEnum';
+import { ModelProvider } from '../../../shared/cache-types/agent/Enum/modelEnum';
 import { ServiceAgentConfig } from '../../../shared/cache-types/agent/agent'
 import { PromptPipeline } from '../prompt/PromptPipeline'
-import { buildMCPPromptWithTools } from '../../system-prompt/system-mcp-prompt'
+import { buildMCPPromptWithTools } from '../../prompt-design/system-mcp-prompt'
 
 /**
  * AI Agent引擎类

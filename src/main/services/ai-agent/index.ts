@@ -402,13 +402,6 @@ export class AIAgentService {
   }
 
   /**
-   * 检查服务是否已初始化
-   */
-  isReady(): boolean {
-    return this.isInitialized
-  }
-
-  /**
    * 生成消息ID
    */
   private generateMessageId(): string {

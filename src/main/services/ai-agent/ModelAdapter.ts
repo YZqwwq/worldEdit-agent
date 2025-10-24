@@ -12,8 +12,8 @@ import {
   ChatMessage,
 } from '../../../shared/cache-types/agent/agent'
 
-import { ModelProvider } from '../../../shared/cache-types/agent/modelEnum';
-import { MessageType } from '../../../shared/cache-types/agent/chatMessageTypeEnum'
+import { ModelProvider } from '../../../shared/cache-types/agent/Enum/modelEnum';
+import { MessageType } from '../../../shared/cache-types/agent/Enum/chatMessageTypeEnum'
 import { AgentConfig } from '../../../shared/entities/agent/AgentConfig.entity'
 
 /**

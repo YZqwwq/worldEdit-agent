@@ -1,7 +1,7 @@
 import { Repository } from 'typeorm'
 import { ChatSession } from '../../../shared/entities/agent/ChatSession.entity'
 import { AgentConfig } from '../../../shared/entities/agent/AgentConfig.entity'
-import { ModelProvider } from '../../../shared/cache-types/agent/modelEnum'
+import { ModelProvider } from '../../../shared/cache-types/agent/Enum/modelEnum'
 import {
   ISessionConfigLoader,
   SERVICE_TOKENS

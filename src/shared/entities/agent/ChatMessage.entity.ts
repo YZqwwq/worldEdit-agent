@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { ChatSession } from './ChatSession.entity';
-import { MessageRole, MessageType } from '../../cache-types/agent/chatMessageTypeEnum';
+import { MessageRole, MessageType } from '../../cache-types/agent/Enum/chatMessageTypeEnum';
 
 @Entity('chat_messages')
 export class ChatMessage {

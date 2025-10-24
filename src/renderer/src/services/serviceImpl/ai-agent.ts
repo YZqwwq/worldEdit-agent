@@ -20,7 +20,6 @@ import {
   ToolType,
   UsageType
 } from '../../../../shared/entities/agent'
-import { ModelConfig } from '../../../../shared/entities/model';
 
 /**
  * IPC通道常量
@@ -279,50 +278,50 @@ export class AIAgentService {
 
   // ==================== 模型配置管理 ====================
 
-  /**
-   * 创建模型配置
-   */
-  async createModelConfig(config: Omit<ModelConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<ModelConfig> {
-    return this.invoke<ModelConfig>(AI_AGENT_CHANNELS.CREATE_MODEL_CONFIG, config)
-  }
+  // /**
+  //  * 创建模型配置
+  //  */
+  // async createModelConfig(config: Omit<ModelConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<ModelConfig> {
+  //   return this.invoke<ModelConfig>(AI_AGENT_CHANNELS.CREATE_MODEL_CONFIG, config)
+  // }
 
-  /**
-   * 获取模型配置
-   */
-  async getModelConfig(id: string): Promise<ModelConfig | null> {
-    return this.invoke<ModelConfig | null>(AI_AGENT_CHANNELS.GET_MODEL_CONFIG, id)
-  }
+  // /**
+  //  * 获取模型配置
+  //  */
+  // async getModelConfig(id: string): Promise<AgentConfig | null> {
+  //   return this.invoke<AgentConfig | null>(AI_AGENT_CHANNELS.GET_MODEL_CONFIG, id)
+  // }
 
-  /**
-   * 更新模型配置
-   */
-  async updateModelConfig(id: string, updates: Partial<ModelConfig>): Promise<ModelConfig> {
-    return this.invoke<ModelConfig>(AI_AGENT_CHANNELS.UPDATE_MODEL_CONFIG, id, updates)
-  }
+  // /**
+  //  * 更新模型配置
+  //  */
+  // async updateModelConfig(id: string, updates: Partial<ModelConfig>): Promise<ModelConfig> {
+  //   return this.invoke<ModelConfig>(AI_AGENT_CHANNELS.UPDATE_MODEL_CONFIG, id, updates)
+  // }
 
-  /**
-   * 删除模型配置
-   */
-  async deleteModelConfig(id: string): Promise<boolean> {
-    return this.invoke<boolean>(AI_AGENT_CHANNELS.DELETE_MODEL_CONFIG, id)
-  }
+  // /**
+  //  * 删除模型配置
+  //  */
+  // async deleteModelConfig(id: string): Promise<boolean> {
+  //   return this.invoke<boolean>(AI_AGENT_CHANNELS.DELETE_MODEL_CONFIG, id)
+  // }
 
-  /**
-   * 获取所有模型配置
-   */
-  async getAllModelConfigs(): Promise<ModelConfig[]> {
-    return this.invoke<ModelConfig[]>(AI_AGENT_CHANNELS.GET_ALL_MODEL_CONFIGS)
-  }
+  // /**
+  //  * 获取所有模型配置
+  //  */
+  // async getAllModelConfigs(): Promise<ModelConfig[]> {
+  //   return this.invoke<ModelConfig[]>(AI_AGENT_CHANNELS.GET_ALL_MODEL_CONFIGS)
+  // }
 
-  /**
-   * 测试模型配置
-   */
-  async testModelConfig(config: ModelConfig): Promise<{ success: boolean; error?: string; latency?: number }> {
-    return this.invoke<{ success: boolean; error?: string; latency?: number }>(
-      AI_AGENT_CHANNELS.TEST_MODEL_CONFIG, 
-      config
-    )
-  }
+  // /**
+  //  * 测试模型配置
+  //  */
+  // async testModelConfig(config: ModelConfig): Promise<{ success: boolean; error?: string; latency?: number }> {
+  //   return this.invoke<{ success: boolean; error?: string; latency?: number }>(
+  //     AI_AGENT_CHANNELS.TEST_MODEL_CONFIG, 
+  //     config
+  //   )
+  // }
 
   // ==================== 聊天会话管理 ====================
 
@@ -608,12 +607,12 @@ export const {
   deleteAgentConfig,
   getAllAgentConfigs,
   setDefaultAgentConfig,
-  createModelConfig,
-  getModelConfig,
-  updateModelConfig,
-  deleteModelConfig,
-  getAllModelConfigs,
-  testModelConfig,
+  // createModelConfig,
+  // getModelConfig,
+  // updateModelConfig,
+  // deleteModelConfig,
+  // getAllModelConfigs,
+  // testModelConfig,
   createChatSession,
   getChatSession,
   updateChatSession,

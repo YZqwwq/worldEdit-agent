@@ -7,19 +7,51 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import type {
   ChatMessage,
   ChatSession,
-  ModelConfig,
   AgentConfig,
-  ConnectionStatus,
-  UsageStats,
   TokenUsage,
-  MCPTool,
-  MCPServerConfig,
-  WritingTemplate,
-  OptimizationSuggestion,
-  Notification,
-  APIResponse
-} from ''
-import { AIAgentAPIService } from '../services/serviceImpl/ai-agent'
+  MessageRole,
+  SessionStatus
+} from '../../../shared/entities/agent'
+import type { ModelConfig, ChatMessageVO, ChatSessionVO } from '../../../shared/types/agent'
+import { ConnectionStatus, SessionStatus } from '../../../shared/cache-types/agent'
+import { AIAgentService } from '../services/serviceImpl/ai-agent'
+
+// 定义本地接口类型
+interface UsageStats {
+  messages: number
+  totalMessages: number
+  tokens: number
+  totalTokens: number
+  sessions: number
+  totalSessions: number
+  todaySessions: number
+  weekSessions: number
+  monthSessions: number
+  averageMessagesPerSession: number
+  averageTokensPerSession: number
+}
+
+interface MCPTool {
+  id: string
+  name: string
+  description: string
+  parameters?: Record<string, any>
+}
+
+interface MCPServerConfig {
+  id: string
+  name: string
+  url: string
+  enabled: boolean
+}
+
+interface Notification {
+  id: string
+  type: 'info' | 'success' | 'warning' | 'error'
+  title: string
+  message: string
+  timestamp: Date
+}
 import {
   generateId,
   formatTimestamp,
@@ -37,7 +69,7 @@ export function useAIAgent() {
   // 基础状态
   const isInitialized = ref(false)
   const isLoading = ref(false)
-  const connectionStatus = ref<ConnectionStatus>('disconnected')
+  const connectionStatus = ref<ConnectionStatus>(ConnectionStatus.DISCONNECTED)
   const currentModel = ref<string>('')
   const error = ref<string>('')
 
@@ -67,8 +99,8 @@ export function useAIAgent() {
   })
 
   // 会话状态
-  const currentSession = ref<ChatSession | null>(null)
-  const sessions = ref<ChatSession[]>([])
+  const currentSession = ref<ChatSessionVO | null>(null)
+  const sessions = ref<ChatSessionVO[]>([])
   const isStreaming = ref(false)
 
   // 工具状态
@@ -99,6 +131,9 @@ export function useAIAgent() {
   const currentSessionMessages = computed(() => currentSession.value?.messages || [])
   const canSendMessage = computed(() => isConnected.value && !isStreaming.value)
 
+  // 创建 AIAgentService 实例
+  const aiAgentService = new AIAgentService()
+
   /**
    * 初始化AI Agent
    */
@@ -121,7 +156,7 @@ export function useAIAgent() {
       }
 
       // 初始化API服务
-      await AIAgentAPIService.initialize()
+      await aiAgentService.initialize()
 
       // 加载会话历史
       await loadSessions()
@@ -151,33 +186,33 @@ export function useAIAgent() {
    */
   async function connect(): Promise<void> {
     try {
-      connectionStatus.value = 'connecting'
+      connectionStatus.value = ConnectionStatus.CONNECTING
       error.value = ''
 
-      const response = await AIAgentAPIService.testConnection(modelConfig)
+      const response = await aiAgentService.testConnection(modelConfig)
       
       if (response.success) {
-        connectionStatus.value = 'connected'
+        connectionStatus.value = ConnectionStatus.CONNECTED
         currentModel.value = modelConfig.model
         addNotification({
           id: generateId('notification'),
           type: 'success',
           title: '连接成功',
           message: `已连接到 ${modelConfig.provider} - ${modelConfig.model}`,
-          timestamp: Date.now()
+          timestamp: new Date()
         })
       } else {
         throw new Error(response.error || '连接失败')
       }
     } catch (err) {
-      connectionStatus.value = 'error'
+      connectionStatus.value = ConnectionStatus.ERROR
       error.value = handleError(err, 'AI服务连接')
       addNotification({
         id: generateId('notification'),
         type: 'error',
         title: '连接失败',
         message: error.value,
-        timestamp: Date.now()
+        timestamp: new Date()
       })
     }
   }
@@ -187,8 +222,8 @@ export function useAIAgent() {
    */
   async function disconnect(): Promise<void> {
     try {
-      await AIAgentAPIService.disconnect()
-      connectionStatus.value = 'disconnected'
+      await aiAgentService.disconnect()
+      connectionStatus.value = ConnectionStatus.DISCONNECTED
       currentModel.value = ''
     } catch (err) {
       error.value = handleError(err, 'AI服务断开')
@@ -227,23 +262,23 @@ export function useAIAgent() {
   /**
    * 创建新会话
    */
-  async function createSession(title?: string): Promise<ChatSession> {
+  async function createSession(title?: string): Promise<ChatSessionVO> {
     try {
-      const session: ChatSession = {
+      const session: ChatSessionVO = {
         id: generateId('session'),
         title: title || '新对话',
+        agentConfigId: '', // 需要从实际的agentConfig获取
         messages: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        modelConfig: { ...modelConfig },
-        tokenUsage: {
-          promptTokens: 0,
-          completionTokens: 0,
-          totalTokens: 0
-        }
+        status: SessionStatus.ACTIVE,
+        messageCount: 0,
+        totalTokens: 0,
+        totalCost: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isArchived: false
       }
 
-      const response = await AIAgentAPIService.createSession(session)
+      const response = await aiAgentService.createSession(session)
       if (response.success && response.data) {
         sessions.value.unshift(response.data)
         currentSession.value = response.data
@@ -263,7 +298,7 @@ export function useAIAgent() {
    */
   async function loadSessions(): Promise<void> {
     try {
-      const response = await AIAgentAPIService.getSessions()
+      const response = await aiAgentService.getSessions()
       if (response.success && response.data) {
         sessions.value = response.data
         updateUsageStats()
@@ -282,7 +317,7 @@ export function useAIAgent() {
       if (session) {
         currentSession.value = session
       } else {
-        const response = await AIAgentAPIService.getSession(sessionId)
+        const response = await aiAgentService.getSession(sessionId)
         if (response.success && response.data) {
           currentSession.value = response.data
         } else {
@@ -299,7 +334,7 @@ export function useAIAgent() {
    */
   async function deleteSession(sessionId: string): Promise<void> {
     try {
-      const response = await AIAgentAPIService.deleteSession(sessionId)
+      const response = await aiAgentService.deleteSession(sessionId)
       if (response.success) {
         sessions.value = sessions.value.filter(s => s.id !== sessionId)
         if (currentSession.value?.id === sessionId) {
@@ -331,31 +366,31 @@ export function useAIAgent() {
       error.value = ''
 
       // 创建用户消息
-      const userMessage: ChatMessage = {
+      const userMessage: ChatMessageVO = {
         id: generateId('message'),
-        role: 'user',
+        role: MessageRole.USER,
         content,
-        timestamp: Date.now(),
+        timestamp: new Date(),
         attachments
       }
 
       // 添加到当前会话
       currentSession.value.messages.push(userMessage)
-      currentSession.value.updatedAt = Date.now()
+      currentSession.value.updatedAt = new Date()
 
       // 创建助手消息占位符
-      const assistantMessage: ChatMessage = {
+      const assistantMessage: ChatMessageVO = {
         id: generateId('message'),
-        role: 'assistant',
+        role: MessageRole.ASSISTANT,
         content: '',
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isStreaming: true
       }
 
       currentSession.value.messages.push(assistantMessage)
 
       // 发送消息并处理流式响应
-      await AIAgentAPIService.sendMessage(
+      await aiAgentService.sendMessage(
         currentSession.value.id,
         userMessage,
         {
@@ -405,7 +440,7 @@ export function useAIAgent() {
    */
   async function stopGeneration(): Promise<void> {
     try {
-      await AIAgentAPIService.stopGeneration()
+      await aiAgentService.stopGeneration()
       isStreaming.value = false
       
       // 更新当前流式消息状态
@@ -452,9 +487,9 @@ export function useAIAgent() {
   /**
    * 保存会话
    */
-  async function saveSession(session: ChatSession): Promise<void> {
+  async function saveSession(session: ChatSessionVO): Promise<void> {
     try {
-      const response = await AIAgentAPIService.updateSession(session)
+      const response = await aiAgentService.updateSession(session)
       if (response.success) {
         // 更新本地会话列表
         const index = sessions.value.findIndex(s => s.id === session.id)
@@ -470,18 +505,10 @@ export function useAIAgent() {
   /**
    * 更新会话Token使用量
    */
-  function updateSessionTokenUsage(session: ChatSession, tokenUsage: TokenUsage): void {
-    if (!session.tokenUsage) {
-      session.tokenUsage = {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0
-      }
-    }
-
-    session.tokenUsage.promptTokens += tokenUsage.promptTokens
-    session.tokenUsage.completionTokens += tokenUsage.completionTokens
-    session.tokenUsage.totalTokens += tokenUsage.totalTokens
+  function updateSessionTokenUsage(session: ChatSessionVO, tokenUsage: TokenUsage): void {
+    // 更新会话的token统计
+    session.totalTokens += tokenUsage.totalTokens
+    session.updatedAt = new Date()
   }
 
   /**
@@ -489,7 +516,7 @@ export function useAIAgent() {
    */
   async function loadTools(): Promise<void> {
     try {
-      const response = await AIAgentAPIService.getAvailableTools()
+      const response = await aiAgentService.getAvailableTools()
       if (response.success && response.data) {
         availableTools.value = response.data
       }
@@ -503,7 +530,7 @@ export function useAIAgent() {
    */
   async function loadMCPServers(): Promise<void> {
     try {
-      const response = await AIAgentAPIService.getMCPServers()
+      const response = await aiAgentService.getMCPServers()
       if (response.success && response.data) {
         mcpServers.value = response.data
       }
@@ -517,7 +544,7 @@ export function useAIAgent() {
    */
   async function callTool(toolName: string, parameters: any): Promise<any> {
     try {
-      const response = await AIAgentAPIService.callTool(toolName, parameters)
+      const response = await aiAgentService.callTool(toolName, parameters)
       if (response.success) {
         return response.data
       } else {
@@ -572,14 +599,14 @@ export function useAIAgent() {
    */
   async function exportData(options: any): Promise<void> {
     try {
-      const response = await AIAgentAPIService.exportData(options)
+      const response = await aiAgentService.exportData(options)
       if (response.success && response.data) {
         // 触发下载
         const blob = new Blob([response.data], { type: 'application/json' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `ai-agent-data-${Date.now()}.json`
+        a.download = `ai-agent-data-${new Date().getTime()}.json`
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
@@ -590,7 +617,7 @@ export function useAIAgent() {
           type: 'success',
           title: '导出成功',
           message: '数据已成功导出',
-          timestamp: Date.now()
+          timestamp: new Date()
         })
       }
     } catch (err) {
@@ -606,7 +633,7 @@ export function useAIAgent() {
       const text = await file.text()
       const data = JSON.parse(text)
       
-      const response = await AIAgentAPIService.importData(data)
+      const response = await aiAgentService.importData(data)
       if (response.success) {
         await loadSessions()
         updateUsageStats()
@@ -616,7 +643,7 @@ export function useAIAgent() {
           type: 'success',
           title: '导入成功',
           message: '数据已成功导入',
-          timestamp: Date.now()
+          timestamp: new Date()
         })
       } else {
         throw new Error(response.error || '导入失败')
@@ -641,7 +668,7 @@ export function useAIAgent() {
         type: 'error',
         title: '错误',
         message: errorMessage,
-        timestamp: Date.now()
+        timestamp: new Date()
       })
     })
 
@@ -719,7 +746,7 @@ export function useSmartWriting() {
    */
   async function loadTemplates(): Promise<void> {
     try {
-      const response = await AIAgentAPIService.getWritingTemplates()
+      const response = await aiAgentService.getWritingTemplates()
       if (response.success && response.data) {
         templates.value = response.data
       }
@@ -747,7 +774,7 @@ export function useSmartWriting() {
       isProcessing.value = true
       error.value = ''
 
-      const response = await AIAgentAPIService.processText({
+      const response = await aiAgentService.processText({
         text,
         operation,
         options
@@ -760,7 +787,7 @@ export function useSmartWriting() {
           operation,
           originalText: text,
           processedText: response.data.result,
-          timestamp: Date.now(),
+          timestamp: new Date(),
           options
         })
 
@@ -784,7 +811,7 @@ export function useSmartWriting() {
     type: 'grammar' | 'style' | 'clarity' | 'engagement'
   ): Promise<void> {
     try {
-      const response = await AIAgentAPIService.getOptimizationSuggestions({
+      const response = await aiAgentService.getOptimizationSuggestions({
         text,
         type
       })
@@ -805,7 +832,7 @@ export function useSmartWriting() {
     suggestion: OptimizationSuggestion
   ): Promise<string> {
     try {
-      const response = await AIAgentAPIService.applySuggestion({
+      const response = await aiAgentService.applySuggestion({
         text,
         suggestion
       })

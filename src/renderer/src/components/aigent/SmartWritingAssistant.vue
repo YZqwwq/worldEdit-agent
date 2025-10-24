@@ -307,8 +307,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { aiAgentAPI } from '../services/serviceImpl/ai-agent'
-import type { ChatMessage } from '../../../shared/cache-types/agent/agent'
+import { aiAgentAPI } from '../../services/serviceImpl/ai-agent'
+import type { ChatMessage } from '../../../../shared/cache-types/agent/agent'
 
 // 响应式数据
 const showSettings = ref(false)

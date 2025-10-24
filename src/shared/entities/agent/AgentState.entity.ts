@@ -1,8 +1,8 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { AgentConfig } from './AgentConfig.entity';
 import { ChatSession } from './ChatSession.entity';
-import { AgentStatus } from '../../cache-types/agent/agentStatusEnum';
-import { AgentMode } from '../../cache-types/agent/modelEnum';
+import { AgentStatus } from '../../cache-types/agent/Enum/agentStatusEnum';
+import { AgentMode } from '../../cache-types/agent/Enum/modelEnum';
 
 @Entity('agent_states')
 export class AgentState {

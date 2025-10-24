@@ -1,7 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
-import { ModelProvider } from '../../cache-types/agent/modelEnum';
-import { MessageType } from '../../cache-types/agent/chatMessageTypeEnum';
+import { ModelProvider } from '../../cache-types/agent/Enum/modelEnum';
+import { MessageType } from '../../cache-types/agent/Enum/chatMessageTypeEnum';
 @Entity('agent_configs')
 export class AgentConfig {
   @PrimaryGeneratedColumn('uuid')

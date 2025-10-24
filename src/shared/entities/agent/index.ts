@@ -14,10 +14,11 @@ export { ToolCall, ToolCallStatus, ToolType } from './ToolCall.entity';
 export { TokenUsage, UsageType } from './TokenUsage.entity';
 
 // 从正确的位置导出枚举
-export { AgentStatus } from '../../cache-types/agent/agentStatusEnum';
-export { AgentMode } from '../../cache-types/agent/modelEnum';
-export { MessageRole, MessageType } from '../../cache-types/agent/chatMessageTypeEnum';
+export { AgentStatus } from '../../cache-types/agent/Enum/agentStatusEnum';
+export { AgentMode, ModelProvider } from '../../cache-types/agent/Enum/modelEnum';
+export { MessageRole, MessageType } from '../../cache-types/agent/Enum/chatMessageTypeEnum';
 export { SessionStatus } from '../../cache-types/session/session-manager.types';
+export { PromptPriority } from '../../cache-types/agent/Enum/promptEnum';
 
 // 导出所有Agent相关实体类的数组
 export const agentEntities = [

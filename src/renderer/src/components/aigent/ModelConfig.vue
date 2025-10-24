@@ -370,8 +370,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ModelConfig } from '../../../shared/entities'
-import { aiAgentAPI } from '../services/serviceImpl/ai-agent'
+import { ModelConfig } from '../../../../shared/entities'
+import { aiAgentAPI } from '../../services/serviceImpl/ai-agent'
 
 
 // 响应式数据

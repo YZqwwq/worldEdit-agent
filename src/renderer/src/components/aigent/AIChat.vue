@@ -293,7 +293,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { aiAgentAPI } from '../services/serviceImpl/ai-agent'
+import { aiAgentAPI } from '../../services/serviceImpl/ai-agent'
 import type {
   AgentConfig,
   ChatMessage,
@@ -301,8 +301,8 @@ import type {
   RuntimeAgentState,
   TokenUsage,
   ModelProvider
-} from '../../../shared/cache-types/agent/agent'
-import { MessageType } from '../../../shared/entities'
+} from '../../../../shared/cache-types/agent/agent'
+import { MessageType } from '../../../../shared/entities'
 
 // 响应式数据
 const messages = ref<ChatMessage[]>([])
