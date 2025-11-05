@@ -1,8 +1,15 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
+// Local type to ensure availability in this module
+type Api = {
+  sendMessage: (message: string) => Promise<string>
+}
+
 // Custom APIs for renderer
-const api = {}
+const api: Api = {
+  sendMessage: (message: string) => ipcRenderer.invoke('ai:sendMessage', message) as Promise<string>
+}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise

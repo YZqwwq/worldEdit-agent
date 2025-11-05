@@ -5,26 +5,62 @@
       <div class="header-title">AI助手</div>
       <button class="btn-config">模型配置</button>
     </div>
-    <div class="chat-messages">
-      <div class="message-wrapper">
-        <div class="message-bubble received">
-          你好！有什么可以帮助你的吗？
-        </div>
-      </div>
-      <div class="message-wrapper sent-wrapper">
-        <div class="message-bubble sent">
-          我想了解一下如何创建一个新的世界观。
+    <div class="chat-messages" ref="messagesContainer">
+      <div
+        v-for="message in messages"
+        :key="message.id"
+        class="message-wrapper"
+        :class="{ 'sent-wrapper': message.sender === 'user' }"
+      >
+        <div class="message-bubble" :class="message.sender === 'user' ? 'sent' : 'received'">
+          <MdPreview :modelValue="message.text" />
         </div>
       </div>
     </div>
     <div class="chat-input-area">
-      <textarea placeholder="输入你的问题..." class="chat-input"></textarea>
-      <button class="btn-send">发送</button>
+      <textarea
+        v-model="userInput"
+        @keyup.enter="handleSend"
+        placeholder="输入你的问题..."
+        class="chat-input"
+        :disabled="isLoading"
+      ></textarea>
+      <button @click="handleSend" class="btn-send" :disabled="isLoading">
+        {{ isLoading ? '思考中...' : '发送' }}
+      </button>
     </div>
   </div>
 </template>
 
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { ref, nextTick, watch } from 'vue'
+import { useAIChatService } from '../services/aiClientService'
+import { MdPreview } from 'md-editor-v3';
+import 'md-editor-v3/lib/preview.css';
+
+const { messages, isLoading, sendMessage } = useAIChatService()
+const userInput = ref('')
+const messagesContainer = ref<HTMLElement | null>(null)
+
+const handleSend = (): void => {
+  if (userInput.value.trim()) {
+    sendMessage(userInput.value)
+    userInput.value = ''
+  }
+}
+
+// Scroll to the bottom when new messages are added
+watch(
+  messages,
+  async () => {
+    await nextTick()
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    }
+  },
+  { deep: true }
+)
+</script>
 
 <style scoped>
 .chat-view {
@@ -40,6 +76,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .header-title {
@@ -86,15 +123,16 @@
 
 .message-wrapper {
   display: flex;
+  max-width: 80%;
+  align-self: flex-start;
 }
 
 .sent-wrapper {
-  justify-content: flex-end;
+  align-self: flex-end;
 }
 
 .message-bubble {
-  max-width: 70%;
-  padding: 10px 15px;
+  padding: 1px 4px;
   border-radius: 18px;
   line-height: 1.5;
 }
@@ -106,8 +144,8 @@
 }
 
 .sent {
-  background-color: #007bff;
-  color: white;
+  background-color: #e6f7ff;
+  color: #333;
   border-top-right-radius: 4px;
 }
 
@@ -116,6 +154,7 @@
   padding: 20px;
   border-top: 1px solid #e0e0e0;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .chat-input {
@@ -140,5 +179,10 @@
 
 .btn-send:hover {
   background-color: #0056b3;
+}
+
+.btn-send:disabled {
+  background-color: #a0cfff;
+  cursor: not-allowed;
 }
 </style>
