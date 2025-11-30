@@ -24,6 +24,13 @@ export default defineConfig(
   {
     files: ['**/*.{ts,mts,tsx,vue}'],
     rules: {
+      'linebreak-style': 'off',
+      'prettier/prettier': [
+        'error',
+        {
+          endOfLine: 'auto'
+        }
+      ],
       'vue/require-default-prop': 'off',
       'vue/multi-word-component-names': 'off',
       'vue/block-lang': [

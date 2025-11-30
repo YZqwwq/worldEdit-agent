@@ -1,12 +1,8 @@
 import { ref, type Ref } from 'vue'
-
-// Define the structure of a chat message
-export interface ChatMessage {
-  id: number
-  text: string
-  sender: 'user' | 'ai'
-}
-
+import { sendMessageStructured as sendMessageStructuredApi } from '../bridge/aiBridge'
+import type { ChatMessage } from '../../../share/cache/render/aiagent/chatMessage'
+import { partsToMarkdown } from '../utils/aiToMarkdown'
+import type { AIContentPart } from '../../../share/cache/render/aiagent/aiContent'
 // A reactive reference to hold the list of chat messages
 const messages = ref<ChatMessage[]>([
   { id: Date.now(), text: '你好！有什么可以帮助你的吗？', sender: 'ai' }
@@ -38,22 +34,21 @@ async function sendMessage(text: string): Promise<void> {
     id: Date.now() + 1,
     text: '正在思考中...',
     sender: 'ai' as const
-  };
-  messages.value.push(aiMessagePlaceholder);
-
+  }
+  messages.value.push(aiMessagePlaceholder)
 
   try {
-    // 3. Call the main process API
-    const aiResponse = await window.api.sendMessage(text)
+    // 3. 调用结构化接口，保留富结构
+    const structured = await sendMessageStructuredApi(text)
+    const parts = (structured?.parts ?? []) as AIContentPart[]
+    const md = partsToMarkdown(parts)
 
-    // 4. Update the placeholder with the actual AI response
-    aiMessagePlaceholder.text = aiResponse;
-
+    // 4. 用 Markdown 更新占位消息
+    aiMessagePlaceholder.text = md
   } catch (error) {
     console.error('Error sending message to AI:', error)
     // Optionally, update the placeholder with an error message
-    aiMessagePlaceholder.text = '抱歉，与AI通信时发生错误。';
-
+    aiMessagePlaceholder.text = '抱歉，与AI通信时发生错误。'
   } finally {
     // 5. Reset loading state
     isLoading.value = false

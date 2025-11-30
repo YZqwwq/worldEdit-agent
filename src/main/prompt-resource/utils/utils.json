@@ -1,0 +1,11 @@
+{
+  "utils": {
+    "edit": {
+      "param": {
+        "name": "参数名称",
+        "type": "参数类型",
+        "description": "参数描述"
+      }
+    }
+  }
+}

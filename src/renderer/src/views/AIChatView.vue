@@ -35,8 +35,8 @@
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue'
 import { useAIChatService } from '../services/aiClientService'
-import { MdPreview } from 'md-editor-v3';
-import 'md-editor-v3/lib/preview.css';
+import { MdPreview } from 'md-editor-v3'
+import 'md-editor-v3/lib/preview.css'
 
 const { messages, isLoading, sendMessage } = useAIChatService()
 const userInput = ref('')
@@ -184,5 +184,12 @@ watch(
 .btn-send:disabled {
   background-color: #a0cfff;
   cursor: not-allowed;
+}
+
+/* 取消 md-editor-v3 代码块头部的吸顶行为 */
+:deep(.md-editor-preview .md-editor-code .md-editor-code-head) {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
 }
 </style>
