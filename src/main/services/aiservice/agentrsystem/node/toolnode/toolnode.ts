@@ -16,7 +16,7 @@ export async function toolNode(
   }
 
   const toolMessages: ToolMessage[] = []
-
+  // 遍历工具组执行调用
   for (const toolCall of lastMessage.tool_calls) {
     // ✅ 改进：工具不存在时返回错误消息，而不是静默跳过
     const tool = tools[toolCall.name]

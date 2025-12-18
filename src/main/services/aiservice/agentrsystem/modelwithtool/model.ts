@@ -28,12 +28,12 @@ function createChatModel(options: ModelOptions): ModelAdaptor {
 
 const defaultModelOptions: ModelOptions = {
   vendor: 'openai',
-  model: 'gpt-3.5-turbo',
-  temperature: 0.7,
-  apiKey: '',
-  streaming: false,
-  useResponsesApi: false,
-  baseURL: ''
+  model: 'gpt-4o',
+  temperature: 0.9,
+  apiKey: 'sk-tNyCJbWcFMiYPg8_HZg2aJjGn9owN4zzQ10jgPgaOV2l-6ZYFCLsvyuCFTI',
+  streaming: true,
+  useResponsesApi: true,
+  baseURL: 'https://api.nekro.ai/v1'
 }
 
 // 对外暴露的模型配置
