@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initializeAIEndpoints } from './services/aiservice/aiIpc' // 导入
+import { initDatabase } from './database' // 导入数据库初始化
 
 function createWindow(): void {
   // Create the browser window.
@@ -39,7 +40,7 @@ function createWindow(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -52,6 +53,9 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
+  // 初始化数据库
+  await initDatabase()
 
   initializeAIEndpoints() // 调用
 

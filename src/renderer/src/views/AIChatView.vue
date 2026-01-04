@@ -1,31 +1,73 @@
 <template>
-  <div class="chat-view">
-    <div class="chat-header">
-      <router-link to="/" class="btn-back">返回</router-link>
-      <div class="header-title">AI助手</div>
-      <button class="btn-config">模型配置</button>
-    </div>
-    <div class="chat-messages" ref="messagesContainer">
+  <div class="flex flex-col h-screen bg-gray-50">
+    <!-- 顶部导航栏 -->
+    <header
+      class="flex flex-shrink-0 justify-between items-center px-6 py-4 bg-white border-b border-gray-200 shadow-sm z-10"
+    >
+      <router-link
+        to="/"
+        class="flex items-center gap-1 px-4 py-2 text-sm font-medium text-gray-600 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 no-underline shadow-sm"
+      >
+        <span>&larr;</span> 返回
+      </router-link>
+      <div class="text-lg font-semibold text-gray-800 tracking-wide">AI 助手</div>
+      <button
+        class="px-4 py-2 text-sm font-medium text-gray-600 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 shadow-sm cursor-pointer"
+      >
+        模型配置
+      </button>
+    </header>
+
+    <!-- 消息列表区域 -->
+    <div
+      class="flex flex-col flex-grow gap-6 p-6 overflow-y-auto scroll-smooth"
+      ref="messagesContainer"
+    >
       <div
         v-for="message in messages"
         :key="message.id"
-        class="message-wrapper"
-        :class="{ 'sent-wrapper': message.sender === 'user' }"
+        class="flex w-full"
+        :class="message.sender === 'user' ? 'justify-end' : 'justify-start'"
       >
-        <div class="message-bubble" :class="message.sender === 'user' ? 'sent' : 'received'">
-          <MdPreview :modelValue="message.text" />
+        <div
+          class="flex flex-col max-w-[85%] min-w-[60px]"
+          :class="message.sender === 'user' ? 'items-end' : 'items-start'"
+        >
+          <div
+            class="px-5 py-3.5 text-base leading-7 rounded-2xl shadow-sm break-words overflow-hidden"
+            :class="[
+              message.sender === 'user'
+                ? 'bg-blue-600 text-white rounded-br-sm'
+                : 'bg-white text-gray-800 border border-gray-100 rounded-bl-sm'
+            ]"
+          >
+            <MdPreview
+              :modelValue="message.text"
+              class="!bg-transparent !p-0"
+              :theme="message.sender === 'user' ? 'dark' : 'light'"
+            />
+          </div>
         </div>
       </div>
     </div>
-    <div class="chat-input-area">
-      <textarea
-        v-model="userInput"
-        @keyup.enter="handleSend"
-        placeholder="输入你的问题..."
-        class="chat-input"
-        :disabled="isLoading"
-      ></textarea>
-      <button @click="handleSend" class="btn-send" :disabled="isLoading">
+
+    <!-- 底部输入区域 -->
+    <div class="flex flex-shrink-0 gap-4 p-6 bg-white border-t border-gray-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+      <div class="relative flex-grow">
+        <textarea
+          v-model="userInput"
+          @keyup.enter.exact="handleSend"
+          placeholder="输入你的问题... (Enter 发送)"
+          class="w-full h-14 py-3.5 pl-5 pr-4 text-sm text-gray-800 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all resize-none shadow-inner"
+          :disabled="isLoading"
+        ></textarea>
+      </div>
+
+      <button
+        @click="handleSend"
+        class="flex flex-shrink-0 items-center justify-center px-8 h-14 text-sm font-semibold text-white transition-all bg-blue-600 rounded-xl shadow-md hover:bg-blue-700 hover:shadow-lg active:transform active:scale-95 focus:ring-4 focus:ring-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:transform-none"
+        :disabled="isLoading || !userInput.trim()"
+      >
         {{ isLoading ? '思考中...' : '发送' }}
       </button>
     </div>
@@ -33,14 +75,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, onMounted } from 'vue'
 import { useAIChatService } from '../services/aiClientService'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 
-const { messages, isLoading, sendMessage } = useAIChatService()
+const { messages, isLoading, sendMessage, loadHistory } = useAIChatService()
 const userInput = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
+
+// Load history when component is mounted
+onMounted(async () => {
+  await loadHistory()
+  // Scroll to bottom after loading history
+  await nextTick()
+  if (messagesContainer.value) {
+    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  }
+})
 
 const handleSend = (): void => {
   if (userInput.value.trim()) {
@@ -63,129 +115,6 @@ watch(
 </script>
 
 <style scoped>
-.chat-view {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background-color: #ffffff;
-}
-
-.chat-header {
-  padding: 10px 20px;
-  border-bottom: 1px solid #e0e0e0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.header-title {
-  font-size: 16px;
-  font-weight: 500;
-}
-
-.btn-back {
-  padding: 8px 12px;
-  border-radius: 4px;
-  border: 1px solid #d9d9d9;
-  background-color: #fff;
-  cursor: pointer;
-  font-size: 14px;
-  text-decoration: none;
-  color: #333;
-}
-
-.btn-back:hover {
-  background-color: #f5f5f5;
-}
-
-.btn-config {
-  padding: 8px 12px;
-  border-radius: 4px;
-  border: 1px solid #d9d9d9;
-  background-color: #fff;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.btn-config:hover {
-  background-color: #f5f5f5;
-}
-
-.chat-messages {
-  flex-grow: 1;
-  padding: 20px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.message-wrapper {
-  display: flex;
-  max-width: 80%;
-  align-self: flex-start;
-}
-
-.sent-wrapper {
-  align-self: flex-end;
-}
-
-.message-bubble {
-  padding: 1px 4px;
-  border-radius: 18px;
-  line-height: 1.5;
-}
-
-.received {
-  background-color: #f0f2f5;
-  color: #333;
-  border-top-left-radius: 4px;
-}
-
-.sent {
-  background-color: #e6f7ff;
-  color: #333;
-  border-top-right-radius: 4px;
-}
-
-.chat-input-area {
-  display: flex;
-  padding: 20px;
-  border-top: 1px solid #e0e0e0;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.chat-input {
-  flex-grow: 1;
-  padding: 10px;
-  border-radius: 4px;
-  border: 1px solid #d9d9d9;
-  font-size: 14px;
-  resize: none;
-  height: 40px;
-}
-
-.btn-send {
-  padding: 0 20px;
-  border-radius: 4px;
-  border: none;
-  background-color: #007bff;
-  color: white;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.btn-send:hover {
-  background-color: #0056b3;
-}
-
-.btn-send:disabled {
-  background-color: #a0cfff;
-  cursor: not-allowed;
-}
-
 /* 取消 md-editor-v3 代码块头部的吸顶行为 */
 :deep(.md-editor-preview .md-editor-code .md-editor-code-head) {
   position: static !important;

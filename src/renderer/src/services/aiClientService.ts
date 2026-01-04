@@ -3,13 +3,32 @@ import { sendMessageStructured as sendMessageStructuredApi } from '../bridge/aiB
 import type { ChatMessage } from '../../../share/cache/render/aiagent/chatMessage'
 import { partsToMarkdown } from '../utils/aiToMarkdown'
 import type { AIContentPart } from '../../../share/cache/render/aiagent/aiContent'
+
 // A reactive reference to hold the list of chat messages
 const messages = ref<ChatMessage[]>([
-  { id: Date.now(), text: '你好！有什么可以帮助你的吗？', sender: 'ai' }
+  // { id: Date.now(), text: '你好！有什么可以帮助你的吗？', sender: 'ai' }
 ])
 
 // A reactive reference to track if the AI is currently thinking
 const isLoading = ref(false)
+
+/**
+ * 加载历史记录
+ */
+async function loadHistory(): Promise<void> {
+  try {
+    const history = await window.api.getHistory()
+    if (history && Array.isArray(history)) {
+      messages.value = history.map((msg: any) => ({
+        id: msg.id,
+        text: msg.content, // 直接使用 content 字段，假设存储的是 Markdown
+        sender: msg.role
+      }))
+    }
+  } catch (error) {
+    console.error('Failed to load history:', error)
+  }
+}
 
 /**
  * Sends a message to the AI and updates the chat.
@@ -61,10 +80,12 @@ export function useAIChatService(): {
   messages: Ref<ChatMessage[]>
   isLoading: Ref<boolean>
   sendMessage: (text: string) => Promise<void>
+  loadHistory: () => Promise<void>
 } {
   return {
     messages,
     isLoading,
-    sendMessage
+    sendMessage,
+    loadHistory
   }
 }

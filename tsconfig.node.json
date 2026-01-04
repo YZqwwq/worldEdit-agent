@@ -8,6 +8,8 @@
   ],
   "compilerOptions": {
     "composite": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "types": ["electron-vite/node"],
     "baseUrl": ".",
     "paths": {

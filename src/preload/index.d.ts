@@ -6,6 +6,7 @@ declare global {
   type Api = {
     sendMessage: (message: string) => Promise<string>
     sendMessageStructured: (message: string) => Promise<AIStructuredResponse>
+    getHistory: () => Promise<any[]>
   }
 
   interface Window {

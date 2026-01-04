@@ -37,4 +37,9 @@ export function initializeAIEndpoints(): void {
   ipcMain.handle('ai:sendMessageStructured', (_event, message: string) => {
     return aiService.sendMessageStructured(message)
   })
+
+  // 获取历史记录
+  ipcMain.handle('ai:getHistory', (_event) => {
+    return aiService.getHistory()
+  })
 }
