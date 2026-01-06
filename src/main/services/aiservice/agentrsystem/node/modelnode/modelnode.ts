@@ -5,13 +5,41 @@ import { MessagesState } from '../../state/messageState'
 export async function llmCall(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
-  // 动态调整消息顺序：确保 SystemMessage 位于首位
-  // ContextNode 可能将 SystemMessage 追加到了末尾，这里进行一次重排序
-  const sortedMessages = [...state.messages].sort((a, b) => {
-    if (a instanceof SystemMessage) return -1
-    if (b instanceof SystemMessage) return 1
-    return 0
-  })
+  // 动态调整消息顺序：确保 SystemMessage 位于首位，历史消息位于中间，当前用户输入位于最后
+  // ContextNode 可能将 SystemMessage 和历史消息追加到了末尾，这里进行一次重排序
+  const messages = [...state.messages]
+  
+  // 1. 提取 System Message
+  const systemMsg = messages.find(m => m instanceof SystemMessage)
+  
+  // 2. 提取当前交互消息（非历史标记，且非System）
+  // 通常这些是本次对话新产生的，比如用户的初始提问，以及可能的工具调用结果（如果未来支持 ReAct 循环）
+  const currentInteraction = messages.filter(m => 
+    !(m instanceof SystemMessage) && 
+    !m.additional_kwargs?.isHistory
+  )
+
+  // 3. 提取历史消息
+  const history = messages.filter(m => 
+    !m.additional_kwargs?.isHistory && false // 这一行只是占位，下面是真实逻辑
+  ) 
+  // 修正：实际上上面的 filter 逻辑很难写对，不如直接按标记分
+  
+  const sortedMessages: BaseMessage[] = []
+  
+  // 添加 System
+  if (systemMsg) sortedMessages.push(systemMsg)
+  
+  // 添加历史 (带 isHistory 标记的)
+  const historyMsgs = messages.filter(m => m.additional_kwargs?.isHistory)
+  sortedMessages.push(...historyMsgs)
+  
+  // 添加当前交互 (不带 isHistory 标记且非 System)
+  const currentMsgs = messages.filter(m => 
+    !(m instanceof SystemMessage) && 
+    !m.additional_kwargs?.isHistory
+  )
+  sortedMessages.push(...currentMsgs)
 
   const response: BaseMessage = await modelWithTool.invoke(sortedMessages)
   return {
