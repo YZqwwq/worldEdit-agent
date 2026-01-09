@@ -48,6 +48,13 @@ export type AIContentPart =
   | ErrorPart
   | OtherPart
 
-export interface AIStructuredResponse {
-  parts: AIContentPart[]
-}
+// ==========================================
+// 新增：流式传输协议定义
+// ==========================================
+
+export type StreamChunk =
+  | { type: 'text_delta'; content: string } // 文本增量
+  | { type: 'tool_start'; tool: string } // 工具开始调用（预留）
+  | { type: 'tool_end'; result: string } // 工具调用结果（预留）
+  | { type: 'stream_error'; message: string } // 传输层错误信息（与内容层 ErrorPart 区分）
+  | { type: 'done'; fullContent: AIContentPart[] } // 结束信号，携带完整结构化结果

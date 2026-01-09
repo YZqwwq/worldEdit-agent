@@ -1,22 +1,32 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { AIStructuredResponse } from '../share/cache/render/aiagent/aiContent'
+import type { StreamChunk } from '../share/cache/render/aiagent/aiContent'
 
 // Local type to ensure availability in this module
 type Api = {
-  sendMessage: (message: string) => Promise<string>
-  // 结构化消息：返回主进程标准化的富结构片段数组
-  sendMessageStructured: (message: string) => Promise<AIStructuredResponse>
+  // 流式发送
+  sendMessageStream: (message: string) => void
+  // 监听流数据包（返回移除监听函数）
+  onStreamChunk: (callback: (chunk: StreamChunk) => void) => () => void
+
   // 获取历史记录
   getHistory: () => Promise<any[]>
 }
 
 // Custom APIs for renderer
 const api: Api = {
-  sendMessage: (message: string) =>
-    ipcRenderer.invoke('ai:sendMessage', message) as Promise<string>,
-  sendMessageStructured: (message: string) =>
-    ipcRenderer.invoke('ai:sendMessageStructured', message) as Promise<AIStructuredResponse>,
+  sendMessageStream: (message: string) => ipcRenderer.send('ai:sendMessageStream', message),
+  
+  onStreamChunk: (callback) => {
+    const subscription = (_event: IpcRendererEvent, chunk: StreamChunk) => callback(chunk)
+    ipcRenderer.on('ai:streamChunk', subscription)
+    
+    // 返回 cleanup 函数
+    return () => {
+      ipcRenderer.removeListener('ai:streamChunk', subscription)
+    }
+  },
+
   getHistory: () => ipcRenderer.invoke('ai:getHistory')
 }
 

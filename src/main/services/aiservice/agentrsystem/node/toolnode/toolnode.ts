@@ -41,7 +41,7 @@ export async function toolNode(
     try {
       // 暂时使用 any 后续添加类型守卫
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await tool.invoke(toolCall.args as any)
+      const result = await (tool as any).invoke(toolCall.args)
       toolMessages.push(
         new ToolMessage({
           content: String(result),

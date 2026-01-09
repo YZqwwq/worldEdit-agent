@@ -1,16 +1,65 @@
 import { ref, type Ref } from 'vue'
-import { sendMessageStructured as sendMessageStructuredApi } from '../bridge/aiBridge'
 import type { ChatMessage } from '../../../share/cache/render/aiagent/chatMessage'
 import { partsToMarkdown } from '../utils/aiToMarkdown'
-import type { AIContentPart } from '../../../share/cache/render/aiagent/aiContent'
+import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 
 // A reactive reference to hold the list of chat messages
-const messages = ref<ChatMessage[]>([
-  // { id: Date.now(), text: '你好！有什么可以帮助你的吗？', sender: 'ai' }
-])
+const messages = ref<ChatMessage[]>([])
 
 // A reactive reference to track if the AI is currently thinking
 const isLoading = ref(false)
+
+// 当前正在响应的消息 ID，用于流式追加内容
+let currentStreamingMessageId: number | null = null
+let currentStreamingText = ''
+let stopListening: (() => void) | null = null
+
+/**
+ * 处理流式数据包
+ */
+function handleStreamChunk(chunk: StreamChunk): void {
+  // 如果收到 chunk 时还没有占位消息，理论上不应发生，但为了安全
+  if (!currentStreamingMessageId) return
+
+  // 找到当前消息对象
+  const msg = messages.value.find((m) => m.id === currentStreamingMessageId)
+  if (!msg) return
+
+  switch (chunk.type) {
+    case 'text_delta':
+      // 如果是第一次收到文本，清除“思考中”占位符
+      if (msg.text === '正在思考中...') {
+        msg.text = ''
+      }
+      currentStreamingText += chunk.content
+      msg.text = currentStreamingText
+      break
+    
+    case 'stream_error':
+      msg.text += `\n\n[Error: ${chunk.message}]`
+      isLoading.value = false
+      cleanupListener()
+      break
+
+    case 'done':
+      // 结束信号，可选用完整富结构替换
+      if (chunk.fullContent) {
+        msg.text = partsToMarkdown(chunk.fullContent)
+      }
+      isLoading.value = false
+      cleanupListener()
+      break
+  }
+}
+
+function cleanupListener(): void {
+  if (stopListening) {
+    stopListening()
+    stopListening = null
+  }
+  currentStreamingMessageId = null
+  currentStreamingText = ''
+}
 
 /**
  * 加载历史记录
@@ -46,31 +95,33 @@ async function sendMessage(text: string): Promise<void> {
     sender: 'user'
   })
 
-  // 2. Set loading state
+  // 2. Set loading state & Init listener
   isLoading.value = true
+  
+  // 注册监听器
+  cleanupListener() // 确保清理旧的
+  stopListening = window.api.onStreamChunk(handleStreamChunk)
+
   // Add a placeholder for the AI response
-  const aiMessagePlaceholder = {
-    id: Date.now() + 1,
+  const aiMsgId = Date.now() + 1
+  currentStreamingMessageId = aiMsgId
+  currentStreamingText = '' // 重置缓冲文本
+  
+  messages.value.push({
+    id: aiMsgId,
     text: '正在思考中...',
-    sender: 'ai' as const
-  }
-  messages.value.push(aiMessagePlaceholder)
+    sender: 'ai'
+  })
 
   try {
-    // 3. 调用结构化接口，保留富结构
-    const structured = await sendMessageStructuredApi(text)
-    const parts = (structured?.parts ?? []) as AIContentPart[]
-    const md = partsToMarkdown(parts)
-
-    // 4. 用 Markdown 更新占位消息
-    aiMessagePlaceholder.text = md
+    // 3. 调用流式接口
+    window.api.sendMessageStream(text)
   } catch (error) {
     console.error('Error sending message to AI:', error)
-    // Optionally, update the placeholder with an error message
-    aiMessagePlaceholder.text = '抱歉，与AI通信时发生错误。'
-  } finally {
-    // 5. Reset loading state
+    const msg = messages.value.find((m) => m.id === aiMsgId)
+    if (msg) msg.text = '抱歉，与AI通信时发生错误。'
     isLoading.value = false
+    cleanupListener()
   }
 }
 
