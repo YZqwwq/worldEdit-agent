@@ -11,6 +11,7 @@ type Api = {
 
   // 获取历史记录
   getHistory: () => Promise<any[]>
+  clearHistory: () => Promise<void>
 }
 
 // Custom APIs for renderer
@@ -27,7 +28,8 @@ const api: Api = {
     }
   },
 
-  getHistory: () => ipcRenderer.invoke('ai:getHistory')
+  getHistory: () => ipcRenderer.invoke('ai:getHistory'),
+  clearHistory: () => ipcRenderer.invoke('ai:clearHistory')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

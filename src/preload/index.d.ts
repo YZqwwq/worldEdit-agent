@@ -13,6 +13,7 @@ declare global {
     onStreamChunk: (callback: (chunk: StreamChunk) => void) => () => void
 
     getHistory: () => Promise<any[]>
+    clearHistory: () => Promise<void>
   }
 
   interface Window {

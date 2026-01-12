@@ -28,4 +28,9 @@ export function initializeAIEndpoints(): void {
   ipcMain.handle('ai:getHistory', (_event) => {
     return aiService.getHistory()
   })
+
+  // 清除历史记录
+  ipcMain.handle('ai:clearHistory', async (_event) => {
+    return aiService.clearHistory()
+  })
 }

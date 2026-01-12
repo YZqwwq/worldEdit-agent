@@ -28,12 +28,12 @@ function createChatModel(options: ModelOptions): ModelAdaptor {
 
 const defaultModelOptions: ModelOptions = {
   vendor: 'openai',
-  model: 'gpt-4o',
+  model: 'gemini-3-pro-preview',
   temperature: 0.9,
-  apiKey: 'sk-tNyCJbWcFMiYPg8_HZg2aJjGn9owN4zzQ10jgPgaOV2l-6ZYFCLsvyuCFTI',
+  apiKey: 'sk-k850KcC4buCUU3fi19A7AdB6588647FcA627D315C06cF785',
   streaming: true,
   useResponsesApi: true,
-  baseURL: 'https://api.nekro.ai/v1'
+  baseURL: 'https://api.qhaigc.net/v1'
 }
 
 // 对外暴露的模型配置

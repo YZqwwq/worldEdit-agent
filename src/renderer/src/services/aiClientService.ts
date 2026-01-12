@@ -3,8 +3,16 @@ import type { ChatMessage } from '../../../share/cache/render/aiagent/chatMessag
 import { partsToMarkdown } from '../utils/aiToMarkdown'
 import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 
+export interface AgentLog {
+  subType: 'node_enter' | 'node_exit' | 'tool_start' | 'tool_end' | 'thought'
+  nodeName?: string
+  data?: any
+  timestamp: number
+}
+
 // A reactive reference to hold the list of chat messages
 const messages = ref<ChatMessage[]>([])
+const agentLogs = ref<AgentLog[]>([]) // 存储当前会话的监控日志
 
 // A reactive reference to track if the AI is currently thinking
 const isLoading = ref(false)
@@ -35,6 +43,15 @@ function handleStreamChunk(chunk: StreamChunk): void {
       msg.text = currentStreamingText
       break
     
+    case 'agent_log':
+      agentLogs.value.push({
+        subType: chunk.subType,
+        nodeName: chunk.nodeName,
+        data: chunk.data,
+        timestamp: chunk.timestamp
+      })
+      break
+
     case 'stream_error':
       msg.text += `\n\n[Error: ${chunk.message}]`
       isLoading.value = false
@@ -59,6 +76,7 @@ function cleanupListener(): void {
   }
   currentStreamingMessageId = null
   currentStreamingText = ''
+  // 注意：agentLogs 不在这里清除，可能用户想保留查看，直到下次发送前
 }
 
 /**
@@ -80,6 +98,25 @@ async function loadHistory(): Promise<void> {
 }
 
 /**
+ * 清除所有历史记录
+ */
+async function clearHistory(): Promise<void> {
+  try {
+    if (!window.api?.clearHistory) {
+      const msg = '检测到 API 更新未生效，请重启 Electron 应用 (npm run dev) 以加载最新代码。'
+      console.error(msg)
+      alert(msg)
+      return
+    }
+    await window.api.clearHistory()
+    messages.value = []
+    agentLogs.value = []
+  } catch (error) {
+    console.error('Failed to clear history:', error)
+  }
+}
+
+/**
  * Sends a message to the AI and updates the chat.
  * @param text - The message text from the user.
  */
@@ -97,6 +134,7 @@ async function sendMessage(text: string): Promise<void> {
 
   // 2. Set loading state & Init listener
   isLoading.value = true
+  agentLogs.value = [] // 清空旧日志，开始新一轮监控
   
   // 注册监听器
   cleanupListener() // 确保清理旧的
@@ -129,14 +167,18 @@ async function sendMessage(text: string): Promise<void> {
 // It exposes the reactive state and the function to modify it.
 export function useAIChatService(): {
   messages: Ref<ChatMessage[]>
+  agentLogs: Ref<AgentLog[]>
   isLoading: Ref<boolean>
   sendMessage: (text: string) => Promise<void>
   loadHistory: () => Promise<void>
+  clearHistory: () => Promise<void>
 } {
   return {
     messages,
+    agentLogs,
     isLoading,
     sendMessage,
-    loadHistory
+    loadHistory,
+    clearHistory
   }
 }

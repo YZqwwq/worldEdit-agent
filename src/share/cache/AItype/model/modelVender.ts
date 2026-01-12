@@ -1,1 +1,1 @@
-export type ModelVendor = 'openai' | 'google' | 'anthropic'
+export type ModelVendor = 'openai' | 'google' | 'anthropic' 

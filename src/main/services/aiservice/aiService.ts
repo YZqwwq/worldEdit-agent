@@ -44,6 +44,18 @@ class AIService {
   }
 
   /**
+   * 清除历史记录
+   */
+  async clearHistory(): Promise<void> {
+    try {
+      await this.messageRepo.clear()
+    } catch (error) {
+      console.error('Failed to clear history:', error)
+      throw error
+    }
+  }
+
+  /**
    * 流式发送消息：逐 chunk 通过回调返回，并汇总最终文本。
    */
   async sendStreamMessage(
@@ -63,6 +75,13 @@ class AIService {
       
       // 流式处理每个 chunk
       for await (const event of stream) {
+        // 1. 处理日志事件
+        const logChunk = handleGraphLogEvent(event)
+        if (logChunk && onChunk) {
+          onChunk(logChunk)
+        }
+
+        // 2. 核心：文本生成流
         if (event.event === 'on_chat_model_stream') {
           const chunk = event.data.chunk
           if (chunk && chunk.content) {
@@ -101,5 +120,6 @@ class AIService {
     }
   }
 }
+import { handleGraphLogEvent } from '../log/graphlog'
 
 export const aiService = new AIService()

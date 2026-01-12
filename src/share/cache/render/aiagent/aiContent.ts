@@ -57,4 +57,11 @@ export type StreamChunk =
   | { type: 'tool_start'; tool: string } // 工具开始调用（预留）
   | { type: 'tool_end'; result: string } // 工具调用结果（预留）
   | { type: 'stream_error'; message: string } // 传输层错误信息（与内容层 ErrorPart 区分）
+  | {
+      type: 'agent_log'
+      subType: 'node_enter' | 'node_exit' | 'tool_start' | 'tool_end' | 'thought'
+      nodeName?: string
+      data?: any
+      timestamp: number
+    } // 监控日志
   | { type: 'done'; fullContent: AIContentPart[] } // 结束信号，携带完整结构化结果
