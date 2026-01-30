@@ -1,3 +1,4 @@
+
 // 统一 AI 富结构内容类型定义（供主/渲染进程共享）
 
 export interface TextPart {
@@ -47,6 +48,8 @@ export type AIContentPart =
   | BlockquotePart
   | ErrorPart
   | OtherPart
+
+export type AIStructuredResponse = AIContentPart[]
 
 // ==========================================
 // 新增：流式传输协议定义

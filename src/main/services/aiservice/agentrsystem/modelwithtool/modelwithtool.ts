@@ -23,6 +23,11 @@ function cleanSchema(schema: any): any {
     delete newSchema.schema
   }
 
+    // 新增：同时移除 $schema，因为它是 Zod 生成的但 Gemini 不支持的字段
+  if ('$schema' in newSchema) {
+    delete newSchema.$schema
+  }
+
   // Recursively clean properties
   for (const key in newSchema) {
     newSchema[key] = cleanSchema(newSchema[key])

@@ -12,19 +12,6 @@ export async function llmCall(
   // 1. 提取 System Message
   const systemMsg = messages.find(m => m instanceof SystemMessage)
   
-  // 2. 提取当前交互消息（非历史标记，且非System）
-  // 通常这些是本次对话新产生的，比如用户的初始提问，以及可能的工具调用结果（如果未来支持 ReAct 循环）
-  const currentInteraction = messages.filter(m => 
-    !(m instanceof SystemMessage) && 
-    !m.additional_kwargs?.isHistory
-  )
-
-  // 3. 提取历史消息
-  const history = messages.filter(m => 
-    !m.additional_kwargs?.isHistory && false // 这一行只是占位，下面是真实逻辑
-  ) 
-  // 修正：实际上上面的 filter 逻辑很难写对，不如直接按标记分
-  
   const sortedMessages: BaseMessage[] = []
   
   // 添加 System

@@ -2,7 +2,7 @@ import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from '@langchain/
 
 export interface PromptContext {
   userInput: string
-  history?: string //维护一个文本session-history.md为上下文
+  history?: Array<{ role: string; text: string }> //维护一个文本session-history.md为上下文
   rolePrompt?: string
   systemPrompt?: string
   memoryBank?: string
@@ -12,7 +12,7 @@ export interface PromptContext {
 export type PromptHandler = (ctx: PromptContext, acc: BaseMessage[]) => void | Promise<void>
 
 export class PromptPipeline {
-  private handlers: PromptHandler[] = []
+  private readonly handlers: PromptHandler[] = []
 
   // 使用 promptPipelien.use(handle1).use(handel2)添加
   use(handler: PromptHandler): PromptPipeline {
@@ -55,7 +55,7 @@ export const sessionMarkdownHandler: PromptHandler = (ctx, acc) => {
 export const historyHandler =
   (limit = 10): PromptHandler =>
   (ctx, acc) => {
-    const turns = (ctx.history ?? '').slice(-limit)
+    const turns = (ctx.history ?? []).slice(-limit)
     for (const t of turns) {
       if (t.role === 'user') acc.push(new HumanMessage(t.text))
       else acc.push(new AIMessage(t.text))
