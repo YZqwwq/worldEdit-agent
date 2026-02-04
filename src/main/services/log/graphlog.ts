@@ -33,6 +33,21 @@ function extractPrompt(messages: any[]): any[] {
 export function handleGraphLogEvent(event: any): StreamChunk | null {
   const timestamp = Date.now()
 
+  // 调试：全量打印 event 结构 (使用 JSON.stringify 避免中文乱码)
+  // 过滤掉过于庞大的字段以防刷屏，重点关注 kwargs 和 tools
+  if (event.event === 'on_chat_model_start' || (event.event === 'on_chain_start' && event.name === 'RunnableBinding')) {
+     try {
+       console.log(`--- [DEBUG] Event: ${event.event} (${event.name}) ---`)
+       console.log(JSON.stringify(event, (key, value) => {
+         // 稍微过滤一下无关的大对象，保留关键信息
+         if (key === 'source' || key === 'lc_namespace') return undefined
+         return value
+       }, 2))
+     } catch (e) {
+       console.log('Error printing event:', e)
+     }
+  }
+
   // 1. 进入节点：AI 获取到的 Prompt 和可使用的工具
   // 使用 on_chat_model_start 而不是 on_chain_start，以获取最底层的模型输入
   if (event.event === 'on_chat_model_start') {
@@ -49,6 +64,11 @@ export function handleGraphLogEvent(event: any): StreamChunk | null {
         // 深度查找：有时 tools 藏在 invocation_params 中
         const invocationParams = event.data?.extra?.invocation_params || {}
         tools = invocationParams.tools || invocationParams.functions || []
+    }
+
+    // 如果还没找到，尝试从 metadata 中找 (有些适配器会放这里)
+    if (tools.length === 0 && event.metadata) {
+       // 有时候在 ls_tools 这种字段里? 暂无定论，先留空
     }
 
     // 兼容 input 直接为数组的情况 (当 invoke(messages) 时)
