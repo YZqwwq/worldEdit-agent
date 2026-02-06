@@ -117,6 +117,7 @@ const toggleFold = (index: number) => {
 }
 
 const isActive = (log: AgentLog) => {
+  void log
   // 简单逻辑：如果是最新的几个日志之一，认为是活跃
   return false
 }

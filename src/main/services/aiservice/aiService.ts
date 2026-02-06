@@ -5,6 +5,7 @@ import { contentToText, contentToParts } from './messageoutput/transformRespones
 import { logError } from '../../../share/utils/error/error'
 import { AppDataSource } from '../../database'
 import { Message } from '../../../share/entity/database/Message'
+import { randomUUID } from 'node:crypto'
 
 class AIService {
 
@@ -66,9 +67,10 @@ class AIService {
       // 保存用户消息
       await this.saveMessage('user', message)
 
+      const threadId = randomUUID()
       const stream = await agent.streamEvents(
         { messages: [new HumanMessage(message)] },
-        { version: 'v2' }
+        { version: 'v2', configurable: { thread_id: threadId } }
       )
 
       let fullText = ''

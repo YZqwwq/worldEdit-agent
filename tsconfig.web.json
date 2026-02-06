@@ -6,7 +6,10 @@
     "src/renderer/src/**/*.vue",
     "src/share/**/*",
     "src/preload/*.d.ts",
+  ],
+  "exclude": [
     "src/main/**/*",
+    "src/share/entity/database/**/*"
   ],
   "compilerOptions": {
     "composite": true,

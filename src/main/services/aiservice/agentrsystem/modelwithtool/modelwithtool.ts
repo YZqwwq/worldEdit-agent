@@ -13,27 +13,34 @@ function cleanSchema(schema: any): any {
   }
 
   const newSchema = { ...schema }
-  
-  // Remove problematic keys that Gemini/Proxy might reject
+
   if ('additionalProperties' in newSchema) {
     delete newSchema.additionalProperties
   }
-  // The error explicitly mentioned "schema" key being unknown in parameters
   if ('schema' in newSchema) {
     delete newSchema.schema
   }
-
-    // 新增：同时移除 $schema，因为它是 Zod 生成的但 Gemini 不支持的字段
   if ('$schema' in newSchema) {
     delete newSchema.$schema
   }
 
-  // Recursively clean properties
   for (const key in newSchema) {
     newSchema[key] = cleanSchema(newSchema[key])
   }
 
   return newSchema
+}
+
+export type BoundToolForLog = {
+  name: string
+  description: string
+}
+
+export function getBoundToolsForLog(): BoundToolForLog[] {
+  return Object.values(tools).map((t) => ({
+    name: t.name,
+    description: t.description ?? ''
+  }))
 }
 
 class ModelWithTool {

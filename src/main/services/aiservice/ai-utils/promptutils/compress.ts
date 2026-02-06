@@ -1,5 +1,5 @@
 import { ChatOpenAI } from '@langchain/openai'
-import { SystemMessage, HumanMessage } from '@langchain/core/messages'
+import { SystemMessage } from '@langchain/core/messages'
 import { readFileSync, writeFileSync } from 'fs'
 import { tool } from '@langchain/core/tools'
 import * as z from 'zod'
@@ -60,10 +60,14 @@ async function performCompression(summary: string): Promise<string> {
   `
 
   // 这里为了简单，直接使用硬编码的 model 配置，实际应从统一配置获取
+  const apiKey = process.env.NEKRO_API_KEY ?? process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    throw new Error('Missing NEKRO_API_KEY/OPENAI_API_KEY for ChatOpenAI')
+  }
   const chat = new ChatOpenAI({
     model: 'gpt-4o', // 或使用配置中的模型
     temperature: 0.3,
-    apiKey: 'sk-tNyCJbWcFMiYPg8_HZg2aJjGn9owN4zzQ10jgPgaOV2l-6ZYFCLsvyuCFTI',
+    apiKey,
     configuration: { baseURL: 'https://api.nekro.ai/v1' }
   })
 
@@ -97,6 +101,9 @@ export async function rewriteSessionHistory(
   latestUserMessage: string,
   filePath: string
 ): Promise<string> {
+    void chat
+    void latestUserMessage
+    void filePath
     // ... 保留原逻辑或重定向到新逻辑 ...
     return ''
 }
