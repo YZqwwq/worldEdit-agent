@@ -1,5 +1,5 @@
 import { ChatOpenAI } from '@langchain/openai'
-import { SystemMessage, HumanMessage } from '@langchain/core/messages'
+import { SystemMessage} from '@langchain/core/messages'
 import { readFileSync, writeFileSync } from 'fs'
 import { tool } from '@langchain/core/tools'
 import * as z from 'zod'
@@ -90,13 +90,3 @@ export const summarizeHistoryTool = tool(
     })
   }
 )
-
-// 旧的函数保留兼容（可选）
-export async function rewriteSessionHistory(
-  chat: ChatOpenAI,
-  latestUserMessage: string,
-  filePath: string
-): Promise<string> {
-    // ... 保留原逻辑或重定向到新逻辑 ...
-    return ''
-}
