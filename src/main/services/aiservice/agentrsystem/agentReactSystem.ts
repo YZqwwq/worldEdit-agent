@@ -6,6 +6,7 @@ import { contextNode } from './node/contextnode/contextnode' // 导入 ContextNo
 import { shouldContinue } from './endlogic/shouldContinue'
 import { logNodeEnter, logNodeExit } from '../../log/graphlog'
 
+// Log wrapper for ContextNode
 async function loggedContextNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
@@ -15,6 +16,7 @@ async function loggedContextNode(
   return update
 }
 
+// Log wrapper for LLM Node
 async function loggedLlmCall(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
@@ -24,6 +26,7 @@ async function loggedLlmCall(
   return update
 }
 
+// Log wrapper for Tool Node
 async function loggedToolNode(
   state: typeof MessagesState.State
 ): Promise<{ messages: import('@langchain/core/messages').ToolMessage[] }> {

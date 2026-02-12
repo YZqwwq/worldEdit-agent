@@ -1,16 +1,35 @@
 import { BaseMessage, SystemMessage, AIMessage } from '@langchain/core/messages'
 import { modelWithTool } from '../../modelwithtool/modelwithtool'
 import { MessagesState } from '../../state/messageState'
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+function debugLog(msg: string) {
+  try {
+    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
+    appendFileSync(logPath, `[${new Date().toISOString()}] modelnode: ${msg}\n`)
+  } catch (e) {
+    // ignore
+  }
+}
 
 // Helper to fix missing tool_calls from proxy response (Gemini/OpenAI compatible)
 function fixToolCalls(response: BaseMessage): BaseMessage {
   if (!(response instanceof AIMessage)) return response
   
   // If tool_calls is already present, do nothing
-  if (response.tool_calls && response.tool_calls.length > 0) return response
+  if (response.tool_calls && response.tool_calls.length > 0) {
+    debugLog(`fixToolCalls: tool_calls already present: ${response.tool_calls.length}`)
+    return response
+  }
 
   const metadata = response.response_metadata
-  if (!metadata || !metadata.output || !Array.isArray(metadata.output)) return response
+  debugLog(`fixToolCalls: metadata keys: ${metadata ? Object.keys(metadata).join(',') : 'null'}`)
+  
+  if (!metadata || !metadata.output || !Array.isArray(metadata.output)) {
+    debugLog(`fixToolCalls: no output array in metadata`)
+    return response
+  }
 
   const toolCalls: any[] = []
   for (const item of metadata.output) {
@@ -33,6 +52,8 @@ function fixToolCalls(response: BaseMessage): BaseMessage {
     }
   }
 
+  debugLog(`fixToolCalls: found ${toolCalls.length} hidden tool calls`)
+
   if (toolCalls.length > 0) {
     // Create new AIMessage with populated tool_calls
     return new AIMessage({
@@ -50,6 +71,7 @@ function fixToolCalls(response: BaseMessage): BaseMessage {
 export async function llmCall(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
+  debugLog(`llmCall: start`)
   // 动态调整消息顺序：确保 SystemMessage 位于首位，历史消息位于中间，当前用户输入位于最后
   // ContextNode 可能将 SystemMessage 和历史消息追加到了末尾，这里进行一次重排序
   const messages = [...state.messages]
@@ -74,9 +96,11 @@ export async function llmCall(
   sortedMessages.push(...currentMsgs)
 
   let response: BaseMessage = await modelWithTool.invoke(sortedMessages)
+  debugLog(`llmCall: invoked model`)
   
   // Fix tool calls if missing
   response = fixToolCalls(response)
+  debugLog(`llmCall: fixed tool calls`)
 
   return {
     messages: [response] as BaseMessage[], // ✅ 显式转换
