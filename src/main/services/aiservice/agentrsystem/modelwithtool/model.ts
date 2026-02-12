@@ -28,12 +28,12 @@ function createChatModel(options: ModelOptions): ModelAdaptor {
 
 const defaultModelOptions: ModelOptions = {
   vendor: 'openai',
-  model: 'gemini-3-pro-preview',
+  model: 'gpt-5.2',
   temperature: 0.9,
-  apiKey: 'sk-k850KcC4buCUU3fi19A7AdB6588647FcA627D315C06cF785',
+  apiKey: 'sk-PcyKJs0RiLFIkS8F9kFaZZA8CbSsXwWaDtCkLXXq7eNgUYvb',
   streaming: true,
   useResponsesApi: true,
-  baseURL: 'https://api.qhaigc.net/v1'
+  baseURL: 'https://api1.uiuiapi.com/v1'
 }
 
 // 对外暴露的模型配置
