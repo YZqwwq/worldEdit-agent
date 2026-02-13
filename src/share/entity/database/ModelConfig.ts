@@ -1,4 +1,3 @@
-import { model } from "src/main/services/aiservice/agentrsystem/modelwithtool/model";
 import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
 
 @Entity('modelconfig')

@@ -1,10 +1,77 @@
-import { BaseMessage, SystemMessage } from '@langchain/core/messages'
+import { BaseMessage, SystemMessage, AIMessage } from '@langchain/core/messages'
 import { modelWithTool } from '../../modelwithtool/modelwithtool'
 import { MessagesState } from '../../state/messageState'
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+function debugLog(msg: string) {
+  try {
+    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
+    appendFileSync(logPath, `[${new Date().toISOString()}] modelnode: ${msg}\n`)
+  } catch (e) {
+    // ignore
+  }
+}
+
+// Helper to fix missing tool_calls from proxy response (Gemini/OpenAI compatible)
+function fixToolCalls(response: BaseMessage): BaseMessage {
+  if (!(response instanceof AIMessage)) return response
+  
+  // If tool_calls is already present, do nothing
+  if (response.tool_calls && response.tool_calls.length > 0) {
+    debugLog(`fixToolCalls: tool_calls already present: ${response.tool_calls.length}`)
+    return response
+  }
+
+  const metadata = response.response_metadata
+  debugLog(`fixToolCalls: metadata keys: ${metadata ? Object.keys(metadata).join(',') : 'null'}`)
+  
+  if (!metadata || !metadata.output || !Array.isArray(metadata.output)) {
+    debugLog(`fixToolCalls: no output array in metadata`)
+    return response
+  }
+
+  const toolCalls: any[] = []
+  for (const item of metadata.output) {
+    // Check for "function_call" type which some proxies return instead of tool_calls mapping
+    if (item.type === 'function_call' || item.type === 'tool_call') {
+      try {
+        const args = typeof item.arguments === 'string' 
+          ? JSON.parse(item.arguments) 
+          : item.arguments
+          
+        toolCalls.push({
+          name: item.name,
+          args: args,
+          id: item.call_id || item.id || `call_${Math.random().toString(36).substring(2, 10)}`,
+          type: 'tool_call'
+        })
+      } catch (e) {
+        console.warn('Failed to parse tool arguments:', e)
+      }
+    }
+  }
+
+  debugLog(`fixToolCalls: found ${toolCalls.length} hidden tool calls`)
+
+  if (toolCalls.length > 0) {
+    // Create new AIMessage with populated tool_calls
+    return new AIMessage({
+      content: response.content,
+      additional_kwargs: response.additional_kwargs,
+      response_metadata: response.response_metadata,
+      tool_calls: toolCalls,
+      id: response.id
+    })
+  }
+
+  return response
+}
 
 export async function llmCall(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
+  debugLog(`llmCall: start`)
   // 动态调整消息顺序：确保 SystemMessage 位于首位，历史消息位于中间，当前用户输入位于最后
   // ContextNode 可能将 SystemMessage 和历史消息追加到了末尾，这里进行一次重排序
   const messages = [...state.messages]
@@ -28,7 +95,13 @@ export async function llmCall(
   )
   sortedMessages.push(...currentMsgs)
 
-  const response: BaseMessage = await modelWithTool.invoke(sortedMessages)
+  let response: BaseMessage = await modelWithTool.invoke(sortedMessages)
+  debugLog(`llmCall: invoked model`)
+  
+  // Fix tool calls if missing
+  response = fixToolCalls(response)
+  debugLog(`llmCall: fixed tool calls`)
+
   return {
     messages: [response] as BaseMessage[], // ✅ 显式转换
     llmCalls: (state.llmCalls ?? 0) + 1

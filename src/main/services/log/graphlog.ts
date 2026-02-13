@@ -1,4 +1,146 @@
 import { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import type { BaseMessage } from '@langchain/core/messages'
+
+type JsonPrimitive = string | number | boolean | null
+type JsonValue = JsonPrimitive | JsonObject | JsonValue[]
+type JsonObject = { [key: string]: JsonValue }
+
+type NodeLogPhase = 'enter' | 'exit'
+
+type GraphStateSnapshot = {
+  llmCalls: number | null
+  messages: JsonValue[]
+}
+
+type GraphUpdateSnapshot = {
+  llmCalls?: number | null
+  messages?: JsonValue[]
+}
+
+type NodeLogLine = {
+  ts: number
+  runId: string
+  node: string
+  phase: NodeLogPhase
+  state?: GraphStateSnapshot
+  update?: GraphUpdateSnapshot
+}
+
+type GraphRuntimeContext = {
+  runId: string
+}
+
+const graphRuntimeStorage = new AsyncLocalStorage<GraphRuntimeContext>()
+
+function getLogsDir(): string {
+  return join(process.cwd(), 'src/main/services/log/logs')
+}
+
+function getRunId(): string {
+  return graphRuntimeStorage.getStore()?.runId ?? 'no-run-id'
+}
+
+function ensureLogsDir(): void {
+  mkdirSync(getLogsDir(), { recursive: true })
+}
+
+function appendLogLine(line: NodeLogLine): void {
+  ensureLogsDir()
+  const filePath = join(getLogsDir(), `${line.runId}.jsonl`)
+  appendFileSync(filePath, `${JSON.stringify(line)}\n`, { encoding: 'utf-8' })
+}
+
+function toJsonText(value: object | string | number | boolean | null): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'boolean') return String(value)
+  if (value === null) return 'null'
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return '[Unserializable Object]'
+  }
+}
+
+function snapshotMessage(message: BaseMessage): JsonObject {
+  const additionalKwargs = message.additional_kwargs
+    ? toJsonText(message.additional_kwargs as object)
+    : null
+  const responseMetadata = message.response_metadata
+    ? toJsonText(message.response_metadata as object)
+    : null
+
+  const toolCallsText =
+    'tool_calls' in message && (message as BaseMessage & { tool_calls?: object[] }).tool_calls
+      ? toJsonText((message as BaseMessage & { tool_calls?: object[] }).tool_calls as object)
+      : null
+
+  const idText = message.id ? String(message.id) : null
+
+  const contentValue: JsonValue =
+    typeof message.content === 'string' ? message.content : toJsonText(message.content as object)
+
+  return {
+    type: message.getType(),
+    id: idText,
+    name: message.name ?? null,
+    content: contentValue,
+    additional_kwargs: additionalKwargs,
+    response_metadata: responseMetadata,
+    tool_calls: toolCallsText
+  }
+}
+
+export function runWithGraphLogContext<T>(
+  runId: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  return graphRuntimeStorage.run({ runId }, fn)
+}
+
+export function logNodeEnter(
+  node: string,
+  state: { messages: BaseMessage[]; llmCalls?: number | undefined }
+): void {
+  try {
+    const debugPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
+    appendFileSync(debugPath, `[${new Date().toISOString()}] logNodeEnter: ${node}\n`)
+  } catch (e) {
+    // ignore
+  }
+
+  appendLogLine({
+    ts: Date.now(),
+    runId: getRunId(),
+    node,
+    phase: 'enter',
+    state: {
+      llmCalls: state.llmCalls ?? null,
+      messages: state.messages.map(snapshotMessage)
+    }
+  })
+}
+
+export function logNodeExit(
+  node: string,
+  update: { messages?: BaseMessage[]; llmCalls?: number | undefined }
+): void {
+  const updateSnapshot: GraphUpdateSnapshot = {}
+
+  if (update.llmCalls !== undefined) updateSnapshot.llmCalls = update.llmCalls ?? null
+  if (update.messages !== undefined) updateSnapshot.messages = update.messages.map(snapshotMessage)
+
+  appendLogLine({
+    ts: Date.now(),
+    runId: getRunId(),
+    node,
+    phase: 'exit',
+    update: updateSnapshot
+  })
+}
 
 /**
  * 提取并格式化 Prompt 消息

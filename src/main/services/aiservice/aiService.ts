@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { HumanMessage } from '@langchain/core/messages'
 import { agent } from './agentrsystem/agentReactSystem'
 import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
@@ -5,6 +6,18 @@ import { contentToText, contentToParts } from './messageoutput/transformRespones
 import { logError } from '../../../share/utils/error/error'
 import { AppDataSource } from '../../database'
 import { Message } from '../../../share/entity/database/Message'
+import { handleGraphLogEvent, runWithGraphLogContext } from '../log/graphlog'
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+function debugLog(msg: string) {
+  try {
+    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
+    appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`)
+  } catch (e) {
+    // ignore
+  }
+}
 
 class AIService {
 
@@ -62,54 +75,62 @@ class AIService {
     message: string,
     onChunk?: (chunk: StreamChunk) => void
   ): Promise<void> {
+    debugLog(`sendStreamMessage called with: ${message}`)
     try {
       // 保存用户消息
       await this.saveMessage('user', message)
 
-      const stream = await agent.streamEvents(
-        { messages: [new HumanMessage(message)] },
-        { version: 'v2' }
-      )
+      const runId = randomUUID()
+      debugLog(`RunID generated: ${runId}`)
 
-      let fullText = ''
-      
-      // 流式处理每个 chunk
-      for await (const event of stream) {
-        // 1. 处理日志事件
-        const logChunk = handleGraphLogEvent(event)
-        if (logChunk && onChunk) {
-          onChunk(logChunk)
-        }
+      await runWithGraphLogContext(runId, async () => {
+        debugLog(`Entered runWithGraphLogContext`)
+        
+        debugLog(`Calling agent.streamEvents`)
+        const stream = await agent.streamEvents(
+          { messages: [new HumanMessage(message)] },
+          { version: 'v2' }
+        )
+        debugLog(`streamEvents returned stream iterator`)
 
-        // 2. 核心：文本生成流
-        if (event.event === 'on_chat_model_stream') {
-          const chunk = event.data.chunk
-          if (chunk && chunk.content) {
-            const token = contentToText(chunk.content)
-            if (token) {
-              fullText += token
-              if (onChunk) {
-                onChunk({
-                  type: 'text_delta',
-                  content: token
-                })
+        let fullText = ''
+
+        for await (const event of stream) {
+          // debugLog(`Event received: ${event.event}`) // Commented out to avoid spam, uncomment if needed
+          
+          const logChunk = handleGraphLogEvent(event)
+          if (logChunk && onChunk) onChunk(logChunk)
+
+          if (event.event === 'on_chat_model_stream') {
+            const chunk = event.data.chunk
+            if (chunk && chunk.content) {
+              const token = contentToText(chunk.content)
+              if (token) {
+                fullText += token
+                if (onChunk) {
+                  onChunk({
+                    type: 'text_delta',
+                    content: token
+                  })
+                }
               }
             }
           }
         }
-      }
+        debugLog(`Stream loop finished`)
 
-      // 保存 AI 完整响应
-      await this.saveMessage('ai', fullText)
-      
-      // 发送结束信号，附带完整结构化内容（暂由纯文本转码，未来可直接用 fullContent）
-      if (onChunk) {
-        onChunk({
-          type: 'done',
-          fullContent: contentToParts(fullText)
-        })
-      }
+        await this.saveMessage('ai', fullText)
+
+        if (onChunk) {
+          onChunk({
+            type: 'done',
+            fullContent: contentToParts(fullText)
+          })
+        }
+      })
+
     } catch (error: unknown) {
+      debugLog(`Error in sendStreamMessage: ${error}`)
       const errMsg = logError('Error in stream:', error)
       if (onChunk) {
         onChunk({
@@ -120,6 +141,5 @@ class AIService {
     }
   }
 }
-import { handleGraphLogEvent } from '../log/graphlog'
 
 export const aiService = new AIService()
