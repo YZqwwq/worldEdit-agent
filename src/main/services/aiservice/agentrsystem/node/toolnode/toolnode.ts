@@ -7,17 +7,24 @@ export async function toolNode(
 ): Promise<{ messages: ToolMessage[] }> {
   const lastMessage = state.messages[state.messages.length - 1]
 
-  if (!(lastMessage instanceof AIMessage)) {
+  // Check if message has tool_calls - relax instanceof check to handle AIMessageChunk or version mismatches
+  // Use _getType() as seen in shouldContinue.ts or check constructor name
+  const isAIMessage = (lastMessage as any)._getType?.() === 'ai' || lastMessage.constructor.name === 'AIMessage' || lastMessage.constructor.name === 'AIMessageChunk'
+  
+  if (!isAIMessage) {
     return { messages: [] }
   }
 
-  if (!lastMessage.tool_calls?.length) {
+  // Cast to any to access tool_calls if types don't align
+  const msg = lastMessage as any
+
+  if (!msg.tool_calls?.length) {
     return { messages: [] }
   }
 
   const toolMessages: ToolMessage[] = []
   // 遍历工具组执行调用
-  for (const toolCall of lastMessage.tool_calls) {
+  for (const toolCall of msg.tool_calls) {
     // ✅ 改进：工具不存在时返回错误消息，而不是静默跳过
     const tool = tools[toolCall.name]
     if (!tool) {
@@ -45,7 +52,8 @@ export async function toolNode(
       toolMessages.push(
         new ToolMessage({
           content: String(result),
-          tool_call_id: toolCall.id
+          tool_call_id: toolCall.id,
+          name: toolCall.name
         })
       )
     } catch (error) {

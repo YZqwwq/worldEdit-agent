@@ -15,11 +15,15 @@ function debugLog(msg: string) {
 
 // Helper to fix missing tool_calls from proxy response (Gemini/OpenAI compatible)
 function fixToolCalls(response: BaseMessage): BaseMessage {
-  if (!(response instanceof AIMessage)) return response
+  // Relax check to support AIMessageChunk
+  const isAIMessage = response instanceof AIMessage || response.constructor.name === 'AIMessageChunk' || (response as any)._getType?.() === 'ai'
+  if (!isAIMessage) return response
+  
+  const aiMsg = response as AIMessage
   
   // If tool_calls is already present, do nothing
-  if (response.tool_calls && response.tool_calls.length > 0) {
-    debugLog(`fixToolCalls: tool_calls already present: ${response.tool_calls.length}`)
+  if (aiMsg.tool_calls && aiMsg.tool_calls.length > 0) {
+    debugLog(`fixToolCalls: tool_calls already present: ${aiMsg.tool_calls.length}`)
     return response
   }
 
@@ -43,6 +47,7 @@ function fixToolCalls(response: BaseMessage): BaseMessage {
         toolCalls.push({
           name: item.name,
           args: args,
+          // Use consistent ID generation if missing, but ideally proxy provides it
           id: item.call_id || item.id || `call_${Math.random().toString(36).substring(2, 10)}`,
           type: 'tool_call'
         })
