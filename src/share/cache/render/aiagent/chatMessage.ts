@@ -5,4 +5,5 @@ export interface ChatMessage {
   id: number
   text: string
   sender: ChatSender
+  timestamp?: number
 }

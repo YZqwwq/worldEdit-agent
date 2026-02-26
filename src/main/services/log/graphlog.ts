@@ -35,65 +35,6 @@ type GraphRuntimeContext = {
 
 const graphRuntimeStorage = new AsyncLocalStorage<GraphRuntimeContext>()
 
-function getLogsDir(): string {
-  return join(process.cwd(), 'src/main/services/log/logs')
-}
-
-function getRunId(): string {
-  return graphRuntimeStorage.getStore()?.runId ?? 'no-run-id'
-}
-
-function ensureLogsDir(): void {
-  mkdirSync(getLogsDir(), { recursive: true })
-}
-
-function appendLogLine(line: NodeLogLine): void {
-  ensureLogsDir()
-  const filePath = join(getLogsDir(), `${line.runId}.jsonl`)
-  appendFileSync(filePath, `${JSON.stringify(line)}\n`, { encoding: 'utf-8' })
-}
-
-function toJsonText(value: object | string | number | boolean | null): string {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number') return String(value)
-  if (typeof value === 'boolean') return String(value)
-  if (value === null) return 'null'
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return '[Unserializable Object]'
-  }
-}
-
-function snapshotMessage(message: BaseMessage): JsonObject {
-  const additionalKwargs = message.additional_kwargs
-    ? toJsonText(message.additional_kwargs as object)
-    : null
-  const responseMetadata = message.response_metadata
-    ? toJsonText(message.response_metadata as object)
-    : null
-
-  const toolCallsText =
-    'tool_calls' in message && (message as BaseMessage & { tool_calls?: object[] }).tool_calls
-      ? toJsonText((message as BaseMessage & { tool_calls?: object[] }).tool_calls as object)
-      : null
-
-  const idText = message.id ? String(message.id) : null
-
-  const contentValue: JsonValue =
-    typeof message.content === 'string' ? message.content : toJsonText(message.content as object)
-
-  return {
-    type: message.getType(),
-    id: idText,
-    name: message.name ?? null,
-    content: contentValue,
-    additional_kwargs: additionalKwargs,
-    response_metadata: responseMetadata,
-    tool_calls: toolCallsText
-  }
-}
-
 export function runWithGraphLogContext<T>(
   runId: string,
   fn: () => Promise<T>
@@ -111,35 +52,40 @@ export function logNodeEnter(
   } catch (e) {
     // ignore
   }
-
-  appendLogLine({
-    ts: Date.now(),
-    runId: getRunId(),
-    node,
-    phase: 'enter',
-    state: {
-      llmCalls: state.llmCalls ?? null,
-      messages: state.messages.map(snapshotMessage)
-    }
-  })
 }
 
-export function logNodeExit(
+export function withGraphLog<T, R>(
+  nodeName: string,
+  fn: (state: T) => Promise<R>
+): (state: T) => Promise<R> {
+  return async (state: T): Promise<R> => {
+    // 假设 state 包含 messages 和 llmCalls，如果类型不匹配可能需要调整
+    // 这里使用 any 暂时绕过严格类型检查，因为 logNodeEnter 只需要这两个属性
+    logNodeEnter(nodeName, state as any)
+    
+    try {
+      const update = await fn(state)
+      logNodeExit(nodeName, update as any)
+      return update
+    } catch (error) {
+      // 可以在这里记录错误日志
+      console.error(`Error in node ${nodeName}:`, error)
+      throw error
+    }
+  }
+}
+
+function logNodeExit(
   node: string,
-  update: { messages?: BaseMessage[]; llmCalls?: number | undefined }
+  update: any
 ): void {
-  const updateSnapshot: GraphUpdateSnapshot = {}
-
-  if (update.llmCalls !== undefined) updateSnapshot.llmCalls = update.llmCalls ?? null
-  if (update.messages !== undefined) updateSnapshot.messages = update.messages.map(snapshotMessage)
-
-  appendLogLine({
-    ts: Date.now(),
-    runId: getRunId(),
-    node,
-    phase: 'exit',
-    update: updateSnapshot
-  })
+  // Only log to debug.log, no JSONL
+  try {
+    const debugPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
+    appendFileSync(debugPath, `[${new Date().toISOString()}] logNodeExit: ${node}\n`)
+  } catch (e) {
+    // ignore
+  }
 }
 
 /**
@@ -200,19 +146,6 @@ export function handleGraphLogEvent(event: any): StreamChunk | null {
     // 如果没有，可能是 event 数据结构在不同版本 LangChain 中的差异。
     // 我们尝试从 event.data.extra.options 或 event.data.extra.invocation_params 中查找
     
-    let tools = params.tools || params.functions || params.bind_tools || []
-    
-    if (tools.length === 0) {
-        // 深度查找：有时 tools 藏在 invocation_params 中
-        const invocationParams = event.data?.extra?.invocation_params || {}
-        tools = invocationParams.tools || invocationParams.functions || []
-    }
-
-    // 如果还没找到，尝试从 metadata 中找 (有些适配器会放这里)
-    if (tools.length === 0 && event.metadata) {
-       // 有时候在 ls_tools 这种字段里? 暂无定论，先留空
-    }
-
     // 兼容 input 直接为数组的情况 (当 invoke(messages) 时)
     let messages = []
     if (Array.isArray(event.data?.input)) {
@@ -229,8 +162,7 @@ export function handleGraphLogEvent(event: any): StreamChunk | null {
       nodeName: modelName,
       data: {
         info: 'AI Processing Start',
-        prompt: extractPrompt(messages),
-        available_tools: tools.map((t: any) => t.function?.name || t.name || 'unknown')
+        prompt: extractPrompt(messages)
       },
       timestamp
     }

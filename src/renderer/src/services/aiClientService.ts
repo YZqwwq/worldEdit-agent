@@ -89,7 +89,8 @@ async function loadHistory(): Promise<void> {
       messages.value = history.map((msg: any) => ({
         id: msg.id,
         text: msg.content, // 直接使用 content 字段，假设存储的是 Markdown
-        sender: msg.role
+        sender: msg.role,
+        timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : undefined
       }))
     }
   } catch (error) {
@@ -126,10 +127,12 @@ async function sendMessage(text: string): Promise<void> {
   }
 
   // 1. Add user's message to the list
+  const userMsgId = Date.now()
   messages.value.push({
-    id: Date.now(),
+    id: userMsgId,
     text: text,
-    sender: 'user'
+    sender: 'user',
+    timestamp: userMsgId
   })
 
   // 2. Set loading state & Init listener
@@ -141,14 +144,15 @@ async function sendMessage(text: string): Promise<void> {
   stopListening = window.api.onStreamChunk(handleStreamChunk)
 
   // Add a placeholder for the AI response
-  const aiMsgId = Date.now() + 1
+  const aiMsgId = userMsgId + 1
   currentStreamingMessageId = aiMsgId
   currentStreamingText = '' // 重置缓冲文本
   
   messages.value.push({
     id: aiMsgId,
     text: '正在思考中...',
-    sender: 'ai'
+    sender: 'ai',
+    timestamp: aiMsgId
   })
 
   try {

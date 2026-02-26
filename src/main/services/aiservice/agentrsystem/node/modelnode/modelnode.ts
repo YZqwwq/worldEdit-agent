@@ -1,8 +1,9 @@
-import { BaseMessage, SystemMessage, AIMessage } from '@langchain/core/messages'
+import { BaseMessage, SystemMessage, AIMessage, AIMessageChunk } from '@langchain/core/messages'
 import { modelWithTool } from '../../modelwithtool/modelwithtool'
 import { MessagesState } from '../../state/messageState'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { ProxyResponseMetadata } from '../../../../../../share/cache/AItype/model/proxyResponseMetadata'
 
 function debugLog(msg: string) {
   try {
@@ -27,7 +28,7 @@ function fixToolCalls(response: BaseMessage): BaseMessage {
     return response
   }
 
-  const metadata = response.response_metadata
+  const metadata = response.response_metadata as ProxyResponseMetadata
   debugLog(`fixToolCalls: metadata keys: ${metadata ? Object.keys(metadata).join(',') : 'null'}`)
   
   if (!metadata || !metadata.output || !Array.isArray(metadata.output)) {
@@ -100,8 +101,37 @@ export async function llmCall(
   )
   sortedMessages.push(...currentMsgs)
 
-  let response: BaseMessage = await modelWithTool.invoke(sortedMessages)
-  debugLog(`llmCall: invoked model`)
+  let response: BaseMessage
+  let finalChunk: AIMessageChunk | undefined
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    controller.abort()
+    debugLog(`llmCall: Timeout reached (20s)`)
+  }, 20000)
+
+  try {
+    const stream = await modelWithTool.stream(sortedMessages, { signal: controller.signal })
+    for await (const chunk of stream) {
+      if (!finalChunk) {
+        finalChunk = chunk as AIMessageChunk
+      } else {
+        finalChunk = finalChunk.concat(chunk as AIMessageChunk)
+      }
+    }
+  } catch (error: any) {
+    if (error.name === 'AbortError' || controller.signal.aborted) {
+      debugLog(`llmCall: Aborted due to timeout, returning partial content`)
+      // If we have content, we proceed to return it.
+    } else {
+      clearTimeout(timeout)
+      throw error
+    }
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  response = finalChunk || new AIMessage({ content: "Error: No response from model." })
+  debugLog(`llmCall: invoked model (streamed)`)
   
   // Fix tool calls if missing
   response = fixToolCalls(response)

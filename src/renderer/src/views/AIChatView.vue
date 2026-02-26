@@ -44,25 +44,42 @@
         <div
           v-for="message in messages"
           :key="message.id"
-          class="flex w-full"
+          class="flex w-full gap-3"
           :class="message.sender === 'user' ? 'justify-end' : 'justify-start'"
         >
           <div
             class="flex flex-col max-w-[85%] min-w-[60px]"
             :class="message.sender === 'user' ? 'items-end' : 'items-start'"
           >
+            <!-- AI 消息头部信息：头像 + 名称 + 时间 -->
+            <div 
+              v-if="message.sender === 'ai'" 
+              class="flex items-center gap-2 mb-2 text-xs text-gray-400"
+            >
+              <!-- 头像 -->
+              <div
+                class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center border border-blue-200"
+              >
+                <span class="text-[10px]">🤖</span>
+              </div>
+              
+              <span class="font-medium text-gray-600">AI 助手</span>
+              <span>{{ formatTime(message.timestamp) }}</span>
+            </div>
+
+            <!-- 消息内容区域 -->
             <div
               class="px-5 py-3.5 text-base leading-7 rounded-2xl shadow-sm break-words overflow-hidden"
               :class="[
                 message.sender === 'user'
-                  ? 'bg-blue-600 text-white rounded-br-sm'
-                  : 'bg-white text-gray-800 border border-gray-100 rounded-bl-sm'
+                  ? 'bg-[#f3f5f9] text-gray-900 rounded-br-sm'
+                  : 'bg-transparent text-gray-800 !p-0 !shadow-none' 
               ]"
             >
               <MdPreview
                 :modelValue="message.text"
                 class="!bg-transparent !p-0"
-                :theme="message.sender === 'user' ? 'dark' : 'light'"
+                :theme="'light'"
               />
             </div>
           </div>
@@ -138,6 +155,17 @@ const handleClearHistory = async () => {
   if (confirm('确定要清空所有对话记录吗？此操作无法撤销。')) {
     await clearHistory()
   }
+}
+
+// 格式化时间函数
+const formatTime = (timestamp?: number): string => {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
+  const hours = date.getHours().toString().padStart(2, '0')
+  const minutes = date.getMinutes().toString().padStart(2, '0')
+  return `${month}月${day}日 ${hours}:${minutes}`
 }
 
 // Scroll to the bottom when new messages are added

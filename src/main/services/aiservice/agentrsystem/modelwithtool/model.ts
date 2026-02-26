@@ -28,7 +28,7 @@ function createChatModel(options: ModelOptions): ModelAdaptor {
 
 const defaultModelOptions: ModelOptions = {
   vendor: 'openai',
-  model: 'gpt-5.2',
+  model: 'gpt-4o-mini',
   temperature: 0.9,
   apiKey: 'sk-PcyKJs0RiLFIkS8F9kFaZZA8CbSsXwWaDtCkLXXq7eNgUYvb',
   streaming: true,
