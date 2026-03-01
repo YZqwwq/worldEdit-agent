@@ -31,13 +31,19 @@ export async function contextNode(
     persona = `你是一个由 WorldEdit-Agent 驱动的智能助手。你的目标是协助用户进行世界编辑和创作。`
   }
 
-  // 2. 模拟获取压缩记忆 (后续接入真实记忆模块)
-  // const compressedMemory = await getMemoryFromDB()
-  const compressedMemory = '' // 暂时为空
+  let compressedMemory = ''
+  try {
+    const projectRoot = process.cwd()
+    const historyPath = join(projectRoot, 'src/main/prompt-resource/famila-daily/historyprompt/recent-history.md')
+    compressedMemory = await readFile(historyPath, 'utf-8')
+  } catch (error) {
+    console.error('Failed to load recent history:', error)
+    compressedMemory = ''
+  }
 
   // 3. 构建 System Message
   // 如果有记忆，附加到 System Prompt 中
-  const systemContent = compressedMemory 
+  const systemContent = compressedMemory?.trim()
     ? `${persona}\n\n长期记忆:\n${compressedMemory}`
     : persona
 

@@ -61,20 +61,34 @@ async function performCompression(summary: string): Promise<string> {
 
   // 这里为了简单，直接使用硬编码的 model 配置，实际应从统一配置获取
   const chat = new ChatOpenAI({
-    model: 'gpt-4o', // 或使用配置中的模型
+    model: 'qwen3.5-flash',
     temperature: 0.3,
-    apiKey: 'sk-tNyCJbWcFMiYPg8_HZg2aJjGn9owN4zzQ10jgPgaOV2l-6ZYFCLsvyuCFTI',
-    configuration: { baseURL: 'https://api.nekro.ai/v1' }
+    apiKey: 'sk-523977e60e64460db438c9d7d33ba19d',
+    configuration: { baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1' }
   })
 
-  const response = await chat.invoke([new SystemMessage(prompt)])
-  const newContent = contentToText(response.content)
+  try {
+    const response = await chat.invoke([new SystemMessage(prompt)])
+    const newContent = contentToText(response.content)
 
-  if (newContent) {
-    writeFileSync(historyPath, newContent, 'utf-8')
-    return 'History summarized successfully.'
+    if (newContent) {
+      writeFileSync(historyPath, newContent, 'utf-8')
+      return 'History summarized successfully.'
+    }
+  } catch (error) {
+    const fallbackContent = buildFallbackContent(currentContent, conversationText)
+    writeFileSync(historyPath, fallbackContent, 'utf-8')
+    return 'History summarized with fallback.'
   }
   return 'Failed to summarize history.'
+}
+
+function buildFallbackContent(currentContent: string, conversationText: string): string {
+  const context = currentContent?.trim() ? currentContent.trim() : '(空)'
+  const lines = conversationText.split('\n').filter(Boolean)
+  const recentLines = lines.slice(-12)
+  const summary = recentLines.length ? recentLines.map(line => `- ${line}`).join('\n') : '- (空)'
+  return `## 当前上下文\n${context}\n\n## 关键对话摘要\n${summary}\n`
 }
 
 // 定义 Tool

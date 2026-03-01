@@ -7,6 +7,7 @@ import { logError } from '../../../share/utils/error/error'
 import { AppDataSource } from '../../database'
 import { Message } from '../../../share/entity/database/Message'
 import { handleGraphLogEvent, runWithGraphLogContext } from '../log/graphlog'
+import { summarizeHistoryTool } from './ai-utils/promptutils/compress'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -127,6 +128,10 @@ class AIService {
             fullContent: contentToParts(fullText)
           })
         }
+
+        summarizeHistoryTool
+          .invoke({ summary: fullText.slice(0, 500) })
+          .catch(error => debugLog(`summarizeHistory failed: ${String(error)}`))
       })
 
     } catch (error: unknown) {
