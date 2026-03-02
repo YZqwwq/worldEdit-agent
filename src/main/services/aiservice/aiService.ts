@@ -7,9 +7,10 @@ import { logError } from '../../../share/utils/error/error'
 import { AppDataSource } from '../../database'
 import { Message } from '../../../share/entity/database/Message'
 import { handleGraphLogEvent, runWithGraphLogContext } from '../log/graphlog'
-import { summarizeHistoryTool } from './ai-utils/promptutils/compress'
+// import { summarizeHistoryTool } from './ai-utils/promptutils/compress' // 移除旧的总结工具调用，改为由 memoryNode 管理
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { memoryManager } from './agentrsystem/memory/MemoryManager'
 
 function debugLog(msg: string) {
   try {
@@ -63,6 +64,7 @@ class AIService {
   async clearHistory(): Promise<void> {
     try {
       await this.messageRepo.clear()
+      memoryManager.resetStorage()
     } catch (error) {
       console.error('Failed to clear history:', error)
       throw error
@@ -129,9 +131,9 @@ class AIService {
           })
         }
 
-        summarizeHistoryTool
-          .invoke({ summary: fullText.slice(0, 500) })
-          .catch(error => debugLog(`summarizeHistory failed: ${String(error)}`))
+        // summarizeHistoryTool
+        //   .invoke({ summary: fullText.slice(0, 500) })
+        //   .catch(error => debugLog(`summarizeHistory failed: ${String(error)}`))
       })
 
     } catch (error: unknown) {

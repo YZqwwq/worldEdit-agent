@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_default",
+  "created_at": "",
+  "counters": {
+    "total_turns": 6,
+    "window_turns": 6,
+    "since_last_compress": 0
+  },
+  "last_compress_time": "",
+  "compress_strategy": "time_based",
+  "api_status": "healthy"
+}

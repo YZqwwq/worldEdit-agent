@@ -82,13 +82,13 @@ export async function llmCall(
   // ContextNode 可能将 SystemMessage 和历史消息追加到了末尾，这里进行一次重排序
   const messages = [...state.messages]
   
-  // 1. 提取 System Message
-  const systemMsg = messages.find(m => m instanceof SystemMessage)
+  // 1. 提取所有 System Message (包括 Persona 和 Anchors)
+  const systemMsgs = messages.filter(m => m instanceof SystemMessage)
   
   const sortedMessages: BaseMessage[] = []
   
   // 添加 System
-  if (systemMsg) sortedMessages.push(systemMsg)
+  sortedMessages.push(...systemMsgs)
   
   // 添加历史 (带 isHistory 标记的)
   const historyMsgs = messages.filter(m => m.additional_kwargs?.isHistory)

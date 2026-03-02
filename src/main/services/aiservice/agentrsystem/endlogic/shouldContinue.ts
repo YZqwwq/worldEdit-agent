@@ -34,7 +34,7 @@ export async function shouldContinue(
     debugLog(`No last message`)
   }
 
-  if (lastMessage == null) return END
+  if (lastMessage == null) return END // 这里可能需要改为 memoryNode？如果没消息也需要归档吗？通常不会发生。
 
   // Check if it's an AI message (AIMessage or AIMessageChunk)
   // Using loose check for robustness against version mismatches or Chunk types
@@ -55,7 +55,8 @@ export async function shouldContinue(
     return 'toolNode'
   }
 
-  debugLog(`Routing to END`)
+  debugLog(`Routing to memoryNode`)
   // Otherwise, we stop (reply to the user)
-  return END
+  // 改为跳转到 memoryNode 进行记忆管理
+  return 'memoryNode'
 }
