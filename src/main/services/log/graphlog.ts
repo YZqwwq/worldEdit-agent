@@ -1,6 +1,6 @@
 import { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync} from 'node:fs'
 import { join } from 'node:path'
 import type { BaseMessage } from '@langchain/core/messages'
 

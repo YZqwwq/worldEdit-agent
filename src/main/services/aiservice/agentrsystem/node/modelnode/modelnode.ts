@@ -130,7 +130,15 @@ export async function llmCall(
     clearTimeout(timeout)
   }
 
-  response = finalChunk || new AIMessage({ content: "Error: No response from model." })
+  const rawResponse = finalChunk || new AIMessage({ content: "Error: No response from model." })
+  response = rawResponse instanceof AIMessage
+    ? rawResponse
+    : new AIMessage({
+        content: rawResponse.content,
+        additional_kwargs: rawResponse.additional_kwargs,
+        response_metadata: rawResponse.response_metadata,
+        id: rawResponse.id
+      })
   debugLog(`llmCall: invoked model (streamed)`)
   
   // Fix tool calls if missing

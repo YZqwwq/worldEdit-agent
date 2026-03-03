@@ -133,8 +133,8 @@ export class MemoryManager {
     this.state.counters.window_turns = this.shortTerm.length
     this.state.counters.total_turns++
 
-    // 滑动窗口检查 ( > 20 条)
-    if (this.shortTerm.length > 20) {
+    // 滑动窗口检查 ( > 8 条)
+    if (this.shortTerm.length > 8) {
       const popped = this.shortTerm.shift()
       if (popped) {
         await this.archiveMessage(popped)

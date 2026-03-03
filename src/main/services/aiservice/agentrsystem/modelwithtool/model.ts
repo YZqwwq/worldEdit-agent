@@ -28,12 +28,11 @@ function createChatModel(options: ModelOptions): ModelAdaptor {
 
 const defaultModelOptions: ModelOptions = {
   vendor: 'openai',
-  model: 'gpt-4o-mini',
+  model: 'qwen-plus',
   temperature: 0.9,
-  apiKey: 'sk-PcyKJs0RiLFIkS8F9kFaZZA8CbSsXwWaDtCkLXXq7eNgUYvb',
+  apiKey: 'sk-523977e60e64460db438c9d7d33ba19d',
   streaming: true,
-  useResponsesApi: true,
-  baseURL: 'https://api1.uiuiapi.com/v1'
+  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 }
 
 // 对外暴露的模型配置
