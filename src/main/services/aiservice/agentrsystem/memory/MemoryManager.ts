@@ -1,6 +1,8 @@
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'fs'
 import { join } from 'path'
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages'
+import { model } from '../modelwithtool/model'
+import { contentToText } from '../../messageoutput/transformRespones'
 
 // 路径配置
 const RESOURCE_PATH = join(
@@ -23,17 +25,23 @@ interface StateData {
   compress_strategy: string
   api_status: string
   anchors?: string[]
+  compress_threshold?: number
+  compress_min_interval_ms?: number
+  short_term_limit?: number
 }
 
 interface MessageData {
   role: string
   content: string
   timestamp: string
+  compressed?: boolean
+  compressed_at?: string
 }
 
 export class MemoryManager {
   private state!: StateData // Add definite assignment assertion
   private shortTerm: MessageData[] = []
+  private compressing = false
 
   constructor() {
     this.loadState()
@@ -45,6 +53,7 @@ export class MemoryManager {
       if (existsSync(STATE_FILE)) {
         const data = readFileSync(STATE_FILE, 'utf-8')
         this.state = JSON.parse(data)
+        this.normalizeState()
       } else {
         throw new Error('State file not found')
       }
@@ -58,7 +67,10 @@ export class MemoryManager {
         last_compress_time: '',
         compress_strategy: 'time_based',
         api_status: 'healthy',
-        anchors: []
+        anchors: [],
+        compress_threshold: 6,
+        compress_min_interval_ms: 0,
+        short_term_limit: 6
       }
     }
   }
@@ -94,6 +106,106 @@ export class MemoryManager {
     }
   }
 
+  private normalizeState() {
+    if (this.state.compress_threshold == null) this.state.compress_threshold = 6
+    if (this.state.compress_min_interval_ms == null) this.state.compress_min_interval_ms = 0
+    if (this.state.short_term_limit == null) this.state.short_term_limit = 6
+  }
+
+  private canUseAi(now: number): boolean {
+    const threshold = this.state.compress_threshold ?? 6
+    if ((this.state.counters?.since_last_compress ?? 0) < threshold) return false
+    if (this.state.compress_strategy === 'time_based') {
+      const last = this.state.last_compress_time ? Date.parse(this.state.last_compress_time) : 0
+      const minInterval = this.state.compress_min_interval_ms ?? 0
+      if (last && minInterval > 0 && now - last < minInterval) return false
+    }
+    return true
+  }
+
+  private buildSummaryPrompt(summaryInput: string, currentContent: string): string {
+    return `
+你是一个专业的对话历史归档员。你的任务是将新的对话内容合并到现有的历史档案中。
+
+## 现有档案 (history_raw.md)
+${currentContent || '(空)'}
+
+## 最近对话记录 (需归档)
+${summaryInput}
+
+## 任务要求
+1. 请更新并输出新的 Markdown 档案内容。
+2. 保持结构清晰，建议包含 "当前上下文" 和 "关键对话摘要" 两个部分。
+3. "当前上下文"：更新当前的任务状态、用户偏好、已知信息。
+4. "关键对话摘要"：提炼有价值的对话点，忽略寒暄和无意义的对话。
+5. 不要输出任何解释性文字，只输出 Markdown 内容。
+`
+  }
+
+  private appendRawMessages(messages: MessageData[]) {
+    for (const msg of messages) {
+      const rawEntry = `\n### RAW_FALLBACK [${msg.timestamp}] ${msg.role.toUpperCase()}\n${msg.content}\n`
+      appendFileSync(RAW_FILE, rawEntry, 'utf-8')
+    }
+  }
+
+  private readSummary(): string {
+    if (!existsSync(RAW_FILE)) return ''
+    return readFileSync(RAW_FILE, 'utf-8')
+  }
+
+  private async performCompression(messages: MessageData[]) {
+    const historyContent = this.readSummary()
+    const summaryInput = messages.map(m => `${m.role}: ${m.content}`).join('\n')
+    if (!summaryInput) return
+    const prompt = this.buildSummaryPrompt(summaryInput, historyContent)
+    const response = await model.invoke([new SystemMessage(prompt)])
+    const summary = contentToText(response.content)
+    if (!summary) {
+      throw new Error('Empty summary')
+    }
+    writeFileSync(RAW_FILE, summary, 'utf-8')
+  }
+
+  private async mergeMessages(messages: MessageData[], allowAi: boolean) {
+    if (messages.length === 0) return
+    if (this.compressing) return
+    this.compressing = true
+    const nowIso = new Date().toISOString()
+    try {
+      if (!allowAi) {
+        throw new Error('skip_ai')
+      }
+      await this.performCompression(messages)
+      for (const msg of messages) {
+        msg.compressed = true
+        msg.compressed_at = nowIso
+      }
+      this.state.counters.since_last_compress = 0
+      this.state.last_compress_time = nowIso
+      this.state.api_status = 'healthy'
+    } catch {
+      this.appendRawMessages(messages)
+      for (const msg of messages) {
+        msg.compressed = true
+        msg.compressed_at = nowIso
+      }
+      this.state.counters.since_last_compress = 0
+      this.state.last_compress_time = nowIso
+      this.state.api_status = allowAi ? 'down' : 'skipped'
+    } finally {
+      this.saveShortTerm()
+      this.saveState()
+      this.compressing = false
+    }
+  }
+
+  private async mergeOverflow(messages: MessageData[]) {
+    const now = Date.now()
+    const allowAi = this.canUseAi(now)
+    await this.mergeMessages(messages, allowAi)
+  }
+
   public getContext(): BaseMessage[] {
     const messages: BaseMessage[] = []
 
@@ -105,6 +217,11 @@ export class MemoryManager {
     }
 
     // Add Short Term History
+    const summary = this.readSummary()
+    if (summary) {
+      messages.push(new SystemMessage(`记忆摘要:\n${summary}`))
+    }
+
     for (const msg of this.shortTerm) {
       if (msg.role === 'user') {
         messages.push(new HumanMessage(msg.content))
@@ -132,13 +249,13 @@ export class MemoryManager {
     this.shortTerm.push(msg)
     this.state.counters.window_turns = this.shortTerm.length
     this.state.counters.total_turns++
+    this.state.counters.since_last_compress++
 
-    // 滑动窗口检查 ( > 8 条)
-    if (this.shortTerm.length > 8) {
-      const popped = this.shortTerm.shift()
-      if (popped) {
-        await this.archiveMessage(popped)
-      }
+    const limit = this.state.short_term_limit ?? 6
+    if (this.shortTerm.length > limit) {
+      const overflowCount = this.shortTerm.length - limit
+      const overflow = this.shortTerm.splice(0, overflowCount)
+      void this.mergeOverflow(overflow)
     }
 
     this.saveShortTerm()
@@ -154,31 +271,14 @@ export class MemoryManager {
       last_compress_time: '',
       compress_strategy: 'time_based',
       api_status: 'healthy',
-      anchors: []
+      anchors: [],
+      compress_threshold: 6,
+      compress_min_interval_ms: 0,
+      short_term_limit: 6
     }
     this.saveShortTerm()
     this.saveState()
     writeFileSync(RAW_FILE, '', 'utf-8')
-  }
-
-  private async archiveMessage(msg: MessageData) {
-    // 降级策略：尝试压缩或直接追加
-    // 为了 MVP，直接追加 RAW，并在之后尝试压缩
-    const rawEntry = `\n### [${msg.timestamp}] ${msg.role.toUpperCase()}\n${msg.content}\n`
-
-    try {
-      // 追加到 history_raw.md
-      appendFileSync(RAW_FILE, rawEntry, 'utf-8')
-
-      // 更新 compress counter
-      this.state.counters.since_last_compress++
-      this.state.last_compress_time = new Date().toISOString()
-
-      // 这里可以扩展 API 调用进行摘要
-      // 但为了满足“降级写入策略”和“MVP”，我们先保证 RAW 写入成功
-    } catch (e) {
-      console.error('Failed to archive message:', e)
-    }
   }
 }
 
