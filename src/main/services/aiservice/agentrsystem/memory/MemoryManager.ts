@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'fs'
 import { join } from 'path'
-import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages'
+import { SystemMessage } from '@langchain/core/messages'
 import { quickModel } from '../modelwithtool/quick-base-model'
 import { contentToText } from '../../messageoutput/transformRespones'
+import { type StateData, type MessageData, type MemorySnapshot } from '@share/cache/AItype/states/memoryState'
 
 // 路径配置
 const RESOURCE_PATH = join(
@@ -12,31 +13,6 @@ const RESOURCE_PATH = join(
 const STATE_FILE = join(RESOURCE_PATH, 'state.json')
 const SHORT_TERM_FILE = join(RESOURCE_PATH, 'short_term.json')
 const RAW_FILE = join(RESOURCE_PATH, 'history_raw.md')
-
-interface StateData {
-  session_id: string
-  created_at: string
-  counters: {
-    total_turns: number
-    window_turns: number
-    since_last_compress: number
-  }
-  last_compress_time: string
-  compress_strategy: string
-  api_status: string
-  anchors?: string[]
-  compress_threshold?: number
-  compress_min_interval_ms?: number
-  short_term_limit?: number
-}
-
-interface MessageData {
-  role: string
-  content: string
-  timestamp: string
-  compressed?: boolean
-  compressed_at?: string
-}
 
 export class MemoryManager {
   private state!: StateData // Add definite assignment assertion
@@ -48,6 +24,7 @@ export class MemoryManager {
     this.loadShortTerm()
   }
 
+  // 加载状态文件
   private loadState() {
     try {
       if (existsSync(STATE_FILE)) {
@@ -75,6 +52,7 @@ export class MemoryManager {
     }
   }
 
+  // 保存状态文件
   private saveState() {
     try {
       const { anchors, ...rest } = this.state
@@ -85,6 +63,7 @@ export class MemoryManager {
     }
   }
 
+  // 加载短期记忆文件
   private loadShortTerm() {
     try {
       if (existsSync(SHORT_TERM_FILE)) {
@@ -98,6 +77,7 @@ export class MemoryManager {
     }
   }
 
+  // 保存短期记忆文件
   private saveShortTerm() {
     try {
       writeFileSync(SHORT_TERM_FILE, JSON.stringify(this.shortTerm, null, 2), 'utf-8')
@@ -106,12 +86,14 @@ export class MemoryManager {
     }
   }
 
+  // 归一化状态字段
   private normalizeState() {
     if (this.state.compress_threshold == null) this.state.compress_threshold = 6
     if (this.state.compress_min_interval_ms == null) this.state.compress_min_interval_ms = 0
     if (this.state.short_term_limit == null) this.state.short_term_limit = 6
   }
 
+  // 判断是否可以使用AI压缩
   private canUseAi(now: number): boolean {
     const threshold = this.state.compress_threshold ?? 6
     if ((this.state.counters?.since_last_compress ?? 0) < threshold) return false
@@ -123,6 +105,7 @@ export class MemoryManager {
     return true
   }
 
+  // 构建摘要提示
   private buildSummaryPrompt(summaryInput: string, currentContent: string): string {
     return `
 你是一个专业的对话历史归档员。你的任务是将新的对话内容合并到现有的历史档案中。
@@ -141,7 +124,7 @@ ${summaryInput}
 5. 不要输出任何解释性文字，只输出 Markdown 内容。
 `
   }
-
+  // 追加原始消息到文件
   private appendRawMessages(messages: MessageData[]) {
     for (const msg of messages) {
       const rawEntry = `\n### RAW_FALLBACK [${msg.timestamp}] ${msg.role.toUpperCase()}\n${msg.content}\n`
@@ -149,11 +132,12 @@ ${summaryInput}
     }
   }
 
+  // 读取摘要文件内容
   private readSummary(): string {
     if (!existsSync(RAW_FILE)) return ''
     return readFileSync(RAW_FILE, 'utf-8')
   }
-
+  // 执行压缩
   private async performCompression(messages: MessageData[]) {
     const historyContent = this.readSummary()
     const summaryInput = messages.map(m => `${m.role}: ${m.content}`).join('\n')
@@ -167,6 +151,7 @@ ${summaryInput}
     writeFileSync(RAW_FILE, summary, 'utf-8')
   }
 
+  // 合并消息
   private async mergeMessages(messages: MessageData[], allowAi: boolean) {
     if (messages.length === 0) return
     if (this.compressing) return
@@ -200,39 +185,28 @@ ${summaryInput}
     }
   }
 
+  // 合并溢出消息
   private async mergeOverflow(messages: MessageData[]) {
     const now = Date.now()
     const allowAi = this.canUseAi(now)
     await this.mergeMessages(messages, allowAi)
   }
 
-  public getContext(): BaseMessage[] {
-    const messages: BaseMessage[] = []
-
-    // Add Anchors (System Prompt)
-    if (this.state.anchors && this.state.anchors.length > 0) {
-      const anchorText = this.state.anchors.join('\n')
-      // 锚点通常作为 SystemMessage
-      messages.push(new SystemMessage(anchorText))
+  // 获取内存快照
+  public getSnapshot(): MemorySnapshot {
+    return {
+      anchors: this.state.anchors ? [...this.state.anchors] : [],
+      summary: this.readSummary(),
+      shortTerm: this.shortTerm.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp,
+        compressed: msg.compressed,
+        compressed_at: msg.compressed_at
+      }))
     }
-
-    // Add Short Term History
-    const summary = this.readSummary()
-    if (summary) {
-      messages.push(new SystemMessage(`记忆摘要:\n${summary}`))
-    }
-
-    for (const msg of this.shortTerm) {
-      if (msg.role === 'user') {
-        messages.push(new HumanMessage(msg.content))
-      } else if (msg.role === 'ai') {
-        messages.push(new AIMessage(msg.content))
-      }
-    }
-
-    return messages
   }
-
+  // 添加消息
   public async addMessage(role: 'user' | 'ai', content: string) {
     const msg: MessageData = {
       role,
@@ -261,7 +235,7 @@ ${summaryInput}
     this.saveShortTerm()
     this.saveState()
   }
-
+  // 重置存储
   public resetStorage(): void {
     this.shortTerm = []
     this.state = {
