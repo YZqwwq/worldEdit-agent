@@ -2,32 +2,10 @@ import { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { appendFileSync} from 'node:fs'
 import { join } from 'node:path'
-import type { BaseMessage } from '@langchain/core/messages'
 
 type JsonPrimitive = string | number | boolean | null
 type JsonValue = JsonPrimitive | JsonObject | JsonValue[]
 type JsonObject = { [key: string]: JsonValue }
-
-type NodeLogPhase = 'enter' | 'exit'
-
-type GraphStateSnapshot = {
-  llmCalls: number | null
-  messages: JsonValue[]
-}
-
-type GraphUpdateSnapshot = {
-  llmCalls?: number | null
-  messages?: JsonValue[]
-}
-
-type NodeLogLine = {
-  ts: number
-  runId: string
-  node: string
-  phase: NodeLogPhase
-  state?: GraphStateSnapshot
-  update?: GraphUpdateSnapshot
-}
 
 type GraphRuntimeContext = {
   runId: string
@@ -44,7 +22,6 @@ export function runWithGraphLogContext<T>(
 
 export function logNodeEnter(
   node: string,
-  state: { messages: BaseMessage[]; llmCalls?: number | undefined }
 ): void {
   try {
     const debugPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
@@ -61,11 +38,11 @@ export function withGraphLog<T, R>(
   return async (state: T): Promise<R> => {
     // 假设 state 包含 messages 和 llmCalls，如果类型不匹配可能需要调整
     // 这里使用 any 暂时绕过严格类型检查，因为 logNodeEnter 只需要这两个属性
-    logNodeEnter(nodeName, state as any)
+    logNodeEnter(nodeName)
     
     try {
       const update = await fn(state)
-      logNodeExit(nodeName, update as any)
+      logNodeExit(nodeName)
       return update
     } catch (error) {
       // 可以在这里记录错误日志
@@ -77,7 +54,6 @@ export function withGraphLog<T, R>(
 
 function logNodeExit(
   node: string,
-  update: any
 ): void {
   // Only log to debug.log, no JSONL
   try {

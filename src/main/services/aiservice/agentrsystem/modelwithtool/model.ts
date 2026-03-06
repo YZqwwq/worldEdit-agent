@@ -3,7 +3,7 @@ import { ChatAnthropic } from '@langchain/anthropic'
 import { ModelAdaptor } from '@share/cache/AItype/model/modelAdaptor'
 import { type ModelOptions } from '@share/cache/AItype/model/modelOptions'
 
-function createChatModel(options: ModelOptions): ModelAdaptor {
+export function createChatModel(options: ModelOptions): ModelAdaptor {
   let model: ModelAdaptor = new ChatOpenAI({})
 
   if (options.vendor === 'openai') {

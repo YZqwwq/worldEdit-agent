@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'fs'
 import { join } from 'path'
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages'
-import { model } from '../modelwithtool/model'
+import { quickModel } from '../modelwithtool/quick-base-model'
 import { contentToText } from '../../messageoutput/transformRespones'
 
 // 路径配置
@@ -159,7 +159,7 @@ ${summaryInput}
     const summaryInput = messages.map(m => `${m.role}: ${m.content}`).join('\n')
     if (!summaryInput) return
     const prompt = this.buildSummaryPrompt(summaryInput, historyContent)
-    const response = await model.invoke([new SystemMessage(prompt)])
+    const response = await quickModel.invoke([new SystemMessage(prompt)])
     const summary = contentToText(response.content)
     if (!summary) {
       throw new Error('Empty summary')
