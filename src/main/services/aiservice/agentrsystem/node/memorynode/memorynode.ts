@@ -1,6 +1,6 @@
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
-import { memoryManager } from '../../memory/MemoryManager'
+import { memoryManager } from '../../manager/memory/MemoryManager'
 import { contentToText } from '../../../messageoutput/transformRespones'
 
 export async function memoryNode(

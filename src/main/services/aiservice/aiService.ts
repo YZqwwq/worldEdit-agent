@@ -10,7 +10,7 @@ import { handleGraphLogEvent, runWithGraphLogContext } from '../log/graphlog'
 // import { summarizeHistoryTool } from './ai-utils/promptutils/compress' // 移除旧的总结工具调用，改为由 memoryNode 管理
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { memoryManager } from './agentrsystem/memory/MemoryManager'
+import { memoryManager } from './agentrsystem/manager/memory/MemoryManager'
 
 function debugLog(msg: string) {
   try {

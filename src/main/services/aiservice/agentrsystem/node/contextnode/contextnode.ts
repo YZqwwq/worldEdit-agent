@@ -1,11 +1,11 @@
 import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
-import { memoryManager } from '../../memory/MemoryManager'
+import { memoryManager } from '../../manager/memory/MemoryManager'
 import {
   loadRolePrompt,
   loadPersonaState,
   formatPersonaState
-} from '@share/cache/AItype/states/personalState'
+} from '../../manager/personal/personalManager'
 
 /**
  * ContextNode: 负责构建全局上下文，包括 Persona、Memory 等。
@@ -18,13 +18,12 @@ export async function contextNode(
   const messages: BaseMessage[] = []
 
   // 1. 读取静态 Persona (法弥拉设定)
-  const projectRoot = process.cwd()
-  const persona = await loadRolePrompt(projectRoot)
+  const persona = await loadRolePrompt()
   if (persona) {
     messages.push(new SystemMessage(persona))
   }
 
-  const personaState = await loadPersonaState(projectRoot)
+  const personaState = await loadPersonaState()
   if (personaState) {
     messages.push(new SystemMessage(formatPersonaState(personaState)))
   }

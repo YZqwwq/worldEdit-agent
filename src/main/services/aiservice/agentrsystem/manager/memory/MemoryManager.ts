@@ -1,18 +1,13 @@
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'fs'
-import { join } from 'path'
 import { SystemMessage } from '@langchain/core/messages'
-import { quickModel } from '../modelwithtool/quick-base-model'
-import { contentToText } from '../../messageoutput/transformRespones'
+import { quickModel } from '../../modelwithtool/quick-base-model'
+import { contentToText } from '../../../messageoutput/transformRespones'
 import { type StateData, type MessageData, type MemorySnapshot } from '@share/cache/AItype/states/memoryState'
+import { getHistoryStatePath, getShortTermPath, getHistoryRawPath } from '../../../../../config/pathConfig'
 
-// 路径配置
-const RESOURCE_PATH = join(
-  process.cwd(),
-  'src/main/prompt-resource/famila-daily/historyprompt/recent-history'
-)
-const STATE_FILE = join(RESOURCE_PATH, 'state.json')
-const SHORT_TERM_FILE = join(RESOURCE_PATH, 'short_term.json')
-const RAW_FILE = join(RESOURCE_PATH, 'history_raw.md')
+const getStateFile = () => getHistoryStatePath()
+const getShortTermFile = () => getShortTermPath()
+const getRawFile = () => getHistoryRawPath()
 
 export class MemoryManager {
   private state!: StateData // Add definite assignment assertion
@@ -27,29 +22,29 @@ export class MemoryManager {
   // 加载状态文件
   private loadState() {
     try {
-      if (existsSync(STATE_FILE)) {
-        const data = readFileSync(STATE_FILE, 'utf-8')
+      const stateFile = getStateFile()
+      if (existsSync(stateFile)) {
+        const data = readFileSync(stateFile, 'utf-8')
         this.state = JSON.parse(data)
         this.normalizeState()
-      } else {
-        throw new Error('State file not found')
+        return
       }
     } catch (e) {
       console.error('Failed to load state:', e)
-      // Fallback
-      this.state = {
-        session_id: 'default',
-        created_at: new Date().toISOString(),
-        counters: { total_turns: 0, window_turns: 0, since_last_compress: 0 },
-        last_compress_time: '',
-        compress_strategy: 'time_based',
-        api_status: 'healthy',
-        anchors: [],
-        compress_threshold: 6,
-        compress_min_interval_ms: 0,
-        short_term_limit: 6
-      }
     }
+    this.state = {
+      session_id: 'default',
+      created_at: new Date().toISOString(),
+      counters: { total_turns: 0, window_turns: 0, since_last_compress: 0 },
+      last_compress_time: '',
+      compress_strategy: 'time_based',
+      api_status: 'healthy',
+      anchors: [],
+      compress_threshold: 6,
+      compress_min_interval_ms: 0,
+      short_term_limit: 6
+    }
+    this.saveState()
   }
 
   // 保存状态文件
@@ -57,7 +52,7 @@ export class MemoryManager {
     try {
       const { anchors, ...rest } = this.state
       const data = anchors && anchors.length > 0 ? this.state : rest
-      writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), 'utf-8')
+      writeFileSync(getStateFile(), JSON.stringify(data, null, 2), 'utf-8')
     } catch (e) {
       console.error('Failed to save state:', e)
     }
@@ -66,21 +61,23 @@ export class MemoryManager {
   // 加载短期记忆文件
   private loadShortTerm() {
     try {
-      if (existsSync(SHORT_TERM_FILE)) {
-        const data = readFileSync(SHORT_TERM_FILE, 'utf-8')
+      const shortTermFile = getShortTermFile()
+      if (existsSync(shortTermFile)) {
+        const data = readFileSync(shortTermFile, 'utf-8')
         this.shortTerm = JSON.parse(data)
-      } else {
-        this.shortTerm = []
+        return
       }
     } catch (e) {
       this.shortTerm = []
     }
+    this.shortTerm = []
+    this.saveShortTerm()
   }
 
   // 保存短期记忆文件
   private saveShortTerm() {
     try {
-      writeFileSync(SHORT_TERM_FILE, JSON.stringify(this.shortTerm, null, 2), 'utf-8')
+      writeFileSync(getShortTermFile(), JSON.stringify(this.shortTerm, null, 2), 'utf-8')
     } catch (e) {
       console.error('Failed to save short term memory:', e)
     }
@@ -128,14 +125,15 @@ ${summaryInput}
   private appendRawMessages(messages: MessageData[]) {
     for (const msg of messages) {
       const rawEntry = `\n### RAW_FALLBACK [${msg.timestamp}] ${msg.role.toUpperCase()}\n${msg.content}\n`
-      appendFileSync(RAW_FILE, rawEntry, 'utf-8')
+      appendFileSync(getRawFile(), rawEntry, 'utf-8')
     }
   }
 
   // 读取摘要文件内容
   private readSummary(): string {
-    if (!existsSync(RAW_FILE)) return ''
-    return readFileSync(RAW_FILE, 'utf-8')
+    const rawFile = getRawFile()
+    if (!existsSync(rawFile)) return ''
+    return readFileSync(rawFile, 'utf-8')
   }
   // 执行压缩
   private async performCompression(messages: MessageData[]) {
@@ -148,7 +146,7 @@ ${summaryInput}
     if (!summary) {
       throw new Error('Empty summary')
     }
-    writeFileSync(RAW_FILE, summary, 'utf-8')
+    writeFileSync(getRawFile(), summary, 'utf-8')
   }
 
   // 合并消息
@@ -252,7 +250,7 @@ ${summaryInput}
     }
     this.saveShortTerm()
     this.saveState()
-    writeFileSync(RAW_FILE, '', 'utf-8')
+    writeFileSync(getRawFile(), '', 'utf-8')
   }
 }
 

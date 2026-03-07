@@ -3,15 +3,14 @@ import { SystemMessage} from '@langchain/core/messages'
 import { readFileSync, writeFileSync } from 'fs'
 import { tool } from '@langchain/core/tools'
 import * as z from 'zod'
-import { join } from 'path'
 import { contentToText } from '../../messageoutput/transformRespones'
 import { AppDataSource } from '../../../../database'
 import { Message } from '../../../../../share/entity/database/Message'
+import { getLegacyHistoryMarkdownPath } from '../../../../config/pathConfig'
 
 // 历史文件路径
 const getHistoryPath = (): string => {
-  const projectRoot = process.cwd()
-  return join(projectRoot, 'src/main/prompt-resource/famila-daily/historyprompt/recent-history.md')
+  return getLegacyHistoryMarkdownPath()
 }
 
 // 独立的压缩函数，供工具调用
