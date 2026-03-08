@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { mkdirSync } from 'node:fs'
 
 const ensureDir = (dir: string) => {
@@ -14,14 +14,20 @@ export const getStaticFamilaDailyRoot = (): string => {
 
 
 export const getDataFamilaDailyRoot = (): string => {
-  const dir = join(app.getPath('userData'), 'prompt-resource', 'famila-daily')
+  const baseDir = app.isPackaged ? dirname(app.getPath('exe')) : process.cwd()
+  const dir = join(baseDir, 'prompt-resource', 'famila-daily')
   ensureDir(dir)
   return dir
 }
 
 // 角色提示路径
 export const getRolePromptPath = (): string =>
-  join(getStaticFamilaDailyRoot(), 'role', 'roleprompt.md')
+  join(
+    app.isPackaged ? process.resourcesPath : process.cwd(),
+    'prompt-resource',
+    'role-prompt',
+    'roleprompt.md'
+  )
 
 // 角色状态路径
 export const getPersonaStatePath = (): string => {

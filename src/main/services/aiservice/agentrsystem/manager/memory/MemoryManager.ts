@@ -71,7 +71,6 @@ export class MemoryManager {
       this.shortTerm = []
     }
     this.shortTerm = []
-    this.saveShortTerm()
   }
 
   // 保存短期记忆文件

@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initializeAIEndpoints } from './services/aiservice/aiIpc' // 导入
 import { initDatabase } from './database' // 导入数据库初始化
+import { initMemoryStorage } from './config/storageInit'
 
 function createWindow(): void {
   // Create the browser window.
@@ -56,6 +57,8 @@ app.whenReady().then(async () => {
 
   // 初始化数据库
   await initDatabase()
+
+  initMemoryStorage()
 
   initializeAIEndpoints() // 调用
 

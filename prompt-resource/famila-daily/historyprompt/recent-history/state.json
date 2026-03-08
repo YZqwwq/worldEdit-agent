@@ -1,0 +1,15 @@
+{
+  "session_id": "default",
+  "created_at": "2026-03-08T14:04:10.809Z",
+  "counters": {
+    "total_turns": 0,
+    "window_turns": 0,
+    "since_last_compress": 0
+  },
+  "last_compress_time": "",
+  "compress_strategy": "time_based",
+  "api_status": "healthy",
+  "compress_threshold": 6,
+  "compress_min_interval_ms": 0,
+  "short_term_limit": 6
+}
