@@ -1,6 +1,6 @@
 {
-  "session_id": "default",
-  "created_at": "2026-03-08T14:04:10.809Z",
+  "session_id": "sess_default",
+  "created_at": "",
   "counters": {
     "total_turns": 0,
     "window_turns": 0,
