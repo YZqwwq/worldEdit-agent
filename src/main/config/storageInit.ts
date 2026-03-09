@@ -1,6 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import type { StateData } from '../../share/cache/AItype/states/memoryState'
-import { getHistoryStatePath, getShortTermPath, getHistoryRawPath } from './pathConfig'
+import type { PersonaState } from '../../share/cache/AItype/states/personalState'
+import {
+  getHistoryStatePath,
+  getShortTermPath,
+  getHistoryRawPath,
+  getPersonaStatePath,
+  getPersonaStateFallbackPath
+} from './pathConfig'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -20,6 +27,19 @@ const defaultState = (): StateData => ({
   compress_threshold: 6,
   compress_min_interval_ms: 0,
   short_term_limit: 6
+})
+
+const defaultPersonaState = (): PersonaState => ({
+  persona_id: 'default',
+  last_updated: new Date().toISOString(),
+  metrics: {
+    autonomy_level: 0.5,
+    verbosity_index: 0.5,
+    risk_tolerance: 0.5,
+    formality_score: 0.5
+  },
+  current_behavioral_narrative: '默认人格状态',
+  recent_interaction_buffer: []
 })
 
 const isValidState = (value: unknown): value is StateData => {
@@ -71,5 +91,16 @@ export const initMemoryStorage = (): void => {
   const rawPath = getHistoryRawPath()
   if (!existsSync(rawPath)) {
     writeFileSync(rawPath, '', 'utf-8')
+  }
+
+  const personaPath = getPersonaStatePath()
+  if (!existsSync(personaPath)) {
+    const fallbackPath = getPersonaStateFallbackPath()
+    if (existsSync(fallbackPath)) {
+      const text = readFileSync(fallbackPath, 'utf-8')
+      writeFileSync(personaPath, text, 'utf-8')
+    } else {
+      writeFileSync(personaPath, JSON.stringify(defaultPersonaState(), null, 2), 'utf-8')
+    }
   }
 }

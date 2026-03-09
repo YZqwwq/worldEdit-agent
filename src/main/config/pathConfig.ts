@@ -9,7 +9,7 @@ const ensureDir = (dir: string) => {
 
 export const getStaticFamilaDailyRoot = (): string => {
   if (app.isPackaged) return join(process.resourcesPath, 'prompt-resource', 'famila-daily')
-  return join(process.cwd(), 'src/main/prompt-resource/famila-daily')
+  return join(process.cwd(), 'prompt-resource', 'famila-daily')
 }
 
 
