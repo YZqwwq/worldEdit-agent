@@ -6,7 +6,8 @@ import {
   getShortTermPath,
   getHistoryRawPath,
   getPersonaStatePath,
-  getPersonaStateFallbackPath
+  getPersonaStateFallbackPath,
+  getStaticUploadDir
 } from './pathConfig'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -103,4 +104,6 @@ export const initMemoryStorage = (): void => {
       writeFileSync(personaPath, JSON.stringify(defaultPersonaState(), null, 2), 'utf-8')
     }
   }
+
+  getStaticUploadDir()
 }

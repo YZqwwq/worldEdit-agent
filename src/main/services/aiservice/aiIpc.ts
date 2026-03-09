@@ -1,6 +1,36 @@
-import { ipcMain } from 'electron'
+import { dialog, ipcMain } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { copyFile, stat, unlink, readdir } from 'node:fs/promises'
+import { basename, extname, join, resolve, sep } from 'node:path'
 import { aiService } from './aiService'
 import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
+import { getStaticUploadDir } from '../../config/pathConfig'
+
+type UploadResult = {
+  filePath: string
+  fileName: string
+  size: number
+}
+
+type PickResult = {
+  sourcePath: string
+  fileName: string
+  size: number
+}
+
+const copyToUploadDir = async (sourcePath: string): Promise<UploadResult> => {
+  const fileStat = await stat(sourcePath)
+  const uploadDir = getStaticUploadDir()
+  const ext = extname(sourcePath)
+  const destName = `${randomUUID()}${ext}`
+  const destPath = join(uploadDir, destName)
+  await copyFile(sourcePath, destPath)
+  return {
+    filePath: destPath,
+    fileName: basename(sourcePath),
+    size: fileStat.size
+  }
+}
 
 /**
  * Initializes IPC handlers for the AI service.
@@ -32,5 +62,66 @@ export function initializeAIEndpoints(): void {
   // 清除历史记录
   ipcMain.handle('ai:clearHistory', async (_event) => {
     return aiService.clearHistory()
+  })
+
+  ipcMain.handle('file:upload', async (_event, sourcePath: string): Promise<UploadResult> => {
+    if (!sourcePath || typeof sourcePath !== 'string') {
+      throw new Error('Invalid file path')
+    }
+    return copyToUploadDir(sourcePath)
+  })
+
+  ipcMain.handle('file:pick', async (): Promise<PickResult> => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile']
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      throw new Error('No file selected')
+    }
+    const sourcePath = result.filePaths[0]
+    const fileStat = await stat(sourcePath)
+    return {
+      sourcePath,
+      fileName: basename(sourcePath),
+      size: fileStat.size
+    }
+  })
+
+  ipcMain.handle('file:pickAndUpload', async (): Promise<UploadResult> => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile']
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      throw new Error('No file selected')
+    }
+    const sourcePath = result.filePaths[0]
+    return copyToUploadDir(sourcePath)
+  })
+
+  ipcMain.handle('file:delete', async (_event, filePath: string): Promise<boolean> => {
+    if (!filePath || typeof filePath !== 'string') {
+      throw new Error('Invalid file path')
+    }
+    const uploadDir = resolve(getStaticUploadDir())
+    const targetPath = resolve(filePath)
+    if (!targetPath.startsWith(`${uploadDir}${sep}`) && targetPath !== uploadDir) {
+      throw new Error('Invalid delete path')
+    }
+    await unlink(targetPath)
+    return true
+  })
+
+  ipcMain.handle('file:clearUploads', async (): Promise<number> => {
+    const dir = getStaticUploadDir()
+    const files = await readdir(dir, { withFileTypes: true })
+    let removed = 0
+    for (const entry of files) {
+      if (entry.isFile()) {
+        const full = join(dir, entry.name)
+        await unlink(full).catch(() => {})
+        removed++
+      }
+    }
+    return removed
   })
 }

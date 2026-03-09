@@ -88,14 +88,54 @@
 
       <!-- 底部输入区域 -->
       <div class="flex flex-shrink-0 gap-4 p-6 bg-white border-t border-gray-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-        <div class="relative flex-grow">
-          <textarea
-            v-model="userInput"
-            @keyup.enter.exact="handleSend"
-            placeholder="输入你的问题... (Enter 发送)"
-            class="w-full h-14 py-3.5 pl-5 pr-4 text-sm text-gray-800 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all resize-none shadow-inner"
-            :disabled="isLoading"
-          ></textarea>
+        <div class="flex flex-col flex-grow gap-3">
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="handlePickFile"
+              class="flex items-center justify-center w-12 h-12 text-gray-600 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
+              :disabled="isLoading"
+              title="上传文件"
+            >
+              📎
+            </button>
+            <div class="relative flex-grow">
+              <textarea
+                v-model="userInput"
+                @keyup.enter.exact="handleSend"
+                placeholder="输入你的问题... (Enter 发送)"
+                class="w-full h-14 py-3.5 pl-5 pr-4 text-sm text-gray-800 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all resize-none shadow-inner"
+                :disabled="isLoading"
+              ></textarea>
+            </div>
+          </div>
+          <div v-if="uploadedFiles.length" class="flex flex-col gap-2">
+            <div
+              v-for="file in uploadedFiles"
+              :key="file.id"
+              class="flex items-start justify-between gap-3 px-4 py-2 text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-lg"
+            >
+              <div class="flex flex-col gap-1">
+                <div class="font-medium text-gray-800">
+                  {{ file.name }} ({{ formatFileSize(file.size) }})
+                </div>
+                <div v-if="file.status === 'pending'" class="text-[11px] text-gray-500 break-all">
+                  缓存路径：{{ file.sourcePath }}
+                </div>
+                <div v-else class="text-[11px] text-gray-500 break-all">
+                  存储路径：{{ file.path }}
+                </div>
+              </div>
+              <button
+                type="button"
+                @click="handleDeleteFile(file)"
+                class="flex items-center justify-center w-7 h-7 text-gray-500 hover:text-red-600"
+                title="删除文件"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
         </div>
 
         <button
@@ -123,7 +163,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted } from 'vue'
+import { ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAIChatService } from '../services/aiClientService'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
@@ -133,6 +173,16 @@ const { messages, isLoading, sendMessage, loadHistory, clearHistory, agentLogs }
 const userInput = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
 const showLogs = ref(true) // 默认开启调试面板以便演示
+type UploadedFile = {
+  id: string
+  name: string
+  path?: string
+  sourcePath: string
+  size: number
+  status: 'pending' | 'uploaded'
+}
+
+const uploadedFiles = ref<UploadedFile[]>([])
 
 // Load history when component is mounted
 onMounted(async () => {
@@ -144,16 +194,91 @@ onMounted(async () => {
   }
 })
 
-const handleSend = (): void => {
-  if (userInput.value.trim()) {
-    sendMessage(userInput.value)
-    userInput.value = ''
+onBeforeUnmount(() => {
+  uploadedFiles.value = []
+})
+
+const handleSend = async (): Promise<void> => {
+  if (!userInput.value.trim()) return
+  if (uploadedFiles.value.length > 0) {
+    const pending = uploadedFiles.value.filter((file) => file.status === 'pending')
+    if (pending.length > 0) {
+      try {
+        const results = await Promise.all(pending.map((file) => window.api.uploadFile(file.sourcePath)))
+        const resultMap = new Map(results.map((res, index) => [pending[index].id, res]))
+        uploadedFiles.value = uploadedFiles.value.map((file) => {
+          if (file.status !== 'pending') return file
+          const uploaded = resultMap.get(file.id)
+          if (!uploaded) return file
+          return {
+            ...file,
+            path: uploaded.filePath,
+            status: 'uploaded'
+          }
+        })
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error)
+        alert(`文件写入失败：${message}`)
+        return
+      }
+    }
+  }
+  await sendMessage(userInput.value)
+  userInput.value = ''
+  uploadedFiles.value = []
+}
+
+const handlePickFile = async (): Promise<void> => {
+  try {
+    const result = await window.api.pickFile()
+    const id = self.crypto?.randomUUID ? self.crypto.randomUUID() : `${Date.now()}-${result.fileName}`
+    uploadedFiles.value.push({
+      id,
+      name: result.fileName,
+      sourcePath: result.sourcePath,
+      size: result.size,
+      status: 'pending'
+    })
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message === 'No file selected') {
+      return
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    alert(`加载失败：${message}`)
+  }
+}
+
+const formatFileSize = (size: number): string => {
+  if (size < 1024) return `${size} B`
+  const kb = size / 1024
+  if (kb < 1024) return `${kb.toFixed(1)} KB`
+  const mb = kb / 1024
+  return `${mb.toFixed(2)} MB`
+}
+
+const handleDeleteFile = async (file: UploadedFile): Promise<void> => {
+  if (file.status === 'pending') {
+    uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
+    return
+  }
+  if (!file.path) {
+    uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
+    return
+  }
+  try {
+    await window.api.deleteFile(file.path)
+    uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    alert(`删除失败：${message}`)
   }
 }
 
 const handleClearHistory = async () => {
   if (confirm('确定要清空所有对话记录吗？此操作无法撤销。')) {
     await clearHistory()
+    await window.api.clearUploads()
+    uploadedFiles.value = []
   }
 }
 

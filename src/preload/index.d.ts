@@ -14,6 +14,12 @@ declare global {
 
     getHistory: () => Promise<any[]>
     clearHistory: () => Promise<void>
+
+    pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
+    uploadFile: (sourcePath: string) => Promise<{ filePath: string; fileName: string; size: number }>
+    deleteFile: (filePath: string) => Promise<boolean>
+    pickAndUploadFile: () => Promise<{ filePath: string; fileName: string; size: number }>
+    clearUploads: () => Promise<number>
   }
 
   interface Window {

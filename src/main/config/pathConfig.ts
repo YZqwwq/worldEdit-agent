@@ -61,3 +61,9 @@ export const getLegacyHistoryMarkdownPath = (): string => {
   ensureDir(dir)
   return join(dir, 'recent-history.md')
 }
+
+export const getStaticUploadDir = (): string => {
+  const dir = join(getDataFamilaDailyRoot(), 'static-uploads')
+  ensureDir(dir)
+  return dir
+}

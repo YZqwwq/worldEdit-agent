@@ -12,6 +12,12 @@ type Api = {
   // 获取历史记录
   getHistory: () => Promise<any[]>
   clearHistory: () => Promise<void>
+
+  pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
+  uploadFile: (sourcePath: string) => Promise<{ filePath: string; fileName: string; size: number }>
+  deleteFile: (filePath: string) => Promise<boolean>
+  pickAndUploadFile: () => Promise<{ filePath: string; fileName: string; size: number }>
+  clearUploads: () => Promise<number>
 }
 
 // Custom APIs for renderer
@@ -29,7 +35,12 @@ const api: Api = {
   },
 
   getHistory: () => ipcRenderer.invoke('ai:getHistory'),
-  clearHistory: () => ipcRenderer.invoke('ai:clearHistory')
+  clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
+  pickFile: () => ipcRenderer.invoke('file:pick'),
+  uploadFile: (sourcePath) => ipcRenderer.invoke('file:upload', sourcePath),
+  deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),
+  pickAndUploadFile: () => ipcRenderer.invoke('file:pickAndUpload'),
+  clearUploads: () => ipcRenderer.invoke('file:clearUploads')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
