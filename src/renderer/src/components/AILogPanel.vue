@@ -116,7 +116,7 @@ const toggleFold = (index: number) => {
   foldedMap.value[index] = !currentStatus
 }
 
-const isActive = (log: AgentLog) => {
+const isActive = (_log: AgentLog) => {
   // 简单逻辑：如果是最新的几个日志之一，认为是活跃
   return false
 }
