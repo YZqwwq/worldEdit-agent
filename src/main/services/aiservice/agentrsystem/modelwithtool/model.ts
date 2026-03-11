@@ -2,6 +2,7 @@ import { ChatOpenAI } from '@langchain/openai'
 import { ChatAnthropic } from '@langchain/anthropic'
 import { ModelAdaptor } from '@share/cache/AItype/model/modelAdaptor'
 import { type ModelOptions } from '@share/cache/AItype/model/modelOptions'
+import { modelConfigService } from '../../../modelconfig/modelConfigService'
 
 export function createChatModel(options: ModelOptions): ModelAdaptor {
   let model: ModelAdaptor = new ChatOpenAI({})
@@ -26,14 +27,20 @@ export function createChatModel(options: ModelOptions): ModelAdaptor {
   return model
 }
 
-const defaultModelOptions: ModelOptions = {
-  vendor: 'openai',
-  model: 'qwen-plus',
-  temperature: 0.9,
-  apiKey: 'sk-523977e60e64460db438c9d7d33ba19d',
-  streaming: true,
-  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+export async function getConfiguredModelOptions(): Promise<ModelOptions> {
+  return modelConfigService.getModelOptions()
 }
 
-// 对外暴露的模型配置
-export const model = createChatModel(defaultModelOptions)
+export async function getConfiguredModel(): Promise<ModelAdaptor> {
+  const options = await getConfiguredModelOptions()
+  return createChatModel(options)
+}
+
+export async function getConfiguredQuickModel(): Promise<ModelAdaptor> {
+  const options = await getConfiguredModelOptions()
+  return createChatModel({
+    ...options,
+    temperature: Math.min(options.temperature ?? 0.7, 0.7),
+    streaming: false
+  })
+}

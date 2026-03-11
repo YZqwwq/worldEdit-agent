@@ -58,7 +58,7 @@ app.whenReady().then(async () => {
   // 初始化数据库
   await initDatabase()
 
-  initMemoryStorage()
+  await initMemoryStorage()
 
   initializeAIEndpoints() // 调用
 

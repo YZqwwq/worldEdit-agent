@@ -1,5 +1,5 @@
 import type { ModelAdaptor } from '@share/cache/AItype/model/modelAdaptor'
-import { model } from './model'
+import { getConfiguredModel } from './model'
 import { tools } from './tool'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { Runnable } from '@langchain/core/runnables'
@@ -66,4 +66,7 @@ class ModelWithTool {
   }
 }
 
-export const modelWithTool = new ModelWithTool(model, tools).getModel()
+export async function getModelWithTool(): Promise<Runnable> {
+  const model = await getConfiguredModel()
+  return new ModelWithTool(model, tools).getModel()
+}

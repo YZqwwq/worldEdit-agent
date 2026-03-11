@@ -1,10 +1,27 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import type { PersonaState, PersonaMetrics, PersonaBufferItem } from '@share/cache/AItype/states/personalState'
+import { AppDataSource } from '../../../../../database'
+import { PersonaStateRecord } from '../../../../../../share/entity/database/PersonaStateRecord'
 import {
   getRolePromptPath,
   getPersonaStatePath,
   getPersonaStateFallbackPath
 } from '../../../../../config/pathConfig'
+
+const PERSONA_STATE_ROW_ID = 1
+
+const defaultPersonaState = (): PersonaState => ({
+  persona_id: 'default',
+  last_updated: new Date().toISOString(),
+  metrics: {
+    autonomy_level: 0.5,
+    verbosity_index: 0.5,
+    risk_tolerance: 0.5,
+    formality_score: 0.5
+  },
+  current_behavioral_narrative: '默认人格状态',
+  recent_interaction_buffer: []
+})
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -80,6 +97,79 @@ export const parsePersonaStateText = (text: string): PersonaState | null => {
   }
 }
 
+const parseBuffer = (json: string): PersonaBufferItem[] => {
+  try {
+    const parsed = JSON.parse(json)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (item) =>
+        item &&
+        typeof item === 'object' &&
+        typeof item.turn === 'number' &&
+        typeof item.user_signal === 'string' &&
+        typeof item.impact === 'string'
+    ) as PersonaBufferItem[]
+  } catch {
+    return []
+  }
+}
+
+const toState = (row: PersonaStateRecord): PersonaState => ({
+  persona_id: row.personaId || 'default',
+  last_updated: row.lastUpdated || new Date().toISOString(),
+  metrics: {
+    autonomy_level: row.autonomyLevel ?? 0.5,
+    verbosity_index: row.verbosityIndex ?? 0.5,
+    risk_tolerance: row.riskTolerance ?? 0.5,
+    formality_score: row.formalityScore ?? 0.5
+  },
+  current_behavioral_narrative: row.currentBehavioralNarrative || '默认人格状态',
+  recent_interaction_buffer: parseBuffer(row.recentInteractionBufferJson || '[]')
+})
+
+const applyStateToRow = (row: PersonaStateRecord, state: PersonaState): PersonaStateRecord => {
+  row.personaId = state.persona_id
+  row.lastUpdated = state.last_updated
+  row.autonomyLevel = state.metrics.autonomy_level
+  row.verbosityIndex = state.metrics.verbosity_index
+  row.riskTolerance = state.metrics.risk_tolerance
+  row.formalityScore = state.metrics.formality_score
+  row.currentBehavioralNarrative = state.current_behavioral_narrative
+  row.recentInteractionBufferJson = JSON.stringify(state.recent_interaction_buffer ?? [])
+  return row
+}
+
+const loadLegacyPersonaState = async (): Promise<PersonaState> => {
+  try {
+    const runtimeText = await readFile(getPersonaStatePath(), 'utf-8')
+    const parsed = parsePersonaStateText(runtimeText)
+    if (parsed) return parsed
+  } catch {
+    // ignore legacy read error
+  }
+  try {
+    const fallbackText = await readFile(getPersonaStateFallbackPath(), 'utf-8')
+    const parsed = parsePersonaStateText(fallbackText)
+    if (parsed) return parsed
+  } catch {
+    // ignore fallback read error
+  }
+  return defaultPersonaState()
+}
+
+const getRepo = () => AppDataSource.getRepository(PersonaStateRecord)
+
+export const initPersonaStorage = async (): Promise<void> => {
+  const repo = getRepo()
+  const existing = await repo.findOneBy({ id: PERSONA_STATE_ROW_ID })
+  if (existing) return
+
+  const state = await loadLegacyPersonaState()
+  const row = repo.create({ id: PERSONA_STATE_ROW_ID })
+  applyStateToRow(row, state)
+  await repo.save(row)
+}
+
 // 加载角色提示
 export const loadRolePrompt = async (): Promise<string | null> => {
   try {
@@ -93,27 +183,25 @@ export const loadRolePrompt = async (): Promise<string | null> => {
 
 // 加载 PersonaState
 export const loadPersonaState = async (): Promise<PersonaState | null> => {
-  try {
-    const personaStateText = await readFile(getPersonaStatePath(), 'utf-8')
-    const parsed = parsePersonaStateText(personaStateText)
-    if (parsed) return parsed
-  } catch {}
-  try {
-    const fallbackText = await readFile(getPersonaStateFallbackPath(), 'utf-8')
-    const parsed = parsePersonaStateText(fallbackText)
-    if (!parsed) return null
-    try {
-      await writeFile(getPersonaStatePath(), JSON.stringify(parsed, null, 2), 'utf-8')
-    } catch {}
-    return parsed
-  } catch {
-    return null
-  }
+  await initPersonaStorage()
+  const row = await getRepo().findOneBy({ id: PERSONA_STATE_ROW_ID })
+  return row ? toState(row) : null
 }
 
 // 保存 PersonaState
 export const savePersonaState = async (state: PersonaState): Promise<void> => {
-  await writeFile(getPersonaStatePath(), JSON.stringify(state, null, 2), 'utf-8')
+  const repo = getRepo()
+  let row = await repo.findOneBy({ id: PERSONA_STATE_ROW_ID })
+  if (!row) {
+    row = repo.create({ id: PERSONA_STATE_ROW_ID })
+  }
+  applyStateToRow(row, state)
+  await repo.save(row)
+}
+
+export const resetPersonaState = async (): Promise<void> => {
+  const state = defaultPersonaState()
+  await savePersonaState(state)
 }
 
 // 进化 PersonaState

@@ -15,11 +15,19 @@
         <div class="text-lg font-semibold text-gray-800 tracking-wide">AI 助手</div>
         
         <div class="flex items-center gap-3">
+          <button
+            @click="openModelConfig"
+            class="px-4 py-2 text-sm font-medium text-gray-600 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 shadow-sm cursor-pointer flex items-center gap-2"
+            title="查看或修改模型参数"
+          >
+            模型设置
+          </button>
+
           <!-- 清除历史按钮 -->
           <button
             @click="handleClearHistory"
             class="px-3 py-2 text-sm font-medium text-red-600 transition-colors bg-white border border-red-200 rounded-lg hover:bg-red-50 hover:text-red-700 hover:border-red-300 shadow-sm cursor-pointer flex items-center gap-2"
-            title="清除所有对话记录"
+            title="清除所有 AI 数据"
           >
             <span>🗑️</span> 清空
           </button>
@@ -159,6 +167,126 @@
     >
       <AILogPanel v-if="showLogs" :logs="agentLogs" class="flex-shrink-0" />
     </transition>
+
+    <div
+      v-if="showModelConfig"
+      class="absolute inset-0 z-30 flex items-center justify-center bg-black/30 px-4"
+    >
+      <div class="w-full max-w-xl rounded-xl border border-gray-200 bg-white p-6 shadow-2xl">
+        <div class="mb-5 flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-gray-800">模型设置</h3>
+          <button
+            type="button"
+            class="text-gray-500 hover:text-gray-700"
+            @click="showModelConfig = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <label class="flex flex-col gap-1 text-sm text-gray-700">
+            模型别名
+            <input
+              v-model="modelConfigForm.modelName"
+              type="text"
+              class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
+              placeholder="例如：默认模型"
+            />
+          </label>
+
+          <label class="flex flex-col gap-1 text-sm text-gray-700">
+            Vendor
+            <select
+              v-model="modelConfigForm.vendor"
+              class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
+            >
+              <option value="openai">openai-compatible</option>
+              <option value="anthropic">anthropic</option>
+            </select>
+          </label>
+
+          <label class="flex flex-col gap-1 text-sm text-gray-700 md:col-span-2">
+            模型名称
+            <input
+              v-model="modelConfigForm.model"
+              type="text"
+              class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
+              placeholder="例如：qwen-plus"
+            />
+          </label>
+
+          <label class="flex flex-col gap-1 text-sm text-gray-700 md:col-span-2">
+            API Key
+            <div class="flex gap-2">
+              <input
+                v-model="modelConfigForm.modelKey"
+                :type="showModelKey ? 'text' : 'password'"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
+                placeholder="请输入模型密钥"
+              />
+              <button
+                type="button"
+                class="rounded-lg border border-gray-300 px-3 py-2 text-xs text-gray-600"
+                @click="showModelKey = !showModelKey"
+              >
+                {{ showModelKey ? '隐藏' : '显示' }}
+              </button>
+            </div>
+          </label>
+
+          <label class="flex flex-col gap-1 text-sm text-gray-700 md:col-span-2">
+            Base URL
+            <input
+              v-model="modelConfigForm.baseURL"
+              type="text"
+              class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
+              placeholder="例如：https://dashscope.aliyuncs.com/compatible-mode/v1"
+            />
+          </label>
+
+          <label class="flex flex-col gap-1 text-sm text-gray-700">
+            Temperature
+            <input
+              v-model.number="modelConfigForm.temperature"
+              type="number"
+              min="0"
+              max="2"
+              step="0.1"
+              class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
+            />
+          </label>
+
+          <label class="flex items-center gap-2 text-sm text-gray-700">
+            <input v-model="modelConfigForm.streaming" type="checkbox" />
+            启用 streaming
+          </label>
+
+          <label class="flex items-center gap-2 text-sm text-gray-700 md:col-span-2">
+            <input v-model="modelConfigForm.useResponsesApi" type="checkbox" />
+            启用 Responses API（仅 OpenAI 兼容模型生效）
+          </label>
+        </div>
+
+        <div class="mt-6 flex items-center justify-end gap-3">
+          <button
+            type="button"
+            class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700"
+            @click="showModelConfig = false"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="modelConfigSaving || modelConfigLoading"
+            @click="saveModelConfig"
+          >
+            {{ modelConfigSaving ? '保存中...' : '保存配置' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -168,11 +296,19 @@ import { useAIChatService } from '../services/aiClientService'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import AILogPanel from '../components/AILogPanel.vue'
+import type {
+  ModelConfigInput,
+  ModelConfigPayload
+} from '../../../share/cache/AItype/model/modelConfigPayload'
 
-const { messages, isLoading, sendMessage, loadHistory, clearHistory, agentLogs } = useAIChatService()
+const { messages, isLoading, sendMessage, loadHistory, purgeAllData, agentLogs } = useAIChatService()
 const userInput = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
 const showLogs = ref(true) // 默认开启调试面板以便演示
+const showModelConfig = ref(false)
+const modelConfigLoading = ref(false)
+const modelConfigSaving = ref(false)
+const showModelKey = ref(false)
 type UploadedFile = {
   id: string
   name: string
@@ -184,8 +320,81 @@ type UploadedFile = {
 
 const uploadedFiles = ref<UploadedFile[]>([])
 
+const defaultModelConfig: ModelConfigInput = {
+  modelKey: '',
+  vendor: 'openai',
+  model: 'qwen-plus',
+  modelName: '默认模型',
+  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  temperature: 0.9,
+  streaming: true,
+  useResponsesApi: false
+}
+
+const modelConfigForm = ref<ModelConfigInput>({
+  ...defaultModelConfig
+})
+
+const applyModelConfig = (config: ModelConfigPayload): void => {
+  modelConfigForm.value = {
+    modelKey: config.modelKey || '',
+    vendor: config.vendor,
+    model: config.model || 'qwen-plus',
+    modelName: config.modelName || '默认模型',
+    baseURL: config.baseURL || '',
+    temperature: Number.isFinite(config.temperature) ? config.temperature : 0.9,
+    streaming: config.streaming !== false,
+    useResponsesApi: config.useResponsesApi === true
+  }
+}
+
+const loadModelConfig = async (): Promise<void> => {
+  modelConfigLoading.value = true
+  try {
+    const config = await window.api.getModelConfig()
+    applyModelConfig(config)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    alert(`加载模型配置失败：${message}`)
+  } finally {
+    modelConfigLoading.value = false
+  }
+}
+
+const openModelConfig = async (): Promise<void> => {
+  await loadModelConfig()
+  showModelConfig.value = true
+}
+
+const saveModelConfig = async (): Promise<void> => {
+  if (!modelConfigForm.value.model.trim()) {
+    alert('模型名称不能为空')
+    return
+  }
+  modelConfigSaving.value = true
+  try {
+    const saved = await window.api.saveModelConfig({
+      ...modelConfigForm.value,
+      model: modelConfigForm.value.model.trim(),
+      modelName: modelConfigForm.value.modelName.trim() || '默认模型',
+      baseURL: modelConfigForm.value.baseURL.trim(),
+      modelKey: modelConfigForm.value.modelKey.trim(),
+      temperature: Number(modelConfigForm.value.temperature)
+    })
+    applyModelConfig(saved)
+    showModelConfig.value = false
+    alert('模型配置已保存。下一次对话会使用新配置。')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    alert(`保存模型配置失败：${message}`)
+  } finally {
+    modelConfigSaving.value = false
+  }
+}
+
 // Load history when component is mounted
 onMounted(async () => {
+  await loadModelConfig()
   await loadHistory()
   // Scroll to bottom after loading history
   await nextTick()
@@ -275,9 +484,8 @@ const handleDeleteFile = async (file: UploadedFile): Promise<void> => {
 }
 
 const handleClearHistory = async () => {
-  if (confirm('确定要清空所有对话记录吗？此操作无法撤销。')) {
-    await clearHistory()
-    await window.api.clearUploads()
+  if (confirm('确定要清空所有 AI 数据吗？这将删除对话历史、记忆状态、人格状态和上传文件，且无法撤销。')) {
+    await purgeAllData()
     uploadedFiles.value = []
   }
 }

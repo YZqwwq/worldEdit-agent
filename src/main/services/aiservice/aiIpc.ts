@@ -5,6 +5,8 @@ import { basename, extname, join, resolve, sep } from 'node:path'
 import { aiService } from './aiService'
 import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 import { getStaticUploadDir } from '../../config/pathConfig'
+import { modelConfigService } from '../modelconfig/modelConfigService'
+import type { ModelConfigInput } from '@share/cache/AItype/model/modelConfigPayload'
 
 type UploadResult = {
   filePath: string
@@ -16,6 +18,20 @@ type PickResult = {
   sourcePath: string
   fileName: string
   size: number
+}
+
+const clearUploadFiles = async (): Promise<number> => {
+  const dir = getStaticUploadDir()
+  const files = await readdir(dir, { withFileTypes: true })
+  let removed = 0
+  for (const entry of files) {
+    if (entry.isFile()) {
+      const full = join(dir, entry.name)
+      await unlink(full).catch(() => {})
+      removed++
+    }
+  }
+  return removed
 }
 
 const copyToUploadDir = async (sourcePath: string): Promise<UploadResult> => {
@@ -62,6 +78,19 @@ export function initializeAIEndpoints(): void {
   // 清除历史记录
   ipcMain.handle('ai:clearHistory', async (_event) => {
     return aiService.clearHistory()
+  })
+
+  ipcMain.handle('ai:purgeAllData', async (_event) => {
+    await aiService.purgeAllData()
+    return clearUploadFiles()
+  })
+
+  ipcMain.handle('config:getModelConfig', async () => {
+    return modelConfigService.getModelConfig()
+  })
+
+  ipcMain.handle('config:saveModelConfig', async (_event, input: ModelConfigInput) => {
+    return modelConfigService.saveModelConfig(input)
   })
 
   ipcMain.handle('file:upload', async (_event, sourcePath: string): Promise<UploadResult> => {
@@ -112,16 +141,6 @@ export function initializeAIEndpoints(): void {
   })
 
   ipcMain.handle('file:clearUploads', async (): Promise<number> => {
-    const dir = getStaticUploadDir()
-    const files = await readdir(dir, { withFileTypes: true })
-    let removed = 0
-    for (const entry of files) {
-      if (entry.isFile()) {
-        const full = join(dir, entry.name)
-        await unlink(full).catch(() => {})
-        removed++
-      }
-    }
-    return removed
+    return clearUploadFiles()
   })
 }

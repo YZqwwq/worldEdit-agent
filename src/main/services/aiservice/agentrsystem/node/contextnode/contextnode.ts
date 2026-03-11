@@ -28,7 +28,7 @@ export async function contextNode(
     messages.push(new SystemMessage(formatPersonaState(personaState)))
   }
 
-  const snapshot = memoryManager.getSnapshot()
+  const snapshot = await memoryManager.getSnapshot()
   if (snapshot.anchors.length > 0) {
     messages.push(new SystemMessage(snapshot.anchors.join('\n')))
   }

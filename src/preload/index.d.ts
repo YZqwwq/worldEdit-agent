@@ -1,5 +1,9 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { StreamChunk } from '../share/cache/render/aiagent/aiContent'
+import type {
+  ModelConfigInput,
+  ModelConfigPayload
+} from '../share/cache/AItype/model/modelConfigPayload'
 
 declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
@@ -14,12 +18,16 @@ declare global {
 
     getHistory: () => Promise<any[]>
     clearHistory: () => Promise<void>
+    purgeAllData: () => Promise<number>
 
     pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
     uploadFile: (sourcePath: string) => Promise<{ filePath: string; fileName: string; size: number }>
     deleteFile: (filePath: string) => Promise<boolean>
     pickAndUploadFile: () => Promise<{ filePath: string; fileName: string; size: number }>
     clearUploads: () => Promise<number>
+
+    getModelConfig: () => Promise<ModelConfigPayload>
+    saveModelConfig: (config: ModelConfigInput) => Promise<ModelConfigPayload>
   }
 
   interface Window {

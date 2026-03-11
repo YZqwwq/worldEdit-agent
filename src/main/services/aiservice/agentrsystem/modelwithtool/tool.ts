@@ -1,6 +1,5 @@
 import { tool } from '@langchain/core/tools'
 import * as z from 'zod'
-import { summarizeHistoryTool } from '../../ai-utils/promptutils/compress'
 
 const add = tool(({ a, b }) => a + b, {
   name: 'add',
@@ -12,6 +11,5 @@ const add = tool(({ a, b }) => a + b, {
 })
 
 export const tools = {
-  [add.name]: add,
-  [summarizeHistoryTool.name]: summarizeHistoryTool
+  [add.name]: add
 }

@@ -1,5 +1,5 @@
 import { BaseMessage, SystemMessage, AIMessage, AIMessageChunk } from '@langchain/core/messages'
-import { modelWithTool } from '../../modelwithtool/modelwithtool'
+import { getModelWithTool } from '../../modelwithtool/modelwithtool'
 import { MessagesState } from '../../state/messageState'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -110,6 +110,7 @@ export async function llmCall(
   }, 20000)
 
   try {
+    const modelWithTool = await getModelWithTool()
     const stream = await modelWithTool.stream(sortedMessages, { signal: controller.signal })
     for await (const chunk of stream) {
       if (!finalChunk) {

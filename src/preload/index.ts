@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { StreamChunk } from '../share/cache/render/aiagent/aiContent'
+import type {
+  ModelConfigInput,
+  ModelConfigPayload
+} from '../share/cache/AItype/model/modelConfigPayload'
 
 // Local type to ensure availability in this module
 type Api = {
@@ -12,12 +16,16 @@ type Api = {
   // 获取历史记录
   getHistory: () => Promise<any[]>
   clearHistory: () => Promise<void>
+  purgeAllData: () => Promise<number>
 
   pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
   uploadFile: (sourcePath: string) => Promise<{ filePath: string; fileName: string; size: number }>
   deleteFile: (filePath: string) => Promise<boolean>
   pickAndUploadFile: () => Promise<{ filePath: string; fileName: string; size: number }>
   clearUploads: () => Promise<number>
+
+  getModelConfig: () => Promise<ModelConfigPayload>
+  saveModelConfig: (config: ModelConfigInput) => Promise<ModelConfigPayload>
 }
 
 // Custom APIs for renderer
@@ -36,11 +44,14 @@ const api: Api = {
 
   getHistory: () => ipcRenderer.invoke('ai:getHistory'),
   clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
+  purgeAllData: () => ipcRenderer.invoke('ai:purgeAllData'),
   pickFile: () => ipcRenderer.invoke('file:pick'),
   uploadFile: (sourcePath) => ipcRenderer.invoke('file:upload', sourcePath),
   deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),
   pickAndUploadFile: () => ipcRenderer.invoke('file:pickAndUpload'),
-  clearUploads: () => ipcRenderer.invoke('file:clearUploads')
+  clearUploads: () => ipcRenderer.invoke('file:clearUploads'),
+  getModelConfig: () => ipcRenderer.invoke('config:getModelConfig'),
+  saveModelConfig: (config) => ipcRenderer.invoke('config:saveModelConfig', config)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

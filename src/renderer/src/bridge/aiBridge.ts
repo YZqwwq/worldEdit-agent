@@ -59,3 +59,7 @@ export async function getHistory(): Promise<any[]> {
 export async function clearHistory(): Promise<void> {
   return window.api.clearHistory()
 }
+
+export async function purgeAllData(): Promise<number> {
+  return window.api.purgeAllData()
+}

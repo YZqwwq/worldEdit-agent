@@ -118,6 +118,25 @@ async function clearHistory(): Promise<void> {
 }
 
 /**
+ * 清空所有 AI 运行数据（历史、记忆、人格、上传文件）
+ */
+async function purgeAllData(): Promise<void> {
+  try {
+    if (!window.api?.purgeAllData) {
+      const msg = '检测到 API 更新未生效，请重启 Electron 应用 (npm run dev) 以加载最新代码。'
+      console.error(msg)
+      alert(msg)
+      return
+    }
+    await window.api.purgeAllData()
+    messages.value = []
+    agentLogs.value = []
+  } catch (error) {
+    console.error('Failed to purge all data:', error)
+  }
+}
+
+/**
  * Sends a message to the AI and updates the chat.
  * @param text - The message text from the user.
  */
@@ -176,6 +195,7 @@ export function useAIChatService(): {
   sendMessage: (text: string) => Promise<void>
   loadHistory: () => Promise<void>
   clearHistory: () => Promise<void>
+  purgeAllData: () => Promise<void>
 } {
   return {
     messages,
@@ -183,6 +203,7 @@ export function useAIChatService(): {
     isLoading,
     sendMessage,
     loadHistory,
-    clearHistory
+    clearHistory,
+    purgeAllData
   }
 }
