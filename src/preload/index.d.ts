@@ -4,6 +4,7 @@ import type {
   ModelConfigInput,
   ModelConfigPayload
 } from '../share/cache/AItype/model/modelConfigPayload'
+import type { MemoryInspectionPayload } from '../share/cache/AItype/states/memoryInspection'
 
 declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
@@ -19,6 +20,7 @@ declare global {
     getHistory: () => Promise<any[]>
     clearHistory: () => Promise<void>
     purgeAllData: () => Promise<number>
+    getMemorySnapshot: () => Promise<MemoryInspectionPayload>
 
     pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
     uploadFile: (sourcePath: string) => Promise<{ filePath: string; fileName: string; size: number }>

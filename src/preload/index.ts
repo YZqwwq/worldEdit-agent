@@ -5,6 +5,7 @@ import type {
   ModelConfigInput,
   ModelConfigPayload
 } from '../share/cache/AItype/model/modelConfigPayload'
+import type { MemoryInspectionPayload } from '../share/cache/AItype/states/memoryInspection'
 
 // Local type to ensure availability in this module
 type Api = {
@@ -17,6 +18,7 @@ type Api = {
   getHistory: () => Promise<any[]>
   clearHistory: () => Promise<void>
   purgeAllData: () => Promise<number>
+  getMemorySnapshot: () => Promise<MemoryInspectionPayload>
 
   pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
   uploadFile: (sourcePath: string) => Promise<{ filePath: string; fileName: string; size: number }>
@@ -45,6 +47,7 @@ const api: Api = {
   getHistory: () => ipcRenderer.invoke('ai:getHistory'),
   clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
   purgeAllData: () => ipcRenderer.invoke('ai:purgeAllData'),
+  getMemorySnapshot: () => ipcRenderer.invoke('ai:getMemorySnapshot'),
   pickFile: () => ipcRenderer.invoke('file:pick'),
   uploadFile: (sourcePath) => ipcRenderer.invoke('file:upload', sourcePath),
   deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),

@@ -2,6 +2,7 @@
 // 仅暴露最小必要方法，避免业务服务直接依赖 window.api
 import type { AIStructuredResponse } from '../../../share/cache/render/aiagent/aiContent'
 import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
+import type { MemoryInspectionPayload } from '../../../share/cache/AItype/states/memoryInspection'
 
 // 模拟一次性请求：通过流式接口收集数据
 export async function sendMessage(text: string): Promise<string> {
@@ -62,4 +63,8 @@ export async function clearHistory(): Promise<void> {
 
 export async function purgeAllData(): Promise<number> {
   return window.api.purgeAllData()
+}
+
+export async function getMemorySnapshot(): Promise<MemoryInspectionPayload> {
+  return window.api.getMemorySnapshot()
 }

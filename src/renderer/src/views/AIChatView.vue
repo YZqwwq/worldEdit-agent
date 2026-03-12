@@ -16,6 +16,14 @@
         
         <div class="flex items-center gap-3">
           <button
+            @click="openMemorySnapshot"
+            class="px-4 py-2 text-sm font-medium text-gray-600 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 shadow-sm cursor-pointer flex items-center gap-2"
+            title="查看 AI 当前记忆内容"
+          >
+            记忆状态
+          </button>
+
+          <button
             @click="openModelConfig"
             class="px-4 py-2 text-sm font-medium text-gray-600 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 shadow-sm cursor-pointer flex items-center gap-2"
             title="查看或修改模型参数"
@@ -169,6 +177,114 @@
     </transition>
 
     <div
+      v-if="showMemorySnapshot"
+      class="absolute inset-0 z-40 flex items-center justify-center bg-black/30 px-4"
+    >
+      <div class="w-full max-w-4xl rounded-xl border border-gray-200 bg-white p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
+        <div class="mb-5 flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-gray-800">AI 当前记忆状态</h3>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              :disabled="memorySnapshotLoading"
+              @click="loadMemorySnapshot"
+            >
+              {{ memorySnapshotLoading ? '刷新中...' : '刷新' }}
+            </button>
+            <button
+              type="button"
+              class="text-gray-500 hover:text-gray-700"
+              @click="showMemorySnapshot = false"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <div v-if="memorySnapshotError" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {{ memorySnapshotError }}
+        </div>
+
+        <div v-if="memorySnapshotData" class="space-y-5">
+          <section class="rounded-lg border border-gray-200 p-4">
+            <h4 class="mb-2 text-sm font-semibold text-gray-800">长期记忆摘要</h4>
+            <div class="whitespace-pre-wrap break-words text-sm text-gray-700 leading-6 min-h-[72px]">
+              {{ memorySnapshotData.memory.summary || '（暂无长期摘要）' }}
+            </div>
+          </section>
+
+          <section class="rounded-lg border border-gray-200 p-4">
+            <h4 class="mb-2 text-sm font-semibold text-gray-800">锚点记忆 (Anchors)</h4>
+            <div v-if="memorySnapshotData.memory.anchors.length" class="flex flex-wrap gap-2">
+              <span
+                v-for="(anchor, index) in memorySnapshotData.memory.anchors"
+                :key="`anchor-${index}`"
+                class="rounded bg-blue-50 px-2 py-1 text-xs text-blue-700 border border-blue-100"
+              >
+                {{ anchor }}
+              </span>
+            </div>
+            <div v-else class="text-sm text-gray-500">（暂无锚点）</div>
+          </section>
+
+          <section class="rounded-lg border border-gray-200 p-4">
+            <h4 class="mb-2 text-sm font-semibold text-gray-800">短期滑动窗口（{{ memorySnapshotData.memory.shortTerm.length }} 条）</h4>
+            <div v-if="memorySnapshotData.memory.shortTerm.length" class="space-y-2">
+              <div
+                v-for="(item, index) in memorySnapshotData.memory.shortTerm"
+                :key="`short-term-${index}-${item.timestamp}`"
+                class="rounded border border-gray-100 bg-gray-50 p-3"
+              >
+                <div class="mb-1 flex items-center justify-between text-xs text-gray-500">
+                  <span class="font-medium">{{ item.role }}</span>
+                  <span>{{ formatIsoTime(item.timestamp) }}</span>
+                </div>
+                <div class="whitespace-pre-wrap break-words text-sm text-gray-700">{{ item.content }}</div>
+              </div>
+            </div>
+            <div v-else class="text-sm text-gray-500">（暂无短期记忆）</div>
+          </section>
+
+          <section class="rounded-lg border border-gray-200 p-4">
+            <h4 class="mb-2 text-sm font-semibold text-gray-800">人格状态</h4>
+            <template v-if="memorySnapshotData.persona">
+              <div class="mb-3 text-sm text-gray-700 whitespace-pre-wrap break-words">
+                {{ memorySnapshotData.persona.current_behavioral_narrative }}
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-xs text-gray-700 md:grid-cols-4">
+                <div class="rounded border border-gray-100 bg-gray-50 p-2">
+                  autonomy: {{ memorySnapshotData.persona.metrics.autonomy_level.toFixed(2) }}
+                </div>
+                <div class="rounded border border-gray-100 bg-gray-50 p-2">
+                  verbosity: {{ memorySnapshotData.persona.metrics.verbosity_index.toFixed(2) }}
+                </div>
+                <div class="rounded border border-gray-100 bg-gray-50 p-2">
+                  risk: {{ memorySnapshotData.persona.metrics.risk_tolerance.toFixed(2) }}
+                </div>
+                <div class="rounded border border-gray-100 bg-gray-50 p-2">
+                  formality: {{ memorySnapshotData.persona.metrics.formality_score.toFixed(2) }}
+                </div>
+              </div>
+              <div class="mt-3 text-xs text-gray-500">
+                最后更新：{{ formatIsoTime(memorySnapshotData.persona.last_updated) }}
+              </div>
+            </template>
+            <div v-else class="text-sm text-gray-500">（暂无人格状态）</div>
+          </section>
+        </div>
+
+        <div v-else-if="memorySnapshotLoading" class="py-8 text-center text-sm text-gray-500">
+          正在读取记忆状态...
+        </div>
+
+        <div v-else class="py-8 text-center text-sm text-gray-500">
+          暂无可展示的记忆数据
+        </div>
+      </div>
+    </div>
+
+    <div
       v-if="showModelConfig"
       class="absolute inset-0 z-30 flex items-center justify-center bg-black/30 px-4"
     >
@@ -300,6 +416,7 @@ import type {
   ModelConfigInput,
   ModelConfigPayload
 } from '../../../share/cache/AItype/model/modelConfigPayload'
+import type { MemoryInspectionPayload } from '../../../share/cache/AItype/states/memoryInspection'
 
 const { messages, isLoading, sendMessage, loadHistory, purgeAllData, agentLogs } = useAIChatService()
 const userInput = ref('')
@@ -309,6 +426,10 @@ const showModelConfig = ref(false)
 const modelConfigLoading = ref(false)
 const modelConfigSaving = ref(false)
 const showModelKey = ref(false)
+const showMemorySnapshot = ref(false)
+const memorySnapshotLoading = ref(false)
+const memorySnapshotError = ref('')
+const memorySnapshotData = ref<MemoryInspectionPayload | null>(null)
 type UploadedFile = {
   id: string
   name: string
@@ -359,6 +480,25 @@ const loadModelConfig = async (): Promise<void> => {
   } finally {
     modelConfigLoading.value = false
   }
+}
+
+const loadMemorySnapshot = async (): Promise<void> => {
+  memorySnapshotLoading.value = true
+  memorySnapshotError.value = ''
+  try {
+    const data = await window.api.getMemorySnapshot()
+    memorySnapshotData.value = data
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    memorySnapshotError.value = `读取记忆状态失败：${message}`
+  } finally {
+    memorySnapshotLoading.value = false
+  }
+}
+
+const openMemorySnapshot = async (): Promise<void> => {
+  showMemorySnapshot.value = true
+  await loadMemorySnapshot()
 }
 
 const openModelConfig = async (): Promise<void> => {
@@ -463,6 +603,18 @@ const formatFileSize = (size: number): string => {
   if (kb < 1024) return `${kb.toFixed(1)} KB`
   const mb = kb / 1024
   return `${mb.toFixed(2)} MB`
+}
+
+const formatIsoTime = (iso?: string): string => {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
+  const hours = date.getHours().toString().padStart(2, '0')
+  const minutes = date.getMinutes().toString().padStart(2, '0')
+  const seconds = date.getSeconds().toString().padStart(2, '0')
+  return `${month}/${day} ${hours}:${minutes}:${seconds}`
 }
 
 const handleDeleteFile = async (file: UploadedFile): Promise<void> => {

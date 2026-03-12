@@ -7,6 +7,9 @@ import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 import { getStaticUploadDir } from '../../config/pathConfig'
 import { modelConfigService } from '../modelconfig/modelConfigService'
 import type { ModelConfigInput } from '@share/cache/AItype/model/modelConfigPayload'
+import type { MemoryInspectionPayload } from '@share/cache/AItype/states/memoryInspection'
+import { memoryManager } from './agentrsystem/manager/memory/MemoryManager'
+import { loadPersonaState } from './agentrsystem/manager/personal/personalManager'
 
 type UploadResult = {
   filePath: string
@@ -83,6 +86,16 @@ export function initializeAIEndpoints(): void {
   ipcMain.handle('ai:purgeAllData', async (_event) => {
     await aiService.purgeAllData()
     return clearUploadFiles()
+  })
+
+  ipcMain.handle('ai:getMemorySnapshot', async (): Promise<MemoryInspectionPayload> => {
+    await memoryManager.initialize()
+    const memory = await memoryManager.getSnapshot()
+    const persona = await loadPersonaState()
+    return {
+      memory,
+      persona
+    }
   })
 
   ipcMain.handle('config:getModelConfig', async () => {
