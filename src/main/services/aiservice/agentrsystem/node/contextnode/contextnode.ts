@@ -12,7 +12,7 @@ import {
  * 它作为图的入口节点，确保 LLM 在处理用户输入前拥有完整的背景信息。
  */
 export async function contextNode(
-  _state: typeof MessagesState.State
+  state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
   
   const messages: BaseMessage[] = []
@@ -26,6 +26,10 @@ export async function contextNode(
   const personaState = await loadPersonaState()
   if (personaState) {
     messages.push(new SystemMessage(formatPersonaState(personaState)))
+  }
+
+  if (state.personaPolicy?.style?.instruction) {
+    messages.push(new SystemMessage(`回复风格约束:\n${state.personaPolicy.style.instruction}`))
   }
 
   const snapshot = await memoryManager.getSnapshot()

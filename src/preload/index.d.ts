@@ -20,6 +20,7 @@ declare global {
     getHistory: () => Promise<any[]>
     clearHistory: () => Promise<void>
     purgeAllData: () => Promise<number>
+    resetPersonaState: () => Promise<void>
     getMemorySnapshot: () => Promise<MemoryInspectionPayload>
 
     pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>

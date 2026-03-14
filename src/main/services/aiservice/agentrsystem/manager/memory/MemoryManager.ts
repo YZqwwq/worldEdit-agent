@@ -396,6 +396,38 @@ ${summaryInput}
       await this.saveState()
     })
   }
+
+  public async applyAdaptiveConfig(input: {
+    compressThreshold?: number
+    shortTermLimit?: number
+  }): Promise<void> {
+    await this.initialize()
+    await this.withLock(async () => {
+      const threshold = input.compressThreshold
+      const shortTermLimit = input.shortTermLimit
+      let changed = false
+
+      if (Number.isFinite(threshold)) {
+        const normalized = Math.max(2, Math.min(20, Math.round(Number(threshold))))
+        if (this.state.compress_threshold !== normalized) {
+          this.state.compress_threshold = normalized
+          changed = true
+        }
+      }
+
+      if (Number.isFinite(shortTermLimit)) {
+        const normalized = Math.max(3, Math.min(30, Math.round(Number(shortTermLimit))))
+        if (this.state.short_term_limit !== normalized) {
+          this.state.short_term_limit = normalized
+          changed = true
+        }
+      }
+
+      if (changed) {
+        await this.saveState()
+      }
+    })
+  }
 }
 
 export const memoryManager = new MemoryManager()

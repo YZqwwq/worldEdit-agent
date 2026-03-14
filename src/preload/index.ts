@@ -18,6 +18,7 @@ type Api = {
   getHistory: () => Promise<any[]>
   clearHistory: () => Promise<void>
   purgeAllData: () => Promise<number>
+  resetPersonaState: () => Promise<void>
   getMemorySnapshot: () => Promise<MemoryInspectionPayload>
 
   pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
@@ -47,6 +48,7 @@ const api: Api = {
   getHistory: () => ipcRenderer.invoke('ai:getHistory'),
   clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
   purgeAllData: () => ipcRenderer.invoke('ai:purgeAllData'),
+  resetPersonaState: () => ipcRenderer.invoke('ai:resetPersonaState'),
   getMemorySnapshot: () => ipcRenderer.invoke('ai:getMemorySnapshot'),
   pickFile: () => ipcRenderer.invoke('file:pick'),
   uploadFile: (sourcePath) => ipcRenderer.invoke('file:upload', sourcePath),

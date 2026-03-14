@@ -224,10 +224,5 @@ export const evolvePersonaState = (
 
 // 格式化 PersonaState 为字符串
 export const formatPersonaState = (personaState: PersonaState): string => {
-  const m = personaState.metrics
-  return (
-    `人格倾向状态:\n${personaState.current_behavioral_narrative}\n` +
-    `metrics: autonomy_level=${m.autonomy_level}, verbosity_index=${m.verbosity_index}, ` +
-    `risk_tolerance=${m.risk_tolerance}, formality_score=${m.formality_score}`
-  )
+  return `人格倾向状态:\n${personaState.current_behavioral_narrative}`
 }

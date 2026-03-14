@@ -111,7 +111,18 @@ export async function llmCall(
 
   try {
     const modelWithTool = await getModelWithTool()
-    const stream = await modelWithTool.stream(sortedMessages, { signal: controller.signal })
+    const callOptions: Record<string, unknown> = {
+      signal: controller.signal
+    }
+    if (state.personaPolicy?.sampling) {
+      callOptions.temperature = state.personaPolicy.sampling.temperature
+      callOptions.topP = state.personaPolicy.sampling.topP
+      callOptions.maxTokens = state.personaPolicy.sampling.maxTokens
+      debugLog(
+        `llmCall: persona sampling temp=${callOptions.temperature}, topP=${callOptions.topP}, maxTokens=${callOptions.maxTokens}`
+      )
+    }
+    const stream = await modelWithTool.stream(sortedMessages, callOptions as any)
     for await (const chunk of stream) {
       if (!finalChunk) {
         finalChunk = chunk as AIMessageChunk

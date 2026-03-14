@@ -2,6 +2,12 @@ import { ToolMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
 import { tools } from '../../modelwithtool/tool'
 
+const isSensitiveTool = (toolName: string): boolean =>
+  /(delete|remove|edit|write|exec|shell|run|modify|replace|purge)/i.test(toolName)
+
+const isRiskyTool = (toolName: string): boolean =>
+  /(delete|remove|edit|write|exec|shell|run|modify|replace|purge|http|request|call)/i.test(toolName)
+
 export async function toolNode(
   state: typeof MessagesState.State
 ): Promise<{ messages: ToolMessage[] }> {
@@ -23,8 +29,42 @@ export async function toolNode(
   }
 
   const toolMessages: ToolMessage[] = []
+  const toolPolicy = state.personaPolicy?.tool
   // 遍历工具组执行调用
   for (const toolCall of msg.tool_calls) {
+    if (
+      toolPolicy?.confirmBeforeSensitiveTools &&
+      isSensitiveTool(toolCall.name)
+    ) {
+      if (toolCall.id) {
+        toolMessages.push(
+          new ToolMessage({
+            content:
+              `Tool "${toolCall.name}" requires user confirmation under current persona policy. ` +
+              'Ask user to confirm before executing this sensitive action.',
+            tool_call_id: toolCall.id,
+            status: 'error'
+          })
+        )
+      }
+      continue
+    }
+
+    if (toolPolicy && !toolPolicy.allowRiskyTools && isRiskyTool(toolCall.name)) {
+      if (toolCall.id) {
+        toolMessages.push(
+          new ToolMessage({
+            content:
+              `Tool "${toolCall.name}" is blocked by current risk policy. ` +
+              'Please provide a safer alternative or ask user for explicit override.',
+            tool_call_id: toolCall.id,
+            status: 'error'
+          })
+        )
+      }
+      continue
+    }
+
     // ✅ 改进：工具不存在时返回错误消息，而不是静默跳过
     const tool = tools[toolCall.name]
     if (!tool) {

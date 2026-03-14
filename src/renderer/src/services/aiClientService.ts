@@ -137,6 +137,23 @@ async function purgeAllData(): Promise<void> {
 }
 
 /**
+ * 重置人格状态（不清理历史与记忆）
+ */
+async function resetPersonaState(): Promise<void> {
+  try {
+    if (!window.api?.resetPersonaState) {
+      const msg = '检测到 API 更新未生效，请重启 Electron 应用 (npm run dev) 以加载最新代码。'
+      console.error(msg)
+      alert(msg)
+      return
+    }
+    await window.api.resetPersonaState()
+  } catch (error) {
+    console.error('Failed to reset persona state:', error)
+  }
+}
+
+/**
  * Sends a message to the AI and updates the chat.
  * @param text - The message text from the user.
  */
@@ -196,6 +213,7 @@ export function useAIChatService(): {
   loadHistory: () => Promise<void>
   clearHistory: () => Promise<void>
   purgeAllData: () => Promise<void>
+  resetPersonaState: () => Promise<void>
 } {
   return {
     messages,
@@ -204,6 +222,7 @@ export function useAIChatService(): {
     sendMessage,
     loadHistory,
     clearHistory,
-    purgeAllData
+    purgeAllData,
+    resetPersonaState
   }
 }

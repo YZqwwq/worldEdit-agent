@@ -19,7 +19,8 @@ export function createChatModel(options: ModelOptions): ModelAdaptor {
   } else if (options.vendor === 'anthropic') {
     model = new ChatAnthropic({
       model: options.model,
-      temperature: options.temperature
+      temperature: options.temperature,
+      apiKey: options.apiKey
     })
   } else {
     throw new Error(`Unsupported vendor: ${options.vendor}`)

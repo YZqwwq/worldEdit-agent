@@ -47,11 +47,11 @@ class AIService {
     try {
       const messages = await this.messageRepo.find({
         order: {
-          createdAt: 'ASC'
+          createdAt: 'DESC'
         },
         take: 50 // 限制前端加载条数
       })
-      return messages
+      return messages.reverse()
     } catch (error) {
       console.error('Failed to get history:', error)
       return []
@@ -78,6 +78,15 @@ class AIService {
       await resetPersonaState()
     } catch (error) {
       console.error('Failed to purge data:', error)
+      throw error
+    }
+  }
+
+  async resetPersonaStateOnly(): Promise<void> {
+    try {
+      await resetPersonaState()
+    } catch (error) {
+      console.error('Failed to reset persona state:', error)
       throw error
     }
   }

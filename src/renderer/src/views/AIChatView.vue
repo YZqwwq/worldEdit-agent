@@ -33,8 +33,9 @@
 
           <!-- 清除历史按钮 -->
           <button
-            @click="handleClearHistory"
+            @click="openPurgeConfirm"
             class="px-3 py-2 text-sm font-medium text-red-600 transition-colors bg-white border border-red-200 rounded-lg hover:bg-red-50 hover:text-red-700 hover:border-red-300 shadow-sm cursor-pointer flex items-center gap-2"
+            :disabled="isLoading || purgeConfirmLoading"
             title="清除所有 AI 数据"
           >
             <span>🗑️</span> 清空
@@ -117,6 +118,7 @@
             </button>
             <div class="relative flex-grow">
               <textarea
+                ref="inputRef"
                 v-model="userInput"
                 @keyup.enter.exact="handleSend"
                 placeholder="输入你的问题... (Enter 发送)"
@@ -144,7 +146,7 @@
               </div>
               <button
                 type="button"
-                @click="handleDeleteFile(file)"
+                @click="requestDeleteFile(file)"
                 class="flex items-center justify-center w-7 h-7 text-gray-500 hover:text-red-600"
                 title="删除文件"
               >
@@ -247,7 +249,17 @@
           </section>
 
           <section class="rounded-lg border border-gray-200 p-4">
-            <h4 class="mb-2 text-sm font-semibold text-gray-800">人格状态</h4>
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <h4 class="text-sm font-semibold text-gray-800">人格状态</h4>
+              <button
+                type="button"
+                class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="memorySnapshotLoading || personaResetLoading"
+                @click="openPersonaResetConfirm"
+              >
+                {{ personaResetLoading ? '重置中...' : '重置人格' }}
+              </button>
+            </div>
             <template v-if="memorySnapshotData.persona">
               <div class="mb-3 text-sm text-gray-700 whitespace-pre-wrap break-words">
                 {{ memorySnapshotData.persona.current_behavioral_narrative }}
@@ -403,23 +415,82 @@
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      v-model="showPurgeConfirm"
+      title="确认清空所有 AI 数据？"
+      message="这将删除对话历史、记忆状态、人格状态和上传文件，且无法撤销。"
+      confirm-text="确认清空"
+      cancel-text="取消"
+      loading-text="清空中..."
+      size="md"
+      icon="warning"
+      :danger="true"
+      :loading="purgeConfirmLoading"
+      @confirm="confirmPurgeAllData"
+      @cancel="restoreInputFocus"
+    />
+
+    <ConfirmDialog
+      v-model="showDeleteFileConfirm"
+      title="确认删除文件？"
+      :message="deleteFileConfirmMessage"
+      confirm-text="删除"
+      cancel-text="取消"
+      loading-text="删除中..."
+      size="sm"
+      icon="danger"
+      :danger="true"
+      :loading="deleteFileConfirmLoading"
+      @confirm="confirmDeleteFile"
+      @cancel="cancelDeleteFile"
+    />
+
+    <ConfirmDialog
+      v-model="showPersonaResetConfirm"
+      title="确认重置人格状态？"
+      message="这将把人格指标恢复到默认初始值，不会删除对话历史、记忆和上传文件。"
+      confirm-text="重置人格"
+      cancel-text="取消"
+      loading-text="重置中..."
+      size="sm"
+      icon="warning"
+      :danger="true"
+      :loading="personaResetLoading"
+      @confirm="confirmResetPersonaState"
+      @cancel="restoreInputFocus"
+    />
+
+    <ConfirmDialog
+      v-model="showNoticeDialog"
+      :title="noticeTitle"
+      :message="noticeMessage"
+      confirm-text="知道了"
+      :show-cancel="false"
+      size="sm"
+      :icon="noticeIcon"
+      @confirm="closeNoticeDialog"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAIChatService } from '../services/aiClientService'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import AILogPanel from '../components/AILogPanel.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import type {
   ModelConfigInput,
   ModelConfigPayload
 } from '../../../share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '../../../share/cache/AItype/states/memoryInspection'
 
-const { messages, isLoading, sendMessage, loadHistory, purgeAllData, agentLogs } = useAIChatService()
+const { messages, isLoading, sendMessage, loadHistory, purgeAllData, resetPersonaState, agentLogs } =
+  useAIChatService()
 const userInput = ref('')
+const inputRef = ref<HTMLTextAreaElement | null>(null)
 const messagesContainer = ref<HTMLElement | null>(null)
 const showLogs = ref(true) // 默认开启调试面板以便演示
 const showModelConfig = ref(false)
@@ -430,6 +501,10 @@ const showMemorySnapshot = ref(false)
 const memorySnapshotLoading = ref(false)
 const memorySnapshotError = ref('')
 const memorySnapshotData = ref<MemoryInspectionPayload | null>(null)
+const showPersonaResetConfirm = ref(false)
+const personaResetLoading = ref(false)
+const showPurgeConfirm = ref(false)
+const purgeConfirmLoading = ref(false)
 type UploadedFile = {
   id: string
   name: string
@@ -438,8 +513,22 @@ type UploadedFile = {
   size: number
   status: 'pending' | 'uploaded'
 }
+type DialogIcon = 'none' | 'info' | 'warning' | 'danger' | 'success'
 
 const uploadedFiles = ref<UploadedFile[]>([])
+const pendingDeleteFile = ref<UploadedFile | null>(null)
+const showDeleteFileConfirm = ref(false)
+const deleteFileConfirmLoading = ref(false)
+const showNoticeDialog = ref(false)
+const noticeTitle = ref('')
+const noticeMessage = ref('')
+const noticeIcon = ref<DialogIcon>('info')
+
+const deleteFileConfirmMessage = computed<string>(() => {
+  const file = pendingDeleteFile.value
+  if (!file) return '确认删除该文件吗？'
+  return `文件名：${file.name}\n此操作无法撤销。`
+})
 
 const defaultModelConfig: ModelConfigInput = {
   modelKey: '',
@@ -476,7 +565,7 @@ const loadModelConfig = async (): Promise<void> => {
     applyModelConfig(config)
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
-    alert(`加载模型配置失败：${message}`)
+    showNotice('加载模型配置失败', message, 'warning')
   } finally {
     modelConfigLoading.value = false
   }
@@ -501,6 +590,10 @@ const openMemorySnapshot = async (): Promise<void> => {
   await loadMemorySnapshot()
 }
 
+const openPersonaResetConfirm = (): void => {
+  showPersonaResetConfirm.value = true
+}
+
 const openModelConfig = async (): Promise<void> => {
   await loadModelConfig()
   showModelConfig.value = true
@@ -508,7 +601,7 @@ const openModelConfig = async (): Promise<void> => {
 
 const saveModelConfig = async (): Promise<void> => {
   if (!modelConfigForm.value.model.trim()) {
-    alert('模型名称不能为空')
+    showNotice('参数校验失败', '模型名称不能为空', 'warning')
     return
   }
   modelConfigSaving.value = true
@@ -523,10 +616,10 @@ const saveModelConfig = async (): Promise<void> => {
     })
     applyModelConfig(saved)
     showModelConfig.value = false
-    alert('模型配置已保存。下一次对话会使用新配置。')
+    showNotice('保存成功', '模型配置已保存。下一次对话会使用新配置。', 'success')
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
-    alert(`保存模型配置失败：${message}`)
+    showNotice('保存模型配置失败', message, 'warning')
   } finally {
     modelConfigSaving.value = false
   }
@@ -567,7 +660,7 @@ const handleSend = async (): Promise<void> => {
         })
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error)
-        alert(`文件写入失败：${message}`)
+        showNotice('文件写入失败', message, 'warning')
         return
       }
     }
@@ -593,7 +686,7 @@ const handlePickFile = async (): Promise<void> => {
       return
     }
     const message = error instanceof Error ? error.message : String(error)
-    alert(`加载失败：${message}`)
+    showNotice('文件选择失败', message, 'warning')
   }
 }
 
@@ -617,7 +710,7 @@ const formatIsoTime = (iso?: string): string => {
   return `${month}/${day} ${hours}:${minutes}:${seconds}`
 }
 
-const handleDeleteFile = async (file: UploadedFile): Promise<void> => {
+const requestDeleteFile = (file: UploadedFile): void => {
   if (file.status === 'pending') {
     uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
     return
@@ -626,19 +719,96 @@ const handleDeleteFile = async (file: UploadedFile): Promise<void> => {
     uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
     return
   }
+  pendingDeleteFile.value = file
+  showDeleteFileConfirm.value = true
+}
+
+const cancelDeleteFile = (): void => {
+  pendingDeleteFile.value = null
+  showDeleteFileConfirm.value = false
+  void restoreInputFocus()
+}
+
+const confirmDeleteFile = async (): Promise<void> => {
+  const file = pendingDeleteFile.value
+  if (!file || !file.path) {
+    cancelDeleteFile()
+    return
+  }
+  if (deleteFileConfirmLoading.value) return
+  deleteFileConfirmLoading.value = true
   try {
     await window.api.deleteFile(file.path)
     uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
+    pendingDeleteFile.value = null
+    showDeleteFileConfirm.value = false
+    await restoreInputFocus()
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
-    alert(`删除失败：${message}`)
+    showNotice('删除文件失败', message, 'warning')
+  } finally {
+    deleteFileConfirmLoading.value = false
   }
 }
 
-const handleClearHistory = async () => {
-  if (confirm('确定要清空所有 AI 数据吗？这将删除对话历史、记忆状态、人格状态和上传文件，且无法撤销。')) {
+const restoreInputFocus = async (): Promise<void> => {
+  await nextTick()
+  window.focus()
+  if (
+    !isLoading.value &&
+    !showModelConfig.value &&
+    !showMemorySnapshot.value &&
+    !showPurgeConfirm.value &&
+    !showPersonaResetConfirm.value &&
+    !showDeleteFileConfirm.value &&
+    !showNoticeDialog.value
+  ) {
+    inputRef.value?.focus()
+  }
+}
+
+const showNotice = (title: string, message: string, icon: DialogIcon = 'info'): void => {
+  noticeTitle.value = title
+  noticeMessage.value = message
+  noticeIcon.value = icon
+  showNoticeDialog.value = true
+}
+
+const closeNoticeDialog = async (): Promise<void> => {
+  showNoticeDialog.value = false
+  await restoreInputFocus()
+}
+
+const openPurgeConfirm = (): void => {
+  showPurgeConfirm.value = true
+}
+
+const confirmPurgeAllData = async (): Promise<void> => {
+  if (purgeConfirmLoading.value) return
+  purgeConfirmLoading.value = true
+  try {
     await purgeAllData()
     uploadedFiles.value = []
+    showPurgeConfirm.value = false
+    await restoreInputFocus()
+  } finally {
+    purgeConfirmLoading.value = false
+  }
+}
+
+const confirmResetPersonaState = async (): Promise<void> => {
+  if (personaResetLoading.value) return
+  personaResetLoading.value = true
+  try {
+    await resetPersonaState()
+    await loadMemorySnapshot()
+    showPersonaResetConfirm.value = false
+    showNotice('人格已重置', '人格状态已恢复到默认初始值。', 'success')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    showNotice('重置人格失败', message, 'warning')
+  } finally {
+    personaResetLoading.value = false
   }
 }
 
