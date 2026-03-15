@@ -9,15 +9,17 @@ type JsonObject = { [key: string]: JsonValue }
 
 type GraphRuntimeContext = {
   runId: string
+  emitChunk?: (chunk: StreamChunk) => void
 }
 
 const graphRuntimeStorage = new AsyncLocalStorage<GraphRuntimeContext>()
 
 export function runWithGraphLogContext<T>(
   runId: string,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
+  emitChunk?: (chunk: StreamChunk) => void
 ): Promise<T> {
-  return graphRuntimeStorage.run({ runId }, fn)
+  return graphRuntimeStorage.run({ runId, emitChunk }, fn)
 }
 
 export function logNodeEnter(
@@ -29,6 +31,19 @@ export function logNodeEnter(
   } catch (e) {
     // ignore
   }
+}
+
+export function emitGraphThought(nodeName: string, data?: JsonValue | JsonObject): void {
+  const context = graphRuntimeStorage.getStore()
+  if (!context?.emitChunk) return
+
+  context.emitChunk({
+    type: 'agent_log',
+    subType: 'thought',
+    nodeName,
+    data,
+    timestamp: Date.now()
+  })
 }
 
 export function withGraphLog<T, R>(

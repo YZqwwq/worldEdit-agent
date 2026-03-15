@@ -1,4 +1,5 @@
-import { HumanMessage } from '@langchain/core/messages'
+import { HumanMessage, SystemMessage } from '@langchain/core/messages'
+import { z } from 'zod'
 import type {
   PersonaBufferItem,
   PersonaMetrics,
@@ -10,12 +11,15 @@ import type {
   PersonaTone
 } from '@share/cache/AItype/states/personaPolicy'
 import { contentToText } from '../../../messageoutput/transformRespones'
+import { toErrorMessage } from '../../../../../../share/utils/error/error'
 import { memoryManager } from '../../manager/memory/MemoryManager'
+import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import {
   evolvePersonaState,
   loadPersonaState,
   savePersonaState
 } from '../../manager/personal/personalManager'
+import { emitGraphThought } from '../../../../log/graphlog'
 import { MessagesState } from '../../state/messageState'
 
 type SignalCategory = 'autonomy' | 'verbosity' | 'risk' | 'formality'
@@ -28,6 +32,21 @@ type SignalRule = {
 }
 
 type PersonaSignal = Omit<PersonaBufferItem, 'turn'>
+
+const PERSONA_SIGNAL_CATEGORIES = ['autonomy', 'verbosity', 'risk', 'formality'] as const
+
+const personaSignalResponseSchema = z.object({
+  signals: z
+    .array(
+      z.object({
+        category: z.enum(PERSONA_SIGNAL_CATEGORIES),
+        user_signal: z.string().trim().min(1).max(120),
+        delta: z.number().finite().min(-0.12).max(0.12)
+      })
+    )
+    .max(4)
+    .default([])
+})
 
 const signalRules: readonly SignalRule[] = Object.freeze([
   {
@@ -85,7 +104,7 @@ const clamp = (value: number, min: number, max: number): number => Math.max(min,
 const roundTo = (value: number, digits = 3): number =>
   Number(value.toFixed(digits))
 
-const inferSignals = (userInput: string): PersonaSignal[] => {
+const inferSignalsByRules = (userInput: string): PersonaSignal[] => {
   const text = userInput.trim().toLowerCase()
   if (!text) return []
 
@@ -100,6 +119,130 @@ const inferSignals = (userInput: string): PersonaSignal[] => {
     }
   }
   return [...selected.values()]
+}
+
+const formatImpact = (delta: number, category: SignalCategory): string =>
+  `${delta >= 0 ? '+' : ''}${roundTo(delta, 3)} ${category}`
+
+const extractJsonObject = (text: string): string | null => {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (fencedMatch?.[1]) {
+    return fencedMatch[1].trim()
+  }
+
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) {
+    return null
+  }
+  return trimmed.slice(start, end + 1)
+}
+
+const normalizeModelSignals = (
+  input: z.infer<typeof personaSignalResponseSchema>
+): PersonaSignal[] => {
+  const selected = new Map<SignalCategory, PersonaSignal>()
+
+  for (const signal of input.signals) {
+    if (selected.has(signal.category)) continue
+
+    const delta = roundTo(signal.delta, 3)
+    if (delta === 0) continue
+
+    selected.set(signal.category, {
+      user_signal: signal.user_signal.trim(),
+      impact: formatImpact(delta, signal.category)
+    })
+  }
+
+  return [...selected.values()]
+}
+
+const buildPersonaInferencePrompt = (userInput: string, metrics: PersonaMetrics): string => `你是一个人格参数调节器。
+
+任务：根据“用户最新一句话”里体现出的元偏好，只判断是否需要调整以下四个人格参数：
+- autonomy: 是否希望助手更主动还是更先确认
+- verbosity: 是否希望助手更详细还是更精简
+- risk: 是否希望助手更大胆探索还是更保守稳妥
+- formality: 是否希望助手更正式还是更自然随意
+
+当前人格参数：
+${JSON.stringify(metrics, null, 2)}
+
+用户最新输入：
+${userInput}
+
+请只输出 JSON，不要输出解释，不要使用 Markdown 代码块。格式如下：
+{
+  "signals": [
+    {
+      "category": "verbosity",
+      "user_signal": "user_requests_more_detail",
+      "delta": 0.08
+    }
+  ]
+}
+
+规则：
+1. 只根据用户对助手行为风格的偏好来调参，不要因为任务主题本身就误判。
+2. 没有明显偏好时返回 {"signals":[]}
+3. 每个 category 最多返回一条。
+4. delta 必须在 -0.12 到 0.12 之间。
+5. user_signal 使用简短 snake_case 标签。`
+
+const inferSignalsWithModel = async (
+  userInput: string,
+  metrics: PersonaMetrics
+): Promise<{
+  signals: PersonaSignal[]
+  parsedResponse: z.infer<typeof personaSignalResponseSchema>
+}> => {
+  const quickModel = await getQuickModel()
+  const response = await quickModel.invoke(
+    [
+      new SystemMessage('你只负责返回合法 JSON。'),
+      new HumanMessage(buildPersonaInferencePrompt(userInput, metrics))
+    ],
+    { signal: AbortSignal.timeout(8000) } as Record<string, unknown>
+  )
+  const text = contentToText(response.content).trim()
+  const jsonText = extractJsonObject(text)
+  if (!jsonText) {
+    throw new Error('Persona model did not return valid JSON content')
+  }
+
+  const parsed = personaSignalResponseSchema.parse(JSON.parse(jsonText))
+  return {
+    signals: normalizeModelSignals(parsed),
+    parsedResponse: parsed
+  }
+}
+
+const inferSignals = async (userInput: string, metrics: PersonaMetrics): Promise<PersonaSignal[]> => {
+  try {
+    const result = await inferSignalsWithModel(userInput, metrics)
+    emitGraphThought('personaNode', {
+      stage: 'persona_signal_inference',
+      source: 'quick_model',
+      modelResponse: result.parsedResponse,
+      normalizedSignals: result.signals
+    })
+    return result.signals
+  } catch (error) {
+    const fallbackSignals = inferSignalsByRules(userInput)
+    const reason = toErrorMessage(error)
+    console.warn('Persona model inference failed, falling back to rules:', error)
+    emitGraphThought('personaNode', {
+      stage: 'persona_signal_inference',
+      source: 'rules_fallback',
+      reason,
+      fallbackSignals
+    })
+    return fallbackSignals
+  }
 }
 
 const nextTurn = (state: PersonaState): number => {
@@ -239,7 +382,7 @@ export async function personaNode(
         ? latestUserMessage.content
         : contentToText(latestUserMessage.content)
 
-    const signals = inferSignals(userInput)
+    const signals = await inferSignals(userInput, workingState.metrics)
     if (signals.length > 0) {
       appliedSignals = signals
       let turn = nextTurn(workingState)

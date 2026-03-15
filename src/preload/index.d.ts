@@ -9,11 +9,7 @@ import type { MemoryInspectionPayload } from '../share/cache/AItype/states/memor
 declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
   type Api = {
-    // 移除旧的非流式接口
-    // sendMessage: (message: string) => Promise<string>
-    // sendMessageStructured: (message: string) => Promise<AIStructuredResponse>
-
-    // 流式接口
+    // 流式聊天接口
     sendMessageStream: (message: string) => void
     onStreamChunk: (callback: (chunk: StreamChunk) => void) => () => void
 

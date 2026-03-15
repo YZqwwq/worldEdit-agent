@@ -32,6 +32,34 @@ export async function contextNode(
     messages.push(new SystemMessage(`回复风格约束:\n${state.personaPolicy.style.instruction}`))
   }
 
+  if (state.taskLifecycle?.activeTask) {
+    messages.push(
+      new SystemMessage(
+        `当前活跃任务:\n标题：${state.taskLifecycle.activeTask.title}\n目标：${state.taskLifecycle.activeTask.goal}\n状态：${state.taskLifecycle.activeTask.status}\n摘要：${state.taskLifecycle.activeTask.summary}`
+      )
+    )
+  }
+
+  if (state.taskLifecycle?.notice?.type === 'task_registration_blocked') {
+    messages.push(
+      new SystemMessage(
+        `任务注册限制：${state.taskLifecycle.notice.message}\n请明确告诉用户：当前没有可用的对应子 agent 能力工具，因此不能注册该任务；如果用户希望继续，请先为系统加载对应能力工具。`
+      )
+    )
+  } else if (state.taskLifecycle?.notice?.message) {
+    messages.push(new SystemMessage(`任务生命周期提示：${state.taskLifecycle.notice.message}`))
+  }
+
+  if (state.taskLifecycle?.recalledExperiences?.length) {
+    const experienceText = state.taskLifecycle.recalledExperiences
+      .map(
+        (item, index) =>
+          `${index + 1}. ${item.title}\n问题模式：${item.problemPattern}\n执行策略：${item.executionStrategy}\n验证策略：${item.verificationStrategy}\n结果：${item.outcome}\n坑点：${item.pitfalls}`
+      )
+      .join('\n\n')
+    messages.push(new SystemMessage(`可参考经验:\n${experienceText}`))
+  }
+
   const snapshot = await memoryManager.getSnapshot()
   if (snapshot.anchors.length > 0) {
     messages.push(new SystemMessage(snapshot.anchors.join('\n')))

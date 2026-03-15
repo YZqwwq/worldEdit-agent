@@ -150,7 +150,7 @@ class AIService {
             fullContent: contentToParts(fullText)
           })
         }
-      })
+      }, onChunk)
 
     } catch (error: unknown) {
       debugLog(`Error in sendStreamMessage: ${error}`)

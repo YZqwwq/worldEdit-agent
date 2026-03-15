@@ -6,6 +6,9 @@ import { ModelConfig } from '../../share/entity/database/ModelConfig'
 import { MemoryStateRecord } from '../../share/entity/database/MemoryStateRecord'
 import { MemoryEntry } from '../../share/entity/database/MemoryEntry'
 import { PersonaStateRecord } from '../../share/entity/database/PersonaStateRecord'
+import { TaskRecord } from '../../share/entity/database/TaskRecord'
+import { TaskExecutionRecord } from '../../share/entity/database/TaskExecutionRecord'
+import { ExperienceRecord } from '../../share/entity/database/ExperienceRecord'
 
 // 数据库文件路径：UserData/database.sqlite
 const dbPath = join(app.getPath('userData'), 'database.sqlite')
@@ -15,7 +18,16 @@ export const AppDataSource = new DataSource({
   database: dbPath,
   synchronize: true, // 开发阶段自动同步 schema，生产环境建议配合 migration
   logging: false,
-  entities: [Message, ModelConfig, MemoryStateRecord, MemoryEntry, PersonaStateRecord],
+  entities: [
+    Message,
+    ModelConfig,
+    MemoryStateRecord,
+    MemoryEntry,
+    PersonaStateRecord,
+    TaskRecord,
+    TaskExecutionRecord,
+    ExperienceRecord
+  ],
   subscribers: [],
   migrations: []
 })
