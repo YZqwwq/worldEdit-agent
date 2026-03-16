@@ -3,6 +3,7 @@ import './assets/main.css'
 // 本地化 md-editor-v3 依赖：注入 highlight.js、katex、mermaid、echarts 的本地实例
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github.css'
+import 'md-editor-v3/lib/preview.css'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import mermaid from 'mermaid'

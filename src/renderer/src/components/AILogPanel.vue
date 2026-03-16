@@ -1,20 +1,22 @@
 <template>
-  <div class="flex flex-col h-full bg-white border-l border-gray-200 shadow-xl w-80">
-    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
-      <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+  <aside
+    class="flex h-full w-[360px] flex-col rounded-[28px] border border-slate-200 bg-white/90 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur"
+  >
+    <div class="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-5 py-4">
+      <h3 class="text-sm font-semibold uppercase tracking-[0.22em] text-slate-700">
         Agent 思维链
       </h3>
       <div class="flex items-center gap-2">
-        <span v-if="logs.length === 0" class="text-xs text-gray-400">等待任务...</span>
-        <span v-else class="text-xs text-blue-600 font-medium animate-pulse">运行中</span>
+        <span v-if="logs.length === 0" class="text-xs text-slate-400">等待任务...</span>
+        <span v-else class="text-xs font-medium text-blue-600 animate-pulse">运行中</span>
       </div>
     </div>
 
-    <div class="flex-grow overflow-y-auto p-4 space-y-6 scroll-smooth">
+    <div class="flex-grow overflow-y-auto p-5 space-y-6 scroll-smooth">
       <div v-for="(log, index) in logs" :key="index" class="relative pl-6 group">
         <!-- 时间轴线 -->
         <div 
-          class="absolute left-1.5 top-2 bottom-0 w-0.5 bg-gray-200 group-last:bottom-auto group-last:h-full"
+          class="absolute left-1.5 top-2 bottom-0 w-0.5 bg-slate-200 group-last:bottom-auto group-last:h-full"
           :class="{'bg-blue-200': isActive(log)}"
         ></div>
 
@@ -31,16 +33,16 @@
               <!-- 折叠箭头 -->
               <span 
                 v-if="log.data"
-                class="text-[10px] text-gray-400 transform transition-transform duration-200"
+                class="text-[10px] text-slate-400 transform transition-transform duration-200"
                 :class="isFolded(index, log) ? '-rotate-90' : 'rotate-0'"
               >
                 ▼
               </span>
-              <span class="text-xs font-bold text-gray-700 truncate max-w-[130px]">
+              <span class="max-w-[160px] truncate text-xs font-bold text-slate-700">
                 {{ getStepTitle(log) }}
               </span>
             </div>
-            <span class="text-[10px] text-gray-400 font-mono flex-shrink-0">
+            <span class="text-[10px] font-mono text-slate-400 flex-shrink-0">
               {{ formatTime(log.timestamp) }}
             </span>
           </div>
@@ -56,7 +58,7 @@
           >
             <div 
               v-if="log.data && !isFolded(index, log)" 
-              class="mt-1 p-2 text-[10px] font-mono text-gray-600 bg-gray-50 rounded border border-gray-100 overflow-x-auto whitespace-pre-wrap break-all shadow-inner"
+              class="mt-2 overflow-x-auto rounded-2xl border border-slate-100 bg-slate-50 p-3 text-[10px] font-mono text-slate-600 shadow-inner whitespace-pre-wrap break-all"
             >
               {{ formatData(log.data) }}
             </div>
@@ -66,12 +68,12 @@
       
       <!-- 结束占位 -->
       <div v-if="logs.length > 0" class="relative pl-6">
-         <div class="absolute left-1.5 top-0 h-4 w-0.5 bg-gray-200"></div>
-         <div class="absolute left-0 top-4 w-3.5 h-3.5 rounded-full bg-gray-300"></div>
-         <span class="text-xs text-gray-400 ml-1 mt-3 block">等待下一步...</span>
+         <div class="absolute left-1.5 top-0 h-4 w-0.5 bg-slate-200"></div>
+         <div class="absolute left-0 top-4 w-3.5 h-3.5 rounded-full bg-slate-300"></div>
+         <span class="ml-1 mt-3 block text-xs text-slate-400">等待下一步...</span>
       </div>
     </div>
-  </div>
+  </aside>
 </template>
 
 <script setup lang="ts">

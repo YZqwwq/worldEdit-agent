@@ -1,182 +1,51 @@
 <template>
-  <div class="flex h-screen bg-gray-50 overflow-hidden">
-    <!-- 主聊天区域 -->
-    <div class="flex flex-col flex-grow min-w-0">
-      <!-- 顶部导航栏 -->
-      <header
-        class="flex flex-shrink-0 justify-between items-center px-6 py-4 bg-white border-b border-gray-200 shadow-sm z-10"
+  <div
+    class="h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(191,219,254,0.5),_transparent_32%),linear-gradient(180deg,_#f8fbff_0%,_#f3f6fb_100%)] p-4"
+  >
+    <div class="mx-auto flex h-full max-w-[1880px] gap-4">
+      <section
+        class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[32px] border border-slate-200/80 bg-white/75 shadow-[0_28px_90px_rgba(15,23,42,0.10)] backdrop-blur"
       >
-        <router-link
-          to="/"
-          class="flex items-center gap-1 px-4 py-2 text-sm font-medium text-gray-600 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 no-underline shadow-sm"
-        >
-          <span>&larr;</span> 返回
-        </router-link>
-        <div class="text-lg font-semibold text-gray-800 tracking-wide">AI 助手</div>
-        
-        <div class="flex items-center gap-3">
-          <button
-            @click="openMemorySnapshot"
-            class="px-4 py-2 text-sm font-medium text-gray-600 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 shadow-sm cursor-pointer flex items-center gap-2"
-            title="查看 AI 当前记忆内容"
-          >
-            记忆状态
-          </button>
+        <ChatHeader
+          :show-logs="showLogs"
+          :disable-purge="isLoading || purgeConfirmLoading"
+          @open-memory="openMemorySnapshot"
+          @open-model-config="openModelConfig"
+          @open-purge-confirm="openPurgeConfirm"
+          @toggle-logs="showLogs = !showLogs"
+        />
 
-          <button
-            @click="openModelConfig"
-            class="px-4 py-2 text-sm font-medium text-gray-600 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 shadow-sm cursor-pointer flex items-center gap-2"
-            title="查看或修改模型参数"
-          >
-            模型设置
-          </button>
-
-          <!-- 清除历史按钮 -->
-          <button
-            @click="openPurgeConfirm"
-            class="px-3 py-2 text-sm font-medium text-red-600 transition-colors bg-white border border-red-200 rounded-lg hover:bg-red-50 hover:text-red-700 hover:border-red-300 shadow-sm cursor-pointer flex items-center gap-2"
-            :disabled="isLoading || purgeConfirmLoading"
-            title="清除所有 AI 数据"
-          >
-            <span>🗑️</span> 清空
-          </button>
-
-          <!-- 调试面板开关 -->
-          <button
-            @click="showLogs = !showLogs"
-            class="px-4 py-2 text-sm font-medium text-gray-600 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 shadow-sm cursor-pointer flex items-center gap-2"
-            :class="{'text-blue-600 border-blue-200 bg-blue-50': showLogs}"
-          >
-            <span v-if="showLogs">隐藏调试</span>
-            <span v-else>显示调试</span>
-          </button>
-        </div>
-      </header>
-
-      <!-- 消息列表区域 -->
       <div
-        class="flex flex-col flex-grow gap-6 p-6 overflow-y-auto scroll-smooth"
+        class="flex flex-grow flex-col overflow-y-auto px-8 py-7 scroll-smooth"
         ref="messagesContainer"
       >
-        <div
-          v-for="message in messages"
-          :key="message.id"
-          class="flex w-full gap-3"
-          :class="message.sender === 'user' ? 'justify-end' : 'justify-start'"
-        >
-          <div
-            class="flex flex-col max-w-[85%] min-w-[60px]"
-            :class="message.sender === 'user' ? 'items-end' : 'items-start'"
-          >
-            <!-- AI 消息头部信息：头像 + 名称 + 时间 -->
-            <div 
-              v-if="message.sender === 'ai'" 
-              class="flex items-center gap-2 mb-2 text-xs text-gray-400"
-            >
-              <!-- 头像 -->
-              <div
-                class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center border border-blue-200"
-              >
-                <span class="text-[10px]">🤖</span>
-              </div>
-              
-              <span class="font-medium text-gray-600">AI 助手</span>
-              <span>{{ formatTime(message.timestamp) }}</span>
-            </div>
-
-            <!-- 消息内容区域 -->
-            <div
-              class="px-5 py-3.5 text-base leading-7 rounded-2xl shadow-sm break-words overflow-hidden"
-              :class="[
-                message.sender === 'user'
-                  ? 'bg-[#f3f5f9] text-gray-900 rounded-br-sm'
-                  : 'bg-transparent text-gray-800 !p-0 !shadow-none' 
-              ]"
-            >
-              <MdPreview
-                :modelValue="message.text"
-                class="!bg-transparent !p-0"
-                :theme="'light'"
-              />
-            </div>
-          </div>
-        </div>
+        <ChatMessageList :messages="messages" :participants="chatParticipants" />
       </div>
 
-      <!-- 底部输入区域 -->
-      <div class="flex flex-shrink-0 gap-4 p-6 bg-white border-t border-gray-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-        <div class="flex flex-col flex-grow gap-3">
-          <div class="flex items-center gap-3">
-            <button
-              type="button"
-              @click="handlePickFile"
-              class="flex items-center justify-center w-12 h-12 text-gray-600 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
-              :disabled="isLoading"
-              title="上传文件"
-            >
-              📎
-            </button>
-            <div class="relative flex-grow">
-              <textarea
-                ref="inputRef"
-                v-model="userInput"
-                @keyup.enter.exact="handleSend"
-                placeholder="输入你的问题... (Enter 发送)"
-                class="w-full h-14 py-3.5 pl-5 pr-4 text-sm text-gray-800 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all resize-none shadow-inner"
-                :disabled="isLoading"
-              ></textarea>
-            </div>
-          </div>
-          <div v-if="uploadedFiles.length" class="flex flex-col gap-2">
-            <div
-              v-for="file in uploadedFiles"
-              :key="file.id"
-              class="flex items-start justify-between gap-3 px-4 py-2 text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-lg"
-            >
-              <div class="flex flex-col gap-1">
-                <div class="font-medium text-gray-800">
-                  {{ file.name }} ({{ formatFileSize(file.size) }})
-                </div>
-                <div v-if="file.status === 'pending'" class="text-[11px] text-gray-500 break-all">
-                  缓存路径：{{ file.sourcePath }}
-                </div>
-                <div v-else class="text-[11px] text-gray-500 break-all">
-                  存储路径：{{ file.path }}
-                </div>
-              </div>
-              <button
-                type="button"
-                @click="requestDeleteFile(file)"
-                class="flex items-center justify-center w-7 h-7 text-gray-500 hover:text-red-600"
-                title="删除文件"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
+        <div class="px-6 pb-6 pt-3">
+          <MessageComposer
+            ref="composerRef"
+            v-model="userInput"
+            :is-loading="isLoading"
+            :uploaded-files="uploadedFiles"
+            @send="handleSend"
+            @pick-file="handlePickFile"
+            @delete-file="requestDeleteFile"
+          />
         </div>
+      </section>
 
-        <button
-          @click="handleSend"
-          class="flex flex-shrink-0 items-center justify-center px-8 h-14 text-sm font-semibold text-white transition-all bg-blue-600 rounded-xl shadow-md hover:bg-blue-700 hover:shadow-lg active:transform active:scale-95 focus:ring-4 focus:ring-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:transform-none"
-          :disabled="isLoading || !userInput.trim()"
-        >
-          {{ isLoading ? '思考中...' : '发送' }}
-        </button>
-      </div>
+      <transition
+        enter-active-class="transition ease-out duration-300"
+        enter-from-class="transform translate-x-4 opacity-0"
+        enter-to-class="transform translate-x-0 opacity-100"
+        leave-active-class="transition ease-in duration-200"
+        leave-from-class="transform translate-x-0 opacity-100"
+        leave-to-class="transform translate-x-4 opacity-0"
+      >
+        <AILogPanel v-if="showLogs" :logs="agentLogs" class="flex-shrink-0" />
+      </transition>
     </div>
-
-    <!-- 右侧调试面板 -->
-    <transition
-      enter-active-class="transition ease-out duration-300"
-      enter-from-class="transform translate-x-full"
-      enter-to-class="transform translate-x-0"
-      leave-active-class="transition ease-in duration-200"
-      leave-from-class="transform translate-x-0"
-      leave-to-class="transform translate-x-full"
-    >
-      <AILogPanel v-if="showLogs" :logs="agentLogs" class="flex-shrink-0" />
-    </transition>
 
     <div
       v-if="showMemorySnapshot"
@@ -477,10 +346,12 @@
 <script setup lang="ts">
 import { computed, ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAIChatService } from '../services/aiClientService'
-import { MdPreview } from 'md-editor-v3'
-import 'md-editor-v3/lib/preview.css'
 import AILogPanel from '../components/AILogPanel.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import ChatHeader from '../features/chat/components/ChatHeader.vue'
+import ChatMessageList from '../features/chat/components/ChatMessageList.vue'
+import MessageComposer from '../features/chat/components/MessageComposer.vue'
+import type { UploadedChatFile } from '../features/chat/types'
 import type {
   ModelConfigInput,
   ModelConfigPayload
@@ -490,8 +361,8 @@ import type { MemoryInspectionPayload } from '../../../share/cache/AItype/states
 const { messages, isLoading, sendMessage, loadHistory, purgeAllData, resetPersonaState, agentLogs } =
   useAIChatService()
 const userInput = ref('')
-const inputRef = ref<HTMLTextAreaElement | null>(null)
 const messagesContainer = ref<HTMLElement | null>(null)
+const composerRef = ref<{ focusInput: () => void } | null>(null)
 const showLogs = ref(true) // 默认开启调试面板以便演示
 const showModelConfig = ref(false)
 const modelConfigLoading = ref(false)
@@ -505,18 +376,10 @@ const showPersonaResetConfirm = ref(false)
 const personaResetLoading = ref(false)
 const showPurgeConfirm = ref(false)
 const purgeConfirmLoading = ref(false)
-type UploadedFile = {
-  id: string
-  name: string
-  path?: string
-  sourcePath: string
-  size: number
-  status: 'pending' | 'uploaded'
-}
 type DialogIcon = 'none' | 'info' | 'warning' | 'danger' | 'success'
 
-const uploadedFiles = ref<UploadedFile[]>([])
-const pendingDeleteFile = ref<UploadedFile | null>(null)
+const uploadedFiles = ref<UploadedChatFile[]>([])
+const pendingDeleteFile = ref<UploadedChatFile | null>(null)
 const showDeleteFileConfirm = ref(false)
 const deleteFileConfirmLoading = ref(false)
 const showNoticeDialog = ref(false)
@@ -544,6 +407,22 @@ const defaultModelConfig: ModelConfigInput = {
 const modelConfigForm = ref<ModelConfigInput>({
   ...defaultModelConfig
 })
+
+const chatParticipants = {
+  ai: {
+    label: 'AI AGENT',
+    nickname: '法弥拉',
+    avatarText: 'AI',
+    accent: 'ai' as const,
+    statusIcon: '🔥'
+  },
+  user: {
+    label: 'USER',
+    nickname: '你',
+    avatarText: '你',
+    accent: 'user' as const
+  }
+}
 
 const applyModelConfig = (config: ModelConfigPayload): void => {
   modelConfigForm.value = {
@@ -690,14 +569,6 @@ const handlePickFile = async (): Promise<void> => {
   }
 }
 
-const formatFileSize = (size: number): string => {
-  if (size < 1024) return `${size} B`
-  const kb = size / 1024
-  if (kb < 1024) return `${kb.toFixed(1)} KB`
-  const mb = kb / 1024
-  return `${mb.toFixed(2)} MB`
-}
-
 const formatIsoTime = (iso?: string): string => {
   if (!iso) return ''
   const date = new Date(iso)
@@ -710,7 +581,7 @@ const formatIsoTime = (iso?: string): string => {
   return `${month}/${day} ${hours}:${minutes}:${seconds}`
 }
 
-const requestDeleteFile = (file: UploadedFile): void => {
+const requestDeleteFile = (file: UploadedChatFile): void => {
   if (file.status === 'pending') {
     uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
     return
@@ -763,7 +634,7 @@ const restoreInputFocus = async (): Promise<void> => {
     !showDeleteFileConfirm.value &&
     !showNoticeDialog.value
   ) {
-    inputRef.value?.focus()
+    composerRef.value?.focusInput()
   }
 }
 
@@ -812,17 +683,6 @@ const confirmResetPersonaState = async (): Promise<void> => {
   }
 }
 
-// 格式化时间函数
-const formatTime = (timestamp?: number): string => {
-  if (!timestamp) return ''
-  const date = new Date(timestamp)
-  const month = (date.getMonth() + 1).toString().padStart(2, '0')
-  const day = date.getDate().toString().padStart(2, '0')
-  const hours = date.getHours().toString().padStart(2, '0')
-  const minutes = date.getMinutes().toString().padStart(2, '0')
-  return `${month}月${day}日 ${hours}:${minutes}`
-}
-
 // Scroll to the bottom when new messages are added
 watch(
   messages,
@@ -835,12 +695,3 @@ watch(
   { deep: true }
 )
 </script>
-
-<style scoped>
-/* 取消 md-editor-v3 代码块头部的吸顶行为 */
-:deep(.md-editor-preview .md-editor-code .md-editor-code-head) {
-  position: static !important;
-  top: auto !important;
-  z-index: auto !important;
-}
-</style>
