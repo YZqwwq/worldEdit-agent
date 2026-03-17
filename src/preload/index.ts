@@ -6,6 +6,11 @@ import type {
   ModelConfigPayload
 } from '../share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '../share/cache/AItype/states/memoryInspection'
+import type {
+  ChatAvatarProfilesPayload,
+  PersistedChatAvatarProfile,
+  SaveChatAvatarInput
+} from '../share/cache/render/aiagent/chatAvatarProfile'
 
 // Local type to ensure availability in this module
 type Api = {
@@ -26,6 +31,9 @@ type Api = {
   deleteFile: (filePath: string) => Promise<boolean>
   pickAndUploadFile: () => Promise<{ filePath: string; fileName: string; size: number }>
   clearUploads: () => Promise<number>
+
+  getAvatarProfiles: () => Promise<ChatAvatarProfilesPayload>
+  saveAvatarProfile: (input: SaveChatAvatarInput) => Promise<PersistedChatAvatarProfile>
 
   getModelConfig: () => Promise<ModelConfigPayload>
   saveModelConfig: (config: ModelConfigInput) => Promise<ModelConfigPayload>
@@ -55,6 +63,8 @@ const api: Api = {
   deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),
   pickAndUploadFile: () => ipcRenderer.invoke('file:pickAndUpload'),
   clearUploads: () => ipcRenderer.invoke('file:clearUploads'),
+  getAvatarProfiles: () => ipcRenderer.invoke('avatar:getProfiles'),
+  saveAvatarProfile: (input) => ipcRenderer.invoke('avatar:saveProfile', input),
   getModelConfig: () => ipcRenderer.invoke('config:getModelConfig'),
   saveModelConfig: (config) => ipcRenderer.invoke('config:saveModelConfig', config)
 }

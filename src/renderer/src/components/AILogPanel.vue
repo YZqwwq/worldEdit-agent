@@ -1,8 +1,8 @@
 <template>
   <aside
-    class="flex h-full w-[360px] flex-col rounded-[28px] border border-slate-200 bg-white/90 shadow-[0_24px_60px_rgba(15,23,42,0.10)] backdrop-blur"
+    class="flex h-full w-[360px] flex-col border-l border-slate-200 bg-white"
   >
-    <div class="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-5 py-4">
+    <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
       <h3 class="text-sm font-semibold uppercase tracking-[0.22em] text-slate-700">
         Agent 思维链
       </h3>
@@ -58,7 +58,7 @@
           >
             <div 
               v-if="log.data && !isFolded(index, log)" 
-              class="mt-2 overflow-x-auto rounded-2xl border border-slate-100 bg-slate-50 p-3 text-[10px] font-mono text-slate-600 shadow-inner whitespace-pre-wrap break-all"
+              class="mt-2 overflow-x-auto rounded-xl border border-slate-100 bg-slate-50 p-3 text-[10px] font-mono text-slate-600 shadow-inner whitespace-pre-wrap break-all"
             >
               {{ formatData(log.data) }}
             </div>

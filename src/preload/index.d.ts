@@ -5,6 +5,11 @@ import type {
   ModelConfigPayload
 } from '../share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '../share/cache/AItype/states/memoryInspection'
+import type {
+  ChatAvatarProfilesPayload,
+  PersistedChatAvatarProfile,
+  SaveChatAvatarInput
+} from '../share/cache/render/aiagent/chatAvatarProfile'
 
 declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
@@ -24,6 +29,8 @@ declare global {
     deleteFile: (filePath: string) => Promise<boolean>
     pickAndUploadFile: () => Promise<{ filePath: string; fileName: string; size: number }>
     clearUploads: () => Promise<number>
+    getAvatarProfiles: () => Promise<ChatAvatarProfilesPayload>
+    saveAvatarProfile: (input: SaveChatAvatarInput) => Promise<PersistedChatAvatarProfile>
 
     getModelConfig: () => Promise<ModelConfigPayload>
     saveModelConfig: (config: ModelConfigInput) => Promise<ModelConfigPayload>

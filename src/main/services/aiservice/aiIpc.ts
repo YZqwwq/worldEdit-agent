@@ -10,6 +10,12 @@ import type { ModelConfigInput } from '@share/cache/AItype/model/modelConfigPayl
 import type { MemoryInspectionPayload } from '@share/cache/AItype/states/memoryInspection'
 import { memoryManager } from './agentrsystem/manager/memory/MemoryManager'
 import { loadPersonaState } from './agentrsystem/manager/personal/personalManager'
+import { avatarProfileService } from '../avatar/avatarProfileService'
+import type {
+  ChatAvatarProfilesPayload,
+  PersistedChatAvatarProfile,
+  SaveChatAvatarInput
+} from '../../../share/cache/render/aiagent/chatAvatarProfile'
 
 type UploadResult = {
   filePath: string
@@ -85,6 +91,7 @@ export function initializeAIEndpoints(): void {
 
   ipcMain.handle('ai:purgeAllData', async (_event) => {
     await aiService.purgeAllData()
+    avatarProfileService.clearAll()
     return clearUploadFiles()
   })
 
@@ -109,6 +116,17 @@ export function initializeAIEndpoints(): void {
   ipcMain.handle('config:saveModelConfig', async (_event, input: ModelConfigInput) => {
     return modelConfigService.saveModelConfig(input)
   })
+
+  ipcMain.handle('avatar:getProfiles', async (): Promise<ChatAvatarProfilesPayload> => {
+    return avatarProfileService.getProfiles()
+  })
+
+  ipcMain.handle(
+    'avatar:saveProfile',
+    async (_event, input: SaveChatAvatarInput): Promise<PersistedChatAvatarProfile> => {
+      return avatarProfileService.saveProfile(input)
+    }
+  )
 
   ipcMain.handle('file:upload', async (_event, sourcePath: string): Promise<UploadResult> => {
     if (!sourcePath || typeof sourcePath !== 'string') {

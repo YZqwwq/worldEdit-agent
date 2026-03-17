@@ -1,10 +1,11 @@
 <template>
   <div
-    class="h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(191,219,254,0.5),_transparent_32%),linear-gradient(180deg,_#f8fbff_0%,_#f3f6fb_100%)] p-4"
+    class="h-screen overflow-hidden bg-[linear-gradient(180deg,_#f7fafe_0%,_#f3f6fb_100%)]"
   >
-    <div class="mx-auto flex h-full max-w-[1880px] gap-4">
+    <div class="flex h-full w-full">
       <section
-        class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[32px] border border-slate-200/80 bg-white/75 shadow-[0_28px_90px_rgba(15,23,42,0.10)] backdrop-blur"
+        class="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-slate-200/80 bg-white/55"
+        :class="{ 'border-r-0': !showLogs }"
       >
         <ChatHeader
           :show-logs="showLogs"
@@ -16,13 +17,17 @@
         />
 
       <div
-        class="flex flex-grow flex-col overflow-y-auto px-8 py-7 scroll-smooth"
+        class="flex flex-grow flex-col overflow-y-auto px-10 py-8 scroll-smooth"
         ref="messagesContainer"
       >
-        <ChatMessageList :messages="messages" :participants="chatParticipants" />
+        <ChatMessageList
+          :messages="messages"
+          :participants="chatParticipants"
+          @edit-avatar="openAvatarEditor"
+        />
       </div>
 
-        <div class="px-6 pb-6 pt-3">
+        <div class="border-t border-slate-200/80 bg-white/80 px-8 pb-7 pt-5">
           <MessageComposer
             ref="composerRef"
             v-model="userInput"
@@ -340,6 +345,13 @@
       :icon="noticeIcon"
       @confirm="closeNoticeDialog"
     />
+
+    <AvatarEditorDialog
+      v-model="showAvatarEditor"
+      :participant="editingParticipant"
+      @apply="applyAvatarProfile"
+      @cancel="restoreInputFocus"
+    />
   </div>
 </template>
 
@@ -348,10 +360,12 @@ import { computed, ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAIChatService } from '../services/aiClientService'
 import AILogPanel from '../components/AILogPanel.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import AvatarEditorDialog from '../features/chat/components/AvatarEditorDialog.vue'
 import ChatHeader from '../features/chat/components/ChatHeader.vue'
 import ChatMessageList from '../features/chat/components/ChatMessageList.vue'
 import MessageComposer from '../features/chat/components/MessageComposer.vue'
-import type { UploadedChatFile } from '../features/chat/types'
+import type { ChatParticipantProfile, UploadedChatFile } from '../features/chat/types'
+import type { ChatAvatarProfilesPayload, ChatParticipantKey } from '../../../share/cache/render/aiagent/chatAvatarProfile'
 import type {
   ModelConfigInput,
   ModelConfigPayload
@@ -386,6 +400,8 @@ const showNoticeDialog = ref(false)
 const noticeTitle = ref('')
 const noticeMessage = ref('')
 const noticeIcon = ref<DialogIcon>('info')
+const showAvatarEditor = ref(false)
+const editingParticipantKey = ref<ChatParticipantKey>('ai')
 
 const deleteFileConfirmMessage = computed<string>(() => {
   const file = pendingDeleteFile.value
@@ -408,11 +424,17 @@ const modelConfigForm = ref<ModelConfigInput>({
   ...defaultModelConfig
 })
 
-const chatParticipants = {
+const chatParticipants = ref<Record<'ai' | 'user', ChatParticipantProfile>>({
   ai: {
     label: 'AI AGENT',
     nickname: '法弥拉',
     avatarText: 'AI',
+    avatarUrl: '',
+    avatarAlt: '法弥拉头像',
+    avatarObjectPosition: 'center',
+    avatarScale: 1,
+    avatarOffsetX: 0,
+    avatarOffsetY: 0,
     accent: 'ai' as const,
     statusIcon: '🔥'
   },
@@ -420,7 +442,30 @@ const chatParticipants = {
     label: 'USER',
     nickname: '你',
     avatarText: '你',
+    avatarUrl: '',
+    avatarAlt: '用户头像',
+    avatarObjectPosition: 'center',
+    avatarScale: 1,
+    avatarOffsetX: 0,
+    avatarOffsetY: 0,
     accent: 'user' as const
+  }
+})
+
+const editingParticipant = computed<ChatParticipantProfile | null>(
+  () => chatParticipants.value[editingParticipantKey.value] ?? null
+)
+
+const mergeAvatarProfiles = (profiles: ChatAvatarProfilesPayload): void => {
+  chatParticipants.value = {
+    ai: {
+      ...chatParticipants.value.ai,
+      ...(profiles.ai ?? {})
+    },
+    user: {
+      ...chatParticipants.value.user,
+      ...(profiles.user ?? {})
+    }
   }
 }
 
@@ -507,6 +552,7 @@ const saveModelConfig = async (): Promise<void> => {
 // Load history when component is mounted
 onMounted(async () => {
   await loadModelConfig()
+  mergeAvatarProfiles(await window.api.getAvatarProfiles())
   await loadHistory()
   // Scroll to bottom after loading history
   await nextTick()
@@ -652,6 +698,40 @@ const closeNoticeDialog = async (): Promise<void> => {
 
 const openPurgeConfirm = (): void => {
   showPurgeConfirm.value = true
+}
+
+const openAvatarEditor = (sender: ChatParticipantKey): void => {
+  editingParticipantKey.value = sender
+  showAvatarEditor.value = true
+}
+
+const applyAvatarProfile = async (input: {
+  avatarUrl?: string
+  avatarScale?: number
+  avatarOffsetX?: number
+  avatarOffsetY?: number
+}): Promise<void> => {
+  const key = editingParticipantKey.value
+  try {
+    const saved = await window.api.saveAvatarProfile({
+      participantKey: key,
+      avatarUrl: input.avatarUrl || '',
+      avatarScale: input.avatarScale ?? 1,
+      avatarOffsetX: input.avatarOffsetX ?? 0,
+      avatarOffsetY: input.avatarOffsetY ?? 0
+    })
+    chatParticipants.value = {
+      ...chatParticipants.value,
+      [key]: {
+        ...chatParticipants.value[key],
+        ...saved
+      }
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    showNotice('保存头像失败', message, 'warning')
+  }
+  void restoreInputFocus()
 }
 
 const confirmPurgeAllData = async (): Promise<void> => {

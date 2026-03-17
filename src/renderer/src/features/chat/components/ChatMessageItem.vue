@@ -1,35 +1,41 @@
 <template>
   <article class="w-full" :class="rowClass">
-    <div class="grid w-full gap-4" :class="layoutClass">
+    <div class="grid w-full gap-3" :class="layoutClass">
       <div class="flex pt-1" :class="avatarWrapClass">
-      <div
-        class="flex h-12 w-12 items-center justify-center rounded-2xl border text-sm font-semibold shadow-sm"
-        :class="avatarClass"
-      >
-        {{ profile.avatarText }}
-      </div>
+        <ChatAvatar
+          :accent="profile.accent"
+          :avatar-text="profile.avatarText"
+          :avatar-url="profile.avatarUrl"
+          :avatar-alt="profile.avatarAlt || profile.nickname"
+          :avatar-object-position="profile.avatarObjectPosition"
+          :avatar-scale="profile.avatarScale"
+          :avatar-offset-x="profile.avatarOffsetX"
+          :avatar-offset-y="profile.avatarOffsetY"
+          :interactive="true"
+          @edit="$emit('edit-avatar', message.sender)"
+        />
       </div>
 
-      <div class="min-w-0 space-y-2" :class="bodyClass">
-        <header class="flex flex-wrap items-center gap-3" :class="headerClass">
+      <div class="min-w-0" :class="bodyClass">
+        <header class="mb-1 flex flex-wrap items-center gap-1" :class="headerClass">
         <span
-          class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold tracking-[0.18em]"
+          class="inline-flex h-5 items-center rounded-sm px-2.5 text-[12px] font-bold leading-none tracking-[0.08em]"
           :class="labelClass"
         >
           {{ profile.label }}
         </span>
-        <span class="text-lg font-semibold text-slate-700">
+        <span class="text-[13px] font-semibold leading-6 text-slate-700">
           {{ profile.nickname }}
         </span>
-        <span v-if="profile.statusIcon" class="text-xl leading-none">
+        <span v-if="profile.statusIcon" class="text-base leading-none">
           {{ profile.statusIcon }}
         </span>
-        <time v-if="formattedTime" class="text-xs text-slate-400">
+        <time v-if="formattedTime" class="text-[11px] text-slate-400">
           {{ formattedTime }}
         </time>
         </header>
 
-        <div class="max-w-[min(100%,960px)] rounded-[26px] border px-5 py-4 shadow-sm" :class="cardClass">
+        <div class="max-w-[min(100%,960px)] rounded-[18px] border px-4 py-2 shadow-sm" :class="cardClass">
           <MdPreview :modelValue="message.text" class="chat-md-preview" theme="light" />
         </div>
       </div>
@@ -41,40 +47,57 @@
 import { computed } from 'vue'
 import { MdPreview } from 'md-editor-v3'
 import type { ChatMessage, ChatSender } from '../../../../../share/cache/render/aiagent/chatMessage'
-
-type AccentTone = 'ai' | 'user'
-
-type ParticipantProfile = {
-  label?: string
-  nickname?: string
-  avatarText?: string
-  accent?: AccentTone
-  statusIcon?: string
-}
+import ChatAvatar from './ChatAvatar.vue'
+import type { ChatParticipantProfile } from '../types'
 
 const props = defineProps<{
   message: ChatMessage
-  participant?: ParticipantProfile
+  participant?: ChatParticipantProfile
+}>()
+
+defineEmits<{
+  (e: 'edit-avatar', sender: ChatSender): void
 }>()
 
 const defaultProfiles: Record<
   ChatSender,
-  Required<Pick<ParticipantProfile, 'label' | 'nickname' | 'avatarText' | 'accent'>> &
-    Pick<ParticipantProfile, 'statusIcon'>
+  Required<Pick<ChatParticipantProfile, 'label' | 'nickname' | 'avatarText' | 'accent'>> &
+    Pick<
+      ChatParticipantProfile,
+      | 'statusIcon'
+      | 'avatarUrl'
+      | 'avatarAlt'
+      | 'avatarObjectPosition'
+      | 'avatarScale'
+      | 'avatarOffsetX'
+      | 'avatarOffsetY'
+    >
 > = {
   ai: {
     label: 'AI AGENT',
     nickname: '法弥拉',
     avatarText: 'AI',
     accent: 'ai',
-    statusIcon: '🔥'
+    statusIcon: '🔥',
+    avatarUrl: '',
+    avatarAlt: '法弥拉头像',
+    avatarObjectPosition: 'center',
+    avatarScale: 1,
+    avatarOffsetX: 0,
+    avatarOffsetY: 0
   },
   user: {
     label: 'USER',
     nickname: '你',
     avatarText: '你',
     accent: 'user',
-    statusIcon: ''
+    statusIcon: '',
+    avatarUrl: '',
+    avatarAlt: '用户头像',
+    avatarObjectPosition: 'center',
+    avatarScale: 1,
+    avatarOffsetX: 0,
+    avatarOffsetY: 0
   }
 }
 
@@ -116,16 +139,10 @@ const labelClass = computed(() =>
     : 'bg-slate-200 text-slate-700'
 )
 
-const avatarClass = computed(() =>
-  profile.value.accent === 'user'
-    ? 'border-sky-200 bg-sky-50 text-sky-700'
-    : 'border-slate-200 bg-slate-100 text-slate-700'
-)
-
 const cardClass = computed(() =>
   profile.value.accent === 'user'
-    ? 'border-sky-100 bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-800 rounded-tr-md'
-    : 'border-slate-200 bg-white text-slate-800 rounded-tl-md'
+    ? 'border-sky-100 bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-800 rounded-tr-sm'
+    : 'border-slate-200 bg-white text-slate-800 rounded-tl-sm'
 )
 </script>
 
@@ -140,12 +157,21 @@ const cardClass = computed(() =>
   padding: 0 !important;
 }
 
+:deep(.chat-md-preview .md-editor-preview) {
+  font-size: 14px !important;
+  line-height: 1.65 !important;
+}
+
 :deep(.chat-md-preview .md-editor-preview p:first-child) {
   margin-top: 0;
 }
 
 :deep(.chat-md-preview .md-editor-preview p:last-child) {
   margin-bottom: 0;
+}
+
+:deep(.chat-md-preview .md-editor-preview p) {
+  margin: 0 0 0.55em !important;
 }
 
 :deep(.chat-md-preview .md-editor-code .md-editor-code-head) {

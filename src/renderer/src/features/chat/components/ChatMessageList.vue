@@ -5,6 +5,7 @@
       :key="message.id"
       :message="message"
       :participant="participants?.[message.sender]"
+      @edit-avatar="$emit('edit-avatar', $event)"
     />
   </div>
 </template>
@@ -12,17 +13,14 @@
 <script setup lang="ts">
 import ChatMessageItem from './ChatMessageItem.vue'
 import type { ChatMessage, ChatSender } from '../../../../../share/cache/render/aiagent/chatMessage'
+import type { ChatParticipantProfile } from '../types'
 
-type ParticipantProfile = {
-  label?: string
-  nickname?: string
-  avatarText?: string
-  accent?: 'ai' | 'user'
-  statusIcon?: string
-}
+defineEmits<{
+  (e: 'edit-avatar', sender: ChatSender): void
+}>()
 
 defineProps<{
   messages: ChatMessage[]
-  participants?: Partial<Record<ChatSender, ParticipantProfile>>
+  participants?: Partial<Record<ChatSender, ChatParticipantProfile>>
 }>()
 </script>

@@ -1,9 +1,14 @@
 import { app } from 'electron'
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 
 const ensureDir = (dir: string) => {
   mkdirSync(dir, { recursive: true })
+}
+
+const isDirEmpty = (dir: string): boolean => {
+  if (!existsSync(dir)) return true
+  return readdirSync(dir).length === 0
 }
 
 const unique = (items: string[]): string[] => [...new Set(items)]
@@ -74,6 +79,21 @@ const resolveDataFilePath = (relativeParts: string[], legacyCandidates: string[]
   return targetPath
 }
 
+const migrateLegacyDir = (targetDir: string, legacyCandidates: string[]): void => {
+  ensureDir(targetDir)
+  if (!isDirEmpty(targetDir)) return
+
+  for (const candidate of legacyCandidates.map((dir) => resolve(dir))) {
+    if (!existsSync(candidate) || candidate === resolve(targetDir)) continue
+    cpSync(candidate, targetDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: false
+    })
+    return
+  }
+}
+
 // 角色提示路径
 export const getRolePromptPath = (): string =>
   pickExisting(
@@ -125,8 +145,26 @@ export const getHistoryCompressedPath = (): string =>
 export const getLegacyHistoryMarkdownPath = (): string =>
   resolveDataFilePath(['historyprompt', 'recent-history.md'])
 
-export const getStaticUploadDir = (): string => {
-  const dir = join(getDataFamilaDailyRoot(), 'static-uploads')
+export const getRuntimeStaticRoot = (): string => {
+  const dir = join(app.getPath('userData'), 'static')
   ensureDir(dir)
   return dir
+}
+
+export const getStaticUploadDir = (): string => {
+  const dir = join(getRuntimeStaticRoot(), 'uploads')
+  migrateLegacyDir(dir, [join(getDataFamilaDailyRoot(), 'static-uploads')])
+  return dir
+}
+
+export const getStaticAvatarDir = (): string => {
+  const dir = join(getRuntimeStaticRoot(), 'avatars')
+  ensureDir(dir)
+  return dir
+}
+
+export const getAvatarProfilesPath = (): string => {
+  const path = join(getStaticAvatarDir(), 'profiles.json')
+  ensureDir(dirname(path))
+  return path
 }
