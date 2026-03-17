@@ -41,7 +41,7 @@
               缓存路径：{{ file.sourcePath }}
             </div>
             <div v-else class="break-all text-[11px] text-slate-500">
-              存储路径：{{ file.path }}
+              资源地址：{{ file.resourceUrl }}
             </div>
           </div>
 

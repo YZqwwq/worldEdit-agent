@@ -1,7 +1,7 @@
 export type UploadedChatFile = {
   id: string
   name: string
-  path?: string
+  resourceUrl?: string
   sourcePath: string
   size: number
   status: 'pending' | 'uploaded'

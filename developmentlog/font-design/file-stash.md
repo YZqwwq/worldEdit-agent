@@ -14,6 +14,7 @@
 - 静态资源与业务数据分层
 - 不同用途的静态文件分目录存放
 - 通过主进程统一读写
+- 通过主进程统一资源协议对外提供读取能力
 - 通过路径函数集中生成路径，避免散落硬编码
 - 通过显式校验保证“引用正确”与“删除安全”
 
@@ -37,6 +38,13 @@
   用于存放头像图片
 - `static/avatars/profiles.json`
   用于存放头像与参与者之间的映射关系，以及头像缩放、偏移等配置
+
+这些目录本身是磁盘目录，但渲染层不会直接依赖磁盘绝对路径。
+
+对渲染层暴露时，当前统一转换为：
+
+- `app-resource://uploads/...`
+- `app-resource://avatars/...`
 
 这一层目录由以下方法负责：
 
@@ -147,12 +155,14 @@
 2. 主进程通过 `copyToUploadDir(sourcePath)` 复制文件
 3. 文件被写入 `static/uploads`
 4. 文件名使用 `randomUUID()` 重命名，避免冲突
-5. 返回保存后的真实路径给前端
+5. 主进程通过统一资源协议把磁盘文件映射为 `app-resource://uploads/...`
+6. 返回 `resourceUrl` 给前端，而不是返回磁盘绝对路径
 
 关键方法：
 
 - `copyToUploadDir(sourcePath)`
 - `getStaticUploadDir()`
+- `buildAppResourceUrl('uploads', filePath)`
 
 ---
 
@@ -183,7 +193,8 @@
    - 参与者 key
    - `randomUUID()`
 5. 同时把缩放和偏移参数写入 `profiles.json`
-6. 下次启动时通过 `getProfiles()` 重新加载
+6. 主进程通过统一资源协议把头像文件映射为 `app-resource://avatars/...`
+7. 下次启动时通过 `getProfiles()` 重新加载
 
 关键方法：
 
@@ -192,6 +203,8 @@
 - `saveAvatarDataUrl(participantKey, dataUrl)`
 - `getAvatarProfilesPath()`
 - `getStaticAvatarDir()`
+- `buildAppResourceUrl('avatars', filePath)`
+- `resolveAvatarPathFromUrl(...)`
 
 当前保存的不是“裁切后的最终圆形图片”，而是：
 
@@ -215,6 +228,108 @@
 - `getStaticAvatarDir()`
 
 也就是说，应用启动后运行时静态目录一定存在，不需要等到第一次上传文件或第一次设置头像时才补建。
+
+---
+
+## 当前统一资源协议
+
+### 为什么要建立统一资源协议
+
+在 Electron 中，如果渲染层直接依赖：
+
+- 磁盘绝对路径
+- `file://...`
+- 或把图片直接转成 `data:` 内联
+
+都会带来问题：
+
+1. 开发态与打包态行为不够统一
+2. 本地文件 URL 受权限与 CSP 影响较大
+3. 前端会间接持有真实磁盘路径，边界不够清晰
+4. 不同资源的读取方式容易分叉
+
+因此当前改为：
+
+`主进程保存真实文件，渲染层只消费 app-resource:// 资源地址`
+
+---
+
+### 协议设计
+
+当前在主进程注册了统一协议：
+
+- `app-resource://`
+
+已使用的 bucket：
+
+- `app-resource://uploads/...`
+- `app-resource://avatars/...`
+
+协议模块位置：
+
+- `src/main/protocols/resourceProtocol.ts`
+
+关键方法：
+
+- `registerAppResourceProtocol()`
+- `buildAppResourceUrl(bucket, filePath)`
+- `resolveAppResourcePath(resourceUrl, expectedBucket?)`
+
+主进程启动时在：
+
+- `src/main/index.ts`
+
+调用：
+
+- `registerAppResourceProtocol()`
+
+这样渲染层访问头像或附件时，请求会先进入主进程协议，再由主进程映射到受控静态目录中的真实文件。
+
+---
+
+### 协议如何保证稳定
+
+当前协议不是把任意本地路径暴露出来，而是只允许访问我们定义好的资源 bucket。
+
+也就是说：
+
+- `avatars` 只能映射到 `static/avatars`
+- `uploads` 只能映射到 `static/uploads`
+
+协议解析时会做：
+
+1. 解析 URL 中的 bucket
+2. 解析相对路径
+3. 拼出真实磁盘路径
+4. 校验路径必须仍然位于该 bucket 对应目录内
+
+如果路径越界，协议会直接拒绝访问。
+
+这一步的核心是：
+
+- `isPathInsideRoot(rootDir, targetPath)`
+- `relative(...)`
+- `resolve(...)`
+
+---
+
+### CSP 配合
+
+因为渲染层页面本身使用了 CSP，所以在建立统一资源协议后，还需要允许图片加载这个新协议。
+
+当前已经在：
+
+- `src/renderer/index.html`
+
+中将：
+
+- `img-src 'self' data:`
+
+扩展为：
+
+- `img-src 'self' data: app-resource:`
+
+这一步很重要，否则即使协议注册成功，浏览器层也会因为 CSP 拒绝加载头像图片。
 
 ---
 
@@ -251,6 +366,8 @@
 
 - `copyToUploadDir(sourcePath)`
 - `clearUploadFiles()`
+- `ipcMain.handle('file:upload', ...)`
+- `ipcMain.handle('file:delete', ...)`
 
 ### 头像配置
 
@@ -264,6 +381,15 @@
 - `saveAvatarDataUrl(...)`
 - `removeAvatarFile(...)`
 
+### 统一资源协议
+
+位于 `src/main/protocols/resourceProtocol.ts`
+
+- `registerAppResourceProtocol()`
+- `buildAppResourceUrl(...)`
+- `resolveAppResourcePath(...)`
+- `isPathInsideRoot(...)`
+
 ---
 
 ## 如何确定引用正确
@@ -272,7 +398,7 @@
 
 ## 1. 路径解析正确
 
-路径不是直接在业务代码里拼字符串，而是通过统一方法生成。
+路径不是直接在业务代码里拼字符串，而是通过统一方法生成；渲染层拿到的也不是磁盘路径，而是受控协议地址。
 
 例如：
 
@@ -285,6 +411,7 @@
 1. 所有调用方拿到的是同一套目录规则
 2. 打包态与开发态行为一致
 3. 后续目录结构变化时，只需改路径层
+4. 渲染层不需要感知真实磁盘位置
 
 ### prompt 资源的正确引用
 
@@ -318,6 +445,24 @@
 - 历史文件可回迁
 - 调用方拿到的是最终稳定路径
 
+### 资源 URL 的正确引用
+
+当前附件和头像对渲染层暴露时，都会先经过：
+
+- `buildAppResourceUrl(...)`
+
+所以渲染层最终引用的是：
+
+- `app-resource://uploads/...`
+- `app-resource://avatars/...`
+
+这意味着“引用正确”现在多了一层要求：
+
+1. 真实文件路径正确
+2. 真实文件位于受控目录内
+3. 主进程能把它稳定映射为合法资源 URL
+4. 渲染层只使用这个资源 URL，而不是自行拼接本地路径
+
 ---
 
 ## 2. 文件访问安全正确
@@ -328,16 +473,15 @@
 
 在 `aiIpc.ts` 中，删除上传文件时使用：
 
-- `resolve(getStaticUploadDir())`
-- `resolve(filePath)`
-- `startsWith(...)`
+- `resolveAppResourcePath(resourceUrl, 'uploads')`
 
-只有当目标文件确实位于 `static/uploads` 下时，才允许删除。
+只有当目标资源 URL 能被解析，并且确实落在 `static/uploads` 下时，才允许删除。
 
 这解决的是：
 
 - 防止传入任意路径删系统文件
 - 防止删到别的业务目录
+- 防止把头像 URL 当成附件 URL 删除
 
 ### 头像文件校验
 
@@ -352,6 +496,7 @@
 
 1. 能被解析成真实文件路径
 2. 真实路径位于 `static/avatars` 内部
+3. 如果传入的是 `app-resource://avatars/...`，也必须能被安全还原
 
 ---
 
@@ -364,6 +509,13 @@
 - `static/uploads` 只管对话上传附件
 - `static/avatars` 只管头像图片与头像配置
 
+### 资源读取边界
+
+- 渲染层统一读取 `app-resource://...`
+- 主进程统一把资源 URL 映射到受控静态目录
+- 前端不再依赖 `file://...`
+- 前端不再依赖头像 `base64` 作为长期读取方案
+
 ### 数据文件边界
 
 - `prompt-resource/famila-daily/...` 负责 persona / history 等结构化状态文件
@@ -371,13 +523,15 @@
 ### 存取边界
 
 - 渲染层不直接写磁盘
+- 渲染层不直接读取磁盘绝对路径
 - 一律经由 preload -> ipcMain -> main service
 
 ### 正确性边界
 
 - 路径统一由 pathConfig 生成
 - 旧文件通过迁移逻辑兼容
-- 删除与引用通过 `resolve + startsWith / isInsideAvatarDir` 校验
+- 资源访问通过 `app-resource://` 协议统一暴露
+- 删除与引用通过 `resolveAppResourcePath / isInsideAvatarDir / isPathInsideRoot` 校验
 
 ---
 

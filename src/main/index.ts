@@ -5,6 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import { initializeAIEndpoints } from './services/aiservice/aiIpc' // 导入
 import { initDatabase } from './database' // 导入数据库初始化
 import { initMemoryStorage } from './config/storageInit'
+import { registerAppResourceProtocol } from './protocols/resourceProtocol'
 
 function createWindow(): void {
   // Create the browser window.
@@ -59,6 +60,7 @@ app.whenReady().then(async () => {
   await initDatabase()
 
   await initMemoryStorage()
+  registerAppResourceProtocol()
 
   initializeAIEndpoints() // 调用
 

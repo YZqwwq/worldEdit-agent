@@ -579,7 +579,7 @@ const handleSend = async (): Promise<void> => {
           if (!uploaded) return file
           return {
             ...file,
-            path: uploaded.filePath,
+            resourceUrl: uploaded.resourceUrl,
             status: 'uploaded'
           }
         })
@@ -632,7 +632,7 @@ const requestDeleteFile = (file: UploadedChatFile): void => {
     uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
     return
   }
-  if (!file.path) {
+  if (!file.resourceUrl) {
     uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
     return
   }
@@ -648,14 +648,14 @@ const cancelDeleteFile = (): void => {
 
 const confirmDeleteFile = async (): Promise<void> => {
   const file = pendingDeleteFile.value
-  if (!file || !file.path) {
+  if (!file || !file.resourceUrl) {
     cancelDeleteFile()
     return
   }
   if (deleteFileConfirmLoading.value) return
   deleteFileConfirmLoading.value = true
   try {
-    await window.api.deleteFile(file.path)
+    await window.api.deleteFile(file.resourceUrl)
     uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
     pendingDeleteFile.value = null
     showDeleteFileConfirm.value = false

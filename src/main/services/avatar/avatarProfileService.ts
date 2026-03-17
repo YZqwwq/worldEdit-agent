@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
-import { extname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { getAvatarProfilesPath, getStaticAvatarDir } from '../../config/pathConfig'
+import { buildAppResourceUrl, resolveAppResourcePath } from '../../protocols/resourceProtocol'
 import type {
   ChatAvatarProfilesPayload,
   ChatParticipantKey,
@@ -61,24 +62,12 @@ const decodeDataUrl = (dataUrl: string): Buffer => {
   return Buffer.from(base64, 'base64')
 }
 
-const inferMimeFromPath = (filePath: string): string => {
-  const ext = extname(filePath).toLowerCase()
-  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
-  if (ext === '.png') return 'image/png'
-  if (ext === '.webp') return 'image/webp'
-  if (ext === '.gif') return 'image/gif'
-  return 'image/png'
-}
-
-const filePathToDataUrl = (filePath: string): string => {
-  const buffer = readFileSync(filePath)
-  const mime = inferMimeFromPath(filePath)
-  return `data:${mime};base64,${buffer.toString('base64')}`
-}
-
 const resolveAvatarPathFromUrl = (avatarUrl: string): string | undefined => {
   if (!avatarUrl) return undefined
   try {
+    if (avatarUrl.startsWith('app-resource:')) {
+      return resolveAppResourcePath(avatarUrl, 'avatars')
+    }
     if (avatarUrl.startsWith('file:')) {
       return fileURLToPath(avatarUrl)
     }
@@ -92,11 +81,18 @@ const isInsideAvatarDir = (path: string | undefined): boolean => {
   if (!path) return false
   const avatarDir = resolve(getStaticAvatarDir())
   const targetPath = resolve(path)
-  return targetPath.startsWith(`${avatarDir}\\`) || targetPath === avatarDir || targetPath.startsWith(`${avatarDir}/`)
+  return (
+    targetPath.startsWith(`${avatarDir}\\`) ||
+    targetPath === avatarDir ||
+    targetPath.startsWith(`${avatarDir}/`)
+  )
 }
 
 const toPayload = (record: AvatarProfileRecord | undefined): PersistedChatAvatarProfile => ({
-  avatarUrl: record?.filePath && existsSync(record.filePath) ? filePathToDataUrl(record.filePath) : '',
+  avatarUrl:
+    record?.filePath && existsSync(record.filePath)
+      ? buildAppResourceUrl('avatars', record.filePath)
+      : '',
   avatarScale: clampScale(record?.avatarScale),
   avatarOffsetX: clampOffset(record?.avatarOffsetX),
   avatarOffsetY: clampOffset(record?.avatarOffsetY)

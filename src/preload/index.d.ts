@@ -25,9 +25,9 @@ declare global {
     getMemorySnapshot: () => Promise<MemoryInspectionPayload>
 
     pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
-    uploadFile: (sourcePath: string) => Promise<{ filePath: string; fileName: string; size: number }>
-    deleteFile: (filePath: string) => Promise<boolean>
-    pickAndUploadFile: () => Promise<{ filePath: string; fileName: string; size: number }>
+    uploadFile: (sourcePath: string) => Promise<{ resourceUrl: string; fileName: string; size: number }>
+    deleteFile: (resourceUrl: string) => Promise<boolean>
+    pickAndUploadFile: () => Promise<{ resourceUrl: string; fileName: string; size: number }>
     clearUploads: () => Promise<number>
     getAvatarProfiles: () => Promise<ChatAvatarProfilesPayload>
     saveAvatarProfile: (input: SaveChatAvatarInput) => Promise<PersistedChatAvatarProfile>

@@ -27,9 +27,9 @@ type Api = {
   getMemorySnapshot: () => Promise<MemoryInspectionPayload>
 
   pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
-  uploadFile: (sourcePath: string) => Promise<{ filePath: string; fileName: string; size: number }>
-  deleteFile: (filePath: string) => Promise<boolean>
-  pickAndUploadFile: () => Promise<{ filePath: string; fileName: string; size: number }>
+  uploadFile: (sourcePath: string) => Promise<{ resourceUrl: string; fileName: string; size: number }>
+  deleteFile: (resourceUrl: string) => Promise<boolean>
+  pickAndUploadFile: () => Promise<{ resourceUrl: string; fileName: string; size: number }>
   clearUploads: () => Promise<number>
 
   getAvatarProfiles: () => Promise<ChatAvatarProfilesPayload>
@@ -60,7 +60,7 @@ const api: Api = {
   getMemorySnapshot: () => ipcRenderer.invoke('ai:getMemorySnapshot'),
   pickFile: () => ipcRenderer.invoke('file:pick'),
   uploadFile: (sourcePath) => ipcRenderer.invoke('file:upload', sourcePath),
-  deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),
+  deleteFile: (resourceUrl) => ipcRenderer.invoke('file:delete', resourceUrl),
   pickAndUploadFile: () => ipcRenderer.invoke('file:pickAndUpload'),
   clearUploads: () => ipcRenderer.invoke('file:clearUploads'),
   getAvatarProfiles: () => ipcRenderer.invoke('avatar:getProfiles'),

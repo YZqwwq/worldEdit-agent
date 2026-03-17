@@ -1,10 +1,11 @@
 import { dialog, ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { copyFile, stat, unlink, readdir } from 'node:fs/promises'
-import { basename, extname, join, resolve, sep } from 'node:path'
+import { basename, extname, join } from 'node:path'
 import { aiService } from './aiService'
 import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 import { getStaticUploadDir } from '../../config/pathConfig'
+import { buildAppResourceUrl, resolveAppResourcePath } from '../../protocols/resourceProtocol'
 import { modelConfigService } from '../modelconfig/modelConfigService'
 import type { ModelConfigInput } from '@share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '@share/cache/AItype/states/memoryInspection'
@@ -18,7 +19,7 @@ import type {
 } from '../../../share/cache/render/aiagent/chatAvatarProfile'
 
 type UploadResult = {
-  filePath: string
+  resourceUrl: string
   fileName: string
   size: number
 }
@@ -51,7 +52,7 @@ const copyToUploadDir = async (sourcePath: string): Promise<UploadResult> => {
   const destPath = join(uploadDir, destName)
   await copyFile(sourcePath, destPath)
   return {
-    filePath: destPath,
+    resourceUrl: buildAppResourceUrl('uploads', destPath),
     fileName: basename(sourcePath),
     size: fileStat.size
   }
@@ -162,15 +163,11 @@ export function initializeAIEndpoints(): void {
     return copyToUploadDir(sourcePath)
   })
 
-  ipcMain.handle('file:delete', async (_event, filePath: string): Promise<boolean> => {
-    if (!filePath || typeof filePath !== 'string') {
-      throw new Error('Invalid file path')
+  ipcMain.handle('file:delete', async (_event, resourceUrl: string): Promise<boolean> => {
+    if (!resourceUrl || typeof resourceUrl !== 'string') {
+      throw new Error('Invalid resource url')
     }
-    const uploadDir = resolve(getStaticUploadDir())
-    const targetPath = resolve(filePath)
-    if (!targetPath.startsWith(`${uploadDir}${sep}`) && targetPath !== uploadDir) {
-      throw new Error('Invalid delete path')
-    }
+    const targetPath = resolveAppResourcePath(resourceUrl, 'uploads')
     await unlink(targetPath)
     return true
   })
