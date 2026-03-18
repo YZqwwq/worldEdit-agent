@@ -17,6 +17,14 @@ import type {
   PersistedChatAvatarProfile,
   SaveChatAvatarInput
 } from '../../../share/cache/render/aiagent/chatAvatarProfile'
+import { worldbuildingService } from '../worldbuilding/worldbuildingService'
+import type {
+  CreateWorldEntityInput,
+  CreateWorldEntityRelationInput,
+  CreateWorldInput,
+  UpsertWorldEntityComponentInput,
+  WorldEntityPayload
+} from '@share/cache/worldbuilding/worldbuilding'
 
 type UploadResult = {
   resourceUrl: string
@@ -117,6 +125,51 @@ export function initializeAIEndpoints(): void {
   ipcMain.handle('config:saveModelConfig', async (_event, input: ModelConfigInput) => {
     return modelConfigService.saveModelConfig(input)
   })
+
+  ipcMain.handle('world:listWorlds', async () => {
+    return worldbuildingService.listWorlds()
+  })
+
+  ipcMain.handle('world:createWorld', async (_event, input: CreateWorldInput) => {
+    return worldbuildingService.createWorld(input)
+  })
+
+  ipcMain.handle('world:listEntityDefinitions', async () => {
+    return worldbuildingService.listEntityDefinitions()
+  })
+
+  ipcMain.handle(
+    'world:listComponentDefinitions',
+    async (_event, entityType?: WorldEntityPayload['type']) => {
+      return worldbuildingService.listComponentDefinitions(entityType)
+    }
+  )
+
+  ipcMain.handle('world:listEntities', async (_event, worldId: string, type?: WorldEntityPayload['type']) => {
+    return worldbuildingService.listEntities(worldId, type)
+  })
+
+  ipcMain.handle('world:createEntity', async (_event, input: CreateWorldEntityInput) => {
+    return worldbuildingService.createEntity(input)
+  })
+
+  ipcMain.handle('world:getEntityDetail', async (_event, entityId: string) => {
+    return worldbuildingService.getEntityDetail(entityId)
+  })
+
+  ipcMain.handle(
+    'world:upsertComponent',
+    async (_event, input: UpsertWorldEntityComponentInput) => {
+      return worldbuildingService.upsertComponent(input)
+    }
+  )
+
+  ipcMain.handle(
+    'world:createRelation',
+    async (_event, input: CreateWorldEntityRelationInput) => {
+      return worldbuildingService.createRelation(input)
+    }
+  )
 
   ipcMain.handle('avatar:getProfiles', async (): Promise<ChatAvatarProfilesPayload> => {
     return avatarProfileService.getProfiles()

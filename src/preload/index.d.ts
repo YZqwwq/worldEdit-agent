@@ -10,6 +10,18 @@ import type {
   PersistedChatAvatarProfile,
   SaveChatAvatarInput
 } from '../share/cache/render/aiagent/chatAvatarProfile'
+import type {
+  CreateWorldEntityInput,
+  CreateWorldEntityRelationInput,
+  CreateWorldInput,
+  UpsertWorldEntityComponentInput,
+  WorldEntityComponentPayload,
+  WorldEntityDetailPayload,
+  WorldEntityPayload,
+  WorldbuildingComponentDefinition,
+  WorldbuildingEntityDefinition,
+  WorldPayload
+} from '../share/cache/worldbuilding/worldbuilding'
 
 declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
@@ -34,6 +46,25 @@ declare global {
 
     getModelConfig: () => Promise<ModelConfigPayload>
     saveModelConfig: (config: ModelConfigInput) => Promise<ModelConfigPayload>
+
+    listWorlds: () => Promise<WorldPayload[]>
+    createWorld: (input: CreateWorldInput) => Promise<WorldPayload>
+    listWorldEntityDefinitions: () => Promise<WorldbuildingEntityDefinition[]>
+    listWorldComponentDefinitions: (
+      entityType?: WorldEntityPayload['type']
+    ) => Promise<WorldbuildingComponentDefinition[]>
+    listWorldEntities: (
+      worldId: string,
+      type?: WorldEntityPayload['type']
+    ) => Promise<WorldEntityPayload[]>
+    createWorldEntity: (input: CreateWorldEntityInput) => Promise<WorldEntityPayload>
+    getWorldEntityDetail: (entityId: string) => Promise<WorldEntityDetailPayload | null>
+    upsertWorldEntityComponent: (
+      input: UpsertWorldEntityComponentInput
+    ) => Promise<WorldEntityComponentPayload>
+    createWorldEntityRelation: (
+      input: CreateWorldEntityRelationInput
+    ) => Promise<unknown>
   }
 
   interface Window {

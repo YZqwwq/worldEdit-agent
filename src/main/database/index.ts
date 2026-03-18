@@ -9,6 +9,10 @@ import { PersonaStateRecord } from '../../share/entity/database/PersonaStateReco
 import { TaskRecord } from '../../share/entity/database/TaskRecord'
 import { TaskExecutionRecord } from '../../share/entity/database/TaskExecutionRecord'
 import { ExperienceRecord } from '../../share/entity/database/ExperienceRecord'
+import { WorldRecord } from '../../share/entity/database/WorldRecord'
+import { WorldEntityRecord } from '../../share/entity/database/WorldEntityRecord'
+import { WorldEntityComponentRecord } from '../../share/entity/database/WorldEntityComponentRecord'
+import { WorldEntityRelationRecord } from '../../share/entity/database/WorldEntityRelationRecord'
 
 // 数据库文件路径：UserData/database.sqlite
 const dbPath = join(app.getPath('userData'), 'database.sqlite')
@@ -26,7 +30,11 @@ export const AppDataSource = new DataSource({
     PersonaStateRecord,
     TaskRecord,
     TaskExecutionRecord,
-    ExperienceRecord
+    ExperienceRecord,
+    WorldRecord,
+    WorldEntityRecord,
+    WorldEntityComponentRecord,
+    WorldEntityRelationRecord
   ],
   subscribers: [],
   migrations: []

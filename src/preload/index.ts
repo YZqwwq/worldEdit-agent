@@ -11,6 +11,18 @@ import type {
   PersistedChatAvatarProfile,
   SaveChatAvatarInput
 } from '../share/cache/render/aiagent/chatAvatarProfile'
+import type {
+  CreateWorldEntityInput,
+  CreateWorldEntityRelationInput,
+  CreateWorldInput,
+  UpsertWorldEntityComponentInput,
+  WorldEntityComponentPayload,
+  WorldEntityDetailPayload,
+  WorldPayload,
+  WorldbuildingComponentDefinition,
+  WorldbuildingEntityDefinition,
+  WorldEntityPayload
+} from '../share/cache/worldbuilding/worldbuilding'
 
 // Local type to ensure availability in this module
 type Api = {
@@ -37,6 +49,23 @@ type Api = {
 
   getModelConfig: () => Promise<ModelConfigPayload>
   saveModelConfig: (config: ModelConfigInput) => Promise<ModelConfigPayload>
+
+  listWorlds: () => Promise<WorldPayload[]>
+  createWorld: (input: CreateWorldInput) => Promise<WorldPayload>
+  listWorldEntityDefinitions: () => Promise<WorldbuildingEntityDefinition[]>
+  listWorldComponentDefinitions: (
+    entityType?: WorldEntityPayload['type']
+  ) => Promise<WorldbuildingComponentDefinition[]>
+  listWorldEntities: (
+    worldId: string,
+    type?: WorldEntityPayload['type']
+  ) => Promise<WorldEntityPayload[]>
+  createWorldEntity: (input: CreateWorldEntityInput) => Promise<WorldEntityPayload>
+  getWorldEntityDetail: (entityId: string) => Promise<WorldEntityDetailPayload | null>
+  upsertWorldEntityComponent: (
+    input: UpsertWorldEntityComponentInput
+  ) => Promise<WorldEntityComponentPayload>
+  createWorldEntityRelation: (input: CreateWorldEntityRelationInput) => Promise<unknown>
 }
 
 // Custom APIs for renderer
@@ -66,7 +95,17 @@ const api: Api = {
   getAvatarProfiles: () => ipcRenderer.invoke('avatar:getProfiles'),
   saveAvatarProfile: (input) => ipcRenderer.invoke('avatar:saveProfile', input),
   getModelConfig: () => ipcRenderer.invoke('config:getModelConfig'),
-  saveModelConfig: (config) => ipcRenderer.invoke('config:saveModelConfig', config)
+  saveModelConfig: (config) => ipcRenderer.invoke('config:saveModelConfig', config),
+  listWorlds: () => ipcRenderer.invoke('world:listWorlds'),
+  createWorld: (input) => ipcRenderer.invoke('world:createWorld', input),
+  listWorldEntityDefinitions: () => ipcRenderer.invoke('world:listEntityDefinitions'),
+  listWorldComponentDefinitions: (entityType) =>
+    ipcRenderer.invoke('world:listComponentDefinitions', entityType),
+  listWorldEntities: (worldId, type) => ipcRenderer.invoke('world:listEntities', worldId, type),
+  createWorldEntity: (input) => ipcRenderer.invoke('world:createEntity', input),
+  getWorldEntityDetail: (entityId) => ipcRenderer.invoke('world:getEntityDetail', entityId),
+  upsertWorldEntityComponent: (input) => ipcRenderer.invoke('world:upsertComponent', input),
+  createWorldEntityRelation: (input) => ipcRenderer.invoke('world:createRelation', input)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
