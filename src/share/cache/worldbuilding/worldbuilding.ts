@@ -16,6 +16,25 @@ export type WorldEntityType =
 
 export type RelationDirection = 'directed' | 'undirected'
 
+export type WorldbuildingFieldKind =
+  | 'string'
+  | 'text'
+  | 'number'
+  | 'boolean'
+  | 'string_list'
+  | 'entity_ref'
+  | 'entity_ref_list'
+
+export interface WorldbuildingFieldDefinition {
+  key: string
+  displayName: string
+  description: string
+  fieldKind: WorldbuildingFieldKind
+  required?: boolean
+  multiline?: boolean
+  entityTypes?: WorldEntityType[]
+}
+
 export interface WorldPayload {
   id: string
   name: string
@@ -76,6 +95,13 @@ export interface CreateWorldInput {
   status?: WorldStatus
 }
 
+export interface UpdateWorldInput {
+  worldId: string
+  name: string
+  summary?: string
+  status?: WorldStatus
+}
+
 export interface CreateWorldEntityInput {
   worldId: string
   type: WorldEntityType
@@ -86,6 +112,15 @@ export interface CreateWorldEntityInput {
   status?: WorldStatus
   initializeStarterComponents?: boolean
   initialComponents?: WorldEntityComponentSeedInput[]
+}
+
+export interface UpdateWorldEntityInput {
+  entityId: string
+  name: string
+  slug?: string
+  title?: string
+  summary?: string
+  status?: WorldStatus
 }
 
 export interface UpsertWorldEntityComponentInput<TData = Record<string, unknown>> {
@@ -119,6 +154,7 @@ export interface WorldbuildingComponentDefinition {
   entityTypes: WorldEntityType[]
   schemaVersion: number
   starterData: Record<string, unknown>
+  fields: WorldbuildingFieldDefinition[]
 }
 
 export interface WorldbuildingEntityDefinition {
@@ -126,4 +162,22 @@ export interface WorldbuildingEntityDefinition {
   displayName: string
   description: string
   starterComponentTypes: string[]
+}
+
+export interface WorldbuildingRelationDefinition {
+  relationType: string
+  displayName: string
+  description: string
+  sourceEntityTypes: WorldEntityType[]
+  targetEntityTypes: WorldEntityType[]
+  direction: RelationDirection
+  schemaVersion: number
+  starterData: Record<string, unknown>
+  fields: WorldbuildingFieldDefinition[]
+}
+
+export interface WorldbuildingSchemaCatalogPayload {
+  entityDefinitions: WorldbuildingEntityDefinition[]
+  componentDefinitions: WorldbuildingComponentDefinition[]
+  relationDefinitions: WorldbuildingRelationDefinition[]
 }

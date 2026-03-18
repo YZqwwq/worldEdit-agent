@@ -25,18 +25,40 @@
           <span class="create-copy">输入名称后进入进一步编辑界面</span>
         </button>
 
-        <button
+        <article
           v-for="world in worlds"
           :key="world.id"
           class="world-card existing-card"
+          role="button"
+          tabindex="0"
           @click="openWorld(world.id)"
+          @keydown.enter.prevent="openWorld(world.id)"
+          @keydown.space.prevent="openWorld(world.id)"
         >
           <div class="card-head">
             <span class="world-title">{{ world.name }}</span>
-            <span class="card-arrow">进入</span>
+            <div class="card-actions">
+              <button
+                type="button"
+                class="card-menu-trigger"
+                title="编辑世界观"
+                @click.stop="toggleWorldMenu(world.id)"
+              >
+                ⋯
+              </button>
+              <div v-if="activeWorldMenuId === world.id" class="card-menu" @click.stop>
+                <button type="button" class="card-menu-item" @click="openEditDialog(world)">
+                  编辑
+                </button>
+                <button type="button" class="card-menu-item danger" @click="openDeleteConfirm(world)">
+                  删除
+                </button>
+              </div>
+            </div>
           </div>
+          <span class="card-arrow">进入</span>
           <p class="world-summary">{{ world.summary || '暂无摘要，点击进入继续编辑。' }}</p>
-        </button>
+        </article>
       </section>
 
       <div v-if="!loadingWorlds && worlds.length === 0" class="empty-state">
@@ -45,17 +67,17 @@
     </main>
 
     <teleport to="body">
-      <div v-if="showCreateDialog" class="dialog-backdrop" @click.self="closeCreateDialog">
+      <div v-if="showWorldDialog" class="dialog-backdrop" @click.self="closeWorldDialog">
         <div class="dialog-card">
           <div class="dialog-head">
             <div>
-              <div class="eyebrow">Create</div>
-              <h2>创建世界观</h2>
+              <div class="eyebrow">{{ isEditingWorld ? 'Edit' : 'Create' }}</div>
+              <h2>{{ isEditingWorld ? '编辑世界观' : '创建世界观' }}</h2>
             </div>
-            <button class="close-btn" @click="closeCreateDialog">✕</button>
+            <button class="close-btn" @click="closeWorldDialog">✕</button>
           </div>
 
-          <form class="dialog-form" @submit.prevent="handleCreateWorld">
+          <form class="dialog-form" @submit.prevent="handleSubmitWorld">
             <label class="form-label">
               世界观名字
               <input
@@ -81,22 +103,37 @@
             <div v-if="createError" class="error-text">{{ createError }}</div>
 
             <div class="dialog-actions">
-              <button type="button" class="ghost-btn" @click="closeCreateDialog">取消</button>
+              <button type="button" class="ghost-btn" @click="closeWorldDialog">取消</button>
               <button class="primary-btn" :disabled="creatingWorld || !newWorldName">
-                {{ creatingWorld ? '创建中...' : '创建并进入' }}
+                {{ creatingWorld ? (isEditingWorld ? '保存中...' : '创建中...') : (isEditingWorld ? '保存修改' : '创建并进入') }}
               </button>
             </div>
           </form>
         </div>
       </div>
     </teleport>
+
+    <ConfirmDialog
+      v-model="showDeleteConfirm"
+      title="确认删除世界观？"
+      :message="deleteConfirmMessage"
+      confirm-text="删除"
+      cancel-text="取消"
+      loading-text="删除中..."
+      size="sm"
+      icon="danger"
+      :danger="true"
+      :loading="deletingWorld"
+      @confirm="handleDeleteWorld"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { WorldPayload } from '@share/cache/worldbuilding/worldbuilding'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 
 const router = useRouter()
@@ -104,11 +141,23 @@ const router = useRouter()
 const worlds = ref<WorldPayload[]>([])
 const loadingWorlds = ref(false)
 const creatingWorld = ref(false)
+const deletingWorld = ref(false)
 
-const showCreateDialog = ref(false)
+const showWorldDialog = ref(false)
+const editingWorldId = ref('')
+const activeWorldMenuId = ref('')
+const pendingDeleteWorld = ref<WorldPayload | null>(null)
+const showDeleteConfirm = ref(false)
 const newWorldName = ref('')
 const newWorldSummary = ref('')
 const createError = ref('')
+
+const isEditingWorld = computed(() => editingWorldId.value !== '')
+const deleteConfirmMessage = computed(() =>
+  pendingDeleteWorld.value
+    ? `将删除世界观「${pendingDeleteWorld.value.name}」及其下所有实体、组件和关系，此操作无法撤销。`
+    : '确认删除该世界观吗？'
+)
 
 const loadWorlds = async (): Promise<void> => {
   loadingWorlds.value = true
@@ -119,24 +168,49 @@ const loadWorlds = async (): Promise<void> => {
   }
 }
 
-const openCreateDialog = (): void => {
-  showCreateDialog.value = true
+const resetWorldForm = (): void => {
+  editingWorldId.value = ''
+  newWorldName.value = ''
+  newWorldSummary.value = ''
   createError.value = ''
 }
 
-const closeCreateDialog = (): void => {
-  showCreateDialog.value = false
-  creatingWorld.value = false
+const openCreateDialog = (): void => {
+  resetWorldForm()
+  showWorldDialog.value = true
   createError.value = ''
-  newWorldName.value = ''
-  newWorldSummary.value = ''
+}
+
+const closeWorldDialog = (): void => {
+  showWorldDialog.value = false
+  creatingWorld.value = false
+  resetWorldForm()
 }
 
 const openWorld = async (worldId: string): Promise<void> => {
   await router.push({ name: 'WorldEditor', params: { worldId } })
 }
 
-const handleCreateWorld = async (): Promise<void> => {
+const toggleWorldMenu = (worldId: string): void => {
+  activeWorldMenuId.value = activeWorldMenuId.value === worldId ? '' : worldId
+}
+
+const openEditDialog = (world: WorldPayload): void => {
+  activeWorldMenuId.value = ''
+  editingWorldId.value = world.id
+  newWorldName.value = world.name
+  newWorldSummary.value = world.summary || ''
+  createError.value = ''
+  showWorldDialog.value = true
+}
+
+const openDeleteConfirm = (world: WorldPayload): void => {
+  activeWorldMenuId.value = ''
+  pendingDeleteWorld.value = world
+  showDeleteConfirm.value = true
+}
+
+const handleSubmitWorld = async (): Promise<void> => {
   const name = newWorldName.value.trim()
   if (!name) return
 
@@ -144,11 +218,22 @@ const handleCreateWorld = async (): Promise<void> => {
   createError.value = ''
 
   try {
+    if (isEditingWorld.value) {
+      await worldbuildingClientService.updateWorld({
+        worldId: editingWorldId.value,
+        name,
+        summary: newWorldSummary.value.trim()
+      })
+      closeWorldDialog()
+      await loadWorlds()
+      return
+    }
+
     const created = await worldbuildingClientService.createWorld({
       name,
       summary: newWorldSummary.value.trim()
     })
-    closeCreateDialog()
+    closeWorldDialog()
     await loadWorlds()
     await router.push({ name: 'WorldEditor', params: { worldId: created.id } })
   } catch (error) {
@@ -157,8 +242,32 @@ const handleCreateWorld = async (): Promise<void> => {
   }
 }
 
+const handleDeleteWorld = async (): Promise<void> => {
+  if (!pendingDeleteWorld.value || deletingWorld.value) return
+  deletingWorld.value = true
+  try {
+    await worldbuildingClientService.deleteWorld(pendingDeleteWorld.value.id)
+    pendingDeleteWorld.value = null
+    showDeleteConfirm.value = false
+    await loadWorlds()
+  } finally {
+    deletingWorld.value = false
+  }
+}
+
+const handleWindowPointerDown = (event: PointerEvent): void => {
+  const target = event.target as HTMLElement | null
+  if (target?.closest('.card-actions')) return
+  activeWorldMenuId.value = ''
+}
+
 onMounted(async () => {
+  window.addEventListener('pointerdown', handleWindowPointerDown)
   await loadWorlds()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointerdown', handleWindowPointerDown)
 })
 </script>
 
@@ -301,6 +410,7 @@ h1 {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  position: relative;
 }
 
 .card-head {
@@ -308,6 +418,58 @@ h1 {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+}
+
+.card-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-menu-trigger {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(111, 132, 162, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #42556f;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.card-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 128px;
+  padding: 8px;
+  border-radius: 16px;
+  border: 1px solid rgba(111, 132, 162, 0.18);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 44px rgba(24, 39, 68, 0.14);
+  z-index: 4;
+}
+
+.card-menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  padding: 10px 12px;
+  text-align: left;
+  font: inherit;
+  color: #243247;
+  cursor: pointer;
+}
+
+.card-menu-item:hover {
+  background: #f3f6fb;
+}
+
+.card-menu-item.danger {
+  color: #c53b34;
 }
 
 .card-arrow {
@@ -319,6 +481,8 @@ h1 {
   color: #2f63da;
   font-size: 12px;
   font-weight: 600;
+  margin-top: 16px;
+  align-self: flex-start;
 }
 
 .empty-state {

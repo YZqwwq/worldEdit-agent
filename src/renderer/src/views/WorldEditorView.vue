@@ -41,18 +41,40 @@
           </div>
 
           <div v-if="groupedEntities[definition.entityType]?.length" class="entity-grid">
-            <button
+            <article
               v-for="entity in groupedEntities[definition.entityType]"
               :key="entity.id"
               class="entity-card"
+              role="button"
+              tabindex="0"
               @click="openEntity(entity.id)"
+              @keydown.enter.prevent="openEntity(entity.id)"
+              @keydown.space.prevent="openEntity(entity.id)"
             >
               <div class="entity-card-head">
                 <span class="entity-name">{{ entity.name }}</span>
-                <span class="entity-enter">编辑</span>
+                <div class="card-actions">
+                  <button
+                    type="button"
+                    class="card-menu-trigger"
+                    title="编辑实例"
+                    @click.stop="toggleEntityMenu(entity.id)"
+                  >
+                    ⋯
+                  </button>
+                  <div v-if="activeEntityMenuId === entity.id" class="card-menu" @click.stop>
+                    <button type="button" class="card-menu-item" @click="openEditDialog(entity)">
+                      编辑
+                    </button>
+                    <button type="button" class="card-menu-item danger" @click="openDeleteConfirm(entity)">
+                      删除
+                    </button>
+                  </div>
+                </div>
               </div>
+              <span class="entity-enter">进入编辑</span>
               <p class="entity-summary">{{ entity.summary || '点击进入实例页继续完善描述文案。' }}</p>
-            </button>
+            </article>
           </div>
 
           <div v-else class="empty-copy">
@@ -63,17 +85,17 @@
     </main>
 
     <teleport to="body">
-      <div v-if="showCreateDialog && currentCreateDefinition" class="dialog-backdrop" @click.self="closeCreateDialog">
+      <div v-if="showEntityDialog && currentCreateDefinition" class="dialog-backdrop" @click.self="closeEntityDialog">
         <div class="dialog-card">
           <div class="dialog-head">
             <div>
-              <div class="eyebrow">Create Instance</div>
-              <h2>新建{{ currentCreateDefinition.displayName }}</h2>
+              <div class="eyebrow">{{ isEditingEntity ? 'Edit Instance' : 'Create Instance' }}</div>
+              <h2>{{ isEditingEntity ? `编辑${currentCreateDefinition.displayName}` : `新建${currentCreateDefinition.displayName}` }}</h2>
             </div>
-            <button type="button" class="close-btn" @click="closeCreateDialog">✕</button>
+            <button type="button" class="close-btn" @click="closeEntityDialog">✕</button>
           </div>
 
-          <form class="dialog-form" @submit.prevent="handleCreateEntity">
+          <form class="dialog-form" @submit.prevent="handleSubmitEntity">
             <label class="form-label">
               名称
               <input
@@ -97,20 +119,34 @@
             </label>
 
             <div class="dialog-actions">
-              <button type="button" class="ghost-btn" @click="closeCreateDialog">取消</button>
+              <button type="button" class="ghost-btn" @click="closeEntityDialog">取消</button>
               <button class="primary-btn" :disabled="creatingEntity || !newEntityName">
-                {{ creatingEntity ? '创建中...' : '创建并进入' }}
+                {{ creatingEntity ? (isEditingEntity ? '保存中...' : '创建中...') : (isEditingEntity ? '保存修改' : '创建并进入') }}
               </button>
             </div>
           </form>
         </div>
       </div>
     </teleport>
+
+    <ConfirmDialog
+      v-model="showDeleteConfirm"
+      title="确认删除实例？"
+      :message="deleteConfirmMessage"
+      confirm-text="删除"
+      cancel-text="取消"
+      loading-text="删除中..."
+      size="sm"
+      icon="danger"
+      :danger="true"
+      :loading="deletingEntity"
+      @confirm="handleDeleteEntity"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type {
   WorldEntityPayload,
@@ -118,6 +154,7 @@ import type {
   WorldbuildingEntityDefinition,
   WorldPayload
 } from '@share/cache/worldbuilding/worldbuilding'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 
 const route = useRoute()
@@ -127,9 +164,14 @@ const worlds = ref<WorldPayload[]>([])
 const entities = ref<WorldEntityPayload[]>([])
 const entityDefinitions = ref<WorldbuildingEntityDefinition[]>([])
 
-const showCreateDialog = ref(false)
+const showEntityDialog = ref(false)
 const creatingEntity = ref(false)
+const deletingEntity = ref(false)
 const createEntityType = ref<WorldEntityType>('character')
+const editingEntityId = ref('')
+const activeEntityMenuId = ref('')
+const pendingDeleteEntity = ref<WorldEntityPayload | null>(null)
+const showDeleteConfirm = ref(false)
 const newEntityName = ref('')
 const newEntitySummary = ref('')
 
@@ -141,6 +183,12 @@ const selectedWorld = computed(
 
 const currentCreateDefinition = computed(
   () => entityDefinitions.value.find((item) => item.entityType === createEntityType.value) ?? null
+)
+const isEditingEntity = computed(() => editingEntityId.value !== '')
+const deleteConfirmMessage = computed(() =>
+  pendingDeleteEntity.value
+    ? `将删除实例「${pendingDeleteEntity.value.name}」及其下组件和相关关系，此操作无法撤销。`
+    : '确认删除该实例吗？'
 )
 
 const groupedEntities = computed(() => {
@@ -170,15 +218,18 @@ const loadEntities = async (): Promise<void> => {
 }
 
 const openCreateDialog = (entityType: WorldEntityType): void => {
+  editingEntityId.value = ''
+  activeEntityMenuId.value = ''
   createEntityType.value = entityType
   newEntityName.value = ''
   newEntitySummary.value = ''
-  showCreateDialog.value = true
+  showEntityDialog.value = true
 }
 
-const closeCreateDialog = (): void => {
-  showCreateDialog.value = false
+const closeEntityDialog = (): void => {
+  showEntityDialog.value = false
   creatingEntity.value = false
+  editingEntityId.value = ''
   newEntityName.value = ''
   newEntitySummary.value = ''
 }
@@ -187,11 +238,41 @@ const openEntity = async (entityId: string): Promise<void> => {
   await router.push({ name: 'WorldEntityEditor', params: { worldId: worldId.value, entityId } })
 }
 
-const handleCreateEntity = async (): Promise<void> => {
+const toggleEntityMenu = (entityId: string): void => {
+  activeEntityMenuId.value = activeEntityMenuId.value === entityId ? '' : entityId
+}
+
+const openEditDialog = (entity: WorldEntityPayload): void => {
+  activeEntityMenuId.value = ''
+  editingEntityId.value = entity.id
+  createEntityType.value = entity.type
+  newEntityName.value = entity.name
+  newEntitySummary.value = entity.summary || ''
+  showEntityDialog.value = true
+}
+
+const openDeleteConfirm = (entity: WorldEntityPayload): void => {
+  activeEntityMenuId.value = ''
+  pendingDeleteEntity.value = entity
+  showDeleteConfirm.value = true
+}
+
+const handleSubmitEntity = async (): Promise<void> => {
   if (!worldId.value || !newEntityName.value.trim()) return
 
   creatingEntity.value = true
   try {
+    if (isEditingEntity.value) {
+      await worldbuildingClientService.updateEntity({
+        entityId: editingEntityId.value,
+        name: newEntityName.value,
+        summary: newEntitySummary.value
+      })
+      closeEntityDialog()
+      await loadEntities()
+      return
+    }
+
     const created = await worldbuildingClientService.createEntity({
       worldId: worldId.value,
       type: createEntityType.value,
@@ -199,12 +280,31 @@ const handleCreateEntity = async (): Promise<void> => {
       summary: newEntitySummary.value,
       initializeStarterComponents: true
     })
-    closeCreateDialog()
+    closeEntityDialog()
     await loadEntities()
     await openEntity(created.id)
   } finally {
     creatingEntity.value = false
   }
+}
+
+const handleDeleteEntity = async (): Promise<void> => {
+  if (!pendingDeleteEntity.value || deletingEntity.value) return
+  deletingEntity.value = true
+  try {
+    await worldbuildingClientService.deleteEntity(pendingDeleteEntity.value.id)
+    pendingDeleteEntity.value = null
+    showDeleteConfirm.value = false
+    await loadEntities()
+  } finally {
+    deletingEntity.value = false
+  }
+}
+
+const handleWindowPointerDown = (event: PointerEvent): void => {
+  const target = event.target as HTMLElement | null
+  if (target?.closest('.card-actions')) return
+  activeEntityMenuId.value = ''
 }
 
 watch(worldId, async () => {
@@ -213,9 +313,14 @@ watch(worldId, async () => {
 })
 
 onMounted(async () => {
+  window.addEventListener('pointerdown', handleWindowPointerDown)
   await loadEntityDefinitions()
   await loadWorlds()
   await loadEntities()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointerdown', handleWindowPointerDown)
 })
 </script>
 
@@ -342,6 +447,12 @@ onMounted(async () => {
   border-color: rgba(48, 96, 201, 0.24);
 }
 
+.entity-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
 .type-title,
 .entity-name {
   font-size: 20px;
@@ -374,6 +485,57 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.card-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.card-menu-trigger {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(111, 132, 162, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #42556f;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.card-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 128px;
+  padding: 8px;
+  border-radius: 16px;
+  border: 1px solid rgba(111, 132, 162, 0.18);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 44px rgba(24, 39, 68, 0.14);
+  z-index: 5;
+}
+
+.card-menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  padding: 10px 12px;
+  text-align: left;
+  font: inherit;
+  color: #243247;
+  cursor: pointer;
+}
+
+.card-menu-item:hover {
+  background: #f3f6fb;
+}
+
+.card-menu-item.danger {
+  color: #c53b34;
+}
+
 .section-count,
 .entity-enter {
   display: inline-flex;
@@ -384,6 +546,11 @@ onMounted(async () => {
   color: #2454bf;
   font-size: 12px;
   font-weight: 600;
+}
+
+.entity-enter {
+  margin-top: 14px;
+  align-self: flex-start;
 }
 
 .dialog-backdrop {

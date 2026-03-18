@@ -23,7 +23,12 @@
       <section class="panel description-panel">
         <div class="panel-head">
           <h2>描述文案</h2>
-          <button class="primary-btn" :disabled="savingDescription" @click="saveDescription">
+          <button
+            class="primary-btn"
+            :disabled="savingDescription || !canSaveDescription"
+            title="保存描述 (Ctrl+S)"
+            @click="saveDescription"
+          >
             {{ savingDescription ? '保存中...' : '保存描述' }}
           </button>
         </div>
@@ -72,6 +77,7 @@ import type {
   WorldEntityType
 } from '@share/cache/worldbuilding/worldbuilding'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
+import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 
 const route = useRoute()
 
@@ -87,11 +93,22 @@ const editableComponentByType: Partial<Record<WorldEntityType, string>> = {
   character: 'character_profile',
   race: 'race_profile',
   faction: 'faction_profile',
-  nation: 'nation_profile'
+  nation: 'nation_profile',
+  city: 'city_profile',
+  region: 'region_profile',
+  map: 'map_profile',
+  map_location: 'map_location_profile',
+  event: 'event_profile',
+  item: 'item_profile',
+  rule: 'rule_profile',
+  custom: 'custom_profile'
 }
 
 const editableComponentType = computed(
   () => (entityDetail.value ? editableComponentByType[entityDetail.value.entity.type] || '' : '')
+)
+const canSaveDescription = computed(
+  () => Boolean(entityDetail.value && editableComponentType.value)
 )
 
 const displayEntityType = computed(() => {
@@ -100,6 +117,14 @@ const displayEntityType = computed(() => {
   if (currentType === 'race') return '种族'
   if (currentType === 'faction') return '势力'
   if (currentType === 'nation') return '国家'
+  if (currentType === 'city') return '城市'
+  if (currentType === 'region') return '区域'
+  if (currentType === 'map') return '地图'
+  if (currentType === 'map_location') return '地图标注'
+  if (currentType === 'event') return '事件'
+  if (currentType === 'item') return '物品'
+  if (currentType === 'rule') return '规则'
+  if (currentType === 'custom') return '自定义'
   return currentType || ''
 })
 
@@ -128,7 +153,7 @@ const loadEntityDetail = async (): Promise<void> => {
 }
 
 const saveDescription = async (): Promise<void> => {
-  if (!entityDetail.value || !editableComponentType.value) return
+  if (!canSaveDescription.value || savingDescription.value || !entityDetail.value) return
 
   const editableComponent = getEditableComponent()
   const nextData = {
@@ -153,6 +178,18 @@ const saveDescription = async (): Promise<void> => {
 onMounted(async () => {
   await loadEntityDetail()
 })
+
+useKeyboardShortcut(
+  {
+    key: 's',
+    ctrlOrMeta: true,
+    preventDefault: true,
+    enabled: () => canSaveDescription.value && !savingDescription.value
+  },
+  async () => {
+    await saveDescription()
+  }
+)
 </script>
 
 <style scoped>

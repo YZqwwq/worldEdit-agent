@@ -8,6 +8,8 @@ import type {
   CreateWorldEntityInput,
   CreateWorldEntityRelationInput,
   CreateWorldInput,
+  UpdateWorldEntityInput,
+  UpdateWorldInput,
   UpsertWorldEntityComponentInput,
   WorldEntityComponentPayload,
   WorldEntityDetailPayload,
@@ -16,12 +18,16 @@ import type {
   WorldPayload
 } from '@share/cache/worldbuilding/worldbuilding'
 import {
+  buildWorldbuildingSchemaCatalog,
   buildStarterComponentSeeds,
   ensureComponentAllowedForEntityType,
+  ensureRelationAllowedForEntityTypes,
   getWorldbuildingEntityDefinition,
   listWorldbuildingComponentDefinitions,
   listWorldbuildingEntityDefinitions,
-  validateWorldbuildingComponentData
+  listWorldbuildingRelationDefinitions,
+  validateWorldbuildingComponentData,
+  validateWorldbuildingRelationData
 } from '@share/cache/worldbuilding/definitions'
 
 const DEFAULT_SCHEMA_VERSION = 1
@@ -125,6 +131,52 @@ class WorldbuildingService {
     return worlds.map(toWorldPayload)
   }
 
+  async updateWorld(input: UpdateWorldInput): Promise<WorldPayload> {
+    const worldId = String(input.worldId || '').trim()
+    const name = String(input.name || '').trim()
+    if (!worldId) throw new Error('worldId is required')
+    if (!name) throw new Error('World name is required')
+
+    const record = await this.worldRepo.findOneBy({ id: worldId })
+    if (!record) throw new Error(`World not found: ${worldId}`)
+
+    record.name = name
+    record.summary = String(input.summary || '').trim()
+    record.status = input.status || record.status || 'active'
+
+    const saved = await this.worldRepo.save(record)
+    return toWorldPayload(saved)
+  }
+
+  async deleteWorld(worldId: string): Promise<void> {
+    const normalizedWorldId = String(worldId || '').trim()
+    if (!normalizedWorldId) throw new Error('worldId is required')
+
+    await AppDataSource.transaction(async (manager) => {
+      const world = await manager.findOne(WorldRecord, { where: { id: normalizedWorldId } })
+      if (!world) throw new Error(`World not found: ${normalizedWorldId}`)
+
+      const entities = await manager.find(WorldEntityRecord, {
+        where: { worldId: normalizedWorldId },
+        select: ['id']
+      })
+      const entityIds = entities.map((item) => item.id)
+
+      if (entityIds.length > 0) {
+        await manager
+          .createQueryBuilder()
+          .delete()
+          .from(WorldEntityComponentRecord)
+          .where('entityId IN (:...entityIds)', { entityIds })
+          .execute()
+      }
+
+      await manager.delete(WorldEntityRelationRecord, { worldId: normalizedWorldId })
+      await manager.delete(WorldEntityRecord, { worldId: normalizedWorldId })
+      await manager.delete(WorldRecord, { id: normalizedWorldId })
+    })
+  }
+
   async createEntity(input: CreateWorldEntityInput): Promise<WorldEntityPayload> {
     const worldId = String(input.worldId || '').trim()
     const name = String(input.name || '').trim()
@@ -185,6 +237,51 @@ class WorldbuildingService {
       order: { updatedAt: 'DESC' }
     })
     return records.map(toEntityPayload)
+  }
+
+  async updateEntity(input: UpdateWorldEntityInput): Promise<WorldEntityPayload> {
+    const entityId = String(input.entityId || '').trim()
+    const name = String(input.name || '').trim()
+    if (!entityId) throw new Error('entityId is required')
+    if (!name) throw new Error('Entity name is required')
+
+    const record = await this.entityRepo.findOneBy({ id: entityId })
+    if (!record) throw new Error(`Entity not found: ${entityId}`)
+
+    record.name = name
+    record.slug = String(input.slug || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+    record.title = String(input.title || '').trim()
+    record.summary = String(input.summary || '').trim()
+    record.status = input.status || record.status || 'active'
+
+    const saved = await this.entityRepo.save(record)
+    return toEntityPayload(saved)
+  }
+
+  async deleteEntity(entityId: string): Promise<void> {
+    const normalizedEntityId = String(entityId || '').trim()
+    if (!normalizedEntityId) throw new Error('entityId is required')
+
+    await AppDataSource.transaction(async (manager) => {
+      const entity = await manager.findOne(WorldEntityRecord, { where: { id: normalizedEntityId } })
+      if (!entity) throw new Error(`Entity not found: ${normalizedEntityId}`)
+
+      await manager.delete(WorldEntityComponentRecord, { entityId: normalizedEntityId })
+
+      await manager
+        .createQueryBuilder()
+        .delete()
+        .from(WorldEntityRelationRecord)
+        .where('sourceEntityId = :entityId OR targetEntityId = :entityId', {
+          entityId: normalizedEntityId
+        })
+        .execute()
+
+      await manager.delete(WorldEntityRecord, { id: normalizedEntityId })
+    })
   }
 
   async upsertComponent(
@@ -254,14 +351,26 @@ class WorldbuildingService {
       throw new Error('Relation entities must belong to the same world')
     }
 
+    const normalizedData = validateWorldbuildingRelationData(relationType, input.data)
+    const expectedDirection = ensureRelationAllowedForEntityTypes(
+      relationType,
+      sourceEntity.type,
+      targetEntity.type
+    )
+    if (input.direction && input.direction !== expectedDirection) {
+      throw new Error(
+        `Relation "${relationType}" must use direction "${expectedDirection}", received "${input.direction}"`
+      )
+    }
+
     const record = this.relationRepo.create({
       id: randomUUID(),
       worldId,
       sourceEntityId,
       targetEntityId,
       relationType,
-      direction: input.direction || 'directed',
-      dataJson: JSON.stringify(input.data ?? {}),
+      direction: expectedDirection,
+      dataJson: JSON.stringify(normalizedData),
       startTimeId: String(input.startTimeId || '').trim(),
       endTimeId: String(input.endTimeId || '').trim()
     })
@@ -308,6 +417,14 @@ class WorldbuildingService {
 
   listComponentDefinitions(entityType?: WorldEntityPayload['type']) {
     return listWorldbuildingComponentDefinitions(entityType)
+  }
+
+  listRelationDefinitions() {
+    return listWorldbuildingRelationDefinitions()
+  }
+
+  getSchemaCatalog() {
+    return buildWorldbuildingSchemaCatalog()
   }
 
   getEntityDefinition(entityType: WorldEntityPayload['type']) {

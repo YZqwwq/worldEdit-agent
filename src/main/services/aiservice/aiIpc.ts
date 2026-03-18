@@ -22,8 +22,11 @@ import type {
   CreateWorldEntityInput,
   CreateWorldEntityRelationInput,
   CreateWorldInput,
+  UpdateWorldEntityInput,
+  UpdateWorldInput,
   UpsertWorldEntityComponentInput,
-  WorldEntityPayload
+  WorldEntityPayload,
+  WorldbuildingSchemaCatalogPayload
 } from '@share/cache/worldbuilding/worldbuilding'
 
 type UploadResult = {
@@ -134,6 +137,14 @@ export function initializeAIEndpoints(): void {
     return worldbuildingService.createWorld(input)
   })
 
+  ipcMain.handle('world:updateWorld', async (_event, input: UpdateWorldInput) => {
+    return worldbuildingService.updateWorld(input)
+  })
+
+  ipcMain.handle('world:deleteWorld', async (_event, worldId: string) => {
+    return worldbuildingService.deleteWorld(worldId)
+  })
+
   ipcMain.handle('world:listEntityDefinitions', async () => {
     return worldbuildingService.listEntityDefinitions()
   })
@@ -145,12 +156,28 @@ export function initializeAIEndpoints(): void {
     }
   )
 
+  ipcMain.handle('world:listRelationDefinitions', async () => {
+    return worldbuildingService.listRelationDefinitions()
+  })
+
+  ipcMain.handle('world:getSchemaCatalog', async (): Promise<WorldbuildingSchemaCatalogPayload> => {
+    return worldbuildingService.getSchemaCatalog()
+  })
+
   ipcMain.handle('world:listEntities', async (_event, worldId: string, type?: WorldEntityPayload['type']) => {
     return worldbuildingService.listEntities(worldId, type)
   })
 
   ipcMain.handle('world:createEntity', async (_event, input: CreateWorldEntityInput) => {
     return worldbuildingService.createEntity(input)
+  })
+
+  ipcMain.handle('world:updateEntity', async (_event, input: UpdateWorldEntityInput) => {
+    return worldbuildingService.updateEntity(input)
+  })
+
+  ipcMain.handle('world:deleteEntity', async (_event, entityId: string) => {
+    return worldbuildingService.deleteEntity(entityId)
   })
 
   ipcMain.handle('world:getEntityDetail', async (_event, entityId: string) => {

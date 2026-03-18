@@ -15,13 +15,18 @@ import type {
   CreateWorldEntityInput,
   CreateWorldEntityRelationInput,
   CreateWorldInput,
+  UpdateWorldEntityInput,
+  UpdateWorldInput,
   UpsertWorldEntityComponentInput,
   WorldEntityComponentPayload,
   WorldEntityDetailPayload,
+  WorldEntityRelationPayload,
   WorldPayload,
   WorldbuildingComponentDefinition,
   WorldbuildingEntityDefinition,
-  WorldEntityPayload
+  WorldEntityPayload,
+  WorldbuildingRelationDefinition,
+  WorldbuildingSchemaCatalogPayload
 } from '../share/cache/worldbuilding/worldbuilding'
 
 // Local type to ensure availability in this module
@@ -52,20 +57,28 @@ type Api = {
 
   listWorlds: () => Promise<WorldPayload[]>
   createWorld: (input: CreateWorldInput) => Promise<WorldPayload>
+  updateWorld: (input: UpdateWorldInput) => Promise<WorldPayload>
+  deleteWorld: (worldId: string) => Promise<void>
   listWorldEntityDefinitions: () => Promise<WorldbuildingEntityDefinition[]>
   listWorldComponentDefinitions: (
     entityType?: WorldEntityPayload['type']
   ) => Promise<WorldbuildingComponentDefinition[]>
+  listWorldRelationDefinitions: () => Promise<WorldbuildingRelationDefinition[]>
+  getWorldSchemaCatalog: () => Promise<WorldbuildingSchemaCatalogPayload>
   listWorldEntities: (
     worldId: string,
     type?: WorldEntityPayload['type']
   ) => Promise<WorldEntityPayload[]>
   createWorldEntity: (input: CreateWorldEntityInput) => Promise<WorldEntityPayload>
+  updateWorldEntity: (input: UpdateWorldEntityInput) => Promise<WorldEntityPayload>
+  deleteWorldEntity: (entityId: string) => Promise<void>
   getWorldEntityDetail: (entityId: string) => Promise<WorldEntityDetailPayload | null>
   upsertWorldEntityComponent: (
     input: UpsertWorldEntityComponentInput
   ) => Promise<WorldEntityComponentPayload>
-  createWorldEntityRelation: (input: CreateWorldEntityRelationInput) => Promise<unknown>
+  createWorldEntityRelation: (
+    input: CreateWorldEntityRelationInput
+  ) => Promise<WorldEntityRelationPayload>
 }
 
 // Custom APIs for renderer
@@ -98,11 +111,17 @@ const api: Api = {
   saveModelConfig: (config) => ipcRenderer.invoke('config:saveModelConfig', config),
   listWorlds: () => ipcRenderer.invoke('world:listWorlds'),
   createWorld: (input) => ipcRenderer.invoke('world:createWorld', input),
+  updateWorld: (input) => ipcRenderer.invoke('world:updateWorld', input),
+  deleteWorld: (worldId) => ipcRenderer.invoke('world:deleteWorld', worldId),
   listWorldEntityDefinitions: () => ipcRenderer.invoke('world:listEntityDefinitions'),
   listWorldComponentDefinitions: (entityType) =>
     ipcRenderer.invoke('world:listComponentDefinitions', entityType),
+  listWorldRelationDefinitions: () => ipcRenderer.invoke('world:listRelationDefinitions'),
+  getWorldSchemaCatalog: () => ipcRenderer.invoke('world:getSchemaCatalog'),
   listWorldEntities: (worldId, type) => ipcRenderer.invoke('world:listEntities', worldId, type),
   createWorldEntity: (input) => ipcRenderer.invoke('world:createEntity', input),
+  updateWorldEntity: (input) => ipcRenderer.invoke('world:updateEntity', input),
+  deleteWorldEntity: (entityId) => ipcRenderer.invoke('world:deleteEntity', entityId),
   getWorldEntityDetail: (entityId) => ipcRenderer.invoke('world:getEntityDetail', entityId),
   upsertWorldEntityComponent: (input) => ipcRenderer.invoke('world:upsertComponent', input),
   createWorldEntityRelation: (input) => ipcRenderer.invoke('world:createRelation', input)

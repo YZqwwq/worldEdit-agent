@@ -14,12 +14,17 @@ import type {
   CreateWorldEntityInput,
   CreateWorldEntityRelationInput,
   CreateWorldInput,
+  UpdateWorldEntityInput,
+  UpdateWorldInput,
   UpsertWorldEntityComponentInput,
   WorldEntityComponentPayload,
   WorldEntityDetailPayload,
+  WorldEntityRelationPayload,
   WorldEntityPayload,
   WorldbuildingComponentDefinition,
   WorldbuildingEntityDefinition,
+  WorldbuildingRelationDefinition,
+  WorldbuildingSchemaCatalogPayload,
   WorldPayload
 } from '../share/cache/worldbuilding/worldbuilding'
 
@@ -49,22 +54,28 @@ declare global {
 
     listWorlds: () => Promise<WorldPayload[]>
     createWorld: (input: CreateWorldInput) => Promise<WorldPayload>
+    updateWorld: (input: UpdateWorldInput) => Promise<WorldPayload>
+    deleteWorld: (worldId: string) => Promise<void>
     listWorldEntityDefinitions: () => Promise<WorldbuildingEntityDefinition[]>
     listWorldComponentDefinitions: (
       entityType?: WorldEntityPayload['type']
     ) => Promise<WorldbuildingComponentDefinition[]>
+    listWorldRelationDefinitions: () => Promise<WorldbuildingRelationDefinition[]>
+    getWorldSchemaCatalog: () => Promise<WorldbuildingSchemaCatalogPayload>
     listWorldEntities: (
       worldId: string,
       type?: WorldEntityPayload['type']
     ) => Promise<WorldEntityPayload[]>
     createWorldEntity: (input: CreateWorldEntityInput) => Promise<WorldEntityPayload>
+    updateWorldEntity: (input: UpdateWorldEntityInput) => Promise<WorldEntityPayload>
+    deleteWorldEntity: (entityId: string) => Promise<void>
     getWorldEntityDetail: (entityId: string) => Promise<WorldEntityDetailPayload | null>
     upsertWorldEntityComponent: (
       input: UpsertWorldEntityComponentInput
     ) => Promise<WorldEntityComponentPayload>
     createWorldEntityRelation: (
       input: CreateWorldEntityRelationInput
-    ) => Promise<unknown>
+    ) => Promise<WorldEntityRelationPayload>
   }
 
   interface Window {
