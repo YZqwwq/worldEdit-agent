@@ -13,6 +13,7 @@ import type {
 const shortText = z.string().trim().max(240).default('')
 const mediumText = z.string().trim().max(1000).default('')
 const longText = z.string().trim().max(5000).default('')
+const richLongText = z.string().trim().max(40000).default('')
 const entityRef = z.string().trim().max(120).default('')
 const stringList = z.array(z.string().trim().min(1).max(120)).max(50).default([])
 const entityRefList = z.array(z.string().trim().min(1).max(120)).max(50).default([])
@@ -20,6 +21,14 @@ const relationNotesSchema = z.object({
   summary: mediumText,
   notes: stringList,
   confidence: z.number().min(0).max(1).nullable().default(null)
+})
+
+const editorAppearanceSchema = z.object({
+  fontScale: z.number().min(0.9).max(1.4).default(1),
+  lineHeight: z.number().min(1.5).max(2.2).default(1.75),
+  contentWidth: z.number().min(640).max(1200).default(860),
+  paragraphSpacing: z.number().min(0.5).max(1.4).default(0.75),
+  headingScale: z.number().min(0.9).max(1.35).default(1)
 })
 
 const field = (
@@ -39,7 +48,9 @@ const field = (
 const characterProfileSchema = z.object({
   title: z.string().trim().max(120).default(''),
   summary: mediumText,
-  description: longText,
+  description: richLongText,
+  descriptionFormat: z.enum(['markdown', 'html']).default('markdown'),
+  editorAppearance: editorAppearanceSchema.default(editorAppearanceSchema.parse({})),
   personalityTraits: stringList,
   abilities: stringList,
   tags: stringList
@@ -48,6 +59,7 @@ const characterProfileSchema = z.object({
 const characterDemographicSchema = z.object({
   age: z.number().int().min(0).max(100000).nullable().default(null),
   ageLabel: z.string().trim().max(120).default(''),
+  heightLabel: z.string().trim().max(120).default(''),
   gender: z.string().trim().max(60).default(''),
   raceEntityId: entityRef,
   factionEntityId: entityRef,
@@ -224,6 +236,7 @@ const componentDefinitions: Record<RegisteredComponentType, WorldbuildingCompone
     fields: [
       field('age', '年龄', '角色的数字年龄，可为空。', 'number'),
       field('ageLabel', '年龄标签', '例如幼年、青年、永生体等。', 'string'),
+      field('heightLabel', '身高', '身高描述，例如 172cm。', 'string'),
       field('gender', '性别', '角色的性别或性别认同。', 'string'),
       field('raceEntityId', '所属种族', '引用一个种族实体。', 'entity_ref', {
         entityTypes: ['race']
