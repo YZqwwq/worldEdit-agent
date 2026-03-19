@@ -31,6 +31,12 @@ const editorAppearanceSchema = z.object({
   headingScale: z.number().min(0.9).max(1.35).default(1)
 })
 
+const portraitTransformSchema = z.object({
+  offsetX: z.number().min(-2000).max(2000).default(0),
+  offsetY: z.number().min(-2000).max(2000).default(0),
+  scale: z.number().min(0.45).max(2.5).default(1)
+})
+
 const field = (
   key: string,
   displayName: string,
@@ -50,6 +56,9 @@ const characterProfileSchema = z.object({
   summary: mediumText,
   description: richLongText,
   descriptionFormat: z.enum(['markdown', 'html']).default('markdown'),
+  portraitResourceUrl: z.string().trim().max(2000).default(''),
+  portraitTransform: portraitTransformSchema.default(portraitTransformSchema.parse({})),
+  layoutVariant: z.enum(['v1', 'v2', 'v3']).default('v1'),
   editorAppearance: editorAppearanceSchema.default(editorAppearanceSchema.parse({})),
   personalityTraits: stringList,
   abilities: stringList,
@@ -221,6 +230,9 @@ const componentDefinitions: Record<RegisteredComponentType, WorldbuildingCompone
       field('title', '称号', '角色的头衔、代称或常用称呼。', 'string'),
       field('summary', '摘要', '一句话概括角色定位。', 'text'),
       field('description', '详细描述', '角色的完整描述文案。', 'text', { multiline: true }),
+      field('portraitResourceUrl', '立绘资源', '角色立绘的静态资源地址。', 'string'),
+      field('portraitTransform', '立绘变换', '角色立绘的位置偏移与缩放。', 'text'),
+      field('layoutVariant', '排版方案', '角色卡面使用的布局版本。', 'string'),
       field('personalityTraits', '性格特征', '角色稳定的性格关键词。', 'string_list'),
       field('abilities', '能力', '角色拥有的能力、技能或专长。', 'string_list'),
       field('tags', '标签', '便于检索的自由标签。', 'string_list')

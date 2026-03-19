@@ -15,140 +15,187 @@
     <main v-if="entityDetail" class="entity-main">
       <template v-if="isCharacter">
         <section class="character-left">
-          <div class="left-header">
-            <div class="eyebrow accent">Character Frame</div>
-            <div class="header-fields">
-              <input
-                v-model.trim="characterNameInput"
-                class="chrome-input chrome-input-name"
-                type="text"
-                maxlength="120"
-                placeholder="角色名称"
-              />
-              <input
-                v-model.trim="characterTitleInput"
-                class="chrome-input"
-                type="text"
-                maxlength="120"
-                placeholder="称号 / 代号"
-              />
-              <input
-                v-model.trim="characterSummaryInput"
-                class="chrome-input"
-                type="text"
-                maxlength="1000"
-                placeholder="一句话角色概述"
-              />
+          <article
+            class="character-stage"
+            :class="`layout-${characterLayoutVariant}`"
+          >
+            <div class="character-base-layer">
+              <div class="character-stage-noise" />
+              <div class="character-stage-blur" />
+              <div class="character-stage-glow" />
+              <div class="stage-geometry">
+                <span class="geo-line geo-line-long" />
+                <span class="geo-line geo-line-short" />
+                <span class="geo-angle" />
+              </div>
             </div>
-          </div>
 
-          <section class="portrait-panel">
-            <div class="portrait-stage">
-              <div class="portrait-card">
-                <div class="portrait-placeholder">
-                  <span class="portrait-code">{{ characterInitials }}</span>
-                  <span class="portrait-copy">CHARACTER ART</span>
+            <div class="character-image-layer">
+              <div
+                ref="portraitZoneRef"
+                class="portrait-design-zone"
+                :class="{ dragging: portraitDragging }"
+                @pointerdown="startPortraitDrag"
+                @pointermove="handlePortraitPointerMove"
+                @pointerup="endPortraitDrag"
+                @pointercancel="endPortraitDrag"
+                @wheel.prevent="handlePortraitWheel"
+              >
+                <div class="portrait-design-backdrop" />
+                <img
+                  v-if="characterPortraitUrl"
+                  :src="characterPortraitUrl"
+                  alt="人物立绘"
+                  class="character-stage-art"
+                  :style="portraitTransformStyle"
+                />
+                <button
+                  v-if="!characterPortraitUrl"
+                  type="button"
+                  class="portrait-upload-placeholder"
+                  @click="pickCharacterPortrait"
+                >
+                  添加人物立绘
+                </button>
+              </div>
+            </div>
+
+            <div class="character-content-layer">
+              <div class="character-stage-topbar">
+                <div class="eyebrow accent">Character Frame</div>
+                <div class="stage-topbar-actions">
+                  <button type="button" class="ghost-stage-btn compact" @click="pickCharacterPortrait">
+                    {{ characterPortraitUrl ? '更换立绘' : '添加立绘' }}
+                  </button>
+                  <span class="autosave-hint" :class="{ saving: savingCharacter, error: characterSaveState === 'error' }">
+                    {{ characterSaveHint }}
+                  </span>
+                  <div class="layout-selector" role="tablist" aria-label="人物版式切换">
+                    <button
+                      v-for="variant in layoutVariants"
+                      :key="variant.value"
+                      type="button"
+                      class="layout-dot"
+                      :class="{ active: characterLayoutVariant === variant.value }"
+                      :title="variant.label"
+                      @click="characterLayoutVariant = variant.value"
+                    />
+                  </div>
                 </div>
               </div>
 
-              <label class="orbit-card orbit-age">
-                <span class="orbit-label">年龄</span>
+              <div class="character-hero-copy">
+                <input
+                  v-model.trim="characterNameInput"
+                  class="hero-name-input"
+                  type="text"
+                  maxlength="120"
+                  placeholder="NAME"
+                />
+                <input
+                  v-model.trim="characterTitleInput"
+                  class="hero-title-input"
+                  type="text"
+                  maxlength="120"
+                  placeholder="称号 / 代号"
+                />
+                <textarea
+                  v-model.trim="characterSummaryInput"
+                  class="hero-summary-input"
+                  maxlength="1000"
+                  placeholder="一句话角色概述"
+                />
+              </div>
+
+              <label class="stage-meta stage-meta-age">
+                <span class="stage-meta-label">age</span>
                 <input
                   v-model.number="characterAgeInput"
-                  class="orbit-input"
+                  class="stage-meta-input"
                   type="number"
                   min="0"
                   max="100000"
-                  placeholder="--"
+                  placeholder="----"
                 />
               </label>
 
-              <label class="orbit-card orbit-race">
-                <span class="orbit-label">种族</span>
+              <label class="stage-meta stage-meta-race">
+                <span class="stage-meta-label">race</span>
                 <input
                   v-model.trim="characterRaceIdInput"
-                  class="orbit-input"
+                  class="stage-meta-input"
                   type="text"
                   maxlength="120"
-                  placeholder="种族"
+                  placeholder="----"
                 />
               </label>
 
-              <label class="orbit-card orbit-height">
-                <span class="orbit-label">身高</span>
+              <label class="stage-meta stage-meta-height">
+                <span class="stage-meta-label">height</span>
                 <input
                   v-model.trim="characterHeightInput"
-                  class="orbit-input"
+                  class="stage-meta-input"
                   type="text"
                   maxlength="120"
                   placeholder="例如 172cm"
                 />
               </label>
 
-              <label class="orbit-card orbit-gender">
-                <span class="orbit-label">性别</span>
+              <label class="stage-meta stage-meta-gender">
+                <span class="stage-meta-label">gender</span>
                 <input
                   v-model.trim="characterGenderInput"
-                  class="orbit-input"
+                  class="stage-meta-input"
                   type="text"
                   maxlength="60"
-                  placeholder="未设定"
-                />
-              </label>
-            </div>
-
-            <div class="side-meta-grid">
-              <label class="meta-chip">
-                <span class="meta-chip-label">势力</span>
-                <input
-                  v-model.trim="characterFactionIdInput"
-                  class="meta-chip-input"
-                  type="text"
-                  maxlength="120"
-                  placeholder="所属势力"
+                  placeholder="----"
                 />
               </label>
 
-              <label class="meta-chip">
-                <span class="meta-chip-label">出生地</span>
-                <input
-                  v-model.trim="characterBirthplaceInput"
-                  class="meta-chip-input"
-                  type="text"
-                  maxlength="120"
-                  placeholder="出生地"
-                />
-              </label>
-
-              <label class="meta-chip">
-                <span class="meta-chip-label">国家</span>
+              <label class="stage-meta stage-meta-nation">
+                <span class="stage-meta-label">nation</span>
                 <input
                   v-model.trim="characterNationIdInput"
-                  class="meta-chip-input"
+                  class="stage-meta-input"
                   type="text"
                   maxlength="120"
-                  placeholder="所属国家"
+                  placeholder="----"
                 />
               </label>
 
-              <div class="meta-chip meta-chip-static">
-                <span class="meta-chip-label">状态</span>
-                <strong>{{ entityDetail.entity.status }}</strong>
+              <div class="stage-footer">
+                <div class="stage-footer-grid">
+                  <label class="footer-chip">
+                    <span>势力</span>
+                    <input
+                      v-model.trim="characterFactionIdInput"
+                      class="footer-chip-input"
+                      type="text"
+                      maxlength="120"
+                      placeholder="所属势力"
+                    />
+                  </label>
+
+                  <label class="footer-chip">
+                    <span>出生地</span>
+                    <input
+                      v-model.trim="characterBirthplaceInput"
+                      class="footer-chip-input"
+                      type="text"
+                      maxlength="120"
+                      placeholder="出生地"
+                    />
+                  </label>
+
+                  <div class="footer-chip footer-chip-static">
+                    <span>状态</span>
+                    <strong>{{ entityDetail.entity.status }}</strong>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div class="left-actions">
-              <button
-                class="primary-btn"
-                :disabled="savingCharacter || !canSaveCharacter"
-                title="保存角色档案 (Ctrl+S)"
-                @click="saveCharacter"
-              >
-                {{ savingCharacter ? '保存中...' : '保存角色档案' }}
-              </button>
-              <span class="shortcut-hint">Ctrl / Cmd + S</span>
-            </div>
-          </section>
+          </article>
         </section>
 
         <section class="character-right panel-dark">
@@ -157,10 +204,14 @@
               <div class="eyebrow accent">Narrative Editor</div>
               <h2>人物描述 / 生平记录</h2>
             </div>
-
-            <button type="button" class="editor-config-btn" @click="showAppearancePanel = !showAppearancePanel">
-              {{ showAppearancePanel ? '收起样式' : '编辑器样式' }}
-            </button>
+            <div class="editor-head-actions">
+              <span class="autosave-hint" :class="{ saving: savingCharacter, error: characterSaveState === 'error' }">
+                {{ characterSaveHint }}
+              </span>
+              <button type="button" class="editor-config-btn" @click="showAppearancePanel = !showAppearancePanel">
+                {{ showAppearancePanel ? '收起样式' : '编辑器样式' }}
+              </button>
+            </div>
           </div>
 
           <WorldRichTextAppearancePanel
@@ -185,14 +236,9 @@
         <section class="panel description-panel">
           <div class="panel-head">
             <h2>描述文案</h2>
-            <button
-              class="primary-btn"
-              :disabled="savingDescription || !canSaveDescription"
-              title="保存描述 (Ctrl+S)"
-              @click="saveDescription"
-            >
-              {{ savingDescription ? '保存中...' : '保存描述' }}
-            </button>
+            <span class="autosave-hint" :class="{ saving: savingDescription, error: descriptionSaveState === 'error' }">
+              {{ descriptionSaveHint }}
+            </span>
           </div>
 
           <div class="form-stack">
@@ -233,7 +279,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { MdEditor, type ToolbarNames } from 'md-editor-v3'
 import { useRoute } from 'vue-router'
 import type {
@@ -244,6 +290,8 @@ import type {
   WorldEntityType
 } from '@share/cache/worldbuilding/worldbuilding'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
+import { isFilePickerCancelled } from '../utils/filePicker'
+import { toPlainIpcPayload } from '../utils/ipcPayload'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 import WorldRichTextAppearancePanel from '../features/worldbuilding/editor/components/WorldRichTextAppearancePanel.vue'
 import WorldRichTextEditor from '../features/worldbuilding/editor/components/WorldRichTextEditor.vue'
@@ -258,10 +306,19 @@ type CharacterProfileData = {
   summary?: string
   description?: string
   descriptionFormat?: 'markdown' | 'html'
+  portraitResourceUrl?: string
+  portraitTransform?: Partial<PortraitTransform>
+  layoutVariant?: 'v1' | 'v2' | 'v3'
   editorAppearance?: Partial<WorldRichTextAppearance>
   personalityTraits?: string[]
   abilities?: string[]
   tags?: string[]
+}
+
+type PortraitTransform = {
+  offsetX: number
+  offsetY: number
+  scale: number
 }
 
 type CharacterDemographicData = {
@@ -281,6 +338,8 @@ const entityDetail = ref<WorldEntityDetailPayload | null>(null)
 const savingDescription = ref(false)
 const savingCharacter = ref(false)
 const showAppearancePanel = ref(false)
+const characterSaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
+const descriptionSaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
 const descriptionText = ref('')
 
@@ -288,6 +347,12 @@ const characterNameInput = ref('')
 const characterTitleInput = ref('')
 const characterSummaryInput = ref('')
 const characterDescriptionInput = ref('')
+const characterPortraitUrl = ref('')
+const characterLayoutVariant = ref<'v1' | 'v2' | 'v3'>('v1')
+const portraitOffsetX = ref(0)
+const portraitOffsetY = ref(0)
+const portraitScale = ref(1)
+const portraitDragging = ref(false)
 const characterAgeInput = ref<number | null>(null)
 const characterHeightInput = ref('')
 const characterGenderInput = ref('')
@@ -296,6 +361,26 @@ const characterFactionIdInput = ref('')
 const characterNationIdInput = ref('')
 const characterBirthplaceInput = ref('')
 const characterEditorAppearance = ref<WorldRichTextAppearance>(DEFAULT_WORLD_RICH_TEXT_APPEARANCE)
+const portraitZoneRef = ref<HTMLElement | null>(null)
+
+let syncingFromDetail = false
+let characterAutosaveTimer: ReturnType<typeof setTimeout> | null = null
+let descriptionAutosaveTimer: ReturnType<typeof setTimeout> | null = null
+let characterSaveQueued = false
+let descriptionSaveQueued = false
+let lastSavedCharacterSignature = ''
+let lastSavedDescriptionSignature = ''
+let activePortraitPointerId: number | null = null
+let portraitDragStartX = 0
+let portraitDragStartY = 0
+let portraitDragOriginX = 0
+let portraitDragOriginY = 0
+
+const DEFAULT_PORTRAIT_TRANSFORM: PortraitTransform = {
+  offsetX: 0,
+  offsetY: 0,
+  scale: 1
+}
 
 const worldId = computed(() => String(route.params.worldId || ''))
 const entityId = computed(() => String(route.params.entityId || ''))
@@ -315,6 +400,12 @@ const genericToolbars: ToolbarNames[] = [
   'next',
   '=',
   'preview'
+]
+
+const layoutVariants = [
+  { value: 'v1' as const, label: '版式一' },
+  { value: 'v2' as const, label: '版式二' },
+  { value: 'v3' as const, label: '版式三' }
 ]
 
 const editableComponentByType: Partial<Record<WorldEntityType, string>> = {
@@ -341,6 +432,18 @@ const canSaveDescription = computed(() => Boolean(entityDetail.value && editable
 const canSaveCharacter = computed(
   () => Boolean(entityDetail.value && isCharacter.value && characterNameInput.value.trim())
 )
+const characterSaveHint = computed(() => {
+  if (characterSaveState.value === 'saving') return '自动保存中...'
+  if (characterSaveState.value === 'saved') return '已自动保存'
+  if (characterSaveState.value === 'error') return '自动保存失败'
+  return '自动保存'
+})
+const descriptionSaveHint = computed(() => {
+  if (descriptionSaveState.value === 'saving') return '自动保存中...'
+  if (descriptionSaveState.value === 'saved') return '已自动保存'
+  if (descriptionSaveState.value === 'error') return '自动保存失败'
+  return '自动保存'
+})
 
 const displayEntityType = computed(() => {
   const currentType = entityDetail.value?.entity.type
@@ -359,12 +462,43 @@ const displayEntityType = computed(() => {
   return currentType || ''
 })
 
-const characterInitials = computed(() => {
-  const base = (characterNameInput.value || entityDetail.value?.entity.name || '').trim()
-  if (!base) return '??'
-  const compact = base.replace(/\s+/g, '')
-  return compact.slice(0, 2).toUpperCase()
-})
+const portraitTransformStyle = computed(() => ({
+  transform: `translate(${portraitOffsetX.value}px, ${portraitOffsetY.value}px) scale(${portraitScale.value})`
+}))
+const characterAutosaveSignature = computed(() =>
+  JSON.stringify({
+    entityId: entityDetail.value?.entity.id || '',
+    name: characterNameInput.value.trim(),
+    title: characterTitleInput.value.trim(),
+    summary: characterSummaryInput.value.trim(),
+    description: characterDescriptionInput.value,
+    portraitResourceUrl: characterPortraitUrl.value,
+    portraitTransform: {
+      offsetX: portraitOffsetX.value,
+      offsetY: portraitOffsetY.value,
+      scale: portraitScale.value
+    },
+    layoutVariant: characterLayoutVariant.value,
+    age:
+      typeof characterAgeInput.value === 'number' && Number.isFinite(characterAgeInput.value)
+        ? characterAgeInput.value
+        : null,
+    heightLabel: characterHeightInput.value.trim(),
+    gender: characterGenderInput.value.trim(),
+    raceEntityId: characterRaceIdInput.value.trim(),
+    factionEntityId: characterFactionIdInput.value.trim(),
+    nationEntityId: characterNationIdInput.value.trim(),
+    birthplaceEntityId: characterBirthplaceInput.value.trim(),
+    editorAppearance: normalizeWorldRichTextAppearance(characterEditorAppearance.value)
+  })
+)
+const descriptionAutosaveSignature = computed(() =>
+  JSON.stringify({
+    entityId: entityDetail.value?.entity.id || '',
+    componentType: editableComponentType.value,
+    description: descriptionText.value
+  })
+)
 
 const getEditableComponent = (): WorldEntityComponentPayload<Record<string, unknown>> | null => {
   if (!entityDetail.value || !editableComponentType.value) return null
@@ -389,6 +523,8 @@ const getComponentByType = <TData extends Record<string, unknown>>(
 const syncGenericFormFromDetail = (): void => {
   const editableComponent = getEditableComponent()
   descriptionText.value = String(editableComponent?.data?.description || '')
+  lastSavedDescriptionSignature = descriptionAutosaveSignature.value
+  descriptionSaveState.value = 'saved'
 }
 
 const syncCharacterFormFromDetail = (): void => {
@@ -401,6 +537,18 @@ const syncCharacterFormFromDetail = (): void => {
   characterTitleInput.value = String(profile?.data?.title || '')
   characterSummaryInput.value = String(profile?.data?.summary || entityDetail.value.entity.summary || '')
   characterDescriptionInput.value = String(profile?.data?.description || '')
+  characterPortraitUrl.value = String(profile?.data?.portraitResourceUrl || '')
+  const portraitTransform = profile?.data?.portraitTransform
+  portraitOffsetX.value =
+    typeof portraitTransform?.offsetX === 'number' ? portraitTransform.offsetX : DEFAULT_PORTRAIT_TRANSFORM.offsetX
+  portraitOffsetY.value =
+    typeof portraitTransform?.offsetY === 'number' ? portraitTransform.offsetY : DEFAULT_PORTRAIT_TRANSFORM.offsetY
+  portraitScale.value =
+    typeof portraitTransform?.scale === 'number' ? portraitTransform.scale : DEFAULT_PORTRAIT_TRANSFORM.scale
+  characterLayoutVariant.value =
+    profile?.data?.layoutVariant === 'v2' || profile?.data?.layoutVariant === 'v3'
+      ? profile.data.layoutVariant
+      : 'v1'
   characterAgeInput.value =
     typeof demographic?.data?.age === 'number' ? demographic.data.age : null
   characterHeightInput.value = String(demographic?.data?.heightLabel || '')
@@ -410,6 +558,57 @@ const syncCharacterFormFromDetail = (): void => {
   characterNationIdInput.value = String(demographic?.data?.nationEntityId || '')
   characterBirthplaceInput.value = String(demographic?.data?.birthplaceEntityId || '')
   characterEditorAppearance.value = normalizeWorldRichTextAppearance(profile?.data?.editorAppearance)
+  lastSavedCharacterSignature = characterAutosaveSignature.value
+  characterSaveState.value = 'saved'
+}
+
+const pickCharacterPortrait = async (): Promise<void> => {
+  try {
+    const picked = await window.api.pickFile()
+    const uploaded = await window.api.uploadFile(picked.sourcePath)
+    characterPortraitUrl.value = uploaded.resourceUrl
+    portraitOffsetX.value = DEFAULT_PORTRAIT_TRANSFORM.offsetX
+    portraitOffsetY.value = DEFAULT_PORTRAIT_TRANSFORM.offsetY
+    portraitScale.value = DEFAULT_PORTRAIT_TRANSFORM.scale
+  } catch (error: unknown) {
+    if (isFilePickerCancelled(error)) {
+      return
+    }
+    console.error('Failed to pick character portrait:', error)
+  }
+}
+
+const startPortraitDrag = (event: PointerEvent): void => {
+  if (!characterPortraitUrl.value || !portraitZoneRef.value) return
+  if ((event.target as HTMLElement | null)?.closest('button, input, textarea')) return
+  activePortraitPointerId = event.pointerId
+  portraitDragging.value = true
+  portraitDragStartX = event.clientX
+  portraitDragStartY = event.clientY
+  portraitDragOriginX = portraitOffsetX.value
+  portraitDragOriginY = portraitOffsetY.value
+  portraitZoneRef.value.setPointerCapture(event.pointerId)
+}
+
+const handlePortraitPointerMove = (event: PointerEvent): void => {
+  if (!portraitDragging.value || activePortraitPointerId !== event.pointerId) return
+  portraitOffsetX.value = portraitDragOriginX + (event.clientX - portraitDragStartX)
+  portraitOffsetY.value = portraitDragOriginY + (event.clientY - portraitDragStartY)
+}
+
+const endPortraitDrag = (event: PointerEvent): void => {
+  if (activePortraitPointerId !== event.pointerId) return
+  if (portraitZoneRef.value?.hasPointerCapture(event.pointerId)) {
+    portraitZoneRef.value.releasePointerCapture(event.pointerId)
+  }
+  activePortraitPointerId = null
+  portraitDragging.value = false
+}
+
+const handlePortraitWheel = (event: WheelEvent): void => {
+  if (!characterPortraitUrl.value) return
+  const nextScale = portraitScale.value + (event.deltaY < 0 ? 0.05 : -0.05)
+  portraitScale.value = Math.min(2.5, Math.max(0.45, Number(nextScale.toFixed(2))))
 }
 
 const loadEntityDetail = async (): Promise<void> => {
@@ -418,23 +617,35 @@ const loadEntityDetail = async (): Promise<void> => {
     return
   }
 
-  entityDetail.value = await worldbuildingClientService.getEntityDetail(entityId.value)
-  syncGenericFormFromDetail()
-  if (isCharacter.value) {
-    syncCharacterFormFromDetail()
+  syncingFromDetail = true
+  try {
+    entityDetail.value = await worldbuildingClientService.getEntityDetail(entityId.value)
+    syncGenericFormFromDetail()
+    if (isCharacter.value) {
+      syncCharacterFormFromDetail()
+    }
+  } finally {
+    syncingFromDetail = false
   }
 }
 
-const saveDescription = async (): Promise<void> => {
-  if (!canSaveDescription.value || savingDescription.value || !entityDetail.value) return
+const saveDescription = async (force = false): Promise<void> => {
+  if (!canSaveDescription.value || !entityDetail.value) return
+  if (!force && descriptionAutosaveSignature.value === lastSavedDescriptionSignature) return
+  if (savingDescription.value) {
+    descriptionSaveQueued = true
+    return
+  }
 
   const editableComponent = getEditableComponent()
   const nextData = {
-    ...(editableComponent?.data ?? {}),
+    ...toPlainIpcPayload(editableComponent?.data ?? {}),
     description: descriptionText.value
   }
 
   savingDescription.value = true
+  descriptionSaveState.value = 'saving'
+  const signatureAtSave = descriptionAutosaveSignature.value
   try {
     await worldbuildingClientService.upsertComponent({
       entityId: entityDetail.value.entity.id,
@@ -442,14 +653,27 @@ const saveDescription = async (): Promise<void> => {
       schemaVersion: editableComponent?.schemaVersion ?? 1,
       data: nextData
     })
-    await loadEntityDetail()
+    lastSavedDescriptionSignature = signatureAtSave
+    descriptionSaveState.value = 'saved'
+  } catch (error) {
+    descriptionSaveState.value = 'error'
+    throw error
   } finally {
     savingDescription.value = false
+    if (descriptionSaveQueued || descriptionAutosaveSignature.value !== lastSavedDescriptionSignature) {
+      descriptionSaveQueued = false
+      scheduleDescriptionAutosave(120)
+    }
   }
 }
 
-const saveCharacter = async (): Promise<void> => {
-  if (!canSaveCharacter.value || savingCharacter.value || !entityDetail.value) return
+const saveCharacter = async (force = false): Promise<void> => {
+  if (!canSaveCharacter.value || !entityDetail.value) return
+  if (!force && characterAutosaveSignature.value === lastSavedCharacterSignature) return
+  if (savingCharacter.value) {
+    characterSaveQueued = true
+    return
+  }
 
   const profile = getComponentByType<CharacterProfileData>('character_profile')
   const demographic = getComponentByType<CharacterDemographicData>('character_demographic')
@@ -466,11 +690,18 @@ const saveCharacter = async (): Promise<void> => {
     componentType: 'character_profile',
     schemaVersion: profile?.schemaVersion ?? 1,
     data: {
-      ...(profile?.data ?? {}),
+      ...toPlainIpcPayload(profile?.data ?? {}),
       title: characterTitleInput.value.trim(),
       summary: characterSummaryInput.value.trim(),
       description: characterDescriptionInput.value,
       descriptionFormat: 'html',
+      portraitResourceUrl: characterPortraitUrl.value,
+      portraitTransform: {
+        offsetX: portraitOffsetX.value,
+        offsetY: portraitOffsetY.value,
+        scale: portraitScale.value
+      },
+      layoutVariant: characterLayoutVariant.value,
       editorAppearance: normalizeWorldRichTextAppearance(characterEditorAppearance.value)
     }
   }
@@ -480,7 +711,7 @@ const saveCharacter = async (): Promise<void> => {
     componentType: 'character_demographic',
     schemaVersion: demographic?.schemaVersion ?? 1,
     data: {
-      ...(demographic?.data ?? {}),
+      ...toPlainIpcPayload(demographic?.data ?? {}),
       age:
         typeof characterAgeInput.value === 'number' && Number.isFinite(characterAgeInput.value)
           ? characterAgeInput.value
@@ -496,20 +727,89 @@ const saveCharacter = async (): Promise<void> => {
   }
 
   savingCharacter.value = true
+  characterSaveState.value = 'saving'
+  const signatureAtSave = characterAutosaveSignature.value
   try {
     await Promise.all([
       worldbuildingClientService.updateEntity(entityInput),
       worldbuildingClientService.upsertComponent(profileInput),
       worldbuildingClientService.upsertComponent(demographicInput)
     ])
-    await loadEntityDetail()
+    if (entityDetail.value) {
+      entityDetail.value = {
+        ...entityDetail.value,
+        entity: {
+          ...entityDetail.value.entity,
+          name: entityInput.name,
+          summary: entityInput.summary
+        }
+      }
+    }
+    lastSavedCharacterSignature = signatureAtSave
+    characterSaveState.value = 'saved'
+  } catch (error) {
+    characterSaveState.value = 'error'
+    throw error
   } finally {
     savingCharacter.value = false
+    if (characterSaveQueued || characterAutosaveSignature.value !== lastSavedCharacterSignature) {
+      characterSaveQueued = false
+      scheduleCharacterAutosave(120)
+    }
   }
+}
+
+const clearCharacterAutosave = (): void => {
+  if (characterAutosaveTimer) {
+    clearTimeout(characterAutosaveTimer)
+    characterAutosaveTimer = null
+  }
+}
+
+const clearDescriptionAutosave = (): void => {
+  if (descriptionAutosaveTimer) {
+    clearTimeout(descriptionAutosaveTimer)
+    descriptionAutosaveTimer = null
+  }
+}
+
+const scheduleCharacterAutosave = (delay = 700): void => {
+  if (!isCharacter.value || syncingFromDetail || !entityDetail.value) return
+  clearCharacterAutosave()
+  if (!canSaveCharacter.value || characterAutosaveSignature.value === lastSavedCharacterSignature) return
+  characterSaveState.value = 'idle'
+  characterAutosaveTimer = setTimeout(() => {
+    characterAutosaveTimer = null
+    void saveCharacter()
+  }, delay)
+}
+
+const scheduleDescriptionAutosave = (delay = 700): void => {
+  if (isCharacter.value || syncingFromDetail || !entityDetail.value) return
+  clearDescriptionAutosave()
+  if (!canSaveDescription.value || descriptionAutosaveSignature.value === lastSavedDescriptionSignature) return
+  descriptionSaveState.value = 'idle'
+  descriptionAutosaveTimer = setTimeout(() => {
+    descriptionAutosaveTimer = null
+    void saveDescription()
+  }, delay)
 }
 
 onMounted(async () => {
   await loadEntityDetail()
+})
+
+watch(characterAutosaveSignature, () => {
+  scheduleCharacterAutosave()
+})
+
+watch(descriptionAutosaveSignature, () => {
+  scheduleDescriptionAutosave()
+})
+
+onBeforeUnmount(() => {
+  clearCharacterAutosave()
+  clearDescriptionAutosave()
 })
 
 useKeyboardShortcut(
@@ -523,10 +823,12 @@ useKeyboardShortcut(
   },
   async () => {
     if (isCharacter.value) {
-      await saveCharacter()
+      clearCharacterAutosave()
+      await saveCharacter(true)
       return
     }
-    await saveDescription()
+    clearDescriptionAutosave()
+    await saveDescription(true)
   }
 )
 </script>
@@ -593,7 +895,7 @@ useKeyboardShortcut(
   min-height: 0;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 410px minmax(0, 1fr);
+  grid-template-columns: 520px minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -605,207 +907,424 @@ useKeyboardShortcut(
 
 .character-left {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
 }
 
-.left-header {
-  border-radius: 24px;
-  border: 1px solid rgba(205, 161, 92, 0.18);
-  background:
-    linear-gradient(180deg, rgba(20, 25, 34, 0.98), rgba(13, 17, 24, 0.98));
-  box-shadow: 0 22px 50px rgba(2, 4, 8, 0.34);
-  padding: 18px;
-}
-
-.header-fields {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.chrome-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid rgba(205, 161, 92, 0.12);
-  border-radius: 14px;
-  padding: 12px 14px;
-  background: rgba(8, 12, 18, 0.62);
-  color: #f0f4f8;
-  font: inherit;
-}
-
-.chrome-input-name {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-}
-
-.chrome-input:focus,
-.orbit-input:focus,
-.meta-chip-input:focus {
-  outline: none;
-  border-color: #cda15c;
-  box-shadow: 0 0 0 3px rgba(205, 161, 92, 0.12);
-}
-
-.portrait-panel {
-  flex: 1;
-  min-height: 0;
-  border-radius: 28px;
-  border: 1px solid rgba(205, 161, 92, 0.18);
-  background:
-    radial-gradient(circle at center, rgba(205, 161, 92, 0.08), transparent 38%),
-    linear-gradient(180deg, rgba(18, 24, 34, 0.98), rgba(11, 15, 22, 0.98));
-  box-shadow: 0 26px 60px rgba(2, 4, 8, 0.38);
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.portrait-stage {
+.character-stage {
   position: relative;
   flex: 1;
   min-height: 0;
-  border-radius: 24px;
-  border: 1px solid rgba(205, 161, 92, 0.08);
-  background:
-    linear-gradient(180deg, rgba(34, 42, 55, 0.82), rgba(12, 17, 25, 0.96));
   overflow: hidden;
-}
-
-.portrait-card {
-  position: absolute;
-  inset: 44px 52px;
   border-radius: 30px;
-  border: 1px solid rgba(205, 161, 92, 0.14);
+  border: 1px solid rgba(205, 161, 92, 0.18);
   background:
-    radial-gradient(circle at center, rgba(205, 161, 92, 0.11), transparent 40%),
-    linear-gradient(180deg, rgba(26, 34, 47, 0.96), rgba(10, 14, 20, 0.98));
-  display: flex;
-  align-items: center;
-  justify-content: center;
+    radial-gradient(circle at top center, rgba(205, 161, 92, 0.12), transparent 28%),
+    linear-gradient(180deg, #161c26 0%, #0b1017 100%);
+  box-shadow: 0 26px 60px rgba(2, 4, 8, 0.38);
+  padding: 22px;
 }
 
-.portrait-placeholder {
+.character-base-layer,
+.character-image-layer,
+.character-content-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.character-base-layer {
+  z-index: 1;
+  pointer-events: none;
+}
+
+.character-image-layer {
+  z-index: 2;
+  pointer-events: none;
+  inset: 0;
+}
+
+.character-content-layer {
+  z-index: 4;
+  pointer-events: none;
+}
+
+.character-content-layer > * {
+  pointer-events: auto;
+}
+
+.character-stage-noise,
+.character-stage-blur,
+.character-stage-glow,
+.character-stage-art {
+  position: absolute;
+  pointer-events: none;
+}
+
+.character-stage-noise,
+.character-stage-blur,
+.character-stage-glow {
+  inset: 0;
+}
+
+.character-stage-art {
+  inset: 0;
   width: 100%;
   height: 100%;
-  border-radius: 30px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  color: #d2a35d;
+  object-fit: contain;
+  object-position: center bottom;
+  transform-origin: center center;
+  -webkit-mask-image: linear-gradient(
+    to top,
+    transparent 0%,
+    rgba(0, 0, 0, 0.2) 30%,
+    rgba(0, 0, 0, 0.72) 50%,
+    rgba(0, 0, 0, 1) 80%
+  );
+  mask-image: linear-gradient(
+    to top,
+    transparent 0%,
+    rgba(0, 0, 0, 0.2) 30%,
+    rgba(0, 0, 0, 0.72) 50%,
+    rgba(0, 0, 0, 1) 80%
+  );
+  z-index: 3;
 }
 
-.portrait-code {
+.character-stage-noise {
+  background:
+    radial-gradient(circle at 12% 10%, rgba(255, 255, 255, 0.08) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 88% 22%, rgba(255, 255, 255, 0.06) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 8% 76%, rgba(255, 255, 255, 0.05) 0 1px, transparent 1.5px);
+  z-index: 0;
+}
+
+.character-stage-blur {
+  inset: auto 0 0 0;
+  height: 44%;
+  backdrop-filter: blur(16px);
+  background: linear-gradient(180deg, rgba(9, 13, 19, 0), rgba(9, 13, 19, 0.84) 42%, rgba(9, 13, 19, 0.96) 100%);
+  mask-image: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.38) 24%, rgba(0, 0, 0, 1));
+  z-index: 2;
+}
+
+.character-stage-glow {
+  background:
+    radial-gradient(circle at 48% 24%, rgba(255, 255, 255, 0.08), transparent 32%),
+    linear-gradient(180deg, rgba(10, 14, 20, 0.12), rgba(10, 14, 20, 0.22));
+  z-index: 1;
+}
+
+.portrait-upload-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  min-height: 100%;
+  border: 1px dashed rgba(205, 161, 92, 0.28);
+  border-radius: 24px;
+  background: rgba(8, 12, 18, 0.46);
+  color: #e7d2ad;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+
+.character-stage-topbar {
+  position: absolute;
+  top: 22px;
+  left: 22px;
+  right: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  z-index: 5;
+}
+
+.stage-topbar-actions {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 140px;
-  height: 140px;
-  border-radius: 34px;
-  background: linear-gradient(135deg, #ce9d55, #8d6027);
-  color: #17110a;
-  font-size: 54px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  gap: 12px;
 }
 
-.portrait-copy {
+.layout-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.layout-dot {
+  width: 10px;
+  height: 10px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(148, 160, 183, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(205, 161, 92, 0.18);
+  cursor: pointer;
+}
+
+.layout-dot.active {
+  background: #d2a35d;
+  box-shadow: 0 0 0 4px rgba(210, 163, 93, 0.14);
+}
+
+.ghost-stage-btn {
+  border: 1px solid rgba(205, 161, 92, 0.18);
+  border-radius: 14px;
+  padding: 10px 14px;
+  background: rgba(11, 15, 22, 0.72);
+  color: #e7d2ad;
+  font: inherit;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.ghost-stage-btn.compact {
+  border-radius: 12px;
+  padding: 7px 12px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.autosave-hint {
   font-size: 12px;
-  letter-spacing: 0.24em;
+  color: #8f99ab;
+  white-space: nowrap;
+}
+
+.autosave-hint.saving {
+  color: #d7b272;
+}
+
+.autosave-hint.error {
+  color: #ef8f8f;
+}
+
+.character-hero-copy {
+  position: absolute;
+  top: 96px;
+  left: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(46%, 250px);
+  z-index: 5;
+}
+
+.hero-name-input,
+.hero-title-input,
+.hero-summary-input,
+.stage-meta-input,
+.footer-chip-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: #f6f4ef;
+  font: inherit;
+}
+
+.hero-name-input,
+.hero-title-input,
+.hero-summary-input,
+.stage-meta-input,
+.footer-chip-input,
+.ghost-stage-btn {
+  outline: none;
+}
+
+.hero-name-input::placeholder,
+.hero-title-input::placeholder,
+.hero-summary-input::placeholder,
+.stage-meta-input::placeholder,
+.footer-chip-input::placeholder {
+  color: rgba(228, 236, 248, 0.48);
+}
+
+.hero-name-input {
+  font-size: 42px;
+  line-height: 0.95;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.hero-title-input {
+  font-size: 16px;
+  font-weight: 600;
+  color: #d8dfea;
+}
+
+.hero-summary-input {
+  min-height: 72px;
+  resize: none;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #cad3df;
+}
+
+.stage-meta {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 120px;
+  z-index: 5;
+}
+
+.stage-meta-label,
+.footer-chip span {
+  font-size: 11px;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: #8f98a8;
 }
 
-.orbit-card {
+.stage-meta-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.stage-meta-age {
+  top: 312px;
+  left: 28px;
+}
+
+.stage-meta-race {
+  top: 408px;
+  left: 28px;
+}
+
+.stage-meta-height {
+  top: 504px;
+  left: 28px;
+}
+
+.stage-meta-gender {
+  top: 600px;
+  left: 28px;
+}
+
+/* 右侧nation 调节位置 */
+.stage-meta-nation {
+  top: 100px;
+  right: 30px;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.portrait-design-zone {
   position: absolute;
-  width: 126px;
-  padding: 12px 12px 10px;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.portrait-design-zone.dragging {
+  cursor: grabbing;
+}
+
+.portrait-design-backdrop {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, rgba(18, 23, 32, 0.02), rgba(8, 12, 18, 0.08)),
+    radial-gradient(circle at 50% 86%, rgba(0, 0, 0, 0.26), transparent 62%);
+  pointer-events: none;
+}
+
+.stage-footer {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 24px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stage-footer-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.footer-chip {
+  border: 1px solid rgba(205, 161, 92, 0.12);
   border-radius: 18px;
-  border: 1px solid rgba(205, 161, 92, 0.14);
-  background: rgba(10, 14, 20, 0.88);
-  backdrop-filter: blur(6px);
+  background: rgba(9, 13, 19, 0.5);
+  backdrop-filter: blur(10px);
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.orbit-age {
-  top: 18px;
-  left: 18px;
-}
-
-.orbit-race {
-  top: 18px;
-  right: 18px;
-}
-
-.orbit-height {
-  bottom: 18px;
-  left: 18px;
-}
-
-.orbit-gender {
-  bottom: 18px;
-  right: 18px;
-}
-
-.orbit-label,
-.meta-chip-label {
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: #8994a6;
-}
-
-.orbit-input,
-.meta-chip-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: #f3f6fa;
-  font: inherit;
+.footer-chip-input,
+.footer-chip-static strong {
+  font-size: 16px;
   font-weight: 700;
 }
 
-.side-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.meta-chip {
-  border-radius: 16px;
-  border: 1px solid rgba(205, 161, 92, 0.12);
-  background: rgba(9, 13, 19, 0.56);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.meta-chip-static strong {
-  color: #f3f6fa;
-  font-size: 16px;
+.footer-chip-static strong {
+  color: #f6f4ef;
   text-transform: capitalize;
 }
 
-.left-actions {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+.stage-geometry {
+  position: absolute;
+  right: 18px;
+  bottom: 128px;
+  width: 110px;
+  height: 110px;
+  pointer-events: none;
+  z-index: 4;
 }
 
-.shortcut-hint {
-  font-size: 12px;
-  color: #8f99ab;
+.geo-line {
+  position: absolute;
+  display: block;
+  background: rgba(244, 239, 228, 0.18);
+}
+
+.geo-line-long {
+  right: 10px;
+  bottom: 18px;
+  width: 1px;
+  height: 90px;
+}
+
+.geo-line-short {
+  left: 0;
+  bottom: 0;
+  width: 78px;
+  height: 2px;
+}
+
+.geo-angle {
+  position: absolute;
+  right: 0;
+  top: 18px;
+  width: 24px;
+  height: 24px;
+  border-right: 2px solid rgba(210, 163, 93, 0.8);
+  border-bottom: 2px solid rgba(210, 163, 93, 0.8);
+  transform: rotate(-28deg);
+}
+
+.hero-name-input:focus,
+.hero-title-input:focus,
+.hero-summary-input:focus,
+.stage-meta-input:focus,
+.footer-chip-input:focus,
+.ghost-stage-btn:focus {
+  box-shadow: 0 0 0 3px rgba(205, 161, 92, 0.14);
+  border-radius: 12px;
 }
 
 .panel-dark {
@@ -827,6 +1346,12 @@ useKeyboardShortcut(
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+}
+
+.editor-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .editor-head h2 {
@@ -1000,8 +1525,8 @@ useKeyboardShortcut(
   }
 
   .panel-dark,
-  .portrait-panel {
-    min-height: 640px;
+  .character-stage {
+    min-height: 760px;
   }
 
   .appearance-popover {
@@ -1021,16 +1546,66 @@ useKeyboardShortcut(
     align-items: stretch;
   }
 
-  .portrait-card {
-    inset: 78px 24px;
+  .entity-main {
+    gap: 14px;
   }
 
-  .orbit-card {
-    width: 104px;
+  .character-stage {
+    min-height: 820px;
+    padding: 18px;
   }
 
-  .side-meta-grid {
+  .character-hero-copy {
+    top: 84px;
+    left: 22px;
+    width: min(48%, 190px);
+  }
+
+  .hero-name-input {
+    font-size: 28px;
+  }
+
+  .stage-topbar-actions,
+  .editor-head-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .stage-meta-age {
+    top: 264px;
+    left: 22px;
+  }
+
+  .stage-meta-race {
+    top: 344px;
+    left: 22px;
+  }
+
+  .stage-meta-height {
+    top: 424px;
+    left: 22px;
+  }
+
+  .stage-meta-gender {
+    top: 504px;
+    left: 22px;
+  }
+
+  .stage-meta-nation {
+    top: 122px;
+    right: 22px;
+  }
+
+  .stage-footer-grid {
     grid-template-columns: 1fr;
   }
+
+  .stage-geometry {
+    right: 14px;
+    bottom: 164px;
+    transform: scale(0.9);
+    transform-origin: bottom right;
+  }
+
 }
 </style>

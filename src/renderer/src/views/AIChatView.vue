@@ -358,6 +358,7 @@
 <script setup lang="ts">
 import { computed, ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAIChatService } from '../services/aiClientService'
+import { isFilePickerCancelled } from '../utils/filePicker'
 import AILogPanel from '../components/AILogPanel.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import AvatarEditorDialog from '../features/chat/components/AvatarEditorDialog.vue'
@@ -607,7 +608,7 @@ const handlePickFile = async (): Promise<void> => {
       status: 'pending'
     })
   } catch (error: unknown) {
-    if (error instanceof Error && error.message === 'No file selected') {
+    if (isFilePickerCancelled(error)) {
       return
     }
     const message = error instanceof Error ? error.message : String(error)
