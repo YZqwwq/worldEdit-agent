@@ -1,6 +1,6 @@
 <template>
   <div class="editor-shell">
-    <WorldRichTextToolbar :editor="editor" />
+    <WorldRichTextToolbar v-if="showToolbar" :editor="editor" :show-meta="showToolbarMeta" />
 
     <div class="editor-frame" :class="{ 'editor-frame-dark': theme === 'dark' }" :style="editorStyle">
       <EditorContent v-if="editor" :editor="editor" class="editor-content" />
@@ -30,16 +30,21 @@ const props = withDefaults(
     showShortcutHint?: boolean
     theme?: 'light' | 'dark'
     appearance?: Partial<WorldRichTextAppearance> | null
+    showToolbarMeta?: boolean
+    showToolbar?: boolean
   }>(),
   {
     placeholder: '开始输入内容',
     showShortcutHint: false,
-    theme: 'dark'
+    theme: 'dark',
+    showToolbarMeta: true,
+    showToolbar: true
   }
 )
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
+  (e: 'stats-change', value: { words: number; characters: number }): void
 }>()
 
 const extensions = createWorldbuildingEditorExtensions(props.placeholder)
@@ -49,11 +54,25 @@ const editor = useEditor({
   content: normalizeRichTextContent(props.modelValue),
   editorProps: {
     attributes: {
-      class: 'worldbuilding-tiptap'
+      class: 'worldbuilding-tiptap',
+      spellcheck: 'false',
+      autocorrect: 'off',
+      autocomplete: 'off',
+      autocapitalize: 'off'
     }
+  },
+  onCreate: ({ editor }) => {
+    emit('stats-change', {
+      words: editor.storage.characterCount.words(),
+      characters: editor.storage.characterCount.characters()
+    })
   },
   onUpdate: ({ editor }) => {
     emit('update:modelValue', editor.getHTML())
+    emit('stats-change', {
+      words: editor.storage.characterCount.words(),
+      characters: editor.storage.characterCount.characters()
+    })
   }
 })
 

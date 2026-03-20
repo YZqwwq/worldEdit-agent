@@ -28,7 +28,7 @@
       </button>
     </div>
 
-    <div class="toolbar-group toolbar-group-meta">
+    <div v-if="showMeta" class="toolbar-group toolbar-group-meta">
       <span class="toolbar-meta">{{ wordCount }} 字词</span>
       <span class="toolbar-meta">{{ characterCount }} 字符</span>
     </div>
@@ -41,6 +41,7 @@ import type { Editor } from '@tiptap/vue-3'
 
 const props = defineProps<{
   editor: Editor | null | undefined
+  showMeta?: boolean
 }>()
 
 type ToolbarButton = {
@@ -137,6 +138,7 @@ const blockButtons = computed<ToolbarButton[]>(() => [
 
 const characterCount = computed(() => props.editor?.storage.characterCount.characters() ?? 0)
 const wordCount = computed(() => props.editor?.storage.characterCount.words() ?? 0)
+const showMeta = computed(() => props.showMeta !== false)
 </script>
 
 <style scoped>

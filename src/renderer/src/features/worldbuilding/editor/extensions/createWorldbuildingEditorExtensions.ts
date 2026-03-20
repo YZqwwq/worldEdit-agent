@@ -3,6 +3,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import StarterKit from '@tiptap/starter-kit'
 import type { AnyExtension } from '@tiptap/core'
 import { BoundaryTabNavigation } from './BoundaryTabNavigation'
+import { WorldEditorKeyboardShortcuts } from './WorldEditorKeyboardShortcuts'
 
 export const createWorldbuildingEditorExtensions = (placeholder: string): AnyExtension[] => [
   StarterKit.configure({
@@ -15,5 +16,6 @@ export const createWorldbuildingEditorExtensions = (placeholder: string): AnyExt
     emptyEditorClass: 'is-editor-empty'
   }),
   CharacterCount.configure(),
+  WorldEditorKeyboardShortcuts,
   BoundaryTabNavigation
 ]

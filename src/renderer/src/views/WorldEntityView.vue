@@ -67,9 +67,6 @@
                   <button type="button" class="ghost-stage-btn compact" @click="pickCharacterPortrait">
                     {{ characterPortraitUrl ? '更换立绘' : '添加立绘' }}
                   </button>
-                  <span class="autosave-hint" :class="{ saving: savingCharacter, error: characterSaveState === 'error' }">
-                    {{ characterSaveHint }}
-                  </span>
                   <div class="layout-selector" role="tablist" aria-label="人物版式切换">
                     <button
                       v-for="variant in layoutVariants"
@@ -152,17 +149,6 @@
                 />
               </label>
 
-              <label class="stage-meta stage-meta-nation">
-                <span class="stage-meta-label">nation</span>
-                <input
-                  v-model.trim="characterNationIdInput"
-                  class="stage-meta-input"
-                  type="text"
-                  maxlength="120"
-                  placeholder="----"
-                />
-              </label>
-
               <div class="stage-footer">
                 <div class="stage-footer-grid">
                   <label class="footer-chip">
@@ -187,10 +173,16 @@
                     />
                   </label>
 
-                  <div class="footer-chip footer-chip-static">
-                    <span>状态</span>
-                    <strong>{{ entityDetail.entity.status }}</strong>
-                  </div>
+                  <label class="footer-chip">
+                    <span>国属</span>
+                    <input
+                      v-model.trim="characterNationIdInput"
+                      class="footer-chip-input"
+                      type="text"
+                      maxlength="120"
+                      placeholder="所属国家"
+                    />
+                  </label>
                 </div>
               </div>
             </div>
@@ -200,16 +192,20 @@
 
         <section class="character-right panel-dark">
           <div class="editor-head">
-            <div>
-              <div class="eyebrow accent">Narrative Editor</div>
-              <h2>人物描述 / 生平记录</h2>
-            </div>
+            <div class="eyebrow accent">Narrative Editor</div>
             <div class="editor-head-actions">
-              <span class="autosave-hint" :class="{ saving: savingCharacter, error: characterSaveState === 'error' }">
-                {{ characterSaveHint }}
+              <span class="editor-counts">
+                {{ characterEditorStats.words }} 字词 {{ characterEditorStats.characters }} 字符
               </span>
-              <button type="button" class="editor-config-btn" @click="showAppearancePanel = !showAppearancePanel">
-                {{ showAppearancePanel ? '收起样式' : '编辑器样式' }}
+              <WorldEditorShortcutHelp />
+              <button
+                type="button"
+                class="editor-config-btn"
+                :aria-label="showAppearancePanel ? '收起编辑器样式' : '打开编辑器样式'"
+                :title="showAppearancePanel ? '收起编辑器样式' : '打开编辑器样式'"
+                @click="showAppearancePanel = !showAppearancePanel"
+              >
+                <span class="editor-config-icon" aria-hidden="true">{{ showAppearancePanel ? '×' : '✎' }}</span>
               </button>
             </div>
           </div>
@@ -225,8 +221,10 @@
               v-model="characterDescriptionInput"
               class="narrative-editor"
               placeholder="写下人物介绍、经历、关系、秘密与转折。"
-              show-shortcut-hint
               :appearance="characterEditorAppearance"
+              :show-toolbar-meta="false"
+              :show-toolbar="false"
+              @stats-change="characterEditorStats = $event"
             />
           </div>
         </section>
@@ -293,6 +291,7 @@ import { worldbuildingClientService } from '../services/worldbuildingClientServi
 import { isFilePickerCancelled } from '../utils/filePicker'
 import { toPlainIpcPayload } from '../utils/ipcPayload'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
+import WorldEditorShortcutHelp from '../features/worldbuilding/editor/components/WorldEditorShortcutHelp.vue'
 import WorldRichTextAppearancePanel from '../features/worldbuilding/editor/components/WorldRichTextAppearancePanel.vue'
 import WorldRichTextEditor from '../features/worldbuilding/editor/components/WorldRichTextEditor.vue'
 import {
@@ -361,6 +360,7 @@ const characterFactionIdInput = ref('')
 const characterNationIdInput = ref('')
 const characterBirthplaceInput = ref('')
 const characterEditorAppearance = ref<WorldRichTextAppearance>(DEFAULT_WORLD_RICH_TEXT_APPEARANCE)
+const characterEditorStats = ref({ words: 0, characters: 0 })
 const portraitZoneRef = ref<HTMLElement | null>(null)
 
 let syncingFromDetail = false
@@ -432,12 +432,6 @@ const canSaveDescription = computed(() => Boolean(entityDetail.value && editable
 const canSaveCharacter = computed(
   () => Boolean(entityDetail.value && isCharacter.value && characterNameInput.value.trim())
 )
-const characterSaveHint = computed(() => {
-  if (characterSaveState.value === 'saving') return '自动保存中...'
-  if (characterSaveState.value === 'saved') return '已自动保存'
-  if (characterSaveState.value === 'error') return '自动保存失败'
-  return '自动保存'
-})
 const descriptionSaveHint = computed(() => {
   if (descriptionSaveState.value === 'saving') return '自动保存中...'
   if (descriptionSaveState.value === 'saved') return '已自动保存'
@@ -853,7 +847,7 @@ useKeyboardShortcut(
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .back-link,
@@ -869,10 +863,12 @@ useKeyboardShortcut(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 14px;
+  min-height: 42px;
+  padding: 7px 14px;
   border: 1px solid rgba(185, 150, 93, 0.22);
   background: rgba(13, 17, 24, 0.94);
   color: #e7d2ad;
+  line-height: 1;
 }
 
 .eyebrow {
@@ -884,10 +880,6 @@ useKeyboardShortcut(
 
 .eyebrow.accent {
   color: #cda15c;
-}
-
-.editor-head h2 {
-  margin: 0;
 }
 
 .entity-main {
@@ -1205,14 +1197,6 @@ useKeyboardShortcut(
   left: 28px;
 }
 
-/* 右侧nation 调节位置 */
-.stage-meta-nation {
-  top: 100px;
-  right: 30px;
-  align-items: flex-end;
-  text-align: right;
-}
-
 .portrait-design-zone {
   position: absolute;
   inset: 0;
@@ -1265,15 +1249,9 @@ useKeyboardShortcut(
   gap: 8px;
 }
 
-.footer-chip-input,
-.footer-chip-static strong {
+.footer-chip-input {
   font-size: 16px;
   font-weight: 700;
-}
-
-.footer-chip-static strong {
-  color: #f6f4ef;
-  text-transform: capitalize;
 }
 
 .stage-geometry {
@@ -1343,21 +1321,15 @@ useKeyboardShortcut(
 .editor-head {
   flex-shrink: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
 }
 
 .editor-head-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-}
-
-.editor-head h2 {
-  margin-top: 6px;
-  font-size: 22px;
-  color: #f4ede1;
+  gap: 8px;
 }
 
 .editor-shell-frame {
@@ -1371,12 +1343,31 @@ useKeyboardShortcut(
 
 .editor-config-btn {
   border: 1px solid rgba(205, 161, 92, 0.18);
-  border-radius: 14px;
-  padding: 10px 14px;
+  border-radius: 10px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   background: rgba(11, 15, 22, 0.94);
   color: #e7d2ad;
   font: inherit;
+  line-height: 1;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-config-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.editor-counts {
+  font-size: 12px;
+  color: #8f99ab;
   white-space: nowrap;
 }
 
@@ -1589,11 +1580,6 @@ useKeyboardShortcut(
   .stage-meta-gender {
     top: 504px;
     left: 22px;
-  }
-
-  .stage-meta-nation {
-    top: 122px;
-    right: 22px;
   }
 
   .stage-footer-grid {
