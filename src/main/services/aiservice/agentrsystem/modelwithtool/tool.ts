@@ -1,15 +1,3 @@
-import { tool } from '@langchain/core/tools'
-import * as z from 'zod'
+import { mainAgentTools } from '../../ai-utils/toolkits/mainAgentToolkit'
 
-const add = tool(({ a, b }) => a + b, {
-  name: 'add',
-  description: 'Add two numbers. a: First number; b: Second number',
-  schema: z.object({
-    a: z.number(),
-    b: z.number()
-  })
-})
-
-export const tools = {
-  [add.name]: add
-}
+export const tools = mainAgentTools

@@ -6,6 +6,8 @@ import {
   loadPersonaState,
   formatPersonaState
 } from '../../manager/personal/personalManager'
+import { tools } from '../../modelwithtool/tool'
+import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
 
 /**
  * ContextNode: 负责构建全局上下文，包括 Persona、Memory 等。
@@ -58,6 +60,11 @@ export async function contextNode(
       )
       .join('\n\n')
     messages.push(new SystemMessage(`可参考经验:\n${experienceText}`))
+  }
+
+  const toolUsagePrompt = buildToolUsageSystemPrompt(tools)
+  if (toolUsagePrompt) {
+    messages.push(new SystemMessage(toolUsagePrompt))
   }
 
   const snapshot = await memoryManager.getSnapshot()

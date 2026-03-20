@@ -32,6 +32,72 @@ import {
 
 const DEFAULT_SCHEMA_VERSION = 1
 
+type CharacterProfileSearchData = {
+  title?: string
+  summary?: string
+  description?: string
+  personalityTraits?: string[]
+  abilities?: string[]
+  tags?: string[]
+}
+
+type CharacterDemographicSearchData = {
+  age?: number | null
+  ageLabel?: string
+  heightLabel?: string
+  gender?: string
+  raceEntityId?: string
+  factionEntityId?: string
+  nationEntityId?: string
+  birthplaceEntityId?: string
+}
+
+type SearchCharacterEntitiesInput = {
+  worldId?: string
+  keyword?: string
+  name?: string
+  title?: string
+  summary?: string
+  gender?: string
+  raceEntityId?: string
+  factionEntityId?: string
+  nationEntityId?: string
+  birthplaceEntityId?: string
+  personalityTraits?: string[]
+  abilities?: string[]
+  tags?: string[]
+}
+
+type CharacterSearchMatchPayload = {
+  worldId: string
+  worldName: string
+  matchedFields: string[]
+  entity: WorldEntityPayload
+  profile: CharacterProfileSearchData
+  demographic: CharacterDemographicSearchData
+}
+
+const normalizeSearchText = (value: unknown): string => String(value ?? '').trim().toLowerCase()
+
+const normalizeSearchList = (value: string[] | undefined): string[] =>
+  (value ?? []).map(normalizeSearchText).filter(Boolean)
+
+const includesSearchText = (value: unknown, query?: string): boolean => {
+  const normalizedQuery = normalizeSearchText(query)
+  if (!normalizedQuery) return true
+  return normalizeSearchText(value).includes(normalizedQuery)
+}
+
+const includesAllSearchValues = (source: unknown, queries: string[]): boolean => {
+  if (queries.length === 0) return true
+
+  const values = Array.isArray(source)
+    ? source.map(normalizeSearchText).filter(Boolean)
+    : [normalizeSearchText(source)].filter(Boolean)
+
+  return queries.every((query) => values.some((value) => value.includes(query)))
+}
+
 const parseJsonObject = (input: string, fallback: Record<string, unknown> = {}): Record<string, unknown> => {
   try {
     const parsed = JSON.parse(input)
@@ -237,6 +303,163 @@ class WorldbuildingService {
       order: { updatedAt: 'DESC' }
     })
     return records.map(toEntityPayload)
+  }
+
+  async searchCharacterEntities(input: SearchCharacterEntitiesInput): Promise<CharacterSearchMatchPayload[]> {
+    const worldId = String(input.worldId || '').trim()
+    const keyword = normalizeSearchText(input.keyword)
+    const name = normalizeSearchText(input.name)
+    const title = normalizeSearchText(input.title)
+    const summary = normalizeSearchText(input.summary)
+    const gender = normalizeSearchText(input.gender)
+    const raceEntityId = normalizeSearchText(input.raceEntityId)
+    const factionEntityId = normalizeSearchText(input.factionEntityId)
+    const nationEntityId = normalizeSearchText(input.nationEntityId)
+    const birthplaceEntityId = normalizeSearchText(input.birthplaceEntityId)
+    const personalityTraits = normalizeSearchList(input.personalityTraits)
+    const abilities = normalizeSearchList(input.abilities)
+    const tags = normalizeSearchList(input.tags)
+
+    const records = await this.entityRepo.find({
+      where: worldId ? { worldId, type: 'character' } : { type: 'character' },
+      order: { updatedAt: 'DESC' }
+    })
+
+    if (records.length === 0) {
+      return []
+    }
+
+    const entityIds = records.map((record) => record.id)
+    const componentRecords = await this.componentRepo
+      .createQueryBuilder('component')
+      .where('component.entityId IN (:...entityIds)', { entityIds })
+      .andWhere('component.componentType IN (:...componentTypes)', {
+        componentTypes: ['character_profile', 'character_demographic']
+      })
+      .getMany()
+
+    const worldIds = [...new Set(records.map((record) => record.worldId))]
+    const worlds = await this.worldRepo.find({
+      where: worldIds.map((id) => ({ id }))
+    })
+    const worldNameMap = new Map(worlds.map((record) => [record.id, record.name]))
+
+    const componentMap = new Map<
+      string,
+      {
+        profile: CharacterProfileSearchData
+        demographic: CharacterDemographicSearchData
+      }
+    >()
+
+    for (const componentRecord of componentRecords) {
+      const bucket = componentMap.get(componentRecord.entityId) ?? {
+        profile: {},
+        demographic: {}
+      }
+      const data = parseJsonObject(componentRecord.dataJson)
+      if (componentRecord.componentType === 'character_profile') {
+        bucket.profile = data as CharacterProfileSearchData
+      } else if (componentRecord.componentType === 'character_demographic') {
+        bucket.demographic = data as CharacterDemographicSearchData
+      }
+      componentMap.set(componentRecord.entityId, bucket)
+    }
+
+    const matches: CharacterSearchMatchPayload[] = []
+
+    for (const record of records) {
+      const componentBucket = componentMap.get(record.id) ?? { profile: {}, demographic: {} }
+      const profile = componentBucket.profile
+      const demographic = componentBucket.demographic
+      const matchedFields = new Set<string>()
+
+      if (worldId) {
+        matchedFields.add('worldId')
+      }
+
+      const keywordMatched =
+        !keyword ||
+        [
+          record.name,
+          record.title,
+          record.summary,
+          profile.title,
+          profile.summary,
+          profile.description,
+          ...(profile.personalityTraits ?? []),
+          ...(profile.abilities ?? []),
+          ...(profile.tags ?? []),
+          demographic.ageLabel,
+          demographic.heightLabel,
+          demographic.gender,
+          demographic.raceEntityId,
+          demographic.factionEntityId,
+          demographic.nationEntityId,
+          demographic.birthplaceEntityId
+        ].some((value) => includesSearchText(value, keyword))
+
+      if (!keywordMatched) continue
+      if (keyword) matchedFields.add('keyword')
+
+      const nameMatched = includesSearchText(record.name, name)
+      if (!nameMatched) continue
+      if (name) matchedFields.add('name')
+
+      const titleMatched = includesSearchText(record.title || profile.title, title)
+      if (!titleMatched) continue
+      if (title) matchedFields.add('title')
+
+      const summaryMatched = includesSearchText(record.summary || profile.summary, summary)
+      if (!summaryMatched) continue
+      if (summary) matchedFields.add('summary')
+
+      const genderMatched = includesSearchText(demographic.gender, gender)
+      if (!genderMatched) continue
+      if (gender) matchedFields.add('gender')
+
+      const raceMatched = includesSearchText(demographic.raceEntityId, raceEntityId)
+      if (!raceMatched) continue
+      if (raceEntityId) matchedFields.add('raceEntityId')
+
+      const factionMatched = includesSearchText(demographic.factionEntityId, factionEntityId)
+      if (!factionMatched) continue
+      if (factionEntityId) matchedFields.add('factionEntityId')
+
+      const nationMatched = includesSearchText(demographic.nationEntityId, nationEntityId)
+      if (!nationMatched) continue
+      if (nationEntityId) matchedFields.add('nationEntityId')
+
+      const birthplaceMatched = includesSearchText(
+        demographic.birthplaceEntityId,
+        birthplaceEntityId
+      )
+      if (!birthplaceMatched) continue
+      if (birthplaceEntityId) matchedFields.add('birthplaceEntityId')
+
+      const traitsMatched = includesAllSearchValues(profile.personalityTraits, personalityTraits)
+      if (!traitsMatched) continue
+      if (personalityTraits.length > 0) matchedFields.add('personalityTraits')
+
+      const abilitiesMatched = includesAllSearchValues(profile.abilities, abilities)
+      if (!abilitiesMatched) continue
+      if (abilities.length > 0) matchedFields.add('abilities')
+
+      const tagsMatched = includesAllSearchValues(profile.tags, tags)
+      if (!tagsMatched) continue
+      if (tags.length > 0) matchedFields.add('tags')
+
+      matches.push({
+        worldId: record.worldId,
+        worldName: worldNameMap.get(record.worldId) ?? '',
+        matchedFields: [...matchedFields],
+        entity: toEntityPayload(record),
+        profile,
+        demographic
+      })
+    }
+
+    return matches
   }
 
   async updateEntity(input: UpdateWorldEntityInput): Promise<WorldEntityPayload> {
