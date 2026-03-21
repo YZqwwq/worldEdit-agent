@@ -137,6 +137,20 @@ export const delegateCharacterEditorTaskPayloadSchema = z.object({
   source: characterEditorTaskSourceSchema.optional()
 })
 
+export const characterEditorAppliedToolSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  status: z.enum(['ok', 'error'])
+})
+
+export const characterEditorHandlerOutputSchema = z.object({
+  outcome: z.enum(['completed', 'needs_input', 'failed']),
+  summary: z.string().trim().min(1).max(500),
+  userFacingMessage: z.string().trim().min(1).max(3000),
+  changedScopes: z.array(characterEditingScopeSchema).max(8).default([]),
+  appliedTools: z.array(characterEditorAppliedToolSchema).max(20).default([]),
+  suggestedFollowUp: z.string().trim().max(500).optional()
+})
+
 export const delegateCharacterEditorOutputSchema = z.object({
   accepted: z.literal(true),
   taskId: z.number().int().positive(),

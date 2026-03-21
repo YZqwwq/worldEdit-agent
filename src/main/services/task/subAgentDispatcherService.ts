@@ -5,8 +5,7 @@ import { taskNotificationService } from './taskNotificationService'
 import { taskService } from './taskService'
 import type { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
 import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
-import { delegateCharacterEditorTaskPayloadSchema } from '../aiservice/ai-utils/tools/character/shared'
-import { worldbuildingService } from '../worldbuilding/worldbuildingService'
+import { runCharacterEditorExecution } from './characterEditorExecution'
 
 type DispatchResult = {
   type: 'completed' | 'failed' | 'needs_input'
@@ -47,40 +46,28 @@ const toNotificationType = (
 }
 
 const characterEditorHandler: DispatchHandler = async ({ payload }) => {
-  const parsed = delegateCharacterEditorTaskPayloadSchema.safeParse(payload)
-  if (!parsed.success) {
+  try {
+    const result = await runCharacterEditorExecution(payload)
+
+    return {
+      type: result.outcome,
+      summary: result.summary,
+      payload: {
+        message: result.userFacingMessage,
+        changedScopes: result.changedScopes,
+        appliedTools: result.appliedTools,
+        suggestedFollowUp: result.suggestedFollowUp
+      },
+      errorReport: result.outcome === 'failed' ? result.userFacingMessage : undefined
+    }
+  } catch (error) {
     return {
       type: 'failed',
-      summary: '人物编辑子 agent 收到的任务载荷不合法。',
+      summary: '人物编辑子 agent 在执行过程中抛出异常。',
       payload: {
-        message: '人物编辑任务载荷校验失败，无法启动执行。',
-        validationError: parsed.error.message
+        message: error instanceof Error ? error.message : String(error)
       },
-      errorReport: parsed.error.message
-    }
-  }
-
-  const detail = await worldbuildingService.getEntityDetail(parsed.data.entityId)
-  if (!detail) {
-    return {
-      type: 'failed',
-      summary: `目标人物不存在：${parsed.data.entityId}`,
-      payload: {
-        message: `人物编辑子 agent 无法找到目标人物 ${parsed.data.entityId}。`
-      },
-      errorReport: `Character not found: ${parsed.data.entityId}`
-    }
-  }
-
-  return {
-    type: 'needs_input',
-    summary: `人物编辑子 agent 已收到任务「${detail.entity.name}」，但当前尚未接通写入型人物工具。`,
-    payload: {
-      message:
-        `人物编辑子 agent 已收到对「${detail.entity.name}」的编辑任务，但当前仅具备只读人物查询能力，` +
-        '尚未接入 profile / demographic / relation 写入工具，因此无法继续完成本轮编辑。请在补齐写入工具后重试。',
-      entityId: detail.entity.id,
-      entityName: detail.entity.name
+      errorReport: error instanceof Error ? error.message : String(error)
     }
   }
 }

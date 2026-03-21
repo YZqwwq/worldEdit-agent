@@ -1,9 +1,9 @@
-import type { ModelAdaptor } from '@share/cache/AItype/model/modelAdaptor'
-import { getConfiguredModel } from './model'
-import { tools } from './tool'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { Runnable } from '@langchain/core/runnables'
 import { convertToOpenAITool } from '@langchain/core/utils/function_calling'
+import type { ModelAdaptor } from '@share/cache/AItype/model/modelAdaptor'
+import { getConfiguredModel } from './model'
+import { tools } from './tool'
 
 function cleanSchema(schema: any): any {
   if (typeof schema !== 'object' || schema === null) return schema
@@ -66,7 +66,14 @@ class ModelWithTool {
   }
 }
 
+export function bindToolsToModel(
+  model: ModelAdaptor,
+  toolRegistry: Record<string, DynamicStructuredTool>
+): Runnable {
+  return new ModelWithTool(model, toolRegistry).getModel()
+}
+
 export async function getModelWithTool(): Promise<Runnable> {
   const model = await getConfiguredModel()
-  return new ModelWithTool(model, tools).getModel()
+  return bindToolsToModel(model, tools)
 }
