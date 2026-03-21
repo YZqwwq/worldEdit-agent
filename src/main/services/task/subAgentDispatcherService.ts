@@ -3,6 +3,7 @@ import { TaskRecord } from '../../../share/entity/database/TaskRecord'
 import { taskExecutionService } from './taskExecutionService'
 import { taskNotificationService } from './taskNotificationService'
 import { taskService } from './taskService'
+import { taskCoordinatorService } from './taskCoordinatorService'
 import type { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
 import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
 import { runCharacterEditorExecution } from './characterEditorExecution'
@@ -140,6 +141,7 @@ class SubAgentDispatcherService {
         },
         errorReport: result.errorReport
       })
+      await taskCoordinatorService.handlePublishedNotification(task.id)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       await taskNotificationService.publishExecutionEvent({
@@ -152,6 +154,7 @@ class SubAgentDispatcherService {
         },
         errorReport: message
       })
+      await taskCoordinatorService.handlePublishedNotification(task.id)
     }
   }
 

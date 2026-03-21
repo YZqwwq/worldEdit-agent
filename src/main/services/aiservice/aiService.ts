@@ -6,11 +6,16 @@ import { contentToText, contentToParts } from './messageoutput/transformRespones
 import { logError } from '../../../share/utils/error/error'
 import { AppDataSource } from '../../database'
 import { Message } from '../../../share/entity/database/Message'
+import { TaskRecord } from '../../../share/entity/database/TaskRecord'
+import { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
+import { TaskNotificationRecord } from '../../../share/entity/database/TaskNotificationRecord'
 import { handleGraphLogEvent, runWithGraphLogContext } from '../log/graphlog'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { memoryManager } from './agentrsystem/manager/memory/MemoryManager'
 import { resetPersonaState } from './agentrsystem/manager/personal/personalManager'
+import { taskCoordinatorService } from '../task/taskCoordinatorService'
+import { subAgentDispatcherService } from '../task/subAgentDispatcherService'
 
 function debugLog(msg: string) {
   try {
@@ -73,7 +78,12 @@ class AIService {
 
   async purgeAllData(): Promise<void> {
     try {
-      await this.messageRepo.clear()
+      await AppDataSource.transaction(async (manager) => {
+        await manager.getRepository(TaskNotificationRecord).clear()
+        await manager.getRepository(TaskExecutionRecord).clear()
+        await manager.getRepository(TaskRecord).clear()
+        await manager.getRepository(Message).clear()
+      })
       await memoryManager.resetStorage()
       await resetPersonaState()
     } catch (error) {
@@ -102,6 +112,26 @@ class AIService {
     try {
       // 保存用户消息
       await this.saveMessage('user', message)
+
+      const orchestration = await taskCoordinatorService.tryHandleUserReply(message)
+      if (orchestration.handled) {
+        if (orchestration.executionId) {
+          void subAgentDispatcherService.dispatchExecution(orchestration.executionId).catch((error) => {
+            console.error('Failed to dispatch resumed task execution:', error)
+          })
+        }
+
+        const visibleMessage =
+          orchestration.visibleMessage || '已收到你的补充信息，我会继续在后台处理中。'
+        await this.saveMessage('ai', visibleMessage)
+        if (onChunk) {
+          onChunk({
+            type: 'done',
+            fullContent: contentToParts(visibleMessage)
+          })
+        }
+        return
+      }
 
       const runId = randomUUID()
       debugLog(`RunID generated: ${runId}`)

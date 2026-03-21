@@ -22,6 +22,14 @@ let currentStreamingMessageId: number | null = null
 let currentStreamingText = ''
 let stopListening: (() => void) | null = null
 
+const mapHistoryToMessages = (history: any[]): ChatMessage[] =>
+  history.map((msg: any) => ({
+    id: msg.id,
+    text: msg.content,
+    sender: msg.role,
+    timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : undefined
+  }))
+
 /**
  * 处理流式数据包
  */
@@ -86,15 +94,24 @@ async function loadHistory(): Promise<void> {
   try {
     const history = await window.api.getHistory()
     if (history && Array.isArray(history)) {
-      messages.value = history.map((msg: any) => ({
-        id: msg.id,
-        text: msg.content, // 直接使用 content 字段，假设存储的是 Markdown
-        sender: msg.role,
-        timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : undefined
-      }))
+      messages.value = mapHistoryToMessages(history)
     }
   } catch (error) {
     console.error('Failed to load history:', error)
+  }
+}
+
+async function refreshHistory(): Promise<void> {
+  if (currentStreamingMessageId || isLoading.value) {
+    return
+  }
+  try {
+    const history = await window.api.getHistory()
+    if (history && Array.isArray(history)) {
+      messages.value = mapHistoryToMessages(history)
+    }
+  } catch (error) {
+    console.error('Failed to refresh history:', error)
   }
 }
 
@@ -211,6 +228,7 @@ export function useAIChatService(): {
   isLoading: Ref<boolean>
   sendMessage: (text: string) => Promise<void>
   loadHistory: () => Promise<void>
+  refreshHistory: () => Promise<void>
   clearHistory: () => Promise<void>
   purgeAllData: () => Promise<void>
   resetPersonaState: () => Promise<void>
@@ -221,6 +239,7 @@ export function useAIChatService(): {
     isLoading,
     sendMessage,
     loadHistory,
+    refreshHistory,
     clearHistory,
     purgeAllData,
     resetPersonaState

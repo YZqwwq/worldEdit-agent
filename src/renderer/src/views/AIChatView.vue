@@ -21,6 +21,7 @@
       <div
         class="flex flex-grow flex-col overflow-y-auto px-10 py-8 scroll-smooth"
         ref="messagesContainer"
+        @scroll="handleMessagesScroll"
       >
         <ChatMessageList
           :messages="messages"
@@ -388,7 +389,16 @@ import type {
 import type { MemoryInspectionPayload } from '../../../share/cache/AItype/states/memoryInspection'
 import type { TaskMonitorSnapshot } from '../../../share/cache/AItype/states/taskLifecycleState'
 
-const { messages, isLoading, sendMessage, loadHistory, purgeAllData, resetPersonaState, agentLogs } =
+const {
+  messages,
+  isLoading,
+  sendMessage,
+  loadHistory,
+  refreshHistory,
+  purgeAllData,
+  resetPersonaState,
+  agentLogs
+} =
   useAIChatService()
 const userInput = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
@@ -421,9 +431,11 @@ const showAvatarEditor = ref(false)
 const editingParticipantKey = ref<ChatParticipantKey>('ai')
 const taskMonitorSnapshot = ref<TaskMonitorSnapshot | null>(null)
 const taskMonitorLoading = ref(false)
+const shouldFollowMessages = ref(true)
 let taskMonitorTimer: number | null = null
 
 const showRightSidebar = computed(() => showLogs.value || showTasks.value)
+const AUTO_SCROLL_THRESHOLD_PX = 120
 
 const deleteFileConfirmMessage = computed<string>(() => {
   const file = pendingDeleteFile.value
@@ -584,6 +596,24 @@ const loadTaskMonitorSnapshot = async (silent = false): Promise<void> => {
   }
 }
 
+const isNearBottom = (): boolean => {
+  const container = messagesContainer.value
+  if (!container) return true
+
+  const distanceToBottom =
+    container.scrollHeight - container.scrollTop - container.clientHeight
+  return distanceToBottom <= AUTO_SCROLL_THRESHOLD_PX
+}
+
+const scrollMessagesToBottom = (): void => {
+  if (!messagesContainer.value) return
+  messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+}
+
+const handleMessagesScroll = (): void => {
+  shouldFollowMessages.value = isNearBottom()
+}
+
 // Load history when component is mounted
 onMounted(async () => {
   await loadModelConfig()
@@ -592,12 +622,14 @@ onMounted(async () => {
   await loadHistory()
   taskMonitorTimer = window.setInterval(() => {
     void loadTaskMonitorSnapshot(true)
+    if (!isLoading.value) {
+      void refreshHistory()
+    }
   }, 2500)
   // Scroll to bottom after loading history
   await nextTick()
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-  }
+  scrollMessagesToBottom()
+  shouldFollowMessages.value = true
 })
 
 onBeforeUnmount(() => {
@@ -610,6 +642,7 @@ onBeforeUnmount(() => {
 
 const handleSend = async (): Promise<void> => {
   if (!userInput.value.trim()) return
+  shouldFollowMessages.value = true
   if (uploadedFiles.value.length > 0) {
     const pending = uploadedFiles.value.filter((file) => file.status === 'pending')
     if (pending.length > 0) {
@@ -783,6 +816,7 @@ const confirmPurgeAllData = async (): Promise<void> => {
   purgeConfirmLoading.value = true
   try {
     await purgeAllData()
+    await loadTaskMonitorSnapshot(true)
     uploadedFiles.value = []
     showPurgeConfirm.value = false
     await restoreInputFocus()
@@ -812,8 +846,8 @@ watch(
   messages,
   async () => {
     await nextTick()
-    if (messagesContainer.value) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    if (shouldFollowMessages.value) {
+      scrollMessagesToBottom()
     }
   },
   { deep: true }
