@@ -6,6 +6,7 @@ import type {
   ModelConfigPayload
 } from '../share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '../share/cache/AItype/states/memoryInspection'
+import type { TaskMonitorSnapshot } from '../share/cache/AItype/states/taskLifecycleState'
 import type {
   ChatAvatarProfilesPayload,
   PersistedChatAvatarProfile,
@@ -42,6 +43,7 @@ type Api = {
   purgeAllData: () => Promise<number>
   resetPersonaState: () => Promise<void>
   getMemorySnapshot: () => Promise<MemoryInspectionPayload>
+  getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
 
   pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
   uploadFile: (sourcePath: string) => Promise<{ resourceUrl: string; fileName: string; size: number }>
@@ -100,6 +102,7 @@ const api: Api = {
   purgeAllData: () => ipcRenderer.invoke('ai:purgeAllData'),
   resetPersonaState: () => ipcRenderer.invoke('ai:resetPersonaState'),
   getMemorySnapshot: () => ipcRenderer.invoke('ai:getMemorySnapshot'),
+  getTaskMonitorSnapshot: () => ipcRenderer.invoke('ai:getTaskMonitorSnapshot'),
   pickFile: () => ipcRenderer.invoke('file:pick'),
   uploadFile: (sourcePath) => ipcRenderer.invoke('file:upload', sourcePath),
   deleteFile: (resourceUrl) => ipcRenderer.invoke('file:delete', resourceUrl),

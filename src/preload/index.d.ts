@@ -5,6 +5,7 @@ import type {
   ModelConfigPayload
 } from '../share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '../share/cache/AItype/states/memoryInspection'
+import type { TaskMonitorSnapshot } from '../share/cache/AItype/states/taskLifecycleState'
 import type {
   ChatAvatarProfilesPayload,
   PersistedChatAvatarProfile,
@@ -40,6 +41,7 @@ declare global {
     purgeAllData: () => Promise<number>
     resetPersonaState: () => Promise<void>
     getMemorySnapshot: () => Promise<MemoryInspectionPayload>
+    getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
 
     pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
     uploadFile: (sourcePath: string) => Promise<{ resourceUrl: string; fileName: string; size: number }>

@@ -9,6 +9,7 @@ import { buildAppResourceUrl, resolveAppResourcePath } from '../../protocols/res
 import { modelConfigService } from '../modelconfig/modelConfigService'
 import type { ModelConfigInput } from '@share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '@share/cache/AItype/states/memoryInspection'
+import type { TaskMonitorSnapshot } from '@share/cache/AItype/states/taskLifecycleState'
 import { memoryManager } from './agentrsystem/manager/memory/MemoryManager'
 import { loadPersonaState } from './agentrsystem/manager/personal/personalManager'
 import { avatarProfileService } from '../avatar/avatarProfileService'
@@ -28,6 +29,7 @@ import type {
   WorldEntityPayload,
   WorldbuildingSchemaCatalogPayload
 } from '@share/cache/worldbuilding/worldbuilding'
+import { taskService } from '../task/taskService'
 
 type UploadResult = {
   resourceUrl: string
@@ -119,6 +121,10 @@ export function initializeAIEndpoints(): void {
       memory,
       persona
     }
+  })
+
+  ipcMain.handle('ai:getTaskMonitorSnapshot', async (): Promise<TaskMonitorSnapshot> => {
+    return taskService.getTaskMonitorSnapshot()
   })
 
   ipcMain.handle('config:getModelConfig', async () => {

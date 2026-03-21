@@ -1,8 +1,10 @@
 <template>
   <aside
-    class="flex h-full w-[360px] flex-col border-l border-slate-200 bg-white"
+    class="flex min-h-0 min-w-0 flex-1 flex-col bg-white"
   >
-    <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
+    <div
+      class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4"
+    >
       <h3 class="text-sm font-semibold uppercase tracking-[0.22em] text-slate-700">
         Agent 思维链
       </h3>

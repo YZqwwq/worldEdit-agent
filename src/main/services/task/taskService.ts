@@ -2,9 +2,12 @@ import { AppDataSource } from '../../database'
 import { TaskRecord } from '../../../share/entity/database/TaskRecord'
 import type {
   ActiveTaskSnapshot,
+  TaskExecutionSnapshot,
   TaskExecutorKind,
+  TaskMonitorSnapshot,
   TaskStatus
 } from '@share/cache/AItype/states/taskLifecycleState'
+import { taskExecutionService } from './taskExecutionService'
 
 type CreateTaskInput = {
   title: string
@@ -50,6 +53,30 @@ const toSnapshot = (task: TaskRecord): ActiveTaskSnapshot => ({
   progressNotes: task.progressNotes || undefined
 })
 
+const toExecutionSnapshot = (run: {
+  id: number
+  taskId: number
+  runNumber: number
+  executorKind: TaskExecutorKind
+  status: string
+  resultSummary: string
+  errorReport: string
+  createdAt: Date
+  startedAt: Date | null
+  finishedAt: Date | null
+}): TaskExecutionSnapshot => ({
+  id: run.id,
+  taskId: run.taskId,
+  runNumber: run.runNumber,
+  executorKind: run.executorKind,
+  status: run.status as TaskExecutionSnapshot['status'],
+  resultSummary: run.resultSummary,
+  errorReport: run.errorReport || undefined,
+  createdAt: run.createdAt.toISOString(),
+  startedAt: run.startedAt?.toISOString(),
+  finishedAt: run.finishedAt?.toISOString()
+})
+
 class TaskService {
   private get repo() {
     return AppDataSource.getRepository(TaskRecord)
@@ -67,6 +94,22 @@ class TaskService {
   async getActiveTaskSnapshot(): Promise<ActiveTaskSnapshot | undefined> {
     const activeTask = await this.getActiveTask()
     return activeTask ? toSnapshot(activeTask) : undefined
+  }
+
+  async getTaskMonitorSnapshot(): Promise<TaskMonitorSnapshot> {
+    const activeTask = await this.getActiveTask()
+    if (!activeTask) {
+      return {
+        activeTask: undefined,
+        executions: []
+      }
+    }
+
+    const runs = await taskExecutionService.listRunsForTask(activeTask.id, 6)
+    return {
+      activeTask: toSnapshot(activeTask),
+      executions: runs.map((run) => toExecutionSnapshot(run))
+    }
   }
 
   async createTask(input: CreateTaskInput): Promise<TaskRecord> {

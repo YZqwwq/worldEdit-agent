@@ -58,6 +58,16 @@
         <span v-if="showLogs">调试面板已开</span>
         <span v-else>显示调试</span>
       </button>
+
+      <button
+        type="button"
+        class="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+        :class="{ 'border-emerald-200 bg-emerald-50 text-emerald-700': showTasks }"
+        @click="$emit('toggle-tasks')"
+      >
+        <span v-if="showTasks">任务列表已开</span>
+        <span v-else>显示任务</span>
+      </button>
     </div>
   </header>
 </template>
@@ -68,6 +78,7 @@ withDefaults(
     title?: string
     backTo?: string
     showLogs: boolean
+    showTasks: boolean
     disablePurge?: boolean
   }>(),
   {
@@ -82,5 +93,6 @@ defineEmits<{
   (e: 'open-model-config'): void
   (e: 'open-purge-confirm'): void
   (e: 'toggle-logs'): void
+  (e: 'toggle-tasks'): void
 }>()
 </script>

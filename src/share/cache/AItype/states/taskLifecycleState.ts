@@ -56,6 +56,24 @@ export interface ActiveTaskSnapshot {
   progressNotes?: string
 }
 
+export interface TaskExecutionSnapshot {
+  id: number
+  taskId: number
+  runNumber: number
+  executorKind: TaskExecutorKind
+  status: TaskExecutionStatus
+  resultSummary: string
+  errorReport?: string
+  createdAt: string
+  startedAt?: string
+  finishedAt?: string
+}
+
+export interface TaskMonitorSnapshot {
+  activeTask?: ActiveTaskSnapshot
+  executions: TaskExecutionSnapshot[]
+}
+
 export interface TaskLifecycleDecision {
   type: TaskLifecycleDecisionType
   confidence: number

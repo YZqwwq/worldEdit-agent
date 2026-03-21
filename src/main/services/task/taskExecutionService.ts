@@ -38,6 +38,14 @@ class TaskExecutionService {
     })
   }
 
+  async listRunsForTask(taskId: number, limit = 8): Promise<TaskExecutionRecord[]> {
+    return this.repo.find({
+      where: { taskId },
+      order: { runNumber: 'DESC' },
+      take: limit
+    })
+  }
+
   async queueRun(input: QueueTaskRunInput): Promise<TaskExecutionRecord> {
     const latestRun = await this.getLatestRun(input.taskId)
     const run = this.repo.create({

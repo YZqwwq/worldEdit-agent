@@ -5,15 +5,17 @@
     <div class="flex h-full w-full">
       <section
         class="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-slate-200/80 bg-white/55"
-        :class="{ 'border-r-0': !showLogs }"
+        :class="{ 'border-r-0': !showRightSidebar }"
       >
         <ChatHeader
           :show-logs="showLogs"
+          :show-tasks="showTasks"
           :disable-purge="isLoading || purgeConfirmLoading"
           @open-memory="openMemorySnapshot"
           @open-model-config="openModelConfig"
           @open-purge-confirm="openPurgeConfirm"
           @toggle-logs="showLogs = !showLogs"
+          @toggle-tasks="showTasks = !showTasks"
         />
 
       <div
@@ -48,7 +50,18 @@
         leave-from-class="transform translate-x-0 opacity-100"
         leave-to-class="transform translate-x-4 opacity-0"
       >
-        <AILogPanel v-if="showLogs" :logs="agentLogs" class="flex-shrink-0" />
+        <aside
+          v-if="showRightSidebar"
+          class="flex h-full w-[360px] flex-shrink-0 flex-col border-l border-slate-200 bg-white"
+        >
+          <AILogPanel v-if="showLogs" :logs="agentLogs" />
+          <TaskQueuePanel
+            v-if="showTasks"
+            :snapshot="taskMonitorSnapshot"
+            :loading="taskMonitorLoading"
+            :class="{ 'border-t border-slate-200': showLogs }"
+          />
+        </aside>
       </transition>
     </div>
 
@@ -361,6 +374,7 @@ import { useAIChatService } from '../services/aiClientService'
 import { isFilePickerCancelled } from '../utils/filePicker'
 import AILogPanel from '../components/AILogPanel.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import TaskQueuePanel from '../components/TaskQueuePanel.vue'
 import AvatarEditorDialog from '../features/chat/components/AvatarEditorDialog.vue'
 import ChatHeader from '../features/chat/components/ChatHeader.vue'
 import ChatMessageList from '../features/chat/components/ChatMessageList.vue'
@@ -372,6 +386,7 @@ import type {
   ModelConfigPayload
 } from '../../../share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '../../../share/cache/AItype/states/memoryInspection'
+import type { TaskMonitorSnapshot } from '../../../share/cache/AItype/states/taskLifecycleState'
 
 const { messages, isLoading, sendMessage, loadHistory, purgeAllData, resetPersonaState, agentLogs } =
   useAIChatService()
@@ -379,6 +394,7 @@ const userInput = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
 const composerRef = ref<{ focusInput: () => void } | null>(null)
 const showLogs = ref(true) // 默认开启调试面板以便演示
+const showTasks = ref(true)
 const showModelConfig = ref(false)
 const modelConfigLoading = ref(false)
 const modelConfigSaving = ref(false)
@@ -403,6 +419,11 @@ const noticeMessage = ref('')
 const noticeIcon = ref<DialogIcon>('info')
 const showAvatarEditor = ref(false)
 const editingParticipantKey = ref<ChatParticipantKey>('ai')
+const taskMonitorSnapshot = ref<TaskMonitorSnapshot | null>(null)
+const taskMonitorLoading = ref(false)
+let taskMonitorTimer: number | null = null
+
+const showRightSidebar = computed(() => showLogs.value || showTasks.value)
 
 const deleteFileConfirmMessage = computed<string>(() => {
   const file = pendingDeleteFile.value
@@ -550,11 +571,28 @@ const saveModelConfig = async (): Promise<void> => {
   }
 }
 
+const loadTaskMonitorSnapshot = async (silent = false): Promise<void> => {
+  if (!silent) {
+    taskMonitorLoading.value = true
+  }
+  try {
+    taskMonitorSnapshot.value = await window.api.getTaskMonitorSnapshot()
+  } catch (error) {
+    console.error('Failed to load task monitor snapshot:', error)
+  } finally {
+    taskMonitorLoading.value = false
+  }
+}
+
 // Load history when component is mounted
 onMounted(async () => {
   await loadModelConfig()
   mergeAvatarProfiles(await window.api.getAvatarProfiles())
+  await loadTaskMonitorSnapshot()
   await loadHistory()
+  taskMonitorTimer = window.setInterval(() => {
+    void loadTaskMonitorSnapshot(true)
+  }, 2500)
   // Scroll to bottom after loading history
   await nextTick()
   if (messagesContainer.value) {
@@ -564,6 +602,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   uploadedFiles.value = []
+  if (taskMonitorTimer) {
+    clearInterval(taskMonitorTimer)
+    taskMonitorTimer = null
+  }
 })
 
 const handleSend = async (): Promise<void> => {
@@ -594,6 +636,7 @@ const handleSend = async (): Promise<void> => {
   await sendMessage(userInput.value)
   userInput.value = ''
   uploadedFiles.value = []
+  await loadTaskMonitorSnapshot(true)
 }
 
 const handlePickFile = async (): Promise<void> => {
