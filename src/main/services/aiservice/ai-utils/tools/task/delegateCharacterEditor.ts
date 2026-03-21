@@ -3,6 +3,7 @@ import { subAgentDispatcherService } from '../../../../task/subAgentDispatcherSe
 import { taskExecutionService } from '../../../../task/taskExecutionService'
 import { taskService } from '../../../../task/taskService'
 import { defineAgentTool } from '../../core/agentTool'
+import type { WorldEntityDetailPayload } from '@share/cache/worldbuilding/worldbuilding'
 import {
   delegateCharacterEditorInputSchema,
   delegateCharacterEditorOutputSchema,
@@ -12,13 +13,37 @@ import {
 const buildTaskSummary = (input: {
   characterName: string
   userRequest: string
+  editingDirection?: 'character_deeds' | 'character_profile' | 'demographic_facts'
   expectedOutcome?: string
 }): string => {
   const requestSummary = input.userRequest.trim().slice(0, 180)
   const expected = input.expectedOutcome?.trim()
+  const directionLabel =
+    input.editingDirection === 'character_deeds'
+      ? '人物事迹'
+      : input.editingDirection === 'demographic_facts'
+        ? '基础属性'
+        : input.editingDirection === 'character_profile'
+          ? '人物档案'
+          : ''
   return expected
-    ? `编辑人物「${input.characterName}」：${expected}`
-    : `编辑人物「${input.characterName}」：${requestSummary}`
+    ? `编辑人物「${input.characterName}」${directionLabel ? `（${directionLabel}）` : ''}：${expected}`
+    : `编辑人物「${input.characterName}」${directionLabel ? `（${directionLabel}）` : ''}：${requestSummary}`
+}
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0
+
+const inferEditingScopeFromDirection = (
+  editingDirection?: 'character_deeds' | 'character_profile' | 'demographic_facts'
+): Array<'profile' | 'demographic'> | undefined => {
+  if (editingDirection === 'character_deeds' || editingDirection === 'character_profile') {
+    return ['profile']
+  }
+  if (editingDirection === 'demographic_facts') {
+    return ['demographic']
+  }
+  return undefined
 }
 
 export const delegateCharacterEditorTool = defineAgentTool({
@@ -39,39 +64,43 @@ export const delegateCharacterEditorTool = defineAgentTool({
       '系统尚未准备好处理新的 active task'
     ],
     inputSummary:
-      '提供 worldId、entityId、userRequest；可选提供 editingScope、expectedOutcome、source。',
+      '提供 entityId 或 characterName；可选提供 worldId 或 worldName；必须提供 userRequest；可选提供 editingScope、editingDirection、expectedOutcome、source。',
     outputSummary:
-      '返回 accepted、taskId、executionId、executorKind、status、entity、summary、nextAction，表示人物编辑任务已被登记并进入委派协议。',
+      '返回 accepted、taskId、executionId、executorKind、status、target、summary、nextAction，表示人物编辑任务已被登记并进入委派协议；若目标尚未完全解析，后台子 agent 会通过 pendingContext 续跑。',
     examples: [
-      '当用户要求补全某个角色的介绍、经历或基础属性时，调用 delegate_character_editor 建立人物编辑任务。'
+      '当用户要求补全某个角色的人物事迹时，可传 characterName + worldName + editingDirection=character_deeds，让子 agent 优先更新 character_profile.description。'
     ],
     riskLevel: 'medium',
     readOnly: false,
     idempotent: false
   },
   async execute(input) {
-    const detail = await worldbuildingService.getEntityDetail(input.entityId)
-    if (!detail) {
-      throw new Error(`Character not found: ${input.entityId}`)
-    }
-    if (detail.entity.worldId !== input.worldId) {
-      throw new Error(
-        `Entity ${input.entityId} does not belong to world ${input.worldId}`
-      )
-    }
-    if (detail.entity.type !== 'character') {
-      throw new Error(`Entity ${input.entityId} is not a character`)
+    let detail: WorldEntityDetailPayload | null = null
+    if (input.entityId) {
+      detail = await worldbuildingService.getEntityDetail(input.entityId)
+      if (!detail) {
+        throw new Error(`Character not found: ${input.entityId}`)
+      }
+      if (input.worldId && detail.entity.worldId !== input.worldId) {
+        throw new Error(
+          `Entity ${input.entityId} does not belong to world ${input.worldId}`
+        )
+      }
+      if (detail.entity.type !== 'character') {
+        throw new Error(`Entity ${input.entityId} is not a character`)
+      }
     }
 
     const activeTask = await taskService.getActiveTask()
     const task =
       activeTask ??
       (await taskService.createTask({
-        title: `编辑人物：${detail.entity.name}`,
+        title: `编辑人物：${input.characterName || detail?.entity.name || '待解析人物'}`,
         goal: input.expectedOutcome?.trim() || input.userRequest.trim(),
         summary: buildTaskSummary({
-          characterName: detail.entity.name,
+          characterName: input.characterName || detail?.entity.name || '待解析人物',
           userRequest: input.userRequest,
+          editingDirection: input.editingDirection,
           expectedOutcome: input.expectedOutcome
         }),
         executorKind: 'character_editor'
@@ -80,6 +109,47 @@ export const delegateCharacterEditorTool = defineAgentTool({
     if (task.executorKind !== 'character_editor') {
       throw new Error(
         `Active task #${task.id} is bound to ${task.executorKind}, not character_editor`
+      )
+    }
+
+    const pendingContext = await taskService.getPendingContext(task.id)
+    const mergedCharacterName =
+      input.characterName ||
+      detail?.entity.name ||
+      (isNonEmptyString(pendingContext.targetCharacterName)
+        ? pendingContext.targetCharacterName
+        : undefined)
+    const mergedWorldName =
+      input.worldName ||
+      (isNonEmptyString(pendingContext.targetWorldName) ? pendingContext.targetWorldName : undefined)
+    const mergedWorldId =
+      input.worldId ||
+      detail?.entity.worldId ||
+      (isNonEmptyString(pendingContext.resolvedWorldId) ? pendingContext.resolvedWorldId : undefined)
+    const mergedEntityId =
+      input.entityId ||
+      detail?.entity.id ||
+      (isNonEmptyString(pendingContext.resolvedEntityId) ? pendingContext.resolvedEntityId : undefined)
+    const mergedOriginalUserRequest =
+      (isNonEmptyString(pendingContext.originalUserRequest)
+        ? pendingContext.originalUserRequest
+        : undefined) || input.userRequest
+    const mergedEditingDirection =
+      input.editingDirection ||
+      (isNonEmptyString(pendingContext.editingDirection)
+        ? (pendingContext.editingDirection as
+            | 'character_deeds'
+            | 'character_profile'
+            | 'demographic_facts')
+        : undefined)
+    const mergedEditingScope =
+      input.editingScope ||
+      pendingContext.editingScope ||
+      inferEditingScopeFromDirection(mergedEditingDirection)
+
+    if (!mergedCharacterName && !mergedEntityId) {
+      throw new Error(
+        'character_editor requires either entityId or characterName, unless an active task already carries pendingContext.'
       )
     }
 
@@ -92,12 +162,17 @@ export const delegateCharacterEditorTool = defineAgentTool({
     const finalPayload = delegateCharacterEditorTaskPayloadSchema.parse({
       taskId: task.id,
       executionId: queuedRun.id,
-      worldId: input.worldId,
-      entityId: input.entityId,
+      worldId: mergedWorldId,
+      worldName: mergedWorldName,
+      entityId: mergedEntityId,
+      characterName: mergedCharacterName,
       userRequest: input.userRequest,
-      editingScope: input.editingScope,
+      originalUserRequest: mergedOriginalUserRequest,
+      editingScope: mergedEditingScope,
+      editingDirection: mergedEditingDirection,
       expectedOutcome: input.expectedOutcome,
-      source: input.source
+      source: input.source,
+      pendingContext: Object.keys(pendingContext).length > 0 ? pendingContext : undefined
     })
 
     await taskExecutionService.updateRunInputPayload(queuedRun.id, finalPayload)
@@ -112,11 +187,11 @@ export const delegateCharacterEditorTool = defineAgentTool({
       executionId: queuedRun.id,
       executorKind: 'character_editor',
       status: 'running',
-      entity: {
-        id: detail.entity.id,
-        worldId: detail.entity.worldId,
-        type: 'character',
-        name: detail.entity.name
+      target: {
+        entityId: mergedEntityId,
+        characterName: mergedCharacterName,
+        worldId: mergedWorldId,
+        worldName: mergedWorldName
       },
       summary: `人物编辑任务已进入后台执行链：${finalPayload.userRequest.slice(0, 160)}`,
       nextAction: 'await_subagent_result'

@@ -56,7 +56,8 @@ const characterEditorHandler: DispatchHandler = async ({ payload }) => {
         message: result.userFacingMessage,
         changedScopes: result.changedScopes,
         appliedTools: result.appliedTools,
-        suggestedFollowUp: result.suggestedFollowUp
+        suggestedFollowUp: result.suggestedFollowUp,
+        pendingContext: result.pendingContext
       },
       errorReport: result.outcome === 'failed' ? result.userFacingMessage : undefined
     }
@@ -119,6 +120,15 @@ class SubAgentDispatcherService {
 
     try {
       const result = await handler({ task, execution, payload })
+      await taskService.setPendingContext(
+        task.id,
+        result.type === 'needs_input' &&
+          result.payload?.pendingContext &&
+          typeof result.payload.pendingContext === 'object' &&
+          !Array.isArray(result.payload.pendingContext)
+          ? (result.payload.pendingContext as Record<string, unknown>)
+          : null
+      )
       await taskNotificationService.publishExecutionEvent({
         taskId: task.id,
         executionId: execution.id,

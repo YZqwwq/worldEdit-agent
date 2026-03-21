@@ -28,6 +28,18 @@ const ACTIVE_TASK_STATUSES: TaskStatus[] = [
   'awaiting_user_confirmation'
 ]
 
+const parsePendingContext = (input: string): Record<string, unknown> => {
+  try {
+    const parsed = JSON.parse(input)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+  } catch {
+    // ignore bad persisted payloads
+  }
+  return {}
+}
+
 const toSnapshot = (task: TaskRecord): ActiveTaskSnapshot => ({
   id: task.id,
   title: task.title,
@@ -109,7 +121,23 @@ class TaskService {
     }
     if (input.status === 'done' || input.status === 'cancelled') {
       task.closedAt = new Date()
+      task.pendingContextJson = '{}'
     }
+    return this.repo.save(task)
+  }
+
+  async getPendingContext(taskId: number): Promise<Record<string, unknown>> {
+    const task = await this.repo.findOneBy({ id: taskId })
+    if (!task) throw new Error(`Task not found: ${taskId}`)
+
+    return parsePendingContext(task.pendingContextJson)
+  }
+
+  async setPendingContext(taskId: number, pendingContext?: Record<string, unknown> | null): Promise<TaskRecord> {
+    const task = await this.repo.findOneBy({ id: taskId })
+    if (!task) throw new Error(`Task not found: ${taskId}`)
+
+    task.pendingContextJson = JSON.stringify(pendingContext ?? {})
     return this.repo.save(task)
   }
 

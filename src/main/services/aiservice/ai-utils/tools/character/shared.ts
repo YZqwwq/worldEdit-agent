@@ -14,6 +14,12 @@ export const characterEditingScopeSchema = z.enum([
   'portrait'
 ])
 
+export const characterEditorDirectionSchema = z.enum([
+  'character_deeds',
+  'character_profile',
+  'demographic_facts'
+])
+
 export const characterEditorTaskSourceSchema = z.enum(['chat', 'world_entity_view'])
 
 export const characterEntityPayloadSchema = worldEntityPayloadSchema.extend({
@@ -117,24 +123,55 @@ export const upsertCharacterRelationOutputSchema = z.object({
   relation: characterEntityRelationPayloadSchema
 })
 
-export const delegateCharacterEditorInputSchema = z.object({
-  worldId: z.string().trim().min(1),
-  entityId: z.string().trim().min(1),
-  userRequest: z.string().trim().min(1).max(4000),
+export const characterEditorPendingContextSchema = z.object({
+  phase: z.enum(['resolve_world', 'resolve_character', 'apply_edit']),
+  originalUserRequest: z.string().trim().min(1).max(4000),
+  targetCharacterName: z.string().trim().min(1).max(200).optional(),
+  targetWorldName: z.string().trim().min(1).max(200).optional(),
+  resolvedWorldId: z.string().trim().min(1).max(120).optional(),
+  resolvedEntityId: z.string().trim().min(1).max(120).optional(),
   editingScope: z.array(characterEditingScopeSchema).max(8).optional(),
+  editingDirection: characterEditorDirectionSchema.optional(),
   expectedOutcome: z.string().trim().max(1000).optional(),
-  source: characterEditorTaskSourceSchema.optional()
+  source: characterEditorTaskSourceSchema.optional(),
+  lastNeedsInputMessage: z.string().trim().max(2000).optional()
 })
+
+export const delegateCharacterEditorInputSchema = z
+  .object({
+    worldId: z.string().trim().min(1).optional(),
+    worldName: z.string().trim().min(1).max(200).optional(),
+    entityId: z.string().trim().min(1).optional(),
+    characterName: z.string().trim().min(1).max(200).optional(),
+    userRequest: z.string().trim().min(1).max(4000),
+    editingScope: z.array(characterEditingScopeSchema).max(8).optional(),
+    editingDirection: characterEditorDirectionSchema.optional(),
+    expectedOutcome: z.string().trim().max(1000).optional(),
+    source: characterEditorTaskSourceSchema.optional()
+  })
+  .refine(
+    (input) =>
+      Boolean(input.entityId || input.characterName || input.worldId || input.worldName),
+    {
+      message:
+        'At least one of entityId, characterName, worldId, or worldName must be provided.'
+    }
+  )
 
 export const delegateCharacterEditorTaskPayloadSchema = z.object({
   taskId: z.number().int().positive(),
   executionId: z.number().int().positive(),
-  worldId: z.string(),
-  entityId: z.string(),
+  worldId: z.string().optional(),
+  worldName: z.string().optional(),
+  entityId: z.string().optional(),
+  characterName: z.string().optional(),
   userRequest: z.string(),
+  originalUserRequest: z.string(),
   editingScope: z.array(characterEditingScopeSchema).optional(),
+  editingDirection: characterEditorDirectionSchema.optional(),
   expectedOutcome: z.string().optional(),
-  source: characterEditorTaskSourceSchema.optional()
+  source: characterEditorTaskSourceSchema.optional(),
+  pendingContext: characterEditorPendingContextSchema.optional()
 })
 
 export const characterEditorAppliedToolSchema = z.object({
@@ -148,7 +185,8 @@ export const characterEditorHandlerOutputSchema = z.object({
   userFacingMessage: z.string().trim().min(1).max(3000),
   changedScopes: z.array(characterEditingScopeSchema).max(8).default([]),
   appliedTools: z.array(characterEditorAppliedToolSchema).max(20).default([]),
-  suggestedFollowUp: z.string().trim().max(500).optional()
+  suggestedFollowUp: z.string().trim().max(500).optional(),
+  pendingContext: characterEditorPendingContextSchema.optional()
 })
 
 export const delegateCharacterEditorOutputSchema = z.object({
@@ -157,11 +195,11 @@ export const delegateCharacterEditorOutputSchema = z.object({
   executionId: z.number().int().positive(),
   executorKind: z.literal('character_editor'),
   status: z.enum(['queued', 'running']),
-  entity: z.object({
-    id: z.string(),
-    worldId: z.string(),
-    type: z.literal('character'),
-    name: z.string()
+  target: z.object({
+    entityId: z.string().optional(),
+    characterName: z.string().optional(),
+    worldId: z.string().optional(),
+    worldName: z.string().optional()
   }),
   summary: z.string(),
   nextAction: z.enum(['await_dispatcher', 'await_subagent_result'])

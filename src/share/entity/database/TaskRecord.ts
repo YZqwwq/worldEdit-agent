@@ -24,6 +24,9 @@ export class TaskRecord {
   @Column({ type: 'text', nullable: false, default: '' })
   progressNotes!: string
 
+  @Column({ type: 'text', nullable: false, default: '{}' })
+  pendingContextJson!: string
+
   @Column({ type: 'integer', nullable: true })
   createdFromMessageId!: number | null
 

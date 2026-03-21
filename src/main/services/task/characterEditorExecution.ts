@@ -5,6 +5,7 @@ import {
   SystemMessage,
   ToolMessage
 } from '@langchain/core/messages'
+import { Annotation, END, START, StateGraph } from '@langchain/langgraph'
 import { z } from 'zod'
 import { bindToolsToModel } from '../aiservice/agentrsystem/modelwithtool/modelwithtool'
 import { getConfiguredQuickModel } from '../aiservice/agentrsystem/modelwithtool/model'
@@ -13,15 +14,49 @@ import { characterEditorTools } from '../aiservice/ai-utils/toolkits/characterEd
 import { buildToolUsageSystemPrompt } from '../aiservice/ai-utils/core/toolUsagePrompt'
 import {
   characterEditorHandlerOutputSchema,
+  characterEditorDirectionSchema,
+  characterEditorPendingContextSchema,
   characterEditingScopeSchema,
   delegateCharacterEditorTaskPayloadSchema
 } from '../aiservice/ai-utils/tools/character/shared'
+import { worldbuildingService } from '../worldbuilding/worldbuildingService'
 
 type CharacterEditorExecutionPayload = z.infer<typeof delegateCharacterEditorTaskPayloadSchema>
 type CharacterEditorHandlerOutput = z.infer<typeof characterEditorHandlerOutputSchema>
+type CharacterEditorPendingContext = z.infer<typeof characterEditorPendingContextSchema>
 type CharacterEditingScope = z.infer<typeof characterEditingScopeSchema>
+type CharacterEditorDirection = z.infer<typeof characterEditorDirectionSchema>
 
 const MAX_TOOL_ROUNDS = 6
+
+const CharacterEditorState = Annotation.Root({
+  payload: Annotation<CharacterEditorExecutionPayload | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
+  }),
+  resolvedWorldId: Annotation<string | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
+  }),
+  resolvedWorldName: Annotation<string | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
+  }),
+  resolvedEntityId: Annotation<string | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
+  }),
+  resolvedCharacterName: Annotation<string | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
+  }),
+  handlerOutput: Annotation<CharacterEditorHandlerOutput | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
+  })
+})
+
+const normalizeText = (value: unknown): string => String(value ?? '').trim().toLowerCase()
 
 const extractJsonObject = (text: string): string | null => {
   const trimmed = text.trim()
@@ -57,37 +92,152 @@ const normalizeAiMessage = (response: BaseMessage): AIMessage =>
         id: response.id
       })
 
+const buildPendingContext = (input: {
+  phase: CharacterEditorPendingContext['phase']
+  payload: CharacterEditorExecutionPayload
+  targetCharacterName?: string
+  targetWorldName?: string
+  resolvedWorldId?: string
+  resolvedEntityId?: string
+  lastNeedsInputMessage: string
+}): CharacterEditorPendingContext =>
+  characterEditorPendingContextSchema.parse({
+    phase: input.phase,
+    originalUserRequest:
+      input.payload.originalUserRequest?.trim() || input.payload.userRequest.trim(),
+    targetCharacterName: input.targetCharacterName,
+    targetWorldName: input.targetWorldName,
+    resolvedWorldId: input.resolvedWorldId,
+    resolvedEntityId: input.resolvedEntityId,
+    editingScope: input.payload.editingScope,
+    editingDirection: input.payload.editingDirection,
+    expectedOutcome: input.payload.expectedOutcome,
+    source: input.payload.source,
+    lastNeedsInputMessage: input.lastNeedsInputMessage
+  })
+
+const buildNeedsInputOutput = (input: {
+  summary: string
+  userFacingMessage: string
+  changedScopes: CharacterEditingScope[]
+  payload: CharacterEditorExecutionPayload
+  phase: CharacterEditorPendingContext['phase']
+  targetCharacterName?: string
+  targetWorldName?: string
+  resolvedWorldId?: string
+  resolvedEntityId?: string
+  appliedTools?: CharacterEditorHandlerOutput['appliedTools']
+}): CharacterEditorHandlerOutput =>
+  characterEditorHandlerOutputSchema.parse({
+    outcome: 'needs_input',
+    summary: input.summary,
+    userFacingMessage: input.userFacingMessage,
+    changedScopes: input.changedScopes,
+    appliedTools: input.appliedTools ?? [],
+    pendingContext: buildPendingContext({
+      phase: input.phase,
+      payload: input.payload,
+      targetCharacterName: input.targetCharacterName,
+      targetWorldName: input.targetWorldName,
+      resolvedWorldId: input.resolvedWorldId,
+      resolvedEntityId: input.resolvedEntityId,
+      lastNeedsInputMessage: input.userFacingMessage
+    })
+  })
+
+const buildFailureOutput = (
+  summary: string,
+  userFacingMessage: string,
+  changedScopes: CharacterEditingScope[],
+  appliedTools: CharacterEditorHandlerOutput['appliedTools']
+): CharacterEditorHandlerOutput =>
+  characterEditorHandlerOutputSchema.parse({
+    outcome: 'failed',
+    summary,
+    userFacingMessage,
+    changedScopes,
+    appliedTools
+  })
+
+const getEffectiveEditingScopes = (
+  payload: CharacterEditorExecutionPayload
+): CharacterEditingScope[] => {
+  if (payload.editingScope?.length) {
+    return payload.editingScope
+  }
+  if (
+    payload.editingDirection === 'character_deeds' ||
+    payload.editingDirection === 'character_profile'
+  ) {
+    return ['profile']
+  }
+  if (payload.editingDirection === 'demographic_facts') {
+    return ['demographic']
+  }
+  return []
+}
+
+const formatEditingDirectionLabel = (
+  editingDirection?: CharacterEditorDirection
+): string => {
+  if (editingDirection === 'character_deeds') {
+    return '人物事迹'
+  }
+  if (editingDirection === 'character_profile') {
+    return '人物档案'
+  }
+  if (editingDirection === 'demographic_facts') {
+    return '基础属性'
+  }
+  return '未指定'
+}
+
+const buildDirectionRules = (editingDirection?: CharacterEditorDirection): string[] => {
+  if (editingDirection === 'character_deeds') {
+    return [
+      '本轮 editingDirection=character_deeds，表示主 agent 希望你编辑人物事迹。',
+      '人物事迹默认应写入 character_profile.data.description 字段。',
+      '优先使用 upsert_character_profile，并在 patch.description 中写入整理后的人物经历、事迹、转折、秘密或叙事内容。',
+      '除非用户明确要求修改基础属性，否则不要调用 upsert_character_demographic。'
+    ]
+  }
+  if (editingDirection === 'character_profile') {
+    return [
+      '本轮 editingDirection=character_profile，表示优先修改人物档案层。',
+      '优先使用 upsert_character_profile，除非请求明确超出 profile 范围。'
+    ]
+  }
+  if (editingDirection === 'demographic_facts') {
+    return [
+      '本轮 editingDirection=demographic_facts，表示优先修改基础属性层。',
+      '优先使用 upsert_character_demographic，除非请求明确需要改 profile 文本。'
+    ]
+  }
+  return ['本轮未提供 editingDirection，请结合 userRequest 和 editingScope 自行判断最安全的工具。']
+}
+
 const buildPrompt = (payload: CharacterEditorExecutionPayload): string => {
-  const availableScopes = payload.editingScope?.join(', ') || '未指定'
+  const effectiveScopes = getEffectiveEditingScopes(payload)
+  const availableScopes = effectiveScopes.join(', ') || '未指定'
   const toolPrompt = buildToolUsageSystemPrompt(characterEditorTools) || ''
+  const directionRules = buildDirectionRules(payload.editingDirection)
 
   return [
-    '你是后台运行的 character_editor 执行器。',
-    '你的职责是根据用户的人物编辑需求，使用人物专用工具完成一次可交付的编辑回合。',
+    '你是后台运行的 character_editor 子图中的编辑执行节点。',
+    '当前 resolve_world / resolve_character 已经完成，你现在只需要针对已解析的人物执行本轮编辑。',
     '执行规则：',
     '1. 先使用 get_character_detail 读取当前人物详情，再决定是否写入。',
     '2. 只允许使用当前提供的人物工具，不要编造数据库字段或 entityId。',
-    '3. 如果请求涉及 relation 或需要引用实体，但当前工具不足以安全完成，应返回 needs_input。',
+    '3. 如果请求涉及 relation、引用实体搜索或当前工具无法安全完成的内容，应返回 needs_input。',
     '4. 如果已经成功写入 profile 或 demographic，请返回 completed。',
     '5. 最终只输出 JSON，不要输出额外解释。',
+    ...directionRules,
     '',
     '任务载荷：',
-    JSON.stringify(
-      {
-        taskId: payload.taskId,
-        executionId: payload.executionId,
-        worldId: payload.worldId,
-        entityId: payload.entityId,
-        userRequest: payload.userRequest,
-        editingScope: payload.editingScope ?? [],
-        expectedOutcome: payload.expectedOutcome ?? '',
-        source: payload.source ?? 'chat'
-      },
-      null,
-      2
-    ),
+    JSON.stringify(payload, null, 2),
     '',
     `当前建议 editingScope：${availableScopes}`,
+    `当前 editingDirection：${formatEditingDirectionLabel(payload.editingDirection)}`,
     '',
     toolPrompt,
     '',
@@ -106,26 +256,12 @@ const buildPrompt = (payload: CharacterEditorExecutionPayload): string => {
   ].join('\n')
 }
 
-const buildFailureOutput = (
-  summary: string,
-  userFacingMessage: string,
-  changedScopes: CharacterEditingScope[],
-  appliedTools: CharacterEditorHandlerOutput['appliedTools']
-): CharacterEditorHandlerOutput =>
-  characterEditorHandlerOutputSchema.parse({
-    outcome: 'failed',
-    summary,
-    userFacingMessage,
-    changedScopes,
-    appliedTools
-  })
-
-export async function runCharacterEditorExecution(
-  rawPayload: unknown
-): Promise<CharacterEditorHandlerOutput> {
-  const payload = delegateCharacterEditorTaskPayloadSchema.parse(rawPayload)
+const runCharacterToolLoop = async (
+  payload: CharacterEditorExecutionPayload
+): Promise<CharacterEditorHandlerOutput> => {
   const model = await getConfiguredQuickModel()
   const boundModel = bindToolsToModel(model, characterEditorTools)
+  const effectiveScopes = getEffectiveEditingScopes(payload)
 
   const messages: BaseMessage[] = [
     new SystemMessage(buildPrompt(payload)),
@@ -149,7 +285,7 @@ export async function runCharacterEditorExecution(
         return buildFailureOutput(
           'character_editor 返回了无法解析的最终结果。',
           rawText || '人物编辑子 agent 没有返回可解析的结构化结果。',
-          payload.editingScope ?? [],
+          effectiveScopes,
           appliedTools
         )
       }
@@ -158,6 +294,22 @@ export async function runCharacterEditorExecution(
         ...JSON.parse(jsonText),
         appliedTools
       })
+
+      if (parsed.outcome === 'needs_input' && !parsed.pendingContext) {
+        return buildNeedsInputOutput({
+          summary: parsed.summary,
+          userFacingMessage: parsed.userFacingMessage,
+          changedScopes: parsed.changedScopes,
+          payload,
+          phase: 'apply_edit',
+          targetCharacterName: payload.characterName,
+          targetWorldName: payload.worldName,
+          resolvedWorldId: payload.worldId,
+          resolvedEntityId: payload.entityId,
+          appliedTools
+        })
+      }
+
       return parsed
     }
 
@@ -214,7 +366,233 @@ export async function runCharacterEditorExecution(
   return buildFailureOutput(
     'character_editor 超过最大工具调用轮数，已中止本轮执行。',
     '人物编辑子 agent 在本轮执行中超过最大工具调用轮数，已中止，请用户补充更明确的修改范围后再试。',
-    payload.editingScope ?? [],
+    effectiveScopes,
     appliedTools
   )
+}
+
+const loadExecutionInputNode = async (
+  state: typeof CharacterEditorState.State
+): Promise<Partial<typeof CharacterEditorState.State>> => {
+  const payload = delegateCharacterEditorTaskPayloadSchema.parse(state.payload)
+  return { payload }
+}
+
+const resolveWorldNode = async (
+  state: typeof CharacterEditorState.State
+): Promise<Partial<typeof CharacterEditorState.State>> => {
+  const payload = delegateCharacterEditorTaskPayloadSchema.parse(state.payload)
+  const changedScopes = getEffectiveEditingScopes(payload)
+  const pending = payload.pendingContext
+
+  const candidateWorldId = payload.worldId || pending?.resolvedWorldId
+  const candidateWorldName = payload.worldName || pending?.targetWorldName
+  const candidateCharacterName = payload.characterName || pending?.targetCharacterName
+
+  if (candidateWorldId) {
+    return {
+      resolvedWorldId: candidateWorldId,
+      resolvedWorldName: candidateWorldName
+    }
+  }
+
+  if (!candidateWorldName) {
+    return {
+      handlerOutput: buildNeedsInputOutput({
+        summary: '当前人物编辑任务缺少明确 world 名称。',
+        userFacingMessage:
+          '要继续编辑该人物，我需要你先提供明确的世界观名称。请告诉我这个角色属于哪个世界观。',
+        changedScopes,
+        payload,
+        phase: 'resolve_world',
+        targetCharacterName: candidateCharacterName
+      })
+    }
+  }
+
+  const worlds = await worldbuildingService.listWorlds()
+  const exactMatches = worlds.filter(
+    (world) => normalizeText(world.name) === normalizeText(candidateWorldName)
+  )
+
+  if (exactMatches.length === 1) {
+    return {
+      resolvedWorldId: exactMatches[0].id,
+      resolvedWorldName: exactMatches[0].name
+    }
+  }
+
+  if (exactMatches.length === 0) {
+    return {
+      handlerOutput: buildNeedsInputOutput({
+        summary: `未找到名称为「${candidateWorldName}」的世界观。`,
+        userFacingMessage:
+          `我没有找到名称为「${candidateWorldName}」的世界观，请确认世界观名称后再继续。`,
+        changedScopes,
+        payload,
+        phase: 'resolve_world',
+        targetCharacterName: candidateCharacterName,
+        targetWorldName: candidateWorldName
+      })
+    }
+  }
+
+  return {
+    handlerOutput: buildNeedsInputOutput({
+      summary: `世界观名称「${candidateWorldName}」对应多个候选。`,
+      userFacingMessage:
+        `世界观名称「${candidateWorldName}」对应多个候选，请提供更明确的世界观名称。`,
+      changedScopes,
+      payload,
+      phase: 'resolve_world',
+      targetCharacterName: candidateCharacterName,
+      targetWorldName: candidateWorldName
+    })
+  }
+}
+
+const routeAfterResolveWorld = (
+  state: typeof CharacterEditorState.State
+): string | typeof END => (state.handlerOutput ? END : 'resolveCharacterNode')
+
+const resolveCharacterNode = async (
+  state: typeof CharacterEditorState.State
+): Promise<Partial<typeof CharacterEditorState.State>> => {
+  const payload = delegateCharacterEditorTaskPayloadSchema.parse(state.payload)
+  const changedScopes = getEffectiveEditingScopes(payload)
+  const pending = payload.pendingContext
+  const worldId = state.resolvedWorldId
+  const worldName = state.resolvedWorldName
+
+  const candidateEntityId = payload.entityId || pending?.resolvedEntityId
+  const candidateCharacterName = payload.characterName || pending?.targetCharacterName
+
+  if (candidateEntityId) {
+    const detail = await worldbuildingService.getEntityDetail(candidateEntityId)
+    if (!detail || detail.entity.type !== 'character') {
+      return {
+        handlerOutput: buildNeedsInputOutput({
+          summary: '提供的 entityId 不是有效的人物实体。',
+          userFacingMessage:
+            '当前提供的人物实体无效，请重新提供明确的人物名称或正确的角色实体信息。',
+          changedScopes,
+          payload,
+          phase: 'resolve_character',
+          targetCharacterName: candidateCharacterName,
+          targetWorldName: worldName,
+          resolvedWorldId: worldId
+        })
+      }
+    }
+
+    return {
+      resolvedEntityId: detail.entity.id,
+      resolvedCharacterName: detail.entity.name,
+      resolvedWorldId: worldId || detail.entity.worldId
+    }
+  }
+
+  if (!candidateCharacterName) {
+    return {
+      handlerOutput: buildNeedsInputOutput({
+        summary: '当前人物编辑任务缺少明确人物名称。',
+        userFacingMessage:
+          '要继续编辑，我还需要明确的人物名称。请告诉我你要编辑哪个角色。',
+        changedScopes,
+        payload,
+        phase: 'resolve_character',
+        targetWorldName: worldName,
+        resolvedWorldId: worldId
+      })
+    }
+  }
+
+  const matches = await worldbuildingService.searchCharacterEntities({
+    worldId,
+    name: candidateCharacterName
+  })
+
+  if (matches.length === 1) {
+    return {
+      resolvedEntityId: matches[0].entity.id,
+      resolvedCharacterName: matches[0].entity.name
+    }
+  }
+
+  if (matches.length === 0) {
+    return {
+      handlerOutput: buildNeedsInputOutput({
+        summary: `在世界观「${worldName || worldId || ''}」中未找到人物「${candidateCharacterName}」。`,
+        userFacingMessage:
+          `我在世界观「${worldName || worldId || ''}」里没有找到名为「${candidateCharacterName}」的人物，请确认角色名后再继续。`,
+        changedScopes,
+        payload,
+        phase: 'resolve_character',
+        targetCharacterName: candidateCharacterName,
+        targetWorldName: worldName,
+        resolvedWorldId: worldId
+      })
+    }
+  }
+
+  return {
+    handlerOutput: buildNeedsInputOutput({
+      summary: `在世界观「${worldName || worldId || ''}」中找到了多个名为「${candidateCharacterName}」的人物候选。`,
+      userFacingMessage:
+        `在世界观「${worldName || worldId || ''}」中找到了多个名为「${candidateCharacterName}」的人物，请提供更具体的角色信息后再继续。`,
+      changedScopes,
+      payload,
+      phase: 'resolve_character',
+      targetCharacterName: candidateCharacterName,
+      targetWorldName: worldName,
+      resolvedWorldId: worldId
+    })
+  }
+}
+
+const routeAfterResolveCharacter = (
+  state: typeof CharacterEditorState.State
+): string | typeof END => (state.handlerOutput ? END : 'applyEditNode')
+
+const applyEditNode = async (
+  state: typeof CharacterEditorState.State
+): Promise<Partial<typeof CharacterEditorState.State>> => {
+  const payload = delegateCharacterEditorTaskPayloadSchema.parse(state.payload)
+  const finalPayload = delegateCharacterEditorTaskPayloadSchema.parse({
+    ...payload,
+    worldId: state.resolvedWorldId || payload.worldId,
+    worldName: state.resolvedWorldName || payload.worldName,
+    entityId: state.resolvedEntityId || payload.entityId,
+    characterName: state.resolvedCharacterName || payload.characterName,
+    pendingContext: undefined
+  })
+
+  const handlerOutput = await runCharacterToolLoop(finalPayload)
+  return { handlerOutput }
+}
+
+const characterEditorGraph = new StateGraph(CharacterEditorState)
+  .addNode('loadExecutionInputNode', loadExecutionInputNode)
+  .addNode('resolveWorldNode', resolveWorldNode)
+  .addNode('resolveCharacterNode', resolveCharacterNode)
+  .addNode('applyEditNode', applyEditNode)
+  .addEdge(START, 'loadExecutionInputNode')
+  .addEdge('loadExecutionInputNode', 'resolveWorldNode')
+  .addConditionalEdges('resolveWorldNode', routeAfterResolveWorld, ['resolveCharacterNode', END])
+  .addConditionalEdges('resolveCharacterNode', routeAfterResolveCharacter, ['applyEditNode', END])
+  .addEdge('applyEditNode', END)
+  .compile()
+
+export async function runCharacterEditorExecution(
+  rawPayload: unknown
+): Promise<CharacterEditorHandlerOutput> {
+  const payload = delegateCharacterEditorTaskPayloadSchema.parse(rawPayload)
+  const result = await characterEditorGraph.invoke({ payload })
+
+  const handlerOutput = result.handlerOutput
+  if (!handlerOutput) {
+    throw new Error('character_editor graph finished without handler output.')
+  }
+
+  return characterEditorHandlerOutputSchema.parse(handlerOutput)
 }
