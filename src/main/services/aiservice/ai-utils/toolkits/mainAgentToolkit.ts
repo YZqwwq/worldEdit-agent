@@ -1,5 +1,6 @@
 import * as z from 'zod'
 import { defineAgentTool } from '../core/agentTool'
+import { delegateCharacterEditorTool } from '../tools/task/delegateCharacterEditor'
 import { getEntityDetailTool } from '../tools/world/getEntityDetail'
 import { getWorldSchemaCatalogTool } from '../tools/world/getWorldSchemaCatalog'
 import { listCharactersTool } from '../tools/world/listCharacters'
@@ -37,6 +38,7 @@ const addTool = defineAgentTool({
 
 export const mainAgentTools = {
   [addTool.name]: addTool,
+  [delegateCharacterEditorTool.name]: delegateCharacterEditorTool,
   [getEntityDetailTool.name]: getEntityDetailTool,
   [getWorldSchemaCatalogTool.name]: getWorldSchemaCatalogTool,
   [listCharactersTool.name]: listCharactersTool,

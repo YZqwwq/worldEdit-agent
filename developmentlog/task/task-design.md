@@ -1,467 +1,482 @@
 # 任务系统设计记录
 
-## 背景
+## 当前定位
 
-当前应用设计不以“会话”作为核心隔离单位，而是希望在持续对话中保持主 agent 的人格统一。  
-这带来一个直接问题：如果没有明确的任务焦点，复杂任务和普通闲聊会混在同一条主对话链里，长期会让上下文变得发散。
+当前任务系统的核心目标已经明确为：
 
-因此，我们需要一套任务系统，但这套任务系统的目标不是做传统意义上的聊天会话管理，而是：
+`主 agent 维持连续对话与任务生命周期`
+`子 agent 在后台异步执行具体任务`
+`子 agent 完成后通过通知队列回传`
+`主 agent 在自己的轮次中消费通知并继续与用户交互`
 
-1. 在持续聊天中识别“当前是否形成了一个明确任务”
-2. 在任务存在时，为主 agent 提供稳定的任务焦点
-3. 在任务结束后形成经验沉淀，供未来相似任务复用
+这套系统不是传统“按会话隔离”的聊天系统，而是：
 
----
-
-## 已放弃的方案
-
-### 方案：先做任务分类
-
-曾经考虑让系统先判断当前情境属于：
-
-- 一般闲聊
-- code
-- 文档
-- 架构分析
-- 其他任务类型
-
-并维护一个“分类表 + 分类下任务列表”。
-
-### 放弃原因
-
-这个方案存在几个问题：
-
-1. 分类本身会消耗大量额外 token
-2. 分类不直接帮助任务完成，只是增加中间判断层
-3. 人类处理问题时通常不是先想“这属于哪个分类”，而是先意识到“这是一个要完成的任务”
-4. 对无会话架构来说，真正重要的是当前任务焦点，而不是静态类别标签
-
-因此，当前设计明确放弃“分类优先”，转向“任务生命周期优先”。
+1. 主 agent 保持统一人格与连续对话
+2. 复杂任务以结构化任务对象进入后台执行链
+3. 主 agent 不阻塞等待子 agent 完成
+4. 子 agent 完成、失败、需要补充信息时都通过通知回传
 
 ---
 
-## 当前核心理论
+## 当前已实现功能
 
-当前任务系统的基本理论为：
+截至当前，主-子 agent 任务系统已经具备以下能力：
 
-`发现明确任务 -> 检查过往是否有类似经验 -> 开始执行 -> 完成后总结经验 -> 等待未来复用`
+### 1. 主 agent 侧任务生命周期判断已接入主图
 
-进一步展开为：
+当前主图顺序为：
 
-1. 用户提出一个明确的、需要持续处理的任务
-2. 系统创建任务记录
-3. 系统查找是否存在相似经验
-4. 系统将任务交给对应执行代理
-5. 执行代理内部自行完成“拆解、执行、测试、修复、再执行”的闭环
-6. 执行代理认为结果可交付时，回报主 agent
-7. 主 agent 请求用户确认是否结束任务
-8. 用户确认后关闭任务，并沉淀经验
+`personaNode -> taskNotificationNode -> taskLifecycleNode -> contextNode -> llmCall -> ...`
 
-这意味着：
+含义：
 
-- 主 agent 不负责复杂任务执行
-- 主 agent 不负责验证
-- 主 agent 不负责失败重试
-- 主 agent 只管理任务生命周期与用户交互
+1. `taskNotificationNode` 先消费后台未读通知
+2. `taskLifecycleNode` 再判断当前是否创建任务、继续任务或结束任务
+3. `contextNode` 将任务状态、通知提示、经验召回等注入主 agent 上下文
 
 ---
 
-## 主 agent 与子 agent 的职责边界
+### 2. 单 active task 模式已落地
 
-### 主 agent 的职责
+当前系统仍坚持：
 
-主 agent 只负责：
+`同一时刻只允许一个 active task`
 
-1. 与用户保持连续对话
-2. 判断是否形成明确任务
-3. 注册任务
-4. 为任务选择合适的子 agent
-5. 告知用户任务已开始
-6. 在子 agent 上报完成后，请求用户确认是否结束任务
-7. 用户确认后关闭任务
-8. 在确认关闭后触发经验沉淀
-
-### 主 agent 不负责的事情
-
-主 agent 不负责：
-
-1. 拆解复杂任务
-2. 给出详细测试方案
-3. 实际执行复杂任务
-4. 结果验证
-5. 失败分析
-6. 自动重试闭环
-
-### 子 agent 的职责
-
-子 agent 负责：
-
-1. 接收主任务
-2. 自己拆分内部执行步骤
-3. 制定测试与验证方案
-4. 实际执行任务
-5. 自测
-6. 失败分析
-7. 重试修复
-8. 在认为结果可交付时，上报主 agent
-
-一句话总结：
-
-`主 agent = 前台交互 + 生命周期管理`
-`子 agent = 后台执行闭环`
-
----
-
-## 单任务原则
-
-当前版本坚持“同一时刻只有一个 active task”。
-
-这样做的原因：
-
-1. 无会话前提下，多任务并行会显著增加上下文漂移风险
-2. 单任务更符合第一阶段产品目标
-3. 主 agent 的任务管理逻辑会更简单、更稳
-4. 子 agent 的调度与回传路径也更容易收敛
-
-单任务原则带来的约束：
-
-1. 同一时刻只允许一个未终止任务存在
-2. 如果新任务进入而旧任务未关闭，需要后续明确设计中断或拒绝策略
-3. 用户确认完成前，任务不应真正关闭
-
----
-
-## 任务生命周期
-
-当前建议的任务生命周期状态如下：
+活跃任务状态包括：
 
 - `active`
 - `running`
+- `pending_main_ack`
+- `awaiting_user_input`
+- `awaiting_user_confirmation`
+
+因此：
+
+1. 主 agent 不会同时并发多个主任务
+2. 子 agent 的异步执行与通知回传都围绕当前唯一活跃任务展开
+
+---
+
+### 3. 三层状态机已建立
+
+当前不再尝试用一个状态字段同时表达所有含义，而是拆成三层：
+
+#### TaskRecord.status
+
+表示主任务生命周期：
+
+- `active`
+- `running`
+- `pending_main_ack`
+- `awaiting_user_input`
 - `awaiting_user_confirmation`
 - `done`
 - `cancelled`
 
-### 状态含义
+#### TaskExecutionRecord.status
+
+表示一次子 agent 执行回合的状态：
+
+- `queued`
+- `dispatching`
+- `running`
+- `awaiting_input`
+- `reported_done`
+- `failed`
+- `cancelled`
+
+#### TaskNotificationRecord
+
+表示子 agent 发给主 agent 的异步事件：
+
+`type`
+
+- `subagent_completed`
+- `subagent_failed`
+- `subagent_needs_input`
+
+`status`
+
+- `pending`
+- `consumed`
+
+---
+
+### 4. 通知队列已经落库
+
+当前已经新增：
+
+- `TaskNotificationRecord`
+- `taskNotificationService`
+
+这意味着系统现在能够：
+
+1. 在子 agent 完成后写入待消费通知
+2. 将“子 agent 已完成”与“主任务真正结束”分离
+3. 由主 agent 在自己的下一轮中消费通知，而不是被强制打断
+
+---
+
+### 5. dispatcher 骨架已经接入
+
+当前已经新增：
+
+- `SubAgentDispatcherService`
+
+它负责：
+
+1. 从 `TaskExecutionRecord(status=queued)` 取出待执行 run
+2. 将执行状态推进到 `dispatching / running`
+3. 调用对应执行器 handler
+4. 将执行结果写回通知队列
+
+当前这一层已经形成稳定的异步执行框架。
+
+---
+
+### 6. 人物编辑委派工具已进入真实异步链路
+
+当前 `delegate_character_editor` 不再只停留在“协议占位”。
+
+它现在会：
+
+1. 校验目标实体确实存在且类型为 `character`
+2. 复用当前 active task，或在无 active task 时创建新任务
+3. 创建一条 `TaskExecutionRecord`
+4. 将完整载荷写入 execution
+5. 异步调用 dispatcher 启动后台执行
+
+这意味着主 agent 到子 agent 的异步委派链已经真正接通。
+
+---
+
+## 当前任务状态机
+
+### 主任务状态流转
+
+当前主任务的推荐流转已经变为：
+
+`active -> running -> pending_main_ack -> awaiting_user_confirmation -> done`
+
+以及：
+
+`running -> pending_main_ack -> awaiting_user_input -> running`
+
+以及：
+
+`active / running / awaiting_user_input / awaiting_user_confirmation -> cancelled`
+
+---
+
+### 各状态含义
 
 #### active
 
-任务刚被主 agent 注册，但尚未正式进入子 agent 执行，或刚进入调度阶段。
+任务已被主 agent 注册，但尚未进入后台执行，或刚准备进入委派。
 
 #### running
 
-任务已交由对应子 agent 处理。  
-此时主 agent 只负责告诉用户任务正在进行。
+至少存在一个后台执行回合正在运行或已被接管。
+
+#### pending_main_ack
+
+子 agent 已经产生了事件，但主 agent 还没有消费这条通知。
+
+这个状态现在是通用中间态，不只用于“完成”，也可用于：
+
+1. 子 agent 完成
+2. 子 agent 失败
+3. 子 agent 需要更多用户输入
+
+#### awaiting_user_input
+
+主 agent 已经消费了后台通知，并确认当前任务需要用户补充信息后才能继续。
 
 #### awaiting_user_confirmation
 
-子 agent 已经认为任务完成并回传结果。  
-主 agent 此时应向用户发起确认，而不是自己判断是否结束。
+主 agent 已经消费了“后台执行完成”通知，此时等待用户确认任务是否真正结束。
 
 #### done
 
-用户明确确认任务结束。
+用户确认任务已经完成。
 
 #### cancelled
 
-用户明确表示不再需要继续当前任务。
+用户明确取消任务，或决定不再继续当前任务。
 
 ---
 
-## 主流程设计
+## 当前执行状态机
 
-### 主流程
+一次 `TaskExecutionRecord` 表示一次子 agent 后台执行回合。
 
-`用户消息 -> 主 agent 判断是否形成任务 -> 注册任务 -> 查询经验 -> 派发子 agent -> 主 agent 通知用户任务开始 -> 子 agent 内部执行闭环 -> 子 agent 回报结果 -> 主 agent 请求用户确认 -> 用户确认关闭任务`
+推荐流转为：
 
-### 关键原则
+`queued -> dispatching -> running -> reported_done`
 
-1. 主 agent 不等待子 agent 执行细节
-2. 子 agent 内部如何循环执行，不暴露给主 agent
-3. 主 agent 接收的只是“任务开始/任务完成待确认”这两个对外重要状态
+或：
 
----
+`queued -> dispatching -> running -> awaiting_input`
 
-## 当前认定的任务节点定位
+或：
 
-任务节点不应该叫“分类节点”，更适合叫：
+`queued -> dispatching -> running -> failed`
 
-- `taskLifecycleNode`
-- 或 `taskSupervisorNode`
+或：
 
-当前更倾向于 `taskLifecycleNode`，因为它负责的不是任务执行监督，而是任务生命周期判断。
-
-### taskLifecycleNode 的职责
-
-1. 读取最新用户输入
-2. 判断这轮是否形成明确任务
-3. 如果已有 active task，判断用户是在继续当前任务还是确认结束任务
-4. 在需要时创建任务记录
-5. 为主 agent 提供当前任务状态
-6. 触发经验召回
-
-### taskLifecycleNode 不负责
-
-1. 执行任务
-2. 验证任务
-3. 失败重试
-4. 详细编排子 agent 内部步骤
+`queued / running -> cancelled`
 
 ---
 
-## 为什么仍然需要经验表
+## 当前通知队列模型
 
-虽然放弃了“分类优先”，但经验表仍然是必要的。
+### 为什么需要通知表
 
-经验表的价值在于：
+如果只依赖 `TaskRecord.status`，主 agent 与子 agent 会耦合过紧，难以表达：
 
-1. 新任务建立时，可以检查是否做过类似的事情
-2. 相似经验可以帮助子 agent更快进入工作状态
-3. 经验表是对长期记忆的一种结构化压缩
+1. 后台事件已发生，但主 agent 尚未处理
+2. 后台完成不等于任务真正结束
+3. 未来同一任务可能会有多次异步回传
 
-经验不是“过去对话原文”，而应是：
+因此当前已经确定：
 
-- 问题模式
-- 执行策略
-- 验证策略
-- 结果
-- 坑点
+`子 agent 回报 = 写 TaskNotificationRecord`
 
----
+而不是：
 
-## 当前认定的数据结构方向
-
-### 1. TaskRecord
-
-记录主任务生命周期。
-
-建议信息包括：
-
-- 标题
-- 目标
-- 摘要
-- 状态
-- 目标执行器类型
-- 关闭总结
-- 创建/更新时间
-
-### 2. TaskExecutionRecord
-
-记录一次子 agent 执行回合。
-
-它的意义不是让主 agent 去验证，而是记录：
-
-- 当前任务被谁执行
-- 执行输入是什么
-- 这轮上报了什么结果
-- 是否上报完成
-
-### 3. ExperienceRecord
-
-记录完成任务后沉淀的经验。
-
-建议信息包括：
-
-- 来源任务
-- 问题模式
-- 执行策略
-- 验证策略
-- 结果
-- 踩坑
+`子 agent 直接改成任务完成`
 
 ---
 
-## 主 agent 的提示词身份约束
+### 当前通知消费原则
 
-为了避免主 agent 越界执行复杂任务，后续在主 agent 的上下文中需要明确写入：
+当前原则为：
 
-1. 主 agent 是前台交互代理
-2. 复杂任务由专门执行代理完成
-3. 主 agent 只负责登记任务、同步进度、收集补充要求、请求用户确认结束
-4. 主 agent 不应假装自己已经完成尚未由执行代理回报的任务
+`子 agent 完成 != 立即打断主 agent`
 
-这部分后续应进入任务上下文注入逻辑中。
+而是：
 
----
+`子 agent 写 pending 通知 -> 主 agent 下一轮先消费通知 -> 再继续对用户说话`
 
-## 当前实现草案方向
+这也是为什么主图里增加了：
 
-当前已经开始落地的实现骨架包括：
+- `taskNotificationNode`
 
-1. 任务生命周期共享类型
-2. `TaskRecord`
-3. `TaskExecutionRecord`
-4. `ExperienceRecord`
-5. `taskService`
-6. `taskExecutionService`
-7. `experienceService`
-8. `taskLifecycleNode` 草案
+它的职责就是：
 
-当前阶段的落地原则是：
-
-1. 先把结构立住
-2. 先不接入主图，避免打断现有对话链
-3. 先让“主 agent 生命周期管理”这个模型成形
-4. 后续再接子 agent dispatcher
+1. 查找当前 active task 的最早一条未消费通知
+2. 将其标记为 `consumed`
+3. 根据通知类型把任务推进到：
+   - `awaiting_user_confirmation`
+   - 或 `awaiting_user_input`
+4. 给主 agent 注入本轮提示 notice
 
 ---
 
-## 当前已实现架构状态
+## 当前主-子 agent 工作流
 
-截至当前，任务系统已经完成的不是“完整可运行的子 agent 执行闭环”，而是“主 agent 侧的任务架构骨架”。
+### 1. 创建任务
 
-### 已完成部分
+用户提出明确复杂任务后：
 
-#### 1. 任务生命周期数据结构已建立
-
-当前已经建立：
-
-- `TaskLifecycleState`
-- `TaskRecord`
-- `TaskExecutionRecord`
-- `ExperienceRecord`
-
-这意味着任务系统已经具备了状态建模和落库基础。
-
-#### 2. 主 agent 的任务生命周期节点草案已落地
-
-当前已经新增 `taskLifecycleNode`，并已接入主图。  
-主图当前的顺序已经变为：
-
-`personaNode -> taskLifecycleNode -> contextNode -> llmCall -> ...`
-
-这意味着主 agent 在进入正式回答前，已经具备任务生命周期判断能力。
-
-#### 3. 任务注册门槛已加入
-
-当前已经明确实现如下规则：
-
-`判断是否需要建立任务 -> 若需要 -> 检查是否存在对应子 agent 工具 -> 若不存在 -> 不注册任务 -> 明确告知用户当前没有该能力工具`
-
-这条规则已经被接入当前主链路。
-
-#### 4. 能力检查服务已建立
-
-当前已经新增子 agent 能力检查服务，用于判断：
-
-- 某个任务建议的 `executorKind`
-- 是否存在匹配的子 agent 工具
-- 如果不存在，应向用户输出什么限制说明
-
-#### 5. contextNode 已具备任务上下文注入能力
-
-当前 `contextNode` 已经能够读取：
-
-- 当前 active task
-- 任务生命周期 notice
-- 任务注册被阻断的信息
-- 召回经验
-
-其中“任务注册阻断”场景下，系统会明确约束主 agent：
-
-1. 不要注册该任务
-2. 明确告诉用户当前没有可用的对应子 agent 能力工具
-3. 引导用户先加载能力工具
-
-#### 6. 类型检查通过
-
-当前已完成实现部分已经通过主进程 TypeScript 类型检查。
+1. `taskLifecycleNode` 判断形成任务
+2. 检查是否存在对应的委派工具能力
+3. 若能力存在，则创建 `TaskRecord(status=active)`
 
 ---
 
-## 当前仍未实现的部分
+### 2. 主 agent 调用委派工具
 
-虽然架构骨架已经建立，但以下部分仍未真正完成：
+主 agent 使用对应的 delegate tool。
 
-### 1. 子 agent 本体尚未实现
+例如人物编辑场景中：
 
-目前还没有真正可用的子 agent 工具。  
-因此虽然主 agent 已经具备“先检查能力再注册任务”的逻辑，但在实际运行上，复杂任务仍会因为缺少子 agent 工具而被阻断。
+- `delegate_character_editor`
 
-### 2. 子 agent dispatcher 尚未实现
+该工具会：
 
-当前还没有主 agent 到子 agent 的正式派发服务。  
-也就是说：
-
-- 还没有 `SubAgentDispatcherService`
-- 还没有实际的任务投递动作
-- 还没有后台运行的子 agent 生命周期
-
-### 3. 子 agent 回报协议尚未实现
-
-当前还没有定义并打通：
-
-- 子 agent 如何上报任务完成
-- 子 agent 如何回传用户可见结果
-- 主 agent 如何收到该回报后切换为 `awaiting_user_confirmation`
-
-### 4. 任务执行记录仍未进入真实运行链
-
-虽然 `TaskExecutionRecord` 已建立，但目前还没有真正的执行 run 被创建、更新和消费。  
-它当前仍处于“结构已预留，运行尚未接入”的状态。
-
-### 5. 经验沉淀闭环尚未完成
-
-虽然 `ExperienceRecord` 已建立，经验召回能力也已有基础接口，但真正的闭环仍未完成：
-
-- 任务完成后如何正式写入经验
-- 经验由谁生成
-- 经验在何时入库
-- 经验是否需要用户确认后再沉淀
-
-这些都还没有进入实际运行链。
+1. 复用当前 active task
+2. 创建 `TaskExecutionRecord(status=queued)`
+3. 立即异步交给 `SubAgentDispatcherService`
+4. 向主 agent 返回“任务已进入后台执行”
 
 ---
 
-## 当前可视为已确定的架构边界
+### 3. dispatcher 启动后台执行
 
-截至当前，可以认为以下边界已经确定：
+dispatcher 将执行状态推进到：
 
-1. 主 agent 只负责与用户交互、注册任务、结束任务
-2. 主 agent 不负责复杂任务执行
-3. 主 agent 不负责验证
-4. 主 agent 不负责失败分析与重试
-5. 子 agent 才负责具体执行闭环
-6. 没有对应子 agent 工具时，主 agent 不得注册任务
+- `dispatching`
+- `running`
 
-这几条已经不再只是理论，而是已经开始体现在当前代码结构中。
+并调用对应执行器。
 
 ---
 
-## 接下来要实现的内容
+### 4. 子 agent 回传异步事件
 
-### 第一阶段
+当子 agent：
 
-1. 将 `taskLifecycleNode` 接入主图
-2. 让主 agent 能识别：
-   - 创建任务
-   - 继续任务
-   - 确认结束任务
-3. 让 `contextNode` 读取任务生命周期状态
+1. 完成
+2. 失败
+3. 需要更多信息
 
-### 第二阶段
+都会调用通知服务，执行以下动作：
 
-1. 引入子 agent dispatcher
-2. 建立主 agent -> 子 agent 的委派协议
-3. 建立子 agent -> 主 agent 的回报协议
+1. 更新 `TaskExecutionRecord`
+2. 更新 `TaskRecord.status = pending_main_ack`
+3. 插入一条 `TaskNotificationRecord(status=pending)`
 
-### 第三阶段
+---
 
-1. 在任务完成后沉淀经验
-2. 在新任务创建时召回相似经验
-3. 形成“任务 -> 经验 -> 新任务复用”的闭环
+### 5. 主 agent 消费通知
+
+在下一轮主 agent 运行开始时：
+
+1. `taskNotificationNode` 消费未读通知
+2. 如果是完成通知：
+   - 任务进入 `awaiting_user_confirmation`
+3. 如果是失败或需要补充输入：
+   - 任务进入 `awaiting_user_input`
+
+---
+
+### 6. 用户决定下一步
+
+如果用户确认任务完成：
+
+- `TaskRecord.status = done`
+
+如果用户补充新要求继续做：
+
+1. 主 agent 继续沿用当前任务
+2. 创建新的 `TaskExecutionRecord`
+3. 任务回到 `running`
+
+如果用户取消：
+
+- `TaskRecord.status = cancelled`
+
+---
+
+## 当前职责边界
+
+### 主 agent 负责
+
+1. 连续对话
+2. 判断是否形成任务
+3. 创建任务
+4. 调用委派工具
+5. 同步任务开始
+6. 消费后台通知
+7. 向用户请求补充信息或确认结束
+8. 最终关闭任务
+
+### 主 agent 不负责
+
+1. 自己执行复杂任务
+2. 阻塞等待后台子 agent
+3. 自己做失败重试闭环
+4. 把“后台完成”直接当成“任务完成”
+
+### 子 agent 负责
+
+1. 接收一次 execution payload
+2. 在后台独立执行
+3. 产出完成/失败/补充信息请求
+4. 通过通知队列回传主 agent
+
+---
+
+## 当前代码落点
+
+### 共享状态与数据库实体
+
+- `src/share/cache/AItype/states/taskLifecycleState.ts`
+- `src/share/entity/database/TaskRecord.ts`
+- `src/share/entity/database/TaskExecutionRecord.ts`
+- `src/share/entity/database/TaskNotificationRecord.ts`
+- `src/share/entity/database/ExperienceRecord.ts`
+
+### 任务服务
+
+- `src/main/services/task/taskService.ts`
+- `src/main/services/task/taskExecutionService.ts`
+- `src/main/services/task/taskNotificationService.ts`
+- `src/main/services/task/subAgentDispatcherService.ts`
+- `src/main/services/task/subAgentCapabilityService.ts`
+
+### 主图节点
+
+- `src/main/services/aiservice/agentrsystem/agentReactSystem.ts`
+- `src/main/services/aiservice/agentrsystem/node/tasknotificationnode/taskNotificationNode.ts`
+- `src/main/services/aiservice/agentrsystem/node/tasklifecyclenode/taskLifecycleNode.ts`
+- `src/main/services/aiservice/agentrsystem/node/contextnode/contextnode.ts`
+
+### 当前委派入口
+
+- `src/main/services/aiservice/ai-utils/tools/task/delegateCharacterEditor.ts`
+
+---
+
+## 当前已知边界
+
+虽然异步任务链路已经接通，但当前仍有明确边界：
+
+### 1. 只有人物编辑委派入口已接入
+
+当前已接入异步链路的委派入口是：
+
+- `delegate_character_editor`
+
+其他执行器类型仍只有能力映射，还没有对应的实际 delegate tool 和 handler。
+
+### 2. 人物编辑子 agent 的真实写入能力尚未完成
+
+当前人物编辑 dispatcher handler 已经接进异步框架，但它仍然只具备：
+
+- 读取人物 detail
+- 接收任务载荷
+- 回传“当前缺少写入工具，无法继续执行”
+
+因此当前可以验证：
+
+1. 异步委派
+2. execution 状态轮转
+3. 通知写入与消费
+4. 主 agent 收到后台结果后的状态切换
+
+但还不能真正完成人物 profile / demographic / relation 的自动写入。
+
+### 3. 当前通知消费仍是“主 agent 下一轮消费”
+
+当前已经实现的是：
+
+`子 agent 写通知 -> 主 agent 下一轮先消费`
+
+还没有实现：
+
+`后台完成后主动向 UI 推送一条系统消息`
+
+这意味着当前“异步完成告知”仍然以主 agent 下一轮运行时处理为主，而不是独立系统推送。
 
 ---
 
 ## 当前结论
 
-当前任务系统的正确方向不是：
+当前主-子 agent 任务系统已经从“任务骨架”进入“可运行的异步状态机框架”阶段。
 
-`分类 -> 任务`
+已经确认并落地的架构边界是：
 
-而是：
+1. 主 agent 负责任务生命周期与用户交互
+2. 子 agent 负责后台执行
+3. 主 agent 不阻塞等待子 agent
+4. 子 agent 完成后写通知，不直接打断主 agent
+5. `TaskRecord / TaskExecutionRecord / TaskNotificationRecord` 三层状态机共同组成当前任务系统
 
-`任务识别 -> 任务生命周期 -> 子 agent 执行 -> 用户确认 -> 经验沉淀`
+后续继续扩展时，应优先沿着这条路线推进：
 
-主 agent 不做复杂执行，不做验证，不做重试。  
-主 agent 只管理任务的开始与结束，并保持与用户的连续交互。  
-复杂任务的真实闭环应该完全下沉到对应子 agent 内部。
+`增加更多 delegate tool`
+`增加更多 executor handler`
+`补齐真实写入型子 agent 工具`
+`最后再考虑主动系统推送与经验沉淀自动化`

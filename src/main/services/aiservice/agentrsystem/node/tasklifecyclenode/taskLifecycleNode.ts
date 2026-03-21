@@ -32,6 +32,7 @@ const taskDecisionSchema = z.object({
           'general_task_worker',
           'code_worker',
           'doc_worker',
+          'character_editor',
           'tool_builder',
           'architecture_analyst',
           'general_research'
@@ -158,6 +159,7 @@ const getSuggestedExecutor = (
 export async function taskLifecycleNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
+  const existingLifecycle = state.taskLifecycle
   const latestUserMessage = state.messages
     .slice()
     .reverse()
@@ -194,8 +196,8 @@ export async function taskLifecycleNode(
 
   const decision = toDecision(inferred)
   let nextActiveTask = activeTask
-  let notice: TaskLifecycleState['notice']
-  let capability: TaskLifecycleState['capability']
+  let notice: TaskLifecycleState['notice'] = existingLifecycle?.notice
+  let capability: TaskLifecycleState['capability'] = existingLifecycle?.capability
 
   if (decision.type === 'create_task' && inferred.task && decision.confidence >= 0.75) {
     capability = subAgentCapabilityService.getCapability(getSuggestedExecutor(inferred.task.executorKind))
@@ -255,6 +257,7 @@ export async function taskLifecycleNode(
 
   return {
     taskLifecycle: {
+      ...(existingLifecycle ?? {}),
       activeTask: nextActiveTask,
       decision,
       notice,

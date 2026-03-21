@@ -16,6 +16,10 @@ class TaskExecutionService {
     return AppDataSource.getRepository(TaskExecutionRecord)
   }
 
+  async getRun(runId: number): Promise<TaskExecutionRecord | null> {
+    return this.repo.findOneBy({ id: runId })
+  }
+
   async getLatestRun(taskId: number): Promise<TaskExecutionRecord | null> {
     const runs = await this.repo.find({
       where: { taskId },
@@ -23,6 +27,15 @@ class TaskExecutionService {
       take: 1
     })
     return runs[0] ?? null
+  }
+
+  async listRunsByStatus(statuses: TaskExecutionStatus[]): Promise<TaskExecutionRecord[]> {
+    if (statuses.length === 0) return []
+
+    return this.repo.find({
+      where: statuses.map((status) => ({ status })),
+      order: { createdAt: 'ASC' }
+    })
   }
 
   async queueRun(input: QueueTaskRunInput): Promise<TaskExecutionRecord> {
@@ -34,6 +47,14 @@ class TaskExecutionService {
       status: 'queued',
       inputPayloadJson: JSON.stringify(input.inputPayload ?? {})
     })
+    return this.repo.save(run)
+  }
+
+  async updateRunInputPayload(runId: number, inputPayload: unknown): Promise<TaskExecutionRecord> {
+    const run = await this.repo.findOneBy({ id: runId })
+    if (!run) throw new Error(`Task run not found: ${runId}`)
+
+    run.inputPayloadJson = JSON.stringify(inputPayload ?? {})
     return this.repo.save(run)
   }
 
@@ -50,10 +71,15 @@ class TaskExecutionService {
     if (!run) throw new Error(`Task run not found: ${runId}`)
 
     run.status = status
-    if (status === 'running' && !run.startedAt) {
+    if ((status === 'dispatching' || status === 'running') && !run.startedAt) {
       run.startedAt = new Date()
     }
-    if (status === 'reported_done' || status === 'failed') {
+    if (
+      status === 'awaiting_input' ||
+      status === 'reported_done' ||
+      status === 'failed' ||
+      status === 'cancelled'
+    ) {
       run.finishedAt = new Date()
     }
     if (input?.resultSummary) {

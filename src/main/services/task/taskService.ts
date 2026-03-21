@@ -20,7 +20,13 @@ type UpdateTaskStatusInput = {
   closureSummary?: string
 }
 
-const ACTIVE_TASK_STATUSES: TaskStatus[] = ['active', 'running', 'awaiting_user_confirmation']
+const ACTIVE_TASK_STATUSES: TaskStatus[] = [
+  'active',
+  'running',
+  'pending_main_ack',
+  'awaiting_user_input',
+  'awaiting_user_confirmation'
+]
 
 const toSnapshot = (task: TaskRecord): ActiveTaskSnapshot => ({
   id: task.id,
