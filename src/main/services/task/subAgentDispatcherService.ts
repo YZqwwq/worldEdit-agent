@@ -3,10 +3,11 @@ import { TaskRecord } from '../../../share/entity/database/TaskRecord'
 import { taskExecutionService } from './taskExecutionService'
 import { taskNotificationService } from './taskNotificationService'
 import { taskService } from './taskService'
-import { taskCoordinatorService } from './taskCoordinatorService'
+import { taskTraceService } from './taskTraceService'
+import { mainAgentDispatchService } from '../middlelayer/event-in-wait/mainAgentDispatchService'
 import type { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
 import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
-import { runCharacterEditorExecution } from './characterEditorExecution'
+import { runCharacterEditorExecution } from '../aiservice/child-agent-system/characterEditorExecution'
 
 type DispatchResult = {
   type: 'completed' | 'failed' | 'needs_input'
@@ -46,6 +47,31 @@ const toNotificationType = (
   }
 }
 
+const normalizeErrorMessage = (error: unknown): string => {
+  const raw = error instanceof Error ? error.message : String(error)
+  if (/^abort$/i.test(raw.trim())) {
+    return '子 agent 的模型调用被中止了，通常表示本轮后台执行超时（当前 character_editor 单次模型调用上限为 30 秒）。'
+  }
+  return raw
+}
+
+const enqueueNotificationSafely = async (
+  taskId: number,
+  notificationId: number
+): Promise<void> => {
+  try {
+    await mainAgentDispatchService.enqueueTaskNotification({
+      taskId,
+      notificationId
+    })
+  } catch (error) {
+    console.error(
+      `Failed to enqueue notification #${notificationId} for task #${taskId}:`,
+      error
+    )
+  }
+}
+
 const characterEditorHandler: DispatchHandler = async ({ payload }) => {
   try {
     const result = await runCharacterEditorExecution(payload)
@@ -67,9 +93,9 @@ const characterEditorHandler: DispatchHandler = async ({ payload }) => {
       type: 'failed',
       summary: '人物编辑子 agent 在执行过程中抛出异常。',
       payload: {
-        message: error instanceof Error ? error.message : String(error)
+        message: normalizeErrorMessage(error)
       },
-      errorReport: error instanceof Error ? error.message : String(error)
+      errorReport: normalizeErrorMessage(error)
     }
   }
 }
@@ -101,12 +127,19 @@ class SubAgentDispatcherService {
     await taskExecutionService.setRunStatus(execution.id, 'dispatching')
     await taskExecutionService.setRunStatus(execution.id, 'running')
     await taskService.setTaskStatus(task.id, { status: 'running' })
+    await taskTraceService.emit({
+      taskId: task.id,
+      executionId: execution.id,
+      actor: 'subagent',
+      stage: 'subagent_activated',
+      message: `子 agent ${execution.executorKind} 已激活并开始执行。`
+    })
 
     const handler = HANDLERS[execution.executorKind]
     const payload = parseJsonObject(execution.inputPayloadJson)
 
     if (!handler) {
-      await taskNotificationService.publishExecutionEvent({
+      const notification = await taskNotificationService.publishExecutionEvent({
         taskId: task.id,
         executionId: execution.id,
         type: 'subagent_failed',
@@ -116,6 +149,18 @@ class SubAgentDispatcherService {
         },
         errorReport: `Missing dispatcher handler for executor ${execution.executorKind}`
       })
+      await taskTraceService.emit({
+        taskId: task.id,
+        executionId: execution.id,
+        actor: 'subagent',
+        stage: 'subagent_notify_main',
+        message: '子 agent 因缺少 handler 无法继续，已向主 agent 发起响应请求。',
+        payload: {
+          outcome: 'failed',
+          reason: 'missing_handler'
+        }
+      })
+      await enqueueNotificationSafely(task.id, notification.id)
       return
     }
 
@@ -130,7 +175,7 @@ class SubAgentDispatcherService {
           ? (result.payload.pendingContext as Record<string, unknown>)
           : null
       )
-      await taskNotificationService.publishExecutionEvent({
+      const notification = await taskNotificationService.publishExecutionEvent({
         taskId: task.id,
         executionId: execution.id,
         type: toNotificationType(result.type),
@@ -141,10 +186,21 @@ class SubAgentDispatcherService {
         },
         errorReport: result.errorReport
       })
-      await taskCoordinatorService.handlePublishedNotification(task.id)
+      await taskTraceService.emit({
+        taskId: task.id,
+        executionId: execution.id,
+        actor: 'subagent',
+        stage: 'subagent_notify_main',
+        message: '子 agent 已结束本轮 execution，并向主 agent 发起响应请求。',
+        payload: {
+          outcome: result.type,
+          summary: result.summary
+        }
+      })
+      await enqueueNotificationSafely(task.id, notification.id)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      await taskNotificationService.publishExecutionEvent({
+      const message = normalizeErrorMessage(error)
+      const notification = await taskNotificationService.publishExecutionEvent({
         taskId: task.id,
         executionId: execution.id,
         type: 'subagent_failed',
@@ -154,7 +210,18 @@ class SubAgentDispatcherService {
         },
         errorReport: message
       })
-      await taskCoordinatorService.handlePublishedNotification(task.id)
+      await taskTraceService.emit({
+        taskId: task.id,
+        executionId: execution.id,
+        actor: 'subagent',
+        stage: 'subagent_notify_main',
+        message: '子 agent 在异常结束后，已向主 agent 发起响应请求。',
+        payload: {
+          outcome: 'failed',
+          error: message
+        }
+      })
+      await enqueueNotificationSafely(task.id, notification.id)
     }
   }
 

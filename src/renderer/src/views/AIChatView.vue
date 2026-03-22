@@ -273,6 +273,18 @@
             />
           </label>
 
+          <label class="flex flex-col gap-1 text-sm text-gray-700">
+            子 Agent 超时(ms)
+            <input
+              v-model.number="modelConfigForm.childAgentTimeoutMs"
+              type="number"
+              min="5000"
+              max="300000"
+              step="1000"
+              class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
+            />
+          </label>
+
           <label class="flex items-center gap-2 text-sm text-gray-700">
             <input v-model="modelConfigForm.streaming" type="checkbox" />
             启用 streaming
@@ -451,7 +463,8 @@ const defaultModelConfig: ModelConfigInput = {
   baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   temperature: 0.9,
   streaming: true,
-  useResponsesApi: false
+  useResponsesApi: false,
+  childAgentTimeoutMs: 30000
 }
 
 const modelConfigForm = ref<ModelConfigInput>({
@@ -512,7 +525,11 @@ const applyModelConfig = (config: ModelConfigPayload): void => {
     baseURL: config.baseURL || '',
     temperature: Number.isFinite(config.temperature) ? config.temperature : 0.9,
     streaming: config.streaming !== false,
-    useResponsesApi: config.useResponsesApi === true
+    useResponsesApi: config.useResponsesApi === true,
+    childAgentTimeoutMs:
+      Number.isFinite(config.childAgentTimeoutMs) && config.childAgentTimeoutMs > 0
+        ? config.childAgentTimeoutMs
+        : 30000
   }
 }
 
@@ -570,7 +587,8 @@ const saveModelConfig = async (): Promise<void> => {
       modelName: modelConfigForm.value.modelName.trim() || '默认模型',
       baseURL: modelConfigForm.value.baseURL.trim(),
       modelKey: modelConfigForm.value.modelKey.trim(),
-      temperature: Number(modelConfigForm.value.temperature)
+      temperature: Number(modelConfigForm.value.temperature),
+      childAgentTimeoutMs: Number(modelConfigForm.value.childAgentTimeoutMs)
     })
     applyModelConfig(saved)
     showModelConfig.value = false

@@ -10,7 +10,6 @@ import type {
 import { contentToText } from '../../../messageoutput/transformRespones'
 import { toErrorMessage } from '../../../../../../share/utils/error/error'
 import { getQuickModel } from '../../modelwithtool/quick-base-model'
-import { experienceService } from '../../../../experience/experienceService'
 import { subAgentCapabilityService } from '../../../../task/subAgentCapabilityService'
 import { taskService } from '../../../../task/taskService'
 import { emitGraphThought } from '../../../../log/graphlog'
@@ -200,6 +199,25 @@ export async function taskLifecycleNode(
   let capability: TaskLifecycleState['capability'] = existingLifecycle?.capability
 
   if (decision.type === 'create_task' && inferred.task && decision.confidence >= 0.75) {
+    if (activeTask) {
+      notice = {
+        type: 'task_registration_blocked',
+        message:
+          `当前已有活跃任务「${activeTask.title}」正在进行。` +
+          ' 在单人格主上下文里不要并行创建第二个任务，请优先继续、确认完成或取消当前任务。'
+      }
+
+      return {
+        taskLifecycle: {
+          ...(existingLifecycle ?? {}),
+          activeTask,
+          decision,
+          notice,
+          capability: undefined
+        }
+      }
+    }
+
     capability = subAgentCapabilityService.getCapability(getSuggestedExecutor(inferred.task.executorKind))
 
     emitGraphThought('taskLifecycleNode', {
@@ -212,23 +230,13 @@ export async function taskLifecycleNode(
       }
     })
 
-    if (capability.available) {
-      const created = await taskService.createTask({
-        title: inferred.task.title,
-        goal: inferred.task.goal,
-        summary: inferred.task.summary,
-        executorKind: capability.executorKind
-      })
-      nextActiveTask = await taskService.getActiveTaskSnapshot()
-      notice = {
-        type: 'task_started',
-        message: `已登记任务「${created.title}」，并准备交给对应执行代理处理。`
-      }
-    } else {
+    if (!capability.available) {
       notice = {
         type: 'task_registration_blocked',
         message: capability.message
       }
+    } else {
+      notice = undefined
     }
   } else if (decision.type === 'confirm_close_task' && activeTask) {
     await taskService.setTaskStatus(activeTask.id, {
@@ -242,18 +250,14 @@ export async function taskLifecycleNode(
     }
   } else if (decision.type === 'continue_task' && activeTask) {
     nextActiveTask = activeTask
+    if (activeTask.status === 'awaiting_user_input') {
+      notice = {
+        type: 'task_needs_input',
+        message:
+          '当前任务正在等待用户补充信息。如果用户已经给出补参，请优先调用 continue_active_child_agent 工具续跑对应子 agent，而不是直接口头结束任务。'
+      }
+    }
   }
-
-  const recalledExperiences =
-    decision.type === 'create_task' && inferred.task
-      ? await experienceService.findRelevantExperiences(
-          {
-            title: inferred.task.title,
-            goal: inferred.task.goal
-          },
-          3
-        )
-      : []
 
   return {
     taskLifecycle: {
@@ -261,8 +265,7 @@ export async function taskLifecycleNode(
       activeTask: nextActiveTask,
       decision,
       notice,
-      capability,
-      recalledExperiences
+      capability
     }
   }
 }

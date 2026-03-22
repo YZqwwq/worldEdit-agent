@@ -23,6 +23,25 @@ export type TaskNotificationType =
 
 export type TaskNotificationStatus = 'pending' | 'consumed'
 
+export type TaskTraceActor = 'subagent' | 'main_agent' | 'user' | 'system'
+
+export type MainAgentInboxSource = 'user' | 'task_queue'
+
+export type MainAgentDispatchState =
+  | 'idle'
+  | 'user-active'
+  | 'tasklist-active'
+  | 'active'
+  | 'processing'
+
+export type TaskTraceStage =
+  | 'subagent_activated'
+  | 'subagent_notify_main'
+  | 'main_received_subagent'
+  | 'main_response_silent'
+  | 'main_response_user'
+  | 'user_replied_to_task'
+
 export type TaskLifecycleDecisionType =
   | 'none'
   | 'create_task'
@@ -72,6 +91,45 @@ export interface TaskExecutionSnapshot {
 export interface TaskMonitorSnapshot {
   activeTask?: ActiveTaskSnapshot
   executions: TaskExecutionSnapshot[]
+  traces: TaskTraceSnapshot[]
+  dispatch: TaskDispatchSnapshot
+}
+
+export interface TaskTraceSnapshot {
+  id: number
+  taskId: number
+  executionId?: number
+  actor: TaskTraceActor
+  stage: TaskTraceStage
+  message: string
+  createdAt: string
+}
+
+export interface TaskDispatchSnapshot {
+  state: MainAgentDispatchState
+  queuedUserCount: number
+  queuedTaskCount: number
+  totalQueued: number
+  currentSource?: MainAgentInboxSource
+  currentLabel?: string
+}
+
+export interface MainAgentTaskEvent {
+  source: 'task_queue'
+  taskId: number
+  notificationId: number
+  notificationType: TaskNotificationType
+  activeTask: ActiveTaskSnapshot
+  notice: TaskLifecycleNotice
+  payload: Record<string, unknown>
+}
+
+export type MainAgentTaskDecisionAction = 'none' | 'ask_user' | 'resume_subagent'
+
+export interface MainAgentTaskDecision {
+  action: MainAgentTaskDecisionAction
+  reason: string
+  visibleMessage?: string
 }
 
 export interface TaskLifecycleDecision {
@@ -92,21 +150,9 @@ export interface TaskCapabilityState {
   message: string
 }
 
-export interface ExperienceRecallItem {
-  id: number
-  title: string
-  problemPattern: string
-  executionStrategy: string
-  verificationStrategy: string
-  outcome: string
-  pitfalls: string
-  relevanceScore?: number
-}
-
 export interface TaskLifecycleState {
   activeTask?: ActiveTaskSnapshot
   decision?: TaskLifecycleDecision
   notice?: TaskLifecycleNotice
   capability?: TaskCapabilityState
-  recalledExperiences?: ExperienceRecallItem[]
 }

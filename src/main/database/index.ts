@@ -9,7 +9,7 @@ import { PersonaStateRecord } from '../../share/entity/database/PersonaStateReco
 import { TaskRecord } from '../../share/entity/database/TaskRecord'
 import { TaskExecutionRecord } from '../../share/entity/database/TaskExecutionRecord'
 import { TaskNotificationRecord } from '../../share/entity/database/TaskNotificationRecord'
-import { ExperienceRecord } from '../../share/entity/database/ExperienceRecord'
+import { TaskTraceRecord } from '../../share/entity/database/TaskTraceRecord'
 import { WorldRecord } from '../../share/entity/database/WorldRecord'
 import { WorldEntityRecord } from '../../share/entity/database/WorldEntityRecord'
 import { WorldEntityComponentRecord } from '../../share/entity/database/WorldEntityComponentRecord'
@@ -32,7 +32,7 @@ export const AppDataSource = new DataSource({
     TaskRecord,
     TaskExecutionRecord,
     TaskNotificationRecord,
-    ExperienceRecord,
+    TaskTraceRecord,
     WorldRecord,
     WorldEntityRecord,
     WorldEntityComponentRecord,

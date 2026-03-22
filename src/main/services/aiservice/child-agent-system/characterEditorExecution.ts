@@ -7,19 +7,20 @@ import {
 } from '@langchain/core/messages'
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph'
 import { z } from 'zod'
-import { bindToolsToModel } from '../aiservice/agentrsystem/modelwithtool/modelwithtool'
-import { getConfiguredQuickModel } from '../aiservice/agentrsystem/modelwithtool/model'
-import { contentToText } from '../aiservice/messageoutput/transformRespones'
-import { characterEditorTools } from '../aiservice/ai-utils/toolkits/characterEditorToolkit'
-import { buildToolUsageSystemPrompt } from '../aiservice/ai-utils/core/toolUsagePrompt'
+import { bindToolsToModel } from '../agentrsystem/modelwithtool/modelwithtool'
+import { getConfiguredQuickModel } from '../agentrsystem/modelwithtool/model'
+import { contentToText } from '../messageoutput/transformRespones'
+import { characterEditorTools } from '../ai-utils/toolkits/characterEditorToolkit'
+import { buildToolUsageSystemPrompt } from '../ai-utils/core/toolUsagePrompt'
 import {
   characterEditorHandlerOutputSchema,
   characterEditorDirectionSchema,
   characterEditorPendingContextSchema,
   characterEditingScopeSchema,
   delegateCharacterEditorTaskPayloadSchema
-} from '../aiservice/ai-utils/tools/character/shared'
-import { worldbuildingService } from '../worldbuilding/worldbuildingService'
+} from '../ai-utils/tools/character/shared'
+import { worldbuildingService } from '../../worldbuilding/worldbuildingService'
+import { modelConfigService } from '../../modelconfig/modelConfigService'
 
 type CharacterEditorExecutionPayload = z.infer<typeof delegateCharacterEditorTaskPayloadSchema>
 type CharacterEditorHandlerOutput = z.infer<typeof characterEditorHandlerOutputSchema>
@@ -262,6 +263,7 @@ const runCharacterToolLoop = async (
   const model = await getConfiguredQuickModel()
   const boundModel = bindToolsToModel(model, characterEditorTools)
   const effectiveScopes = getEffectiveEditingScopes(payload)
+  const childAgentTimeoutMs = await modelConfigService.getChildAgentTimeoutMs()
 
   const messages: BaseMessage[] = [
     new SystemMessage(buildPrompt(payload)),
@@ -272,7 +274,7 @@ const runCharacterToolLoop = async (
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const response = await boundModel.invoke(messages, {
-      signal: AbortSignal.timeout(30000)
+      signal: AbortSignal.timeout(childAgentTimeoutMs)
     } as Record<string, unknown>)
     const aiMessage = normalizeAiMessage(response as BaseMessage)
     messages.push(aiMessage)

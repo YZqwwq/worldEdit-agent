@@ -171,7 +171,10 @@ class TaskNotificationService {
     return rows[0] ?? null
   }
 
-  async consumeNextPendingNotification(taskId: number): Promise<ConsumedNotificationResult | null> {
+  async consumePendingNotification(
+    taskId: number,
+    notificationId?: number
+  ): Promise<ConsumedNotificationResult | null> {
     return AppDataSource.transaction(async (manager) => {
       const taskRepo = manager.getRepository(TaskRecord)
       const notificationRepo = manager.getRepository(TaskNotificationRecord)
@@ -181,12 +184,20 @@ class TaskNotificationService {
         throw new Error(`Task not found: ${taskId}`)
       }
 
-      const rows = await notificationRepo.find({
-        where: { taskId, status: 'pending' },
-        order: { createdAt: 'ASC' },
-        take: 1
-      })
-      const notification = rows[0]
+      const notification =
+        typeof notificationId === 'number'
+          ? await notificationRepo.findOneBy({
+              id: notificationId,
+              taskId,
+              status: 'pending'
+            })
+          : (
+              await notificationRepo.find({
+                where: { taskId, status: 'pending' },
+                order: { createdAt: 'ASC' },
+                take: 1
+              })
+            )[0]
       if (!notification) {
         return null
       }
@@ -208,6 +219,10 @@ class TaskNotificationService {
         payload
       }
     })
+  }
+
+  async consumeNextPendingNotification(taskId: number): Promise<ConsumedNotificationResult | null> {
+    return this.consumePendingNotification(taskId)
   }
 }
 

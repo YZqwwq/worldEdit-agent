@@ -17,10 +17,12 @@ const DEFAULT_CONFIG: ModelConfigInput = {
   baseURL: process.env.MODEL_BASE_URL ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   temperature: 0.9,
   streaming: true,
-  useResponsesApi: false
+  useResponsesApi: false,
+  childAgentTimeoutMs: 30000
 }
 
 const clampTemperature = (value: number): number => Math.min(2, Math.max(0, value))
+const clampChildAgentTimeoutMs = (value: number): number => Math.min(300000, Math.max(5000, value))
 
 const normalizeInput = (input: ModelConfigInput): ModelConfigInput => {
   const vendor = String(input.vendor || '').trim().toLowerCase() as ModelVendor
@@ -37,6 +39,10 @@ const normalizeInput = (input: ModelConfigInput): ModelConfigInput => {
 
   const temperatureRaw = Number(input.temperature)
   const temperature = Number.isFinite(temperatureRaw) ? clampTemperature(temperatureRaw) : 0.9
+  const timeoutRaw = Number(input.childAgentTimeoutMs)
+  const childAgentTimeoutMs = Number.isFinite(timeoutRaw)
+    ? clampChildAgentTimeoutMs(Math.round(timeoutRaw))
+    : DEFAULT_CONFIG.childAgentTimeoutMs
 
   return {
     modelKey: String(input.modelKey || '').trim(),
@@ -46,7 +52,8 @@ const normalizeInput = (input: ModelConfigInput): ModelConfigInput => {
     baseURL: String(input.baseURL || '').trim(),
     temperature,
     streaming: Boolean(input.streaming),
-    useResponsesApi: Boolean(input.useResponsesApi)
+    useResponsesApi: Boolean(input.useResponsesApi),
+    childAgentTimeoutMs
   }
 }
 
@@ -60,6 +67,10 @@ const toPayload = (entity: ModelConfig): ModelConfigPayload => ({
   temperature: Number.isFinite(entity.temperature) ? entity.temperature : 0.9,
   streaming: entity.streaming !== false,
   useResponsesApi: entity.useresponsesapi === true,
+  childAgentTimeoutMs:
+    Number.isFinite(entity.childagenttimeoutms) && entity.childagenttimeoutms > 0
+      ? entity.childagenttimeoutms
+      : DEFAULT_CONFIG.childAgentTimeoutMs,
   updatedAt: entity.updatedAt ? entity.updatedAt.toISOString() : undefined
 })
 
@@ -88,7 +99,8 @@ class ModelConfigService {
         baseurl: DEFAULT_CONFIG.baseURL,
         temperature: DEFAULT_CONFIG.temperature,
         streaming: DEFAULT_CONFIG.streaming,
-        useresponsesapi: DEFAULT_CONFIG.useResponsesApi
+        useresponsesapi: DEFAULT_CONFIG.useResponsesApi,
+        childagenttimeoutms: DEFAULT_CONFIG.childAgentTimeoutMs
       })
       config = await this.repo.save(config)
       return config
@@ -115,6 +127,10 @@ class ModelConfigService {
       config.temperature = DEFAULT_CONFIG.temperature
       changed = true
     }
+    if (!Number.isFinite(config.childagenttimeoutms) || config.childagenttimeoutms <= 0) {
+      config.childagenttimeoutms = DEFAULT_CONFIG.childAgentTimeoutMs
+      changed = true
+    }
     if (changed) {
       config = await this.repo.save(config)
     }
@@ -139,9 +155,15 @@ class ModelConfigService {
     config.temperature = normalized.temperature
     config.streaming = normalized.streaming
     config.useresponsesapi = normalized.useResponsesApi
+    config.childagenttimeoutms = normalized.childAgentTimeoutMs
 
     const saved = await this.repo.save(config)
     return toPayload(saved)
+  }
+
+  async getChildAgentTimeoutMs(): Promise<number> {
+    const config = await this.getModelConfig()
+    return config.childAgentTimeoutMs
   }
 
   async getModelOptions(): Promise<ModelOptions> {

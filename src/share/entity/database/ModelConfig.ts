@@ -62,6 +62,13 @@ export class ModelConfig {
   })
   useresponsesapi!: boolean
 
+  // 子 agent 单次模型调用超时（毫秒）
+  @Column({
+    type: 'integer',
+    default: 30000
+  })
+  childagenttimeoutms!: number
+
   // 行更新时间（由数据库自动维护）
   @UpdateDateColumn()
   updatedAt!: Date

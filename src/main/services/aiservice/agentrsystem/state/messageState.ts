@@ -1,7 +1,11 @@
 import { Annotation, messagesStateReducer } from '@langchain/langgraph'
 import { BaseMessage } from '@langchain/core/messages'
 import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
-import type { TaskLifecycleState } from '@share/cache/AItype/states/taskLifecycleState'
+import type {
+  MainAgentTaskDecision,
+  MainAgentTaskEvent,
+  TaskLifecycleState
+} from '@share/cache/AItype/states/taskLifecycleState'
 
 export const MessagesState = Annotation.Root({
   // 消息状态
@@ -19,6 +23,14 @@ export const MessagesState = Annotation.Root({
   }),
   taskLifecycle: Annotation<TaskLifecycleState | undefined>({
     reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  taskEvent: Annotation<MainAgentTaskEvent | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
+  }),
+  taskEventDecision: Annotation<MainAgentTaskDecision | undefined>({
+    reducer: (_x, y) => y,
     default: () => undefined
   })
 })

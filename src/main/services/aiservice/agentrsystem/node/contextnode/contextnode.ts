@@ -34,6 +34,18 @@ export async function contextNode(
     messages.push(new SystemMessage(`回复风格约束:\n${state.personaPolicy.style.instruction}`))
   }
 
+  messages.push(
+    new SystemMessage(
+      [
+        '上下文继承规则：',
+        '1. 你当前能看到的短期记忆、最近对话和工具结果摘要，都是本轮决策的有效上下文。',
+        '2. 如果最近几轮已经明确确认了目标 worldId、worldName、entityId、characterName，后续调用写入类或委派类工具时必须优先沿用这些已确认标识。',
+        '3. 不要因为用户本轮只说“继续扩写她”“拓展她的简介”就丢失上一轮已经确认过的人物与世界观。',
+        '4. 只有在现有上下文无法唯一确定目标时，才向用户继续追问；如果系统已经能唯一锁定目标，不要重复索取世界观名称或人物标识。'
+      ].join('\n')
+    )
+  )
+
   if (state.taskLifecycle?.activeTask) {
     messages.push(
       new SystemMessage(
@@ -52,14 +64,19 @@ export async function contextNode(
     messages.push(new SystemMessage(`任务生命周期提示：${state.taskLifecycle.notice.message}`))
   }
 
-  if (state.taskLifecycle?.recalledExperiences?.length) {
-    const experienceText = state.taskLifecycle.recalledExperiences
-      .map(
-        (item, index) =>
-          `${index + 1}. ${item.title}\n问题模式：${item.problemPattern}\n执行策略：${item.executionStrategy}\n验证策略：${item.verificationStrategy}\n结果：${item.outcome}\n坑点：${item.pitfalls}`
+  if (
+    !state.taskLifecycle?.activeTask &&
+    state.taskLifecycle?.decision?.type === 'create_task' &&
+    state.taskLifecycle?.capability?.available
+  ) {
+    messages.push(
+      new SystemMessage(
+        `本轮输入被识别为适合委派给子 agent 的复杂任务。` +
+          ` 如果判断确实成立，请优先调用工具 ${state.taskLifecycle.capability.requiredToolName}，` +
+          ' 让工具在同一条应用流程里原子地完成任务登记与首轮 execution 启动。' +
+          ' 在工具成功之前，不要口头声称任务已经创建或已经开始执行。'
       )
-      .join('\n\n')
-    messages.push(new SystemMessage(`可参考经验:\n${experienceText}`))
+    )
   }
 
   const toolUsagePrompt = buildToolUsageSystemPrompt(tools)

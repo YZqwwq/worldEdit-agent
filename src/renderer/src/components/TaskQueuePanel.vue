@@ -27,6 +27,38 @@
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+                消息分发层
+              </div>
+              <h4 class="mt-2 text-sm font-semibold text-slate-800">
+                {{ formatDispatchState(snapshot.dispatch.state) }}
+              </h4>
+            </div>
+            <span
+              class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+              :class="dispatchStateClass(snapshot.dispatch.state)"
+            >
+              {{ snapshot.dispatch.totalQueued }} 条待处理
+            </span>
+          </div>
+
+          <div class="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
+            <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+              用户队列 {{ snapshot.dispatch.queuedUserCount }}
+            </span>
+            <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+              子队列 {{ snapshot.dispatch.queuedTaskCount }}
+            </span>
+          </div>
+
+          <p v-if="snapshot.dispatch.currentLabel" class="mt-4 text-sm leading-6 text-slate-600">
+            当前处理：{{ snapshot.dispatch.currentLabel }}
+          </p>
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
                 当前主任务
               </div>
               <h4 class="mt-2 text-sm font-semibold text-slate-800">
@@ -115,6 +147,50 @@
             </article>
           </div>
         </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div class="mb-3 flex items-center justify-between">
+            <h4 class="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+              交互追踪
+            </h4>
+            <span class="text-xs text-slate-400">
+              {{ snapshot.traces.length }} 条
+            </span>
+          </div>
+
+          <div v-if="snapshot.traces.length === 0" class="py-6 text-center text-sm text-slate-400">
+            当前任务还没有追踪埋点
+          </div>
+
+          <div v-else class="space-y-3">
+            <article
+              v-for="trace in snapshot.traces"
+              :key="trace.id"
+              class="rounded-xl border border-slate-200 bg-white px-3 py-3"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-slate-700">
+                    {{ formatTraceStage(trace.stage) }}
+                  </div>
+                  <div class="mt-1 text-[11px] text-slate-400">
+                    {{ formatTraceActor(trace.actor) }} · {{ formatIsoTime(trace.createdAt) }}
+                  </div>
+                </div>
+                <span
+                  class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  :class="traceStageClass(trace.stage)"
+                >
+                  {{ trace.executionId ? `#${trace.executionId}` : 'task' }}
+                </span>
+              </div>
+
+              <p class="mt-3 text-sm leading-6 text-slate-600">
+                {{ trace.message }}
+              </p>
+            </article>
+          </div>
+        </section>
       </div>
     </div>
   </aside>
@@ -123,6 +199,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type {
+  MainAgentDispatchState,
+  TaskTraceActor,
+  TaskTraceStage,
   TaskExecutionStatus,
   TaskExecutorKind,
   TaskMonitorSnapshot,
@@ -139,6 +218,22 @@ const hasRunningExecution = computed(() =>
     ['queued', 'dispatching', 'running', 'awaiting_input'].includes(execution.status)
   )
 )
+
+const formatDispatchState = (state: MainAgentDispatchState): string => {
+  if (state === 'processing') return '处理中'
+  if (state === 'active') return '双源待处理'
+  if (state === 'user-active') return '等待用户消息'
+  if (state === 'tasklist-active') return '等待子队列消息'
+  return '空闲'
+}
+
+const dispatchStateClass = (state: MainAgentDispatchState): string => {
+  if (state === 'processing') return 'bg-emerald-50 text-emerald-700'
+  if (state === 'active') return 'bg-amber-50 text-amber-700'
+  if (state === 'user-active') return 'bg-sky-50 text-sky-700'
+  if (state === 'tasklist-active') return 'bg-indigo-50 text-indigo-700'
+  return 'bg-slate-100 text-slate-600'
+}
 
 const formatExecutor = (executorKind: TaskExecutorKind): string => {
   if (executorKind === 'character_editor') return 'Character Editor'
@@ -200,6 +295,31 @@ const executionStatusClass = (status: TaskExecutionStatus): string => {
     return 'bg-slate-100 text-slate-700'
   }
   return 'bg-rose-50 text-rose-700'
+}
+
+const formatTraceActor = (actor: TaskTraceActor): string => {
+  if (actor === 'subagent') return '子 Agent'
+  if (actor === 'main_agent') return '主 Agent'
+  if (actor === 'user') return '用户'
+  return '系统'
+}
+
+const formatTraceStage = (stage: TaskTraceStage): string => {
+  if (stage === 'subagent_activated') return '子 Agent 已激活'
+  if (stage === 'subagent_notify_main') return '子 Agent 请求主 Agent 响应'
+  if (stage === 'main_received_subagent') return '主 Agent 已接收子 Agent'
+  if (stage === 'main_response_silent') return '主 Agent 静默处理'
+  if (stage === 'main_response_user') return '主 Agent 请求用户'
+  return '用户补充任务输入'
+}
+
+const traceStageClass = (stage: TaskTraceStage): string => {
+  if (stage === 'subagent_activated') return 'bg-blue-50 text-blue-700'
+  if (stage === 'subagent_notify_main') return 'bg-indigo-50 text-indigo-700'
+  if (stage === 'main_received_subagent') return 'bg-amber-50 text-amber-700'
+  if (stage === 'main_response_silent') return 'bg-emerald-50 text-emerald-700'
+  if (stage === 'main_response_user') return 'bg-sky-50 text-sky-700'
+  return 'bg-slate-100 text-slate-700'
 }
 
 const formatIsoTime = (iso?: string): string => {

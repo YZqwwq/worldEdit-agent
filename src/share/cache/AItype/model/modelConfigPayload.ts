@@ -10,6 +10,7 @@ export interface ModelConfigPayload {
   temperature: number
   streaming: boolean
   useResponsesApi: boolean
+  childAgentTimeoutMs: number
   updatedAt?: string
 }
 

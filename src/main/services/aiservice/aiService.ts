@@ -9,13 +9,16 @@ import { Message } from '../../../share/entity/database/Message'
 import { TaskRecord } from '../../../share/entity/database/TaskRecord'
 import { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
 import { TaskNotificationRecord } from '../../../share/entity/database/TaskNotificationRecord'
+import { TaskTraceRecord } from '../../../share/entity/database/TaskTraceRecord'
 import { handleGraphLogEvent, runWithGraphLogContext } from '../log/graphlog'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { memoryManager } from './agentrsystem/manager/memory/MemoryManager'
 import { resetPersonaState } from './agentrsystem/manager/personal/personalManager'
-import { taskCoordinatorService } from '../task/taskCoordinatorService'
-import { subAgentDispatcherService } from '../task/subAgentDispatcherService'
+import { mainAgentDispatchService } from '../middlelayer/event-in-wait/mainAgentDispatchService'
+import { taskNotificationService } from '../task/taskNotificationService'
+import { taskTraceService } from '../task/taskTraceService'
+import type { MainAgentTaskEvent } from '@share/cache/AItype/states/taskLifecycleState'
 
 function debugLog(msg: string) {
   try {
@@ -27,6 +30,16 @@ function debugLog(msg: string) {
 }
 
 class AIService {
+  constructor() {
+    mainAgentDispatchService.configure({
+      processUserMessage: async ({ text, onChunk }) => {
+        await this.processDispatchedUserMessage(text, onChunk)
+      },
+      processTaskNotification: async ({ taskId, notificationId }) => {
+        await this.processDispatchedTaskNotification(taskId, notificationId)
+      }
+    })
+  }
 
   // 获取数据
   private get messageRepo() {
@@ -34,14 +47,15 @@ class AIService {
   }
 
   // 保存消息
-  private async saveMessage(role: 'user' | 'ai', content: string): Promise<void> {
+  private async saveMessage(role: 'user' | 'ai', content: string): Promise<Message | null> {
     try {
       const msg = new Message()
       msg.role = role
       msg.content = content
-      await this.messageRepo.save(msg)
+      return await this.messageRepo.save(msg)
     } catch (error) {
       console.error('Failed to save message:', error)
+      return null
     }
   }
 
@@ -52,7 +66,8 @@ class AIService {
     try {
       const messages = await this.messageRepo.find({
         order: {
-          createdAt: 'DESC'
+          createdAt: 'DESC',
+          id: 'DESC'
         },
         take: 50 // 限制前端加载条数
       })
@@ -79,11 +94,13 @@ class AIService {
   async purgeAllData(): Promise<void> {
     try {
       await AppDataSource.transaction(async (manager) => {
+        await manager.getRepository(TaskTraceRecord).clear()
         await manager.getRepository(TaskNotificationRecord).clear()
         await manager.getRepository(TaskExecutionRecord).clear()
         await manager.getRepository(TaskRecord).clear()
         await manager.getRepository(Message).clear()
       })
+      mainAgentDispatchService.reset()
       await memoryManager.resetStorage()
       await resetPersonaState()
     } catch (error) {
@@ -108,31 +125,20 @@ class AIService {
     message: string,
     onChunk?: (chunk: StreamChunk) => void
   ): Promise<void> {
+    const savedMessage = await this.saveMessage('user', message)
+    await mainAgentDispatchService.enqueueUserMessage({
+      messageId: savedMessage?.id ?? 0,
+      text: message,
+      onChunk
+    })
+  }
+
+  private async processDispatchedUserMessage(
+    message: string,
+    onChunk?: (chunk: StreamChunk) => void
+  ): Promise<void> {
     debugLog(`sendStreamMessage called with: ${message}`)
     try {
-      // 保存用户消息
-      await this.saveMessage('user', message)
-
-      const orchestration = await taskCoordinatorService.tryHandleUserReply(message)
-      if (orchestration.handled) {
-        if (orchestration.executionId) {
-          void subAgentDispatcherService.dispatchExecution(orchestration.executionId).catch((error) => {
-            console.error('Failed to dispatch resumed task execution:', error)
-          })
-        }
-
-        const visibleMessage =
-          orchestration.visibleMessage || '已收到你的补充信息，我会继续在后台处理中。'
-        await this.saveMessage('ai', visibleMessage)
-        if (onChunk) {
-          onChunk({
-            type: 'done',
-            fullContent: contentToParts(visibleMessage)
-          })
-        }
-        return
-      }
-
       const runId = randomUUID()
       debugLog(`RunID generated: ${runId}`)
 
@@ -191,6 +197,68 @@ class AIService {
           message: errMsg
         })
       }
+    }
+  }
+
+  private async processDispatchedTaskNotification(
+    taskId: number,
+    notificationId: number
+  ): Promise<void> {
+    const consumed = await taskNotificationService.consumePendingNotification(taskId, notificationId)
+    if (!consumed) {
+      return
+    }
+
+    await taskTraceService.emit({
+      taskId,
+      executionId: consumed.notification.executionId,
+      actor: 'main_agent',
+      stage: 'main_received_subagent',
+      message: '主 agent 已收到子 agent 的通知，开始决定下一步动作。',
+      payload: {
+        notificationType: consumed.notification.type,
+        taskStatus: consumed.activeTask.status
+      }
+    })
+
+    const taskEvent: MainAgentTaskEvent = {
+      source: 'task_queue',
+      taskId,
+      notificationId,
+      notificationType: consumed.notification.type,
+      activeTask: consumed.activeTask,
+      notice: consumed.notice,
+      payload: consumed.payload
+    }
+
+    const runId = randomUUID()
+    const result = await runWithGraphLogContext(runId, async () =>
+      agent.invoke({
+        messages: [],
+        taskEvent,
+        taskLifecycle: {
+          activeTask: consumed.activeTask,
+          notice: consumed.notice
+        }
+      })
+    )
+
+    const decision = result.taskEventDecision
+    const visibleMessage = decision?.visibleMessage?.trim()
+    if (decision?.action === 'ask_user' && visibleMessage) {
+      await this.saveMessage('ai', visibleMessage)
+      await taskTraceService.emit({
+        taskId,
+        executionId: consumed.notification.executionId,
+        actor: 'main_agent',
+        stage: 'main_response_user',
+        message: '主 agent 决定向用户发送可见消息。',
+        payload: {
+          visibleMessage,
+          noticeType: consumed.notice.type,
+          reason: decision.reason
+        }
+      })
     }
   }
 }

@@ -8,6 +8,8 @@ import type {
   TaskStatus
 } from '@share/cache/AItype/states/taskLifecycleState'
 import { taskExecutionService } from './taskExecutionService'
+import { taskTraceService } from './taskTraceService'
+import { mainAgentDispatchService } from '../middlelayer/event-in-wait/mainAgentDispatchService'
 
 type CreateTaskInput = {
   title: string
@@ -101,14 +103,19 @@ class TaskService {
     if (!activeTask) {
       return {
         activeTask: undefined,
-        executions: []
+        executions: [],
+        traces: [],
+        dispatch: mainAgentDispatchService.getSnapshot()
       }
     }
 
     const runs = await taskExecutionService.listRunsForTask(activeTask.id, 6)
+    const traces = await taskTraceService.listTaskTraces(activeTask.id, 24)
     return {
       activeTask: toSnapshot(activeTask),
-      executions: runs.map((run) => toExecutionSnapshot(run))
+      executions: runs.map((run) => toExecutionSnapshot(run)),
+      traces,
+      dispatch: mainAgentDispatchService.getSnapshot()
     }
   }
 

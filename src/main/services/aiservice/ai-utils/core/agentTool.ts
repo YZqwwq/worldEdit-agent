@@ -8,6 +8,7 @@ export interface AgentToolMetadata {
   whenNotToUse?: string[]
   inputSummary: string
   outputSummary: string
+  usageContract?: string[]
   examples?: string[]
   riskLevel?: AgentToolRiskLevel
   readOnly?: boolean

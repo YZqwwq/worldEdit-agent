@@ -6,6 +6,7 @@ import { initializeAIEndpoints } from './services/aiservice/aiIpc' // 导入
 import { initDatabase } from './database' // 导入数据库初始化
 import { initMemoryStorage } from './config/storageInit'
 import { registerAppResourceProtocol } from './protocols/resourceProtocol'
+import { taskRecoveryService } from './services/task/taskRecoveryService'
 import { subAgentDispatcherService } from './services/task/subAgentDispatcherService'
 
 function createWindow(): void {
@@ -65,7 +66,9 @@ app.whenReady().then(async () => {
   registerAppResourceProtocol()
 
   initializeAIEndpoints() // 调用
+  await taskRecoveryService.recoverInterruptedExecutions()
   await subAgentDispatcherService.dispatchQueuedExecutions()
+  await taskRecoveryService.enqueuePendingNotifications()
 
   createWindow()
 
