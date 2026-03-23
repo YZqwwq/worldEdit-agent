@@ -1,51 +1,32 @@
 import { randomUUID } from 'node:crypto'
-import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
+  MainAgentEvent,
   MainAgentDispatchState,
+  MainAgentTaskNotificationPayload,
+  MainAgentUserMessagePayload,
   TaskDispatchSnapshot
 } from '@share/cache/AItype/states/taskLifecycleState'
 
-type UserInboxItem = {
-  id: string
-  source: 'user'
-  createdAt: number
-  payload: {
-    messageId: number
-    text: string
-    onChunk?: (chunk: StreamChunk) => void
-  }
-}
-
-type TaskQueueInboxItem = {
-  id: string
-  source: 'task_queue'
-  createdAt: number
-  payload: {
-    taskId: number
-    notificationId: number
-  }
-}
-
-type MainAgentInboxItem = UserInboxItem | TaskQueueInboxItem
-
 type DispatchHandlers = {
-  processUserMessage?: (input: UserInboxItem['payload']) => Promise<void>
-  processTaskNotification?: (input: TaskQueueInboxItem['payload']) => Promise<void>
+  processEvent?: (event: MainAgentEvent) => Promise<void>
 }
 
 type QueueEntry = {
-  item: MainAgentInboxItem
+  event: MainAgentEvent
   resolve: () => void
   reject: (error: unknown) => void
 }
 
 const createId = (): string => randomUUID()
+const DEFAULT_SESSION_ID = 'default'
+const MAX_CONSECUTIVE_USER_EVENTS = 3
 
 class MainAgentDispatchService {
   private readonly queue: QueueEntry[] = []
   private readonly queuedTaskNotificationIds = new Set<number>()
   private processing = false
-  private currentItem: MainAgentInboxItem | null = null
+  private currentEvent: MainAgentEvent | null = null
+  private consecutiveUserEventsProcessed = 0
   private handlers: DispatchHandlers = {}
 
   configure(handlers: DispatchHandlers): void {
@@ -60,7 +41,7 @@ class MainAgentDispatchService {
       return 'processing'
     }
 
-    const queuedUserCount = this.queue.filter((entry) => entry.item.source === 'user').length
+    const queuedUserCount = this.queue.filter((entry) => entry.event.source === 'user').length
     const queuedTaskCount = this.queue.length - queuedUserCount
 
     if (queuedUserCount > 0 && queuedTaskCount > 0) {
@@ -76,7 +57,7 @@ class MainAgentDispatchService {
   }
 
   getSnapshot(): TaskDispatchSnapshot {
-    const queuedUserCount = this.queue.filter((entry) => entry.item.source === 'user').length
+    const queuedUserCount = this.queue.filter((entry) => entry.event.source === 'user').length
     const queuedTaskCount = this.queue.length - queuedUserCount
 
     return {
@@ -84,31 +65,42 @@ class MainAgentDispatchService {
       queuedUserCount,
       queuedTaskCount,
       totalQueued: this.queue.length,
-      currentSource: this.currentItem?.source,
-      currentLabel: this.formatCurrentLabel(this.currentItem)
+      currentSource: this.currentEvent?.source,
+      currentEventType: this.currentEvent?.type,
+      currentLabel: this.formatCurrentLabel(this.currentEvent)
     }
   }
 
-  async enqueueUserMessage(input: UserInboxItem['payload']): Promise<void> {
-    return this.enqueue({
+  async enqueueUserMessage(input: MainAgentUserMessagePayload): Promise<void> {
+    return this.enqueueEvent({
       id: createId(),
+      type: 'user_message',
       source: 'user',
+      sessionId: DEFAULT_SESSION_ID,
+      priority: 'interactive',
       createdAt: Date.now(),
       payload: input
     })
   }
 
-  async enqueueTaskNotification(input: TaskQueueInboxItem['payload']): Promise<void> {
+  async enqueueTaskNotification(input: MainAgentTaskNotificationPayload): Promise<void> {
     if (this.queuedTaskNotificationIds.has(input.notificationId)) {
       return
     }
 
-    return this.enqueue({
+    return this.enqueueEvent(
+      {
       id: createId(),
+      type: 'task_notification',
       source: 'task_queue',
+      sessionId: DEFAULT_SESSION_ID,
+      priority: 'background',
       createdAt: Date.now(),
+      dedupeKey: `task_notification:${input.notificationId}`,
       payload: input
-    }, { dedupeTaskNotificationId: input.notificationId })
+      },
+      { dedupeTaskNotificationId: input.notificationId }
+    )
   }
 
   reset(): void {
@@ -118,27 +110,45 @@ class MainAgentDispatchService {
     }
     this.queuedTaskNotificationIds.clear()
     this.processing = false
-    this.currentItem = null
+    this.currentEvent = null
+    this.consecutiveUserEventsProcessed = 0
   }
 
-  private async enqueue(
-    item: MainAgentInboxItem,
+  private async enqueueEvent(
+    event: MainAgentEvent,
     options?: { dedupeTaskNotificationId?: number }
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       if (typeof options?.dedupeTaskNotificationId === 'number') {
         this.queuedTaskNotificationIds.add(options.dedupeTaskNotificationId)
       }
-      this.queue.push({ item, resolve, reject })
+      this.queue.push({ event, resolve, reject })
       void this.drain()
     })
   }
 
   private pickNext(): QueueEntry | undefined {
-    const userIndex = this.queue.findIndex((entry) => entry.item.source === 'user')
+    const hasTaskEvent = this.queue.some((entry) => entry.event.source === 'task_queue')
+    const shouldForceTaskEvent =
+      hasTaskEvent && this.consecutiveUserEventsProcessed >= MAX_CONSECUTIVE_USER_EVENTS
+
+    if (!shouldForceTaskEvent) {
+      const userIndex = this.queue.findIndex((entry) => entry.event.source === 'user')
+      if (userIndex >= 0) {
+        return this.queue.splice(userIndex, 1)[0]
+      }
+    }
+
+    const taskIndex = this.queue.findIndex((entry) => entry.event.source === 'task_queue')
+    if (taskIndex >= 0) {
+      return this.queue.splice(taskIndex, 1)[0]
+    }
+
+    const userIndex = this.queue.findIndex((entry) => entry.event.source === 'user')
     if (userIndex >= 0) {
       return this.queue.splice(userIndex, 1)[0]
     }
+
     return this.queue.shift()
   }
 
@@ -156,16 +166,17 @@ class MainAgentDispatchService {
         }
 
         try {
-          this.currentItem = entry.item
-          await this.processInboxItem(entry.item)
+          this.currentEvent = entry.event
+          await this.processEvent(entry.event)
+          this.trackProcessedEvent(entry.event)
           entry.resolve()
         } catch (error) {
           entry.reject(error)
         } finally {
-          if (entry.item.source === 'task_queue') {
-            this.queuedTaskNotificationIds.delete(entry.item.payload.notificationId)
+          if (entry.event.source === 'task_queue') {
+            this.queuedTaskNotificationIds.delete(entry.event.payload.notificationId)
           }
-          this.currentItem = null
+          this.currentEvent = null
         }
       }
     } finally {
@@ -173,29 +184,29 @@ class MainAgentDispatchService {
     }
   }
 
-  private formatCurrentLabel(item: MainAgentInboxItem | null): string | undefined {
-    if (!item) {
-      return undefined
-    }
-    if (item.source === 'user') {
-      return item.payload.text.trim().slice(0, 48) || '用户消息处理中'
-    }
-    return `任务 #${item.payload.taskId} / 通知 #${item.payload.notificationId}`
-  }
-
-  private async processInboxItem(item: MainAgentInboxItem): Promise<void> {
-    if (item.source === 'user') {
-      if (!this.handlers.processUserMessage) {
-        throw new Error('MainAgentDispatchService is missing processUserMessage handler.')
-      }
-      await this.handlers.processUserMessage(item.payload)
+  private trackProcessedEvent(event: MainAgentEvent): void {
+    if (event.source === 'user') {
+      this.consecutiveUserEventsProcessed += 1
       return
     }
+    this.consecutiveUserEventsProcessed = 0
+  }
 
-    if (!this.handlers.processTaskNotification) {
-      throw new Error('MainAgentDispatchService is missing processTaskNotification handler.')
+  private formatCurrentLabel(event: MainAgentEvent | null): string | undefined {
+    if (!event) {
+      return undefined
     }
-    await this.handlers.processTaskNotification(item.payload)
+    if (event.source === 'user') {
+      return event.payload.text.trim().slice(0, 48) || '用户消息处理中'
+    }
+    return `任务 #${event.payload.taskId} / 通知 #${event.payload.notificationId}`
+  }
+
+  private async processEvent(event: MainAgentEvent): Promise<void> {
+    if (!this.handlers.processEvent) {
+      throw new Error('MainAgentDispatchService is missing processEvent handler.')
+    }
+    await this.handlers.processEvent(event)
   }
 }
 

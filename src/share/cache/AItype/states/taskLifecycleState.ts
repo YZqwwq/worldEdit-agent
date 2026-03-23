@@ -1,3 +1,5 @@
+import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
+
 export type TaskStatus =
   | 'active'
   | 'running'
@@ -26,6 +28,9 @@ export type TaskNotificationStatus = 'pending' | 'consumed'
 export type TaskTraceActor = 'subagent' | 'main_agent' | 'user' | 'system'
 
 export type MainAgentInboxSource = 'user' | 'task_queue'
+export type MainAgentEventType = 'user_message' | 'task_notification'
+export type MainAgentEventPriority = 'interactive' | 'background'
+export type MainAgentEventConsumer = 'chat_runtime' | 'task_notification_consumer'
 
 export type MainAgentDispatchState =
   | 'idle'
@@ -111,7 +116,91 @@ export interface TaskDispatchSnapshot {
   queuedTaskCount: number
   totalQueued: number
   currentSource?: MainAgentInboxSource
+  currentEventType?: MainAgentEventType
   currentLabel?: string
+}
+
+export interface MainAgentUserMessagePayload {
+  messageId: number
+  text: string
+  onChunk?: (chunk: StreamChunk) => void
+}
+
+export interface MainAgentTaskNotificationPayload {
+  taskId: number
+  notificationId: number
+}
+
+export interface MainAgentEventBase {
+  id: string
+  type: MainAgentEventType
+  source: MainAgentInboxSource
+  sessionId: string
+  priority: MainAgentEventPriority
+  createdAt: number
+  dedupeKey?: string
+}
+
+export interface MainAgentUserMessageEvent extends MainAgentEventBase {
+  type: 'user_message'
+  source: 'user'
+  payload: MainAgentUserMessagePayload
+}
+
+export interface MainAgentTaskNotificationEvent extends MainAgentEventBase {
+  type: 'task_notification'
+  source: 'task_queue'
+  payload: MainAgentTaskNotificationPayload
+}
+
+export type MainAgentEvent =
+  | MainAgentUserMessageEvent
+  | MainAgentTaskNotificationEvent
+
+export interface MainAgentEffectBase {
+  eventId: string
+  sessionId: string
+}
+
+export interface MainAgentSaveMessageEffect extends MainAgentEffectBase {
+  type: 'save_message'
+  role: 'user' | 'ai'
+  content: string
+}
+
+export interface MainAgentEmitTraceEffect extends MainAgentEffectBase {
+  type: 'emit_trace'
+  taskId: number
+  executionId?: number
+  actor: TaskTraceActor
+  stage: TaskTraceStage
+  message: string
+  payload?: Record<string, unknown>
+}
+
+export interface MainAgentStreamDoneEffect extends MainAgentEffectBase {
+  type: 'stream_done'
+  onChunk?: (chunk: StreamChunk) => void
+  fullText: string
+}
+
+export interface MainAgentStreamErrorEffect extends MainAgentEffectBase {
+  type: 'stream_error'
+  onChunk?: (chunk: StreamChunk) => void
+  message: string
+}
+
+export type MainAgentEffect =
+  | MainAgentSaveMessageEffect
+  | MainAgentEmitTraceEffect
+  | MainAgentStreamDoneEffect
+  | MainAgentStreamErrorEffect
+
+export interface MainAgentEventConsumptionResult {
+  handled: boolean
+  consumer: MainAgentEventConsumer
+  summary: string
+  effects: MainAgentEffect[]
 }
 
 export interface MainAgentTaskEvent {

@@ -4,10 +4,10 @@ import { taskExecutionService } from './taskExecutionService'
 import { taskNotificationService } from './taskNotificationService'
 import { taskService } from './taskService'
 import { taskTraceService } from './taskTraceService'
-import { mainAgentDispatchService } from '../middlelayer/event-in-wait/mainAgentDispatchService'
 import type { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
 import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
 import { runCharacterEditorExecution } from '../aiservice/child-agent-system/characterEditorExecution'
+import { mainAgentEntryService } from '../aiservice/runtime/mainAgentEntryService'
 
 type DispatchResult = {
   type: 'completed' | 'failed' | 'needs_input'
@@ -60,7 +60,7 @@ const enqueueNotificationSafely = async (
   notificationId: number
 ): Promise<void> => {
   try {
-    await mainAgentDispatchService.enqueueTaskNotification({
+    await mainAgentEntryService.enqueueTaskNotification({
       taskId,
       notificationId
     })

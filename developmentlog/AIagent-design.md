@@ -1,5 +1,12 @@
 # AI Agent 架构评审记录
 
+> 状态说明（2026-03-23）：本文件包含较多重构前的评审笔记，保留它主要是为了记录历史问题来源。
+> 当前有效的主链说明请优先参考 `developmentlog/Ai-message-flow.md`。
+> 已经过时的假设包括：`MainAgentLoopService / TaskCoordinatorService` 作为主入口、保留 `taskNotificationNode` 作为 fallback、以及正式启用 `PromptPipeline`。
+
+设计目的：一个长期的AI助手（单会话，不需要多窗口来隔断记忆），依靠将长任务交给子agent来保持上下文的纯净，以及避免等待（保有一定的调用工具能力）。（依靠架构来保证上下文注意力）
+
+
 ## 当前整体结构
 
 从当前代码看，AI agent 相关部分已经形成了一条比较完整但耦合偏高的链路：

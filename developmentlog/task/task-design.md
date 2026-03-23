@@ -6,6 +6,9 @@
 
 `主 agent 负责用户对话`
 `子 agent 负责后台 execution`
+> 状态说明（2026-03-23）：本文件主要记录旧版任务编排设计，其中关于 `MainAgentLoopService` 与 `TaskCoordinatorService` 的主路径表述已经过时。
+> 当前实现请优先参考 `developmentlog/Ai-message-flow.md`。
+
 `MainAgentLoopService 负责后台轮询待主 agent 处理任务`
 `TaskCoordinatorService 负责决定静默处理还是向用户发消息`
 `TaskTraceRecord 负责记录节点埋点形成的时间线`

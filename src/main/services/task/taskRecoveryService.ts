@@ -1,7 +1,7 @@
 import { AppDataSource } from '../../database'
 import { TaskNotificationRecord } from '../../../share/entity/database/TaskNotificationRecord'
 import { TaskRecord } from '../../../share/entity/database/TaskRecord'
-import { mainAgentDispatchService } from '../middlelayer/event-in-wait/mainAgentDispatchService'
+import { mainAgentEntryService } from '../aiservice/runtime/mainAgentEntryService'
 import { taskExecutionService } from './taskExecutionService'
 import { taskNotificationService } from './taskNotificationService'
 import { taskTraceService } from './taskTraceService'
@@ -66,7 +66,7 @@ class TaskRecoveryService {
     })
 
     for (const notification of pendingNotifications) {
-      await mainAgentDispatchService.enqueueTaskNotification({
+      await mainAgentEntryService.enqueueTaskNotification({
         taskId: notification.taskId,
         notificationId: notification.id
       })
