@@ -167,11 +167,12 @@ export const buildTaskNoticeFromSubAgentPayload = (input: {
       }
     case 'cancelled':
       return {
-        nextStatus: 'cancelled',
+        nextStatus: 'awaiting_user_confirmation',
         notice: {
-          type: 'task_cancelled',
+          type: 'task_cancel_requested',
           message:
-            input.payload.message || `任务「${input.taskTitle}」已由子 agent 侧取消。`
+            input.payload.message ||
+            `任务「${input.taskTitle}」的子 agent 已停止本轮执行。请由主 agent 向用户确认是否关闭任务。`
         }
       }
   }

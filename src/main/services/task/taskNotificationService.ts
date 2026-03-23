@@ -14,6 +14,7 @@ import {
   taskNotificationTypeToSubAgentOutcome,
   type SubAgentProtocolPayload
 } from '@share/cache/AItype/states/taskCommunication'
+import { assertTaskStatusTransition } from '@share/cache/AItype/states/taskLifecycleRules'
 
 type PublishExecutionEventInput = {
   taskId: number
@@ -100,6 +101,7 @@ class TaskNotificationService {
       }
       execution.finishedAt = new Date()
 
+      assertTaskStatusTransition(task.status, 'pending_main_ack')
       task.status = 'pending_main_ack'
 
       const notification = notificationRepo.create({
@@ -164,6 +166,7 @@ class TaskNotificationService {
         outcome: taskNotificationTypeToSubAgentOutcome(notification.type)
       })
       const consumed = buildConsumedNotice(task, notification, payload)
+      assertTaskStatusTransition(task.status, consumed.nextStatus)
       task.status = consumed.nextStatus
       if (consumed.nextStatus === 'cancelled') {
         task.pendingContextJson = '{}'

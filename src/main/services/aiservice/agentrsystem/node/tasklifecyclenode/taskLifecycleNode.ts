@@ -63,7 +63,7 @@ const buildPrompt = (userInput: string, activeTask?: ActiveTaskSnapshot): string
 2. 主代理不负责执行复杂任务，不负责验证结果，不负责失败重试。
 3. 当用户提出明确且需要持续处理的复杂任务时，返回 create_task。
 4. 当用户是在补充、修改、继续当前任务时，返回 continue_task。
-5. 当用户明确确认任务结束时，返回 confirm_close_task。
+5. 只有当前任务已进入 awaiting_user_confirmation 时，用户明确确认任务结束，才返回 confirm_close_task。
 6. 其他闲聊或普通追问返回 none。
 
 当前活跃任务：
@@ -91,7 +91,8 @@ ${userInput}
 1. 如果 decision.type 不是 create_task，可省略 task。
 2. 只有需要持续处理或委派给执行代理的复杂任务，才返回 create_task。
 3. 置信度范围必须为 0 到 1。
-4. 不要输出额外解释。`
+4. 如果 activeTask.status 不是 awaiting_user_confirmation，不要返回 confirm_close_task。
+5. 不要输出额外解释。`
 
 const inferDecisionFallback = (
   userInput: string,
@@ -239,14 +240,24 @@ export async function taskLifecycleNode(
       notice = undefined
     }
   } else if (decision.type === 'confirm_close_task' && activeTask) {
-    await taskService.setTaskStatus(activeTask.id, {
-      status: 'done',
-      closureSummary: '用户确认当前任务结束'
-    })
-    nextActiveTask = undefined
-    notice = {
-      type: 'task_waiting_confirmation',
-      message: `任务「${activeTask.title}」已确认结束。`
+    if (activeTask.status === 'awaiting_user_confirmation') {
+      await taskService.setTaskStatus(activeTask.id, {
+        status: 'done',
+        closureSummary: '用户确认当前任务结束'
+      })
+      nextActiveTask = undefined
+      notice = {
+        type: 'task_waiting_confirmation',
+        message: `任务「${activeTask.title}」已确认结束。`
+      }
+    } else {
+      nextActiveTask = activeTask
+      notice = {
+        type: 'task_registration_blocked',
+        message:
+          `当前任务「${activeTask.title}」尚未进入可确认结束阶段。` +
+          ' 如果用户是想停止当前任务，应走取消语义；如果任务仍在执行，应等待子 agent 返回结果。'
+      }
     }
   } else if (decision.type === 'continue_task' && activeTask) {
     nextActiveTask = activeTask

@@ -64,6 +64,7 @@ export type TaskNoticeType =
   | 'task_needs_input'
   | 'task_failed'
   | 'task_cancelled'
+  | 'task_cancel_requested'
   | 'task_registration_blocked'
 
 export type TaskExecutorKind =

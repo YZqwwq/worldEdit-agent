@@ -7,6 +7,7 @@ import type {
   TaskMonitorSnapshot,
   TaskStatus
 } from '@share/cache/AItype/states/taskLifecycleState'
+import { assertTaskStatusTransition } from '@share/cache/AItype/states/taskLifecycleRules'
 import { taskExecutionService } from './taskExecutionService'
 import { taskTraceService } from './taskTraceService'
 import { mainAgentDispatchService } from '../middlelayer/event-in-wait/mainAgentDispatchService'
@@ -165,6 +166,7 @@ class TaskService {
     const task = await this.repo.findOneBy({ id: taskId })
     if (!task) throw new Error(`Task not found: ${taskId}`)
 
+    assertTaskStatusTransition(task.status, input.status)
     task.status = input.status
     if (input.closureSummary) {
       task.closureSummary = input.closureSummary.trim()

@@ -1,6 +1,6 @@
 # AI Agent 架构说明
 
-> 状态说明（2026-03-23）
+> 状态说明（2026-03-24）
 >
 > 本文件只描述当前项目的有效架构定义，以及仍需继续完成的任务列表。
 > 不再保留旧版评审过程、阶段性收口记录或迭代叙事。
@@ -225,6 +225,13 @@
 4. 主 agent 是唯一能把任务关闭为 `done / cancelled` 的控制器
 5. 用户的“结束吧 / 不用了 / 取消”一类输入，必须先被主 agent 解释，再转成生命周期动作
 
+当前已落地的基础约束：
+
+- task status 允许迁移关系已经接入代码约束
+- `pending_main_ack -> awaiting_user_input / awaiting_user_confirmation` 已通过 notification consume 固化
+- 子 agent 的 `cancelled` 回报不再直接把 task 关闭为最终 `cancelled`
+- 最终 `done / cancelled` 仍由主 agent 显式动作落地
+
 这意味着：
 
 `子 agent 负责执行`
@@ -239,12 +246,22 @@
 1. 主链入口已经统一
 2. 主子 agent 通信已经开始协议化
 3. 生命周期控制权属于主 agent
+4. 启动恢复已接入主链启动流程
+5. character_editor 的任务创建与续跑已进入 application service
+
+当前已经落地的关键收口：
+
+- `MainAgentEntryService -> MainAgentDispatchService -> processMainAgentEvent -> effect applier` 已形成控制面主链
+- user message 与 task notification 共享同一队列，task notification 不再伪装成普通聊天输入
+- 生命周期迁移表已经开始变成代码规则，而不只是文档约定
+- 子 agent 的取消不会再直接越权关闭任务，主 agent 保留最终关闭权
 
 当前真正还没彻底完成的，不再是“统一入口”，而是：
 
 - 用户输入路由收敛
-- 生命周期状态机收敛
+- 生命周期动作矩阵收敛
 - continuation 扩展点正式化
+- 取消 / 重试语义补齐
 - prompt 构建层继续拆分
 - 观测边界继续清理
 
@@ -253,6 +270,14 @@
 ## 仍需完成的任务列表
 
 下面只保留当前仍需继续完成的任务。
+
+## 当前任务优先级
+
+1. 用户输入路由收敛
+2. continuation registry
+3. 取消 / 重试语义
+4. prompt 构建层拆分
+5. 观测体系分层
 
 ## P0
 
@@ -271,13 +296,19 @@
 当前还需要补：
 
 - 创建子任务与普通聊天边界继续精炼
-- 任务控制类输入的前置判断继续稳定
+- `awaiting_user_confirmation` / `awaiting_user_input` 下的控制语义继续稳定
+- 把“关闭确认”和“取消任务”从普通聊天回答里进一步剥离成显式控制动作
 
-### 2. 整理生命周期状态迁移表
+### 2. 把生命周期迁移表升级为正式动作矩阵
 
 目标：
 
-把 task status 的允许迁移关系写成正式规则。
+把 task status 的允许迁移关系从“静态表”继续推进到“带动作语义的正式规则”。
+
+当前已完成：
+
+- 允许迁移关系已接入代码校验
+- notification consume 已通过状态规则驱动 `pending_main_ack -> awaiting_*`
 
 至少明确：
 
@@ -289,6 +320,12 @@
 - `awaiting_user_confirmation -> done`
 - `* -> cancelled`
 
+当前还需要补：
+
+- 每条迁移对应的触发动作、控制者和副作用
+- `confirm_close`、`cancel_task`、`retry_execution` 的正式动作语义
+- 非法迁移的统一错误呈现与 trace
+
 ### 3. 固化“只有主 agent 能关闭任务”的实现约束
 
 目标：
@@ -298,6 +335,16 @@
 - 子 agent 不能提交 `done`
 - 子 agent 不能提交最终 `cancelled`
 - 主 agent 才能提交任务最终关闭
+
+当前已完成：
+
+- 子 agent 的 `cancelled` 已调整为“请求主 agent 确认关闭”，而不是直接终结 task
+- `confirm_close_task` 已收紧为仅在 `awaiting_user_confirmation` 阶段可关闭
+
+当前还需要补：
+
+- 所有关闭路径统一经过同一套 close / cancel policy
+- 失败后是否进入 retry、ask_user 还是 close，需要主 agent 明确决策
 
 ## P1
 
@@ -365,10 +412,11 @@
 当前阶段最值得优先继续做的是：
 
 1. 用户输入路由收敛
-2. 生命周期状态迁移表
-3. continuation registry
+2. continuation registry
+3. 取消 / 重试语义
+4. prompt 构建层拆分
 
 一句话总结：
 
 `当前已经不是入口问题`
-`而是要把主子 agent 通信和生命周期彻底做成稳定架构`
+`而是要把主子 agent 通信、生命周期动作和控制权边界彻底做成稳定架构`
