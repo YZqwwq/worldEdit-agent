@@ -7,6 +7,9 @@ import type {
 } from '@share/cache/AItype/states/taskLifecycleState'
 
 export type MainAgentEventProcessorDependencies = {
+  routeUserMessage: (
+    event: MainAgentUserMessageEvent
+  ) => Promise<MainAgentEventConsumptionResult | null>
   runUserMessage: (
     message: string,
     onChunk?: (chunk: StreamChunk) => void
@@ -29,6 +32,11 @@ async function processUserMessageEvent(
   const effectContext = createEffectContext(event)
 
   try {
+    const routed = await dependencies.routeUserMessage(event)
+    if (routed) {
+      return routed
+    }
+
     const result = await dependencies.runUserMessage(event.payload.text, event.payload.onChunk)
 
     return {

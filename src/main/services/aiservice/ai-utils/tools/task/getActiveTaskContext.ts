@@ -3,6 +3,7 @@ import { taskExecutionService } from '../../../../task/taskExecutionService'
 import { taskNotificationService } from '../../../../task/taskNotificationService'
 import { taskService } from '../../../../task/taskService'
 import { mainAgentDispatchService } from '../../../../middlelayer/event-in-wait/mainAgentDispatchService'
+import { parseSubAgentProtocolPayload } from '@share/cache/AItype/states/taskCommunication'
 import { defineAgentTool } from '../../core/agentTool'
 
 const getActiveTaskContextInputSchema = z.object({
@@ -136,8 +137,8 @@ export const getActiveTaskContextTool = defineAgentTool({
     ])
 
     const notificationPayload = latestPendingNotification
-      ? parseJsonObject(latestPendingNotification.payloadJson)
-      : {}
+      ? parseSubAgentProtocolPayload(parseJsonObject(latestPendingNotification.payloadJson))
+      : null
 
     const missingFields = getMissingFields(pendingContext)
     const recommendedNextTool =
@@ -181,12 +182,7 @@ export const getActiveTaskContextTool = defineAgentTool({
             executionId: latestPendingNotification.executionId,
             type: latestPendingNotification.type,
             status: latestPendingNotification.status,
-            message:
-              typeof notificationPayload.message === 'string'
-                ? notificationPayload.message
-                : typeof notificationPayload.summary === 'string'
-                  ? notificationPayload.summary
-                  : undefined,
+            message: notificationPayload?.message || notificationPayload?.summary || undefined,
             createdAt: latestPendingNotification.createdAt.toISOString()
           }
         : null,

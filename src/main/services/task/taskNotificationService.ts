@@ -4,18 +4,23 @@ import { TaskNotificationRecord } from '../../../share/entity/database/TaskNotif
 import { TaskRecord } from '../../../share/entity/database/TaskRecord'
 import type {
   ActiveTaskSnapshot,
-  TaskExecutionStatus,
   TaskLifecycleNotice,
-  TaskNotificationType,
-  TaskStatus
+  TaskNotificationType
 } from '@share/cache/AItype/states/taskLifecycleState'
+import {
+  buildTaskNoticeFromSubAgentPayload,
+  getExecutionStatusForSubAgentOutcome,
+  parseSubAgentProtocolPayload,
+  taskNotificationTypeToSubAgentOutcome,
+  type SubAgentProtocolPayload
+} from '@share/cache/AItype/states/taskCommunication'
 
 type PublishExecutionEventInput = {
   taskId: number
   executionId: number
   type: TaskNotificationType
   summary: string
-  payload?: unknown
+  payload: SubAgentProtocolPayload
   errorReport?: string
 }
 
@@ -23,7 +28,7 @@ type ConsumedNotificationResult = {
   activeTask: ActiveTaskSnapshot
   notice: TaskLifecycleNotice
   notification: TaskNotificationRecord
-  payload: Record<string, unknown>
+  payload: SubAgentProtocolPayload
 }
 
 const toSnapshot = (task: TaskRecord): ActiveTaskSnapshot => ({
@@ -48,68 +53,16 @@ const parseJsonObject = (input: string): Record<string, unknown> => {
   return {}
 }
 
-const getExecutionStatusForNotification = (
-  type: TaskNotificationType
-): TaskExecutionStatus => {
-  switch (type) {
-    case 'subagent_completed':
-      return 'reported_done'
-    case 'subagent_needs_input':
-      return 'awaiting_input'
-    case 'subagent_failed':
-      return 'failed'
-  }
-}
-
-const getTaskStatusForPublishedNotification = (): TaskStatus => 'pending_main_ack'
-
 const buildConsumedNotice = (
   task: TaskRecord,
   notification: TaskNotificationRecord,
-  payload: Record<string, unknown>
-): { nextStatus: TaskStatus; notice: TaskLifecycleNotice } => {
-  const payloadMessage =
-    typeof payload.message === 'string'
-      ? payload.message.trim()
-      : typeof payload.note === 'string'
-        ? payload.note.trim()
-        : typeof payload.summary === 'string'
-          ? payload.summary.trim()
-          : ''
-
-  switch (notification.type) {
-    case 'subagent_completed':
-      return {
-        nextStatus: 'awaiting_user_confirmation',
-        notice: {
-          type: 'task_waiting_confirmation',
-          message:
-            payloadMessage ||
-            `子 agent 已完成任务「${task.title}」的本轮执行，请向用户确认是否结束任务。`
-        }
-      }
-    case 'subagent_needs_input':
-      return {
-        nextStatus: 'awaiting_user_input',
-        notice: {
-          type: 'task_needs_input',
-          message:
-            payloadMessage ||
-            `子 agent 在任务「${task.title}」中需要更多用户输入，请先向用户收集补充信息。`
-        }
-      }
-    case 'subagent_failed':
-      return {
-        nextStatus: 'awaiting_user_input',
-        notice: {
-          type: 'task_failed',
-          message:
-            payloadMessage ||
-            `子 agent 在任务「${task.title}」的本轮执行中失败，请向用户说明失败原因并决定是否重试或取消。`
-        }
-      }
-  }
-}
+  payload: SubAgentProtocolPayload
+) =>
+  buildTaskNoticeFromSubAgentPayload({
+    taskTitle: task.title,
+    outcome: taskNotificationTypeToSubAgentOutcome(notification.type),
+    payload
+  })
 
 class TaskNotificationService {
   private get repo() {
@@ -134,9 +87,11 @@ class TaskNotificationService {
         throw new Error(`Task execution not found: ${input.executionId}`)
       }
 
-      execution.status = getExecutionStatusForNotification(input.type)
+      execution.status = getExecutionStatusForSubAgentOutcome(
+        taskNotificationTypeToSubAgentOutcome(input.type)
+      )
       execution.resultSummary = input.summary.trim()
-      execution.reportPayloadJson = JSON.stringify(input.payload ?? {})
+      execution.reportPayloadJson = JSON.stringify(input.payload)
       if (input.errorReport?.trim()) {
         execution.errorReport = input.errorReport.trim()
       }
@@ -145,14 +100,14 @@ class TaskNotificationService {
       }
       execution.finishedAt = new Date()
 
-      task.status = getTaskStatusForPublishedNotification()
+      task.status = 'pending_main_ack'
 
       const notification = notificationRepo.create({
         taskId: input.taskId,
         executionId: input.executionId,
         type: input.type,
         status: 'pending',
-        payloadJson: JSON.stringify(input.payload ?? {})
+        payloadJson: JSON.stringify(input.payload)
       })
 
       await executionRepo.save(execution)
@@ -205,9 +160,16 @@ class TaskNotificationService {
       notification.status = 'consumed'
       notification.consumedAt = new Date()
 
-      const payload = parseJsonObject(notification.payloadJson)
+      const payload = parseSubAgentProtocolPayload(parseJsonObject(notification.payloadJson), {
+        outcome: taskNotificationTypeToSubAgentOutcome(notification.type)
+      })
       const consumed = buildConsumedNotice(task, notification, payload)
       task.status = consumed.nextStatus
+      if (consumed.nextStatus === 'cancelled') {
+        task.pendingContextJson = '{}'
+        task.closureSummary = payload.summary || task.closureSummary
+        task.closedAt = new Date()
+      }
 
       await notificationRepo.save(notification)
       await taskRepo.save(task)

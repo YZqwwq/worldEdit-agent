@@ -6,13 +6,20 @@ import { taskService } from './taskService'
 import { taskTraceService } from './taskTraceService'
 import type { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
 import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
+import {
+  buildSubAgentProtocolPayload,
+  subAgentOutcomeToNotificationType,
+  type SubAgentOutcome
+} from '@share/cache/AItype/states/taskCommunication'
 import { runCharacterEditorExecution } from '../aiservice/child-agent-system/characterEditorExecution'
 import { mainAgentEntryService } from '../aiservice/runtime/mainAgentEntryService'
 
 type DispatchResult = {
-  type: 'completed' | 'failed' | 'needs_input'
+  outcome: SubAgentOutcome
   summary: string
-  payload?: Record<string, unknown>
+  userMessage: string
+  pendingContext?: Record<string, unknown>
+  details?: Record<string, unknown>
   errorReport?: string
 }
 
@@ -32,19 +39,6 @@ const parseJsonObject = (input: string): Record<string, unknown> => {
     // ignore bad payloads
   }
   return {}
-}
-
-const toNotificationType = (
-  resultType: DispatchResult['type']
-): 'subagent_completed' | 'subagent_failed' | 'subagent_needs_input' => {
-  switch (resultType) {
-    case 'completed':
-      return 'subagent_completed'
-    case 'needs_input':
-      return 'subagent_needs_input'
-    case 'failed':
-      return 'subagent_failed'
-  }
 }
 
 const normalizeErrorMessage = (error: unknown): string => {
@@ -77,24 +71,22 @@ const characterEditorHandler: DispatchHandler = async ({ payload }) => {
     const result = await runCharacterEditorExecution(payload)
 
     return {
-      type: result.outcome,
+      outcome: result.outcome,
       summary: result.summary,
-      payload: {
-        message: result.userFacingMessage,
+      userMessage: result.userFacingMessage,
+      pendingContext: result.pendingContext,
+      details: {
         changedScopes: result.changedScopes,
         appliedTools: result.appliedTools,
-        suggestedFollowUp: result.suggestedFollowUp,
-        pendingContext: result.pendingContext
+        suggestedFollowUp: result.suggestedFollowUp
       },
       errorReport: result.outcome === 'failed' ? result.userFacingMessage : undefined
     }
   } catch (error) {
     return {
-      type: 'failed',
+      outcome: 'failed',
       summary: '人物编辑子 agent 在执行过程中抛出异常。',
-      payload: {
-        message: normalizeErrorMessage(error)
-      },
+      userMessage: normalizeErrorMessage(error),
       errorReport: normalizeErrorMessage(error)
     }
   }
@@ -144,9 +136,12 @@ class SubAgentDispatcherService {
         executionId: execution.id,
         type: 'subagent_failed',
         summary: `当前没有为执行器 ${execution.executorKind} 注册 dispatcher handler。`,
-        payload: {
-          message: `当前没有为执行器 ${execution.executorKind} 注册子 agent 处理器，无法继续执行。`
-        },
+        payload: buildSubAgentProtocolPayload({
+          outcome: 'failed',
+          summary: `当前没有为执行器 ${execution.executorKind} 注册 dispatcher handler。`,
+          message: `当前没有为执行器 ${execution.executorKind} 注册子 agent 处理器，无法继续执行。`,
+          errorMessage: `Missing dispatcher handler for executor ${execution.executorKind}`
+        }),
         errorReport: `Missing dispatcher handler for executor ${execution.executorKind}`
       })
       await taskTraceService.emit({
@@ -168,22 +163,26 @@ class SubAgentDispatcherService {
       const result = await handler({ task, execution, payload })
       await taskService.setPendingContext(
         task.id,
-        result.type === 'needs_input' &&
-          result.payload?.pendingContext &&
-          typeof result.payload.pendingContext === 'object' &&
-          !Array.isArray(result.payload.pendingContext)
-          ? (result.payload.pendingContext as Record<string, unknown>)
+        result.outcome === 'needs_input' &&
+          result.pendingContext &&
+          typeof result.pendingContext === 'object' &&
+          !Array.isArray(result.pendingContext)
+          ? result.pendingContext
           : null
       )
       const notification = await taskNotificationService.publishExecutionEvent({
         taskId: task.id,
         executionId: execution.id,
-        type: toNotificationType(result.type),
+        type: subAgentOutcomeToNotificationType(result.outcome),
         summary: result.summary,
-        payload: {
+        payload: buildSubAgentProtocolPayload({
+          outcome: result.outcome,
           summary: result.summary,
-          ...(result.payload ?? {})
-        },
+          message: result.userMessage,
+          pendingContext: result.pendingContext,
+          errorMessage: result.errorReport,
+          details: result.details
+        }),
         errorReport: result.errorReport
       })
       await taskTraceService.emit({
@@ -193,7 +192,7 @@ class SubAgentDispatcherService {
         stage: 'subagent_notify_main',
         message: '子 agent 已结束本轮 execution，并向主 agent 发起响应请求。',
         payload: {
-          outcome: result.type,
+          outcome: result.outcome,
           summary: result.summary
         }
       })
@@ -205,9 +204,12 @@ class SubAgentDispatcherService {
         executionId: execution.id,
         type: 'subagent_failed',
         summary: `执行器 ${execution.executorKind} 在后台运行时抛出异常。`,
-        payload: {
-          message: `执行器 ${execution.executorKind} 在后台运行时抛出异常：${message}`
-        },
+        payload: buildSubAgentProtocolPayload({
+          outcome: 'failed',
+          summary: `执行器 ${execution.executorKind} 在后台运行时抛出异常。`,
+          message: `执行器 ${execution.executorKind} 在后台运行时抛出异常：${message}`,
+          errorMessage: message
+        }),
         errorReport: message
       })
       await taskTraceService.emit({

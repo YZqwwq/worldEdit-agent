@@ -1,4 +1,5 @@
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
+import type { SubAgentProtocolPayload } from './taskCommunication'
 
 export type TaskStatus =
   | 'active'
@@ -22,6 +23,7 @@ export type TaskNotificationType =
   | 'subagent_completed'
   | 'subagent_failed'
   | 'subagent_needs_input'
+  | 'subagent_cancelled'
 
 export type TaskNotificationStatus = 'pending' | 'consumed'
 
@@ -30,7 +32,10 @@ export type TaskTraceActor = 'subagent' | 'main_agent' | 'user' | 'system'
 export type MainAgentInboxSource = 'user' | 'task_queue'
 export type MainAgentEventType = 'user_message' | 'task_notification'
 export type MainAgentEventPriority = 'interactive' | 'background'
-export type MainAgentEventConsumer = 'chat_runtime' | 'task_notification_consumer'
+export type MainAgentEventConsumer =
+  | 'chat_runtime'
+  | 'task_notification_consumer'
+  | 'user_input_router'
 
 export type MainAgentDispatchState =
   | 'idle'
@@ -210,7 +215,7 @@ export interface MainAgentTaskEvent {
   notificationType: TaskNotificationType
   activeTask: ActiveTaskSnapshot
   notice: TaskLifecycleNotice
-  payload: Record<string, unknown>
+  payload: SubAgentProtocolPayload
 }
 
 export type MainAgentTaskDecisionAction = 'none' | 'ask_user' | 'resume_subagent'

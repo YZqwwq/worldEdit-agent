@@ -5,6 +5,7 @@ import { mainAgentEntryService } from '../aiservice/runtime/mainAgentEntryServic
 import { taskExecutionService } from './taskExecutionService'
 import { taskNotificationService } from './taskNotificationService'
 import { taskTraceService } from './taskTraceService'
+import { buildSubAgentProtocolPayload } from '@share/cache/AItype/states/taskCommunication'
 
 class TaskRecoveryService {
   private get notificationRepo() {
@@ -37,11 +38,15 @@ class TaskRecoveryService {
         executionId: run.id,
         type: 'subagent_failed',
         summary: `执行器 ${run.executorKind} 在应用重启前中断，当前已转入人工恢复流程。`,
-        payload: {
+        payload: buildSubAgentProtocolPayload({
+          outcome: 'failed',
+          summary: `执行器 ${run.executorKind} 在应用重启前中断，当前已转入人工恢复流程。`,
           message:
             `任务「${task.title}」对应的子 agent 在应用关闭或重启时被中断。` +
-            ' 当前不会自动重放该 execution，以避免重复写入；请向用户说明情况，并由主 agent 决定是否重试。'
-        },
+            ' 当前不会自动重放该 execution，以避免重复写入；请向用户说明情况，并由主 agent 决定是否重试。',
+          errorMessage:
+            `Execution ${run.id} was interrupted before completion and was reconciled during startup.`
+        }),
         errorReport: `Execution ${run.id} was interrupted before completion and was reconciled during startup.`
       })
 

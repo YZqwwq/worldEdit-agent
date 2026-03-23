@@ -16,6 +16,7 @@ const buildDecision = (
     case 'task_needs_input':
     case 'task_waiting_confirmation':
     case 'task_failed':
+    case 'task_cancelled':
     case 'task_registration_blocked':
       return {
         action: 'ask_user',

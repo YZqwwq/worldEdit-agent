@@ -9,6 +9,7 @@ import { mainAgentDispatchService } from '../../middlelayer/event-in-wait/mainAg
 import { mainAgentChatRuntimeService } from './mainAgentChatRuntimeService'
 import { mainAgentEffectApplierService } from './mainAgentEffectApplierService'
 import { processMainAgentEvent } from './mainAgentEventProcessor'
+import { mainAgentUserInputRouterService } from './mainAgentUserInputRouterService'
 import { taskNotificationConsumerService } from './taskNotificationConsumerService'
 
 class MainAgentEntryService {
@@ -37,6 +38,7 @@ class MainAgentEntryService {
 
   private async processEvent(event: MainAgentEvent): Promise<void> {
     const result = await processMainAgentEvent(event, {
+      routeUserMessage: (userEvent) => mainAgentUserInputRouterService.route(userEvent),
       runUserMessage: (message, onChunk) =>
         mainAgentChatRuntimeService.runUserMessage(message, onChunk),
       consumeTaskNotification: (taskEvent) =>
