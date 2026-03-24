@@ -27,6 +27,11 @@ type CharacterEditorHandlerOutput = z.infer<typeof characterEditorHandlerOutputS
 type CharacterEditorPendingContext = z.infer<typeof characterEditorPendingContextSchema>
 type CharacterEditingScope = z.infer<typeof characterEditingScopeSchema>
 type CharacterEditorDirection = z.infer<typeof characterEditorDirectionSchema>
+type SuccessfulDescriptionWrite = {
+  entityId?: string
+  characterName?: string
+  description?: string
+}
 
 const MAX_TOOL_ROUNDS = 6
 
@@ -160,22 +165,27 @@ const buildFailureOutput = (
     appliedTools
   })
 
-const getEffectiveEditingScopes = (
+const buildCompletedAfterWriteFallback = (input: {
   payload: CharacterEditorExecutionPayload
+  appliedTools: CharacterEditorHandlerOutput['appliedTools']
+  write: SuccessfulDescriptionWrite
+  reason: string
+}): CharacterEditorHandlerOutput =>
+  characterEditorHandlerOutputSchema.parse({
+    outcome: 'completed',
+    summary: '人物简介已写入，但子 agent 的收尾确认被中断。',
+    userFacingMessage:
+      `人物「${input.write.characterName || input.payload.characterName || input.write.entityId || '目标角色'}」的简介已经写入 description 字段。` +
+      ' 但子 agent 在收尾确认时被中止，因此本轮我按“已写入完成，但总结异常”处理。请先检查当前简介内容；如果需要，我可以继续润色或追加修改。',
+    changedScopes: ['profile'],
+    appliedTools: input.appliedTools,
+    suggestedFollowUp: `收尾中断原因：${input.reason}`
+  })
+
+const getEffectiveEditingScopes = (
+  _payload: CharacterEditorExecutionPayload
 ): CharacterEditingScope[] => {
-  if (payload.editingScope?.length) {
-    return payload.editingScope
-  }
-  if (
-    payload.editingDirection === 'character_deeds' ||
-    payload.editingDirection === 'character_profile'
-  ) {
-    return ['profile']
-  }
-  if (payload.editingDirection === 'demographic_facts') {
-    return ['demographic']
-  }
-  return []
+  return ['profile']
 }
 
 const formatEditingDirectionLabel = (
@@ -194,27 +204,39 @@ const formatEditingDirectionLabel = (
 }
 
 const buildDirectionRules = (editingDirection?: CharacterEditorDirection): string[] => {
+  const sharedRules = [
+    '当前 character_editor 子 agent 的写入能力已被收紧：只能编辑 character_profile.description。',
+    '唯一允许的写入工具是 upsert_character_description。',
+    '不允许修改 title、summary、traits、abilities、tags、demographic、relation、portrait 等其他字段。',
+    '如果用户请求的内容不是描述文本编辑，而是基础属性、关系、头像或其他结构化字段修改，必须返回 needs_input。'
+  ]
+
   if (editingDirection === 'character_deeds') {
     return [
+      ...sharedRules,
       '本轮 editingDirection=character_deeds，表示主 agent 希望你编辑人物事迹。',
       '人物事迹默认应写入 character_profile.data.description 字段。',
-      '优先使用 upsert_character_profile，并在 patch.description 中写入整理后的人物经历、事迹、转折、秘密或叙事内容。',
-      '除非用户明确要求修改基础属性，否则不要调用 upsert_character_demographic。'
+      '优先使用 upsert_character_description，并写入整理后的人物经历、事迹、转折、秘密或叙事内容。'
     ]
   }
   if (editingDirection === 'character_profile') {
     return [
+      ...sharedRules,
       '本轮 editingDirection=character_profile，表示优先修改人物档案层。',
-      '优先使用 upsert_character_profile，除非请求明确超出 profile 范围。'
+      '当前只允许修改 description 文本部分。'
     ]
   }
   if (editingDirection === 'demographic_facts') {
     return [
+      ...sharedRules,
       '本轮 editingDirection=demographic_facts，表示优先修改基础属性层。',
-      '优先使用 upsert_character_demographic，除非请求明确需要改 profile 文本。'
+      '但当前子 agent 不支持 demographic 写入，此类请求必须返回 needs_input。'
     ]
   }
-  return ['本轮未提供 editingDirection，请结合 userRequest 和 editingScope 自行判断最安全的工具。']
+  return [
+    ...sharedRules,
+    '本轮未提供 editingDirection，请只在用户请求明显属于人物描述文本编辑时继续执行。'
+  ]
 }
 
 const buildPrompt = (payload: CharacterEditorExecutionPayload): string => {
@@ -229,9 +251,10 @@ const buildPrompt = (payload: CharacterEditorExecutionPayload): string => {
     '执行规则：',
     '1. 先使用 get_character_detail 读取当前人物详情，再决定是否写入。',
     '2. 只允许使用当前提供的人物工具，不要编造数据库字段或 entityId。',
-    '3. 如果请求涉及 relation、引用实体搜索或当前工具无法安全完成的内容，应返回 needs_input。',
-    '4. 如果已经成功写入 profile 或 demographic，请返回 completed。',
-    '5. 最终只输出 JSON，不要输出额外解释。',
+    '3. 当前写入能力只允许修改 character_profile.description。',
+    '4. 如果请求涉及 demographic、relation、portrait、title、summary、traits、abilities、tags 或其他非 description 字段，应返回 needs_input。',
+    '5. 如果已经成功写入 description，请返回 completed。',
+    '6. 最终只输出 JSON，不要输出额外解释。',
     ...directionRules,
     '',
     '任务载荷：',
@@ -271,11 +294,26 @@ const runCharacterToolLoop = async (
   ]
 
   const appliedTools: CharacterEditorHandlerOutput['appliedTools'] = []
+  let successfulWrite: SuccessfulDescriptionWrite | undefined
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const response = await boundModel.invoke(messages, {
-      signal: AbortSignal.timeout(childAgentTimeoutMs)
-    } as Record<string, unknown>)
+    let response: BaseMessage
+    try {
+      response = await boundModel.invoke(messages, {
+        signal: AbortSignal.timeout(childAgentTimeoutMs)
+      } as Record<string, unknown>)
+    } catch (error) {
+      if (successfulWrite) {
+        return buildCompletedAfterWriteFallback({
+          payload,
+          appliedTools,
+          write: successfulWrite,
+          reason: error instanceof Error ? error.message : String(error)
+        })
+      }
+      throw error
+    }
+
     const aiMessage = normalizeAiMessage(response as BaseMessage)
     messages.push(aiMessage)
 
@@ -284,6 +322,14 @@ const runCharacterToolLoop = async (
       const rawText = contentToText(aiMessage.content).trim()
       const jsonText = extractJsonObject(rawText)
       if (!jsonText) {
+        if (successfulWrite) {
+          return buildCompletedAfterWriteFallback({
+            payload,
+            appliedTools,
+            write: successfulWrite,
+            reason: rawText || '最终结构化总结缺失'
+          })
+        }
         return buildFailureOutput(
           'character_editor 返回了无法解析的最终结果。',
           rawText || '人物编辑子 agent 没有返回可解析的结构化结果。',
@@ -292,10 +338,23 @@ const runCharacterToolLoop = async (
         )
       }
 
-      const parsed = characterEditorHandlerOutputSchema.parse({
-        ...JSON.parse(jsonText),
-        appliedTools
-      })
+      let parsed: CharacterEditorHandlerOutput
+      try {
+        parsed = characterEditorHandlerOutputSchema.parse({
+          ...JSON.parse(jsonText),
+          appliedTools
+        })
+      } catch (error) {
+        if (successfulWrite) {
+          return buildCompletedAfterWriteFallback({
+            payload,
+            appliedTools,
+            write: successfulWrite,
+            reason: error instanceof Error ? error.message : String(error)
+          })
+        }
+        throw error
+      }
 
       if (parsed.outcome === 'needs_input' && !parsed.pendingContext) {
         return buildNeedsInputOutput({
@@ -335,14 +394,28 @@ const runCharacterToolLoop = async (
 
       try {
         const result = await tool.invoke(toolCall.args ?? {})
-        const status = parseToolExecutionStatus(String(result))
+        const resultText = String(result)
+        const status = parseToolExecutionStatus(resultText)
         appliedTools.push({
           name: toolCall.name,
           status
         })
+        if (toolCall.name === 'upsert_character_description' && status === 'ok') {
+          const args =
+            toolCall.args && typeof toolCall.args === 'object' && !Array.isArray(toolCall.args)
+              ? (toolCall.args as Record<string, unknown>)
+              : {}
+          successfulWrite = {
+            entityId:
+              typeof args.entityId === 'string' ? args.entityId : payload.entityId,
+            characterName: payload.characterName,
+            description:
+              typeof args.description === 'string' ? args.description : undefined
+          }
+        }
         messages.push(
           new ToolMessage({
-            content: String(result),
+            content: resultText,
             tool_call_id: toolCall.id,
             name: toolCall.name,
             status: status === 'error' ? 'error' : undefined
@@ -363,6 +436,15 @@ const runCharacterToolLoop = async (
         )
       }
     }
+  }
+
+  if (successfulWrite) {
+    return buildCompletedAfterWriteFallback({
+      payload,
+      appliedTools,
+      write: successfulWrite,
+      reason: '超过最大工具调用轮数，但已完成 description 写入'
+    })
   }
 
   return buildFailureOutput(

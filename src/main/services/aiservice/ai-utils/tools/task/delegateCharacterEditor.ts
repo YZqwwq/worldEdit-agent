@@ -13,19 +13,20 @@ export const delegateCharacterEditorTool = defineAgentTool({
   outputSchema: delegateCharacterEditorOutputSchema,
   metadata: {
     whenToUse: [
-      '用户提出了需要持续处理的人物编辑任务',
+      '用户提出了需要持续处理的人物描述文本编辑任务',
       '主 agent 已确认目标实体是 character，且不应直接执行复杂人物编辑',
       '需要启动人物编辑子 agent 协议而不是直接改数据库'
     ],
     whenNotToUse: [
       '目标对象不是 character',
       '只是简单查询人物信息，无需建立人物编辑任务',
+      '用户要求修改年龄、性别、关系、头像等非 description 字段',
       '系统尚未准备好处理新的 active task'
     ],
     inputSummary:
-      '提供 entityId 或 characterName；可选提供 worldId 或 worldName；必须提供 userRequest；可选提供 editingScope、editingDirection、expectedOutcome、source。若你已经知道 entityId/worldId/worldName，请一并传入，不要只传 characterName。',
+      '提供 entityId 或 characterName；可选提供 worldId 或 worldName；必须提供 userRequest；可选提供 editingScope、editingDirection、expectedOutcome、source。当前子 agent 会把写入能力限制在 character_profile.description。若你已经知道 entityId/worldId/worldName，请一并传入，不要只传 characterName。',
     outputSummary:
-      '返回 accepted、taskId、executionId、executorKind、status、target、summary、nextAction，表示人物编辑任务已被登记并进入委派协议；若目标尚未完全解析，后台子 agent 会通过 pendingContext 续跑。',
+      '返回 accepted、taskId、executionId、executorKind、status、target、summary、nextAction，表示人物描述编辑任务已被登记并进入委派协议；若目标尚未完全解析，后台子 agent 会通过 pendingContext 续跑。',
     usageContract: [
       '如果当前上下文已经明确知道目标人物的 entityId，调用时必须优先传 entityId',
       '如果尚未知道 entityId，但已经知道人物所属 worldId 或 worldName，必须连同 characterName 一起传入，避免子 agent 重复追问世界观',

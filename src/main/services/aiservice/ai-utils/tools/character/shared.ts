@@ -71,6 +71,15 @@ export const upsertCharacterProfileOutputSchema = z.object({
   component: characterEntityComponentPayloadSchema
 })
 
+export const upsertCharacterDescriptionInputSchema = z.object({
+  entityId: z.string().trim().min(1),
+  description: z.string().trim().min(1).max(40000)
+})
+
+export const upsertCharacterDescriptionOutputSchema = z.object({
+  component: characterEntityComponentPayloadSchema
+})
+
 export const characterDemographicPatchSchema = z
   .object({
     age: z.number().int().min(0).max(100000).nullable().optional(),
@@ -213,6 +222,10 @@ export const characterEditorDraftSchemas = {
   upsert_character_profile: {
     inputSchema: upsertCharacterProfileInputSchema,
     outputSchema: upsertCharacterProfileOutputSchema
+  },
+  upsert_character_description: {
+    inputSchema: upsertCharacterDescriptionInputSchema,
+    outputSchema: upsertCharacterDescriptionOutputSchema
   },
   upsert_character_demographic: {
     inputSchema: upsertCharacterDemographicInputSchema,

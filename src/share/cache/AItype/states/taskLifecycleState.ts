@@ -1,5 +1,6 @@
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type { SubAgentProtocolPayload } from './taskCommunication'
+import type { TaskExecutionInspectionSection } from './taskExecutionInspection'
 
 export type TaskStatus =
   | 'active'
@@ -97,6 +98,8 @@ export interface TaskExecutionSnapshot {
   createdAt: string
   startedAt?: string
   finishedAt?: string
+  input?: TaskExecutionInspectionSection
+  output?: TaskExecutionInspectionSection
 }
 
 export interface TaskMonitorSnapshot {

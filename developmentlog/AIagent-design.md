@@ -57,6 +57,7 @@
 - 接收流式输出
 - 展示 graphlog
 - 展示 task trace / dispatch 状态
+- 展示子 agent execution 的输入 / 输出 inspection
 
 ### 2. Electron 接入层
 
@@ -104,6 +105,7 @@
 - 子 agent 执行调度
 - notification 写入与消费
 - trace
+- execution inspection snapshot 归一化
 - 启动恢复
 
 当前关键对象：
@@ -255,6 +257,7 @@
 - user message 与 task notification 共享同一队列，task notification 不再伪装成普通聊天输入
 - 生命周期迁移表已经开始变成代码规则，而不只是文档约定
 - 子 agent 的取消不会再直接越权关闭任务，主 agent 保留最终关闭权
+- 子 agent 跟踪展示已收敛为 execution 级 inspection，前端查看的是每次 execution 的输入 / 输出，而不是图内每个节点
 
 当前真正还没彻底完成的，不再是“统一入口”，而是：
 
@@ -392,7 +395,8 @@
 
 - `graphlog` 用于图调试
 - `taskTrace` 用于任务时间线
-- 其他 inspection 数据不混入这两者职责
+- `execution inspection` 用于查看子 agent 的单次输入 / 输出
+- 其他 inspection 数据不混入这三者职责
 
 ### 9. 为通信协议与生命周期补测试矩阵
 

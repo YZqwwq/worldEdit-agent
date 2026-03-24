@@ -1,5 +1,6 @@
 import { AppDataSource } from '../../database'
 import { TaskRecord } from '../../../share/entity/database/TaskRecord'
+import type { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
 import type {
   ActiveTaskSnapshot,
   TaskExecutionSnapshot,
@@ -9,6 +10,7 @@ import type {
 } from '@share/cache/AItype/states/taskLifecycleState'
 import { assertTaskStatusTransition } from '@share/cache/AItype/states/taskLifecycleRules'
 import { taskExecutionService } from './taskExecutionService'
+import { mapTaskExecutionInspection } from './taskExecutionInspectionMapper'
 import { taskTraceService } from './taskTraceService'
 import { mainAgentDispatchService } from '../middlelayer/event-in-wait/mainAgentDispatchService'
 
@@ -56,29 +58,23 @@ const toSnapshot = (task: TaskRecord): ActiveTaskSnapshot => ({
   progressNotes: task.progressNotes || undefined
 })
 
-const toExecutionSnapshot = (run: {
-  id: number
-  taskId: number
-  runNumber: number
-  executorKind: TaskExecutorKind
-  status: string
-  resultSummary: string
-  errorReport: string
-  createdAt: Date
-  startedAt: Date | null
-  finishedAt: Date | null
-}): TaskExecutionSnapshot => ({
-  id: run.id,
-  taskId: run.taskId,
-  runNumber: run.runNumber,
-  executorKind: run.executorKind,
-  status: run.status as TaskExecutionSnapshot['status'],
-  resultSummary: run.resultSummary,
-  errorReport: run.errorReport || undefined,
-  createdAt: run.createdAt.toISOString(),
-  startedAt: run.startedAt?.toISOString(),
-  finishedAt: run.finishedAt?.toISOString()
-})
+const toExecutionSnapshot = (run: TaskExecutionRecord): TaskExecutionSnapshot => {
+  const inspection = mapTaskExecutionInspection(run)
+  return {
+    id: run.id,
+    taskId: run.taskId,
+    runNumber: run.runNumber,
+    executorKind: run.executorKind,
+    status: run.status,
+    resultSummary: run.resultSummary,
+    errorReport: run.errorReport || undefined,
+    createdAt: run.createdAt.toISOString(),
+    startedAt: run.startedAt?.toISOString(),
+    finishedAt: run.finishedAt?.toISOString(),
+    input: inspection.input,
+    output: inspection.output
+  }
+}
 
 class TaskService {
   private get repo() {

@@ -13,6 +13,7 @@ import {
 } from '@share/cache/AItype/states/taskCommunication'
 import { runCharacterEditorExecution } from '../aiservice/child-agent-system/characterEditorExecution'
 import { mainAgentEntryService } from '../aiservice/runtime/mainAgentEntryService'
+import { modelConfigService } from '../modelconfig/modelConfigService'
 
 type DispatchResult = {
   outcome: SubAgentOutcome
@@ -41,10 +42,20 @@ const parseJsonObject = (input: string): Record<string, unknown> => {
   return {}
 }
 
-const normalizeErrorMessage = (error: unknown): string => {
+const normalizeErrorMessage = async (error: unknown): Promise<string> => {
   const raw = error instanceof Error ? error.message : String(error)
   if (/^abort$/i.test(raw.trim())) {
-    return '子 agent 的模型调用被中止了，通常表示本轮后台执行超时（当前 character_editor 单次模型调用上限为 30 秒）。'
+    const timeoutMs = await modelConfigService
+      .getChildAgentTimeoutMs()
+      .catch(() => null)
+    const timeoutLabel =
+      typeof timeoutMs === 'number' && timeoutMs > 0
+        ? `（当前单次模型调用上限约 ${Math.ceil(timeoutMs / 1000)} 秒）`
+        : ''
+    return (
+      '子 agent 的模型调用被中止了，可能是超时、上游连接中断或主动取消，' +
+      `并不一定表示本轮写入失败${timeoutLabel}。`
+    )
   }
   return raw
 }
@@ -83,11 +94,12 @@ const characterEditorHandler: DispatchHandler = async ({ payload }) => {
       errorReport: result.outcome === 'failed' ? result.userFacingMessage : undefined
     }
   } catch (error) {
+    const normalized = await normalizeErrorMessage(error)
     return {
       outcome: 'failed',
       summary: '人物编辑子 agent 在执行过程中抛出异常。',
-      userMessage: normalizeErrorMessage(error),
-      errorReport: normalizeErrorMessage(error)
+      userMessage: normalized,
+      errorReport: normalized
     }
   }
 }
@@ -198,7 +210,7 @@ class SubAgentDispatcherService {
       })
       await enqueueNotificationSafely(task.id, notification.id)
     } catch (error) {
-      const message = normalizeErrorMessage(error)
+      const message = await normalizeErrorMessage(error)
       const notification = await taskNotificationService.publishExecutionEvent({
         taskId: task.id,
         executionId: execution.id,

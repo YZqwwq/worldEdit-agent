@@ -117,8 +117,8 @@
               :key="execution.id"
               class="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3"
             >
-              <div class="flex items-center justify-between gap-3">
-                <div class="min-w-0">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0 flex-1">
                   <div class="text-sm font-medium text-slate-700">
                     #{{ execution.runNumber }} {{ formatExecutor(execution.executorKind) }}
                   </div>
@@ -134,6 +134,24 @@
                 </span>
               </div>
 
+              <div
+                v-if="execution.startedAt || execution.finishedAt"
+                class="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-400"
+              >
+                <span
+                  v-if="execution.startedAt"
+                  class="rounded-full border border-slate-200 bg-white px-2.5 py-1"
+                >
+                  开始 {{ formatIsoTime(execution.startedAt) }}
+                </span>
+                <span
+                  v-if="execution.finishedAt"
+                  class="rounded-full border border-slate-200 bg-white px-2.5 py-1"
+                >
+                  结束 {{ formatIsoTime(execution.finishedAt) }}
+                </span>
+              </div>
+
               <p v-if="execution.resultSummary" class="mt-3 text-sm leading-6 text-slate-600">
                 {{ execution.resultSummary }}
               </p>
@@ -143,6 +161,103 @@
                 class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700"
               >
                 {{ execution.errorReport }}
+              </div>
+
+              <div v-if="hasInspection(execution)" class="mt-3">
+                <button
+                  type="button"
+                  class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800"
+                  @click="toggleExecution(execution.id)"
+                >
+                  {{ isExecutionExpanded(execution.id) ? '收起输入输出' : '查看输入输出' }}
+                </button>
+              </div>
+
+              <div
+                v-if="isExecutionExpanded(execution.id)"
+                class="mt-4 space-y-3 border-t border-slate-200 pt-4"
+              >
+                <section
+                  v-if="execution.input"
+                  class="rounded-xl border border-slate-200 bg-white px-3 py-3"
+                >
+                  <div class="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+                    {{ execution.input.title }}
+                  </div>
+                  <p
+                    v-if="execution.input.summary"
+                    class="mt-2 text-sm leading-6 text-slate-700 whitespace-pre-wrap"
+                  >
+                    {{ execution.input.summary }}
+                  </p>
+                  <div
+                    v-if="execution.input.fields.length > 0"
+                    class="mt-3 space-y-2 text-sm text-slate-600"
+                  >
+                    <div
+                      v-for="field in execution.input.fields"
+                      :key="`input-${execution.id}-${field.key}`"
+                      class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+                    >
+                      <div class="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-400">
+                        {{ field.label }}
+                      </div>
+                      <div class="mt-1 whitespace-pre-wrap break-words leading-6">
+                        {{ field.value }}
+                      </div>
+                    </div>
+                  </div>
+                  <details
+                    v-if="execution.input.rawJson"
+                    class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                  >
+                    <summary class="cursor-pointer text-xs font-medium text-slate-500">
+                      查看原始输入 JSON
+                    </summary>
+                    <pre class="mt-3 overflow-x-auto whitespace-pre-wrap break-all text-xs leading-5 text-slate-600">{{ execution.input.rawJson }}</pre>
+                  </details>
+                </section>
+
+                <section
+                  v-if="execution.output"
+                  class="rounded-xl border border-slate-200 bg-white px-3 py-3"
+                >
+                  <div class="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+                    {{ execution.output.title }}
+                  </div>
+                  <p
+                    v-if="execution.output.summary"
+                    class="mt-2 text-sm leading-6 text-slate-700 whitespace-pre-wrap"
+                  >
+                    {{ execution.output.summary }}
+                  </p>
+                  <div
+                    v-if="execution.output.fields.length > 0"
+                    class="mt-3 space-y-2 text-sm text-slate-600"
+                  >
+                    <div
+                      v-for="field in execution.output.fields"
+                      :key="`output-${execution.id}-${field.key}`"
+                      class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+                    >
+                      <div class="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-400">
+                        {{ field.label }}
+                      </div>
+                      <div class="mt-1 whitespace-pre-wrap break-words leading-6">
+                        {{ field.value }}
+                      </div>
+                    </div>
+                  </div>
+                  <details
+                    v-if="execution.output.rawJson"
+                    class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                  >
+                    <summary class="cursor-pointer text-xs font-medium text-slate-500">
+                      查看原始输出 JSON
+                    </summary>
+                    <pre class="mt-3 overflow-x-auto whitespace-pre-wrap break-all text-xs leading-5 text-slate-600">{{ execution.output.rawJson }}</pre>
+                  </details>
+                </section>
               </div>
             </article>
           </div>
@@ -197,10 +312,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type {
   MainAgentDispatchState,
   TaskTraceActor,
+  TaskExecutionSnapshot,
   TaskTraceStage,
   TaskExecutionStatus,
   TaskExecutorKind,
@@ -218,6 +334,20 @@ const hasRunningExecution = computed(() =>
     ['queued', 'dispatching', 'running', 'awaiting_input'].includes(execution.status)
   )
 )
+
+const expandedExecutionIds = ref<number[]>([])
+
+const isExecutionExpanded = (executionId: number): boolean =>
+  expandedExecutionIds.value.includes(executionId)
+
+const toggleExecution = (executionId: number): void => {
+  expandedExecutionIds.value = isExecutionExpanded(executionId)
+    ? expandedExecutionIds.value.filter((id) => id !== executionId)
+    : [...expandedExecutionIds.value, executionId]
+}
+
+const hasInspection = (execution: TaskExecutionSnapshot): boolean =>
+  Boolean(execution.input || execution.output)
 
 const formatDispatchState = (state: MainAgentDispatchState): string => {
   if (state === 'processing') return '处理中'

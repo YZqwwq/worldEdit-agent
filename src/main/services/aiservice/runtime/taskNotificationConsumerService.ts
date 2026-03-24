@@ -9,6 +9,9 @@ import { runWithGraphLogContext } from '../../log/graphlog'
 import { taskNotificationService } from '../../task/taskNotificationService'
 import { taskTraceService } from '../../task/taskTraceService'
 
+const toErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
 class TaskNotificationConsumerService {
   async consume(event: MainAgentTaskNotificationEvent): Promise<MainAgentEventConsumptionResult> {
     const effectContext = {
@@ -50,17 +53,79 @@ class TaskNotificationConsumerService {
       payload: consumed.payload
     }
 
-    const runId = randomUUID()
-    const result = await runWithGraphLogContext(runId, async () =>
-      agent.invoke({
-        messages: [],
-        taskEvent,
-        taskLifecycle: {
-          activeTask: consumed.activeTask,
-          notice: consumed.notice
+    let result: Awaited<ReturnType<typeof agent.invoke>>
+    try {
+      const runId = randomUUID()
+      result = await runWithGraphLogContext(runId, async () =>
+        agent.invoke({
+          messages: [],
+          taskEvent,
+          taskLifecycle: {
+            activeTask: consumed.activeTask,
+            notice: consumed.notice
+          }
+        })
+      )
+    } catch (error) {
+      const reason = toErrorMessage(error)
+      console.error('Task notification consumer failed during agent.invoke:', error)
+
+      const fallbackMessage =
+        consumed.notice.message?.trim() || consumed.payload.message?.trim() || undefined
+      const effects: MainAgentEventConsumptionResult['effects'] = []
+
+      if (fallbackMessage) {
+        effects.push(
+          {
+            ...effectContext,
+            type: 'save_message',
+            role: 'ai',
+            content: fallbackMessage
+          },
+          {
+            ...effectContext,
+            type: 'emit_trace',
+            taskId: event.payload.taskId,
+            executionId: consumed.notification.executionId,
+            actor: 'main_agent',
+            stage: 'main_response_user',
+            message: '主 agent 在处理任务通知时遇到异常，已回退为直接向用户发送通知。',
+            payload: {
+              fallback: true,
+              reason
+            }
+          }
+        )
+
+        return {
+          handled: true,
+          consumer: 'task_notification_consumer',
+          summary: 'task_notification_fallback_prompted_user',
+          effects
+        }
+      }
+
+      effects.push({
+        ...effectContext,
+        type: 'emit_trace',
+        taskId: event.payload.taskId,
+        executionId: consumed.notification.executionId,
+        actor: 'main_agent',
+        stage: 'main_response_silent',
+        message: '主 agent 在处理任务通知时遇到异常，且没有可直接展示的消息。',
+        payload: {
+          fallback: true,
+          reason
         }
       })
-    )
+
+      return {
+        handled: true,
+        consumer: 'task_notification_consumer',
+        summary: 'task_notification_fallback_silent',
+        effects
+      }
+    }
 
     const decision = result.taskEventDecision
     const visibleMessage = decision?.visibleMessage?.trim()
