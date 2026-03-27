@@ -29,7 +29,8 @@ export const upsertCharacterDescriptionTool = defineAgentTool({
     ],
     riskLevel: 'medium',
     readOnly: false,
-    idempotent: false
+    idempotent: false,
+    completionSemantics: 'definitive'
   },
   async execute(input) {
     const detail = await worldbuildingService.getEntityDetail(input.entityId)
@@ -56,6 +57,17 @@ export const upsertCharacterDescriptionTool = defineAgentTool({
   },
   successMessage(data, input) {
     return `Updated character description for ${input.entityId} with component ${data.component.id}.`
+  },
+  buildReceipt(data, input) {
+    return {
+      kind: 'character_description_updated',
+      summary: `character_profile.description for ${input.entityId} has been committed.`,
+      payload: {
+        entityId: input.entityId,
+        componentId: data.component.id,
+        description: input.description
+      }
+    }
   },
   nextSuggestions() {
     return ['Read the updated character detail again if you need to confirm the merged description.']

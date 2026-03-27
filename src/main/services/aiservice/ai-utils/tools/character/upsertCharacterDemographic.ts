@@ -23,7 +23,8 @@ export const upsertCharacterDemographicTool = defineAgentTool({
     examples: ['先读取人物详情，再调用 upsert_character_demographic 更新 ageLabel 或 gender。'],
     riskLevel: 'medium',
     readOnly: false,
-    idempotent: false
+    idempotent: false,
+    completionSemantics: 'definitive'
   },
   async execute(input) {
     const detail = await worldbuildingService.getEntityDetail(input.entityId)
@@ -50,6 +51,17 @@ export const upsertCharacterDemographicTool = defineAgentTool({
   },
   successMessage(data, input) {
     return `Updated character_demographic for ${input.entityId} with component ${data.component.id}.`
+  },
+  buildReceipt(data, input) {
+    return {
+      kind: 'character_demographic_updated',
+      summary: `character_demographic for ${input.entityId} has been committed.`,
+      payload: {
+        entityId: input.entityId,
+        componentId: data.component.id,
+        patch: input.patch
+      }
+    }
   },
   nextSuggestions() {
     return ['Read the updated character detail again if you need to verify the demographic fields.']

@@ -2,6 +2,13 @@ import { DynamicStructuredTool, tool } from '@langchain/core/tools'
 import { z } from 'zod'
 
 export type AgentToolRiskLevel = 'low' | 'medium' | 'high'
+export type AgentToolCompletionSemantics = 'definitive' | 'eventual'
+
+export type AgentToolReceipt = {
+  kind: string
+  summary: string
+  payload?: Record<string, unknown>
+}
 
 export interface AgentToolMetadata {
   whenToUse: string[]
@@ -13,9 +20,10 @@ export interface AgentToolMetadata {
   riskLevel?: AgentToolRiskLevel
   readOnly?: boolean
   idempotent?: boolean
+  completionSemantics?: AgentToolCompletionSemantics
 }
 
-type AgentToolResultEnvelope<TData> = {
+export type AgentToolResultEnvelope<TData> = {
   ok: boolean
   data: TData | null
   error: {
@@ -24,12 +32,14 @@ type AgentToolResultEnvelope<TData> = {
   } | null
   message: string
   nextSuggestions: string[]
+  receipt: AgentToolReceipt | null
   meta: {
     toolName: string
     timestamp: string
     riskLevel: AgentToolRiskLevel
     readOnly: boolean
     idempotent: boolean
+    completionSemantics: AgentToolCompletionSemantics
   }
 }
 
@@ -47,6 +57,10 @@ type DefineAgentToolOptions<
     data: z.infer<TOutputSchema>,
     input: z.infer<TInputSchema>
   ) => string
+  buildReceipt?: (
+    data: z.infer<TOutputSchema>,
+    input: z.infer<TInputSchema>
+  ) => AgentToolReceipt | undefined
   nextSuggestions?: (
     data: z.infer<TOutputSchema>,
     input: z.infer<TInputSchema>
@@ -58,8 +72,10 @@ export type AgentTool<
   TInputSchema extends z.ZodTypeAny = z.ZodTypeAny,
   TOutputSchema extends z.ZodTypeAny = z.ZodTypeAny
 > = DynamicStructuredTool & {
-  agentMetadata: Required<Pick<AgentToolMetadata, 'riskLevel' | 'readOnly' | 'idempotent'>> &
-    Omit<AgentToolMetadata, 'riskLevel' | 'readOnly' | 'idempotent'>
+  agentMetadata: Required<
+    Pick<AgentToolMetadata, 'riskLevel' | 'readOnly' | 'idempotent' | 'completionSemantics'>
+  > &
+    Omit<AgentToolMetadata, 'riskLevel' | 'readOnly' | 'idempotent' | 'completionSemantics'>
   baseDescription: string
   inputSchema: TInputSchema
   outputSchema: TOutputSchema
@@ -74,7 +90,8 @@ const normalizeMetadata = (metadata: AgentToolMetadata): AgentTool['agentMetadat
   ...metadata,
   riskLevel: metadata.riskLevel ?? 'low',
   readOnly: metadata.readOnly ?? false,
-  idempotent: metadata.idempotent ?? false
+  idempotent: metadata.idempotent ?? false,
+  completionSemantics: metadata.completionSemantics ?? 'definitive'
 })
 
 const toErrorMessage = (error: unknown): string => {
@@ -103,24 +120,51 @@ const buildToolDescription = (description: string, metadata: AgentTool['agentMet
 const serializeEnvelope = <TData>(payload: AgentToolResultEnvelope<TData>): string =>
   JSON.stringify(payload, null, 2)
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+
+const normalizeReceipt = (value: unknown): AgentToolReceipt | null => {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const kind = typeof value.kind === 'string' ? value.kind.trim() : ''
+  const summary = typeof value.summary === 'string' ? value.summary.trim() : ''
+  const payload =
+    isRecord(value.payload) ? value.payload : undefined
+
+  if (!kind || !summary) {
+    return null
+  }
+
+  return {
+    kind,
+    summary,
+    payload
+  }
+}
+
 const buildSuccessEnvelope = <TData>(
   toolName: string,
   metadata: AgentTool['agentMetadata'],
   data: TData,
   message: string,
-  nextSuggestions: string[]
+  nextSuggestions: string[],
+  receipt?: AgentToolReceipt
 ): AgentToolResultEnvelope<TData> => ({
   ok: true,
   data,
   error: null,
   message,
   nextSuggestions,
+  receipt: receipt ?? null,
   meta: {
     toolName,
     timestamp: new Date().toISOString(),
     riskLevel: metadata.riskLevel,
     readOnly: metadata.readOnly,
-    idempotent: metadata.idempotent
+    idempotent: metadata.idempotent,
+    completionSemantics: metadata.completionSemantics
   }
 })
 
@@ -139,14 +183,84 @@ const buildFailureEnvelope = (
   },
   message: `${toolName} failed.`,
   nextSuggestions,
+  receipt: null,
   meta: {
     toolName,
     timestamp: new Date().toISOString(),
     riskLevel: metadata.riskLevel,
     readOnly: metadata.readOnly,
-    idempotent: metadata.idempotent
+    idempotent: metadata.idempotent,
+    completionSemantics: metadata.completionSemantics
   }
 })
+
+export function parseAgentToolResultEnvelope<TData = unknown>(
+  input: unknown
+): AgentToolResultEnvelope<TData> | null {
+  const parsed =
+    typeof input === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(input)
+          } catch {
+            return null
+          }
+        })()
+      : input
+
+  if (!isRecord(parsed)) {
+    return null
+  }
+
+  if (typeof parsed.ok !== 'boolean') {
+    return null
+  }
+
+  const meta = isRecord(parsed.meta) ? parsed.meta : null
+  const toolName = typeof meta?.toolName === 'string' ? meta.toolName.trim() : ''
+  const timestamp = typeof meta?.timestamp === 'string' ? meta.timestamp.trim() : ''
+  const riskLevel =
+    meta?.riskLevel === 'low' || meta?.riskLevel === 'medium' || meta?.riskLevel === 'high'
+      ? meta.riskLevel
+      : 'low'
+  const readOnly = typeof meta?.readOnly === 'boolean' ? meta.readOnly : false
+  const idempotent = typeof meta?.idempotent === 'boolean' ? meta.idempotent : false
+  const completionSemantics =
+    meta?.completionSemantics === 'eventual' ? 'eventual' : 'definitive'
+
+  if (!toolName || !timestamp) {
+    return null
+  }
+
+  const error =
+    isRecord(parsed.error) &&
+    typeof parsed.error.code === 'string' &&
+    typeof parsed.error.message === 'string'
+      ? {
+          code: parsed.error.code,
+          message: parsed.error.message
+        }
+      : null
+
+  return {
+    ok: parsed.ok,
+    data: (parsed.data ?? null) as TData | null,
+    error,
+    message: typeof parsed.message === 'string' ? parsed.message : '',
+    nextSuggestions: Array.isArray(parsed.nextSuggestions)
+      ? parsed.nextSuggestions.filter((item): item is string => typeof item === 'string')
+      : [],
+    receipt: normalizeReceipt(parsed.receipt),
+    meta: {
+      toolName,
+      timestamp,
+      riskLevel,
+      readOnly,
+      idempotent,
+      completionSemantics
+    }
+  }
+}
 
 export function defineAgentTool<
   TInputSchema extends z.ZodTypeAny,
@@ -189,6 +303,7 @@ export function defineAgentTool<
           options.successMessage?.(parsedOutput.data, parsedInput.data) ??
           `${options.name} completed successfully.`
         const nextSuggestions = options.nextSuggestions?.(parsedOutput.data, parsedInput.data) ?? []
+        const receipt = options.buildReceipt?.(parsedOutput.data, parsedInput.data)
 
         return serializeEnvelope(
           buildSuccessEnvelope(
@@ -196,7 +311,8 @@ export function defineAgentTool<
             metadata,
             parsedOutput.data,
             message,
-            nextSuggestions
+            nextSuggestions,
+            receipt
           )
         )
       } catch (error) {

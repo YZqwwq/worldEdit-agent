@@ -13,6 +13,10 @@ import { contentToText } from '../messageoutput/transformRespones'
 import { characterEditorTools } from '../ai-utils/toolkits/characterEditorToolkit'
 import { buildToolUsageSystemPrompt } from '../ai-utils/core/toolUsagePrompt'
 import {
+  parseAgentToolResultEnvelope,
+  type AgentToolReceipt
+} from '../ai-utils/core/agentTool'
+import {
   characterEditorHandlerOutputSchema,
   characterEditorDirectionSchema,
   characterEditorPendingContextSchema,
@@ -31,6 +35,11 @@ type SuccessfulDescriptionWrite = {
   entityId?: string
   characterName?: string
   description?: string
+  receipt?: AgentToolReceipt
+}
+
+type CharacterEditorExecutionRuntime = {
+  committedWrites: SuccessfulDescriptionWrite[]
 }
 
 const MAX_TOOL_ROUNDS = 6
@@ -64,6 +73,11 @@ const CharacterEditorState = Annotation.Root({
 
 const normalizeText = (value: unknown): string => String(value ?? '').trim().toLowerCase()
 
+const toErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
+const isAbortLikeError = (error: unknown): boolean => normalizeText(toErrorMessage(error)) === 'abort'
+
 const extractJsonObject = (text: string): string | null => {
   const trimmed = text.trim()
   if (!trimmed) return null
@@ -77,15 +91,6 @@ const extractJsonObject = (text: string): string | null => {
     return null
   }
   return trimmed.slice(start, end + 1)
-}
-
-const parseToolExecutionStatus = (raw: string): 'ok' | 'error' => {
-  try {
-    const parsed = JSON.parse(raw)
-    return parsed?.ok === true ? 'ok' : 'error'
-  } catch {
-    return 'error'
-  }
 }
 
 const normalizeAiMessage = (response: BaseMessage): AIMessage =>
@@ -167,7 +172,7 @@ const buildFailureOutput = (
 
 const buildCompletedAfterWriteFallback = (input: {
   payload: CharacterEditorExecutionPayload
-  appliedTools: CharacterEditorHandlerOutput['appliedTools']
+  appliedTools?: CharacterEditorHandlerOutput['appliedTools']
   write: SuccessfulDescriptionWrite
   reason: string
 }): CharacterEditorHandlerOutput =>
@@ -178,9 +183,32 @@ const buildCompletedAfterWriteFallback = (input: {
       `人物「${input.write.characterName || input.payload.characterName || input.write.entityId || '目标角色'}」的简介已经写入 description 字段。` +
       ' 但子 agent 在收尾确认时被中止，因此本轮我按“已写入完成，但总结异常”处理。请先检查当前简介内容；如果需要，我可以继续润色或追加修改。',
     changedScopes: ['profile'],
-    appliedTools: input.appliedTools,
-    suggestedFollowUp: `收尾中断原因：${input.reason}`
+    appliedTools: input.appliedTools ?? [],
+    suggestedFollowUp: input.write.receipt?.summary || `收尾中断原因：${input.reason}`
   })
+
+const toSuccessfulDescriptionWrite = (input: {
+  payload: CharacterEditorExecutionPayload
+  receipt: AgentToolReceipt
+}): SuccessfulDescriptionWrite | undefined => {
+  if (input.receipt.kind !== 'character_description_updated') {
+    return undefined
+  }
+
+  const receiptPayload = input.receipt.payload ?? {}
+  return {
+    entityId:
+      typeof receiptPayload.entityId === 'string' ? receiptPayload.entityId : input.payload.entityId,
+    characterName: input.payload.characterName,
+    description:
+      typeof receiptPayload.description === 'string' ? receiptPayload.description : undefined,
+    receipt: input.receipt
+  }
+}
+
+const getLastCommittedWrite = (
+  runtime: CharacterEditorExecutionRuntime
+): SuccessfulDescriptionWrite | undefined => runtime.committedWrites.at(-1)
 
 const getEffectiveEditingScopes = (
   _payload: CharacterEditorExecutionPayload
@@ -281,7 +309,8 @@ const buildPrompt = (payload: CharacterEditorExecutionPayload): string => {
 }
 
 const runCharacterToolLoop = async (
-  payload: CharacterEditorExecutionPayload
+  payload: CharacterEditorExecutionPayload,
+  runtime: CharacterEditorExecutionRuntime
 ): Promise<CharacterEditorHandlerOutput> => {
   const model = await getConfiguredQuickModel()
   const boundModel = bindToolsToModel(model, characterEditorTools)
@@ -303,12 +332,12 @@ const runCharacterToolLoop = async (
         signal: AbortSignal.timeout(childAgentTimeoutMs)
       } as Record<string, unknown>)
     } catch (error) {
-      if (successfulWrite) {
+      if (successfulWrite || getLastCommittedWrite(runtime)) {
         return buildCompletedAfterWriteFallback({
           payload,
           appliedTools,
-          write: successfulWrite,
-          reason: error instanceof Error ? error.message : String(error)
+          write: successfulWrite || getLastCommittedWrite(runtime)!,
+          reason: toErrorMessage(error)
         })
       }
       throw error
@@ -395,22 +424,20 @@ const runCharacterToolLoop = async (
       try {
         const result = await tool.invoke(toolCall.args ?? {})
         const resultText = String(result)
-        const status = parseToolExecutionStatus(resultText)
+        const envelope = parseAgentToolResultEnvelope(resultText)
+        const status = envelope?.ok === true ? 'ok' : 'error'
         appliedTools.push({
           name: toolCall.name,
           status
         })
-        if (toolCall.name === 'upsert_character_description' && status === 'ok') {
-          const args =
-            toolCall.args && typeof toolCall.args === 'object' && !Array.isArray(toolCall.args)
-              ? (toolCall.args as Record<string, unknown>)
-              : {}
-          successfulWrite = {
-            entityId:
-              typeof args.entityId === 'string' ? args.entityId : payload.entityId,
-            characterName: payload.characterName,
-            description:
-              typeof args.description === 'string' ? args.description : undefined
+        if (envelope?.ok && envelope.receipt && envelope.meta.completionSemantics === 'definitive') {
+          const committedWrite = toSuccessfulDescriptionWrite({
+            payload,
+            receipt: envelope.receipt
+          })
+          if (committedWrite) {
+            successfulWrite = committedWrite
+            runtime.committedWrites.push(committedWrite)
           }
         }
         messages.push(
@@ -638,45 +665,68 @@ const routeAfterResolveCharacter = (
   state: typeof CharacterEditorState.State
 ): string | typeof END => (state.handlerOutput ? END : 'applyEditNode')
 
-const applyEditNode = async (
-  state: typeof CharacterEditorState.State
-): Promise<Partial<typeof CharacterEditorState.State>> => {
-  const payload = delegateCharacterEditorTaskPayloadSchema.parse(state.payload)
-  const finalPayload = delegateCharacterEditorTaskPayloadSchema.parse({
-    ...payload,
-    worldId: state.resolvedWorldId || payload.worldId,
-    worldName: state.resolvedWorldName || payload.worldName,
-    entityId: state.resolvedEntityId || payload.entityId,
-    characterName: state.resolvedCharacterName || payload.characterName,
-    pendingContext: undefined
-  })
+const createApplyEditNode =
+  (runtime: CharacterEditorExecutionRuntime) =>
+  async (
+    state: typeof CharacterEditorState.State
+  ): Promise<Partial<typeof CharacterEditorState.State>> => {
+    const payload = delegateCharacterEditorTaskPayloadSchema.parse(state.payload)
+    const finalPayload = delegateCharacterEditorTaskPayloadSchema.parse({
+      ...payload,
+      worldId: state.resolvedWorldId || payload.worldId,
+      worldName: state.resolvedWorldName || payload.worldName,
+      entityId: state.resolvedEntityId || payload.entityId,
+      characterName: state.resolvedCharacterName || payload.characterName,
+      pendingContext: undefined
+    })
 
-  const handlerOutput = await runCharacterToolLoop(finalPayload)
-  return { handlerOutput }
-}
+    const handlerOutput = await runCharacterToolLoop(finalPayload, runtime)
+    return { handlerOutput }
+  }
 
-const characterEditorGraph = new StateGraph(CharacterEditorState)
-  .addNode('loadExecutionInputNode', loadExecutionInputNode)
-  .addNode('resolveWorldNode', resolveWorldNode)
-  .addNode('resolveCharacterNode', resolveCharacterNode)
-  .addNode('applyEditNode', applyEditNode)
-  .addEdge(START, 'loadExecutionInputNode')
-  .addEdge('loadExecutionInputNode', 'resolveWorldNode')
-  .addConditionalEdges('resolveWorldNode', routeAfterResolveWorld, ['resolveCharacterNode', END])
-  .addConditionalEdges('resolveCharacterNode', routeAfterResolveCharacter, ['applyEditNode', END])
-  .addEdge('applyEditNode', END)
-  .compile()
+const createCharacterEditorGraph = (runtime: CharacterEditorExecutionRuntime) =>
+  new StateGraph(CharacterEditorState)
+    .addNode('loadExecutionInputNode', loadExecutionInputNode)
+    .addNode('resolveWorldNode', resolveWorldNode)
+    .addNode('resolveCharacterNode', resolveCharacterNode)
+    .addNode('applyEditNode', createApplyEditNode(runtime))
+    .addEdge(START, 'loadExecutionInputNode')
+    .addEdge('loadExecutionInputNode', 'resolveWorldNode')
+    .addConditionalEdges('resolveWorldNode', routeAfterResolveWorld, ['resolveCharacterNode', END])
+    .addConditionalEdges('resolveCharacterNode', routeAfterResolveCharacter, ['applyEditNode', END])
+    .addEdge('applyEditNode', END)
+    .compile()
 
 export async function runCharacterEditorExecution(
   rawPayload: unknown
 ): Promise<CharacterEditorHandlerOutput> {
   const payload = delegateCharacterEditorTaskPayloadSchema.parse(rawPayload)
-  const result = await characterEditorGraph.invoke({ payload })
-
-  const handlerOutput = result.handlerOutput
-  if (!handlerOutput) {
-    throw new Error('character_editor graph finished without handler output.')
+  const runtime: CharacterEditorExecutionRuntime = {
+    committedWrites: []
   }
+  const characterEditorGraph = createCharacterEditorGraph(runtime)
 
-  return characterEditorHandlerOutputSchema.parse(handlerOutput)
+  try {
+    const result = await characterEditorGraph.invoke({ payload })
+
+    const handlerOutput = result.handlerOutput
+    if (!handlerOutput) {
+      throw new Error('character_editor graph finished without handler output.')
+    }
+
+    return characterEditorHandlerOutputSchema.parse(handlerOutput)
+  } catch (error) {
+    if (isAbortLikeError(error)) {
+      const committedWrite = getLastCommittedWrite(runtime)
+      if (committedWrite) {
+        return buildCompletedAfterWriteFallback({
+          payload,
+          write: committedWrite,
+          reason: toErrorMessage(error)
+        })
+      }
+    }
+
+    throw error
+  }
 }
