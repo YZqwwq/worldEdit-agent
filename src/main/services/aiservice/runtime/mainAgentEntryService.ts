@@ -11,12 +11,18 @@ import { mainAgentEffectApplierService } from './mainAgentEffectApplierService'
 import { processMainAgentEvent } from './mainAgentEventProcessor'
 import { mainAgentLifecycleControlService } from './mainAgentLifecycleControlService'
 import { taskNotificationConsumerService } from './taskNotificationConsumerService'
+import { taskNotificationDispatchBridge } from '../../task/taskNotificationDispatchBridge'
 
 class MainAgentEntryService {
   constructor() {
     mainAgentDispatchService.configure({
       processEvent: async (event) => {
         await this.processEvent(event)
+      }
+    })
+    taskNotificationDispatchBridge.configure({
+      enqueueTaskNotification: async (input) => {
+        await this.enqueueTaskNotification(input)
       }
     })
   }

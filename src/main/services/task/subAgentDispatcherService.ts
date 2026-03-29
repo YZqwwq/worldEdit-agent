@@ -4,6 +4,7 @@ import { taskExecutionService } from './taskExecutionService'
 import { taskNotificationService } from './taskNotificationService'
 import { taskService } from './taskService'
 import { taskTraceService } from './taskTraceService'
+import { taskNotificationDispatchBridge } from './taskNotificationDispatchBridge'
 import type { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
 import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
 import {
@@ -12,7 +13,6 @@ import {
   type SubAgentOutcome
 } from '@share/cache/AItype/states/taskCommunication'
 import { runCharacterEditorExecution } from '../aiservice/child-agent-system/characterEditorExecution'
-import { mainAgentEntryService } from '../aiservice/runtime/mainAgentEntryService'
 import { modelConfigService } from '../modelconfig/modelConfigService'
 
 type DispatchResult = {
@@ -65,7 +65,7 @@ const enqueueNotificationSafely = async (
   notificationId: number
 ): Promise<void> => {
   try {
-    await mainAgentEntryService.enqueueTaskNotification({
+    await taskNotificationDispatchBridge.enqueueTaskNotification({
       taskId,
       notificationId
     })
@@ -238,17 +238,6 @@ class SubAgentDispatcherService {
       })
       await enqueueNotificationSafely(task.id, notification.id)
     }
-  }
-
-  async dispatchQueuedExecutions(): Promise<void> {
-    const queuedRuns = await taskExecutionService.listRunsByStatus(['queued'])
-    await Promise.all(
-      queuedRuns.map((run) =>
-        this.dispatchExecution(run.id).catch((error) => {
-          console.error('Failed to dispatch queued execution:', error)
-        })
-      )
-    )
   }
 }
 

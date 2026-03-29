@@ -7,7 +7,7 @@ import { initDatabase } from './database' // 导入数据库初始化
 import { initMemoryStorage } from './config/storageInit'
 import { registerAppResourceProtocol } from './protocols/resourceProtocol'
 import { taskRecoveryService } from './services/task/taskRecoveryService'
-import { subAgentDispatcherService } from './services/task/subAgentDispatcherService'
+import { subAgentExecutionQueueService } from './services/task/subAgentExecutionQueueService'
 
 function createWindow(): void {
   // Create the browser window.
@@ -67,7 +67,7 @@ app.whenReady().then(async () => {
 
   initializeAIEndpoints() // 调用
   await taskRecoveryService.recoverInterruptedExecutions()
-  await subAgentDispatcherService.dispatchQueuedExecutions()
+  await subAgentExecutionQueueService.enqueueQueuedExecutions()
   await taskRecoveryService.enqueuePendingNotifications()
 
   createWindow()

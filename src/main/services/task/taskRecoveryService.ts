@@ -1,8 +1,8 @@
 import { AppDataSource } from '../../database'
 import { TaskNotificationRecord } from '../../../share/entity/database/TaskNotificationRecord'
 import { TaskRecord } from '../../../share/entity/database/TaskRecord'
-import { mainAgentEntryService } from '../aiservice/runtime/mainAgentEntryService'
 import { taskExecutionService } from './taskExecutionService'
+import { taskNotificationDispatchBridge } from './taskNotificationDispatchBridge'
 import { taskNotificationService } from './taskNotificationService'
 import { taskTraceService } from './taskTraceService'
 import { buildSubAgentProtocolPayload } from '@share/cache/AItype/states/taskCommunication'
@@ -71,7 +71,7 @@ class TaskRecoveryService {
     })
 
     for (const notification of pendingNotifications) {
-      await mainAgentEntryService.enqueueTaskNotification({
+      await taskNotificationDispatchBridge.enqueueTaskNotification({
         taskId: notification.taskId,
         notificationId: notification.id
       })

@@ -2,7 +2,7 @@ import { AppDataSource } from '../../database'
 import { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
 import { TaskRecord } from '../../../share/entity/database/TaskRecord'
 import { worldbuildingService } from '../worldbuilding/worldbuildingService'
-import { subAgentDispatcherService } from '../task/subAgentDispatcherService'
+import { subAgentExecutionQueueService } from '../task/subAgentExecutionQueueService'
 import { taskExecutionService } from '../task/taskExecutionService'
 import { taskService } from '../task/taskService'
 import { taskTraceService } from '../task/taskTraceService'
@@ -170,9 +170,7 @@ const queueCharacterEditorExecution = async (
 
   await taskExecutionService.updateRunInputPayload(queuedRun.id, finalPayload)
   await taskService.setTaskStatus(task.id, { status: 'running' })
-  void subAgentDispatcherService.dispatchExecution(queuedRun.id).catch((error) => {
-    console.error('Failed to dispatch character editor execution:', error)
-  })
+  await subAgentExecutionQueueService.enqueueExecution(queuedRun.id)
 
   return delegateCharacterEditorOutputSchema.parse({
     accepted: true,
@@ -246,9 +244,7 @@ const createCharacterEditorTaskWithExecution = async (input: {
     }
   })
 
-  void subAgentDispatcherService.dispatchExecution(created.executionId).catch((error) => {
-    console.error('Failed to dispatch character editor execution:', error)
-  })
+  await subAgentExecutionQueueService.enqueueExecution(created.executionId)
 
   return delegateCharacterEditorOutputSchema.parse({
     accepted: true,

@@ -36,3 +36,63 @@ high：
 - 现状优点：实现轻、单进程串行简单、适合快速跑通
 - 现状缺点：缺少事件级 processing/handled 状态，不利于恢复、重试、审计和精确 UI 展示
 - 目标方向：让消息队列只服务主 agent，但每条 event 都有明确生命周期，而不是依赖隐式“取出即消费完成”
+
+
+high：
+文件：taskContinuationService.ts / subAgentExecutionQueueService.ts / subAgentDispatcherService.ts / AIagent-design.md
+任务：主子 agent 执行链彻底解耦
+说明：当前已经完成“任务登记”和“子 agent execution”拆分，子 agent 改为经独立 execution queue 启动，不再直接挂在主 agent tool 调用链上。
+
+已完成：
+1. 新增 `SubAgentExecutionQueueService`
+2. `TaskContinuationService` 改为只登记 execution 并 enqueue
+3. 启动恢复改为统一走 execution queue
+4. 用空 `RunnableConfig` 上下文隔离父级 signal / callbacks 传播
+5. 新增 `TaskNotificationDispatchBridge`，切断 task 层对 `MainAgentEntryService` 的直接依赖
+
+后续拆分任务：
+1. 为 execution queue 增加显式状态与 trace
+2. 审查是否还有其他“主图里直接拉起后台执行”的路径
+3. 将 `MainAgentLifecycleControlService` 拆为 decision / action 两层
+4. formalize `failed / cancelled / retryable` 的关闭与重试策略
+5. continuation handler 注册化
+6. 将 bridge 的配置从隐式 service constructor 收敛到显式 bootstrap
+
+
+high：
+文件：mainAgentToolkit / ai-utils/tools / child-agent-system / AIagent-design.md
+任务：拆分工具体系，统一主 agent 与子 agent 的基础工具使用方式
+说明：所有基础工具应成为通用工具层，主 agent 和子 agent 都可以调用；子 agent 的定位不是“唯一能做某件事”，而是“在某一类任务上更专业的 skill 执行器”。
+
+拆分任务：
+1. 将当前混在主子 agent 调用链中的工具按职责拆分为通用基础工具
+2. 明确哪些工具允许主 agent 与子 agent 共用
+3. 明确哪些能力属于子 agent 的专业 skill，而不是工具专属权限
+4. 梳理“主 agent 也能编辑人物描述，但子 agent 更专业、更长、更具文学性”的提示与协议边界
+5. 收敛主 agent 调用子 agent 与直接调用工具的判定标准
+
+
+high：
+文件：child-agent-system / taskExecutionService / memory / AIagent-design.md
+任务：明确子 agent 的上下文方案与持久化策略
+说明：需要统一定义子 agent 运行时上下文、pendingContext、execution 输入输出上下文，以及是否需要独立的持久化记忆。
+
+拆分任务：
+1. 盘点当前子 agent 已有上下文字段与真实来源
+2. 明确哪些上下文属于单次 execution
+3. 明确哪些上下文属于 task 级别续跑状态
+4. 讨论子 agent 是否需要独立持久化记忆
+5. 如果需要，明确和主 agent memory 的边界与同步策略
+
+
+middle：
+文件：renderer / task monitor UI / chat UI
+任务：调整前端 UI，丰富功能
+说明：围绕主队列、子 agent execution、notification、inspection 和 trace 的当前架构，继续增强前端可视化与交互体验。
+
+拆分任务：
+1. 丰富 task monitor 展示
+2. 丰富 execution inspection 展示
+3. 优化主聊天区与任务状态联动
+4. 增加更多 lifecycle / queue / notification 可视状态
+5. 增强调试与观测 UI
