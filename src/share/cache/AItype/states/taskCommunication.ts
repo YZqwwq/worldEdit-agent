@@ -156,7 +156,7 @@ export const buildTaskNoticeFromSubAgentPayload = (input: {
       }
     case 'failed':
       return {
-        nextStatus: 'awaiting_user_input',
+        nextStatus: 'cancelled',
         notice: {
           type: 'task_failed',
           message:

@@ -89,6 +89,7 @@ const characterEditorHandler: DispatchHandler = async ({ payload }) => {
       details: {
         changedScopes: result.changedScopes,
         appliedTools: result.appliedTools,
+        internalWarning: result.internalWarning,
         suggestedFollowUp: result.suggestedFollowUp
       },
       errorReport: result.outcome === 'failed' ? result.userFacingMessage : undefined

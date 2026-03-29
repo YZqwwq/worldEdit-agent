@@ -1,4 +1,6 @@
 import { DynamicStructuredTool, tool } from '@langchain/core/tools'
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { z } from 'zod'
 
 export type AgentToolRiskLevel = 'low' | 'medium' | 'high'
@@ -85,6 +87,26 @@ const DEFAULT_FAILURE_SUGGESTIONS = [
   'Check whether the current request matches this tool before retrying.',
   'If the tool keeps failing, explain the limitation to the user instead of guessing.'
 ]
+
+const logAgentToolTrace = (input: {
+  toolName: string
+  stage: string
+  message: string
+  data?: Record<string, unknown>
+}): void => {
+  const line =
+    `[agent_tool tool=${input.toolName} stage=${input.stage}] ${input.message}` +
+    (input.data ? ` ${JSON.stringify(input.data)}` : '')
+
+  try {
+    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
+    appendFileSync(logPath, `[${new Date().toISOString()}] ${line}\n`)
+  } catch {
+    // ignore local debug log failures
+  }
+
+  console.error(line)
+}
 
 const normalizeMetadata = (metadata: AgentToolMetadata): AgentTool['agentMetadata'] => ({
   ...metadata,
@@ -270,8 +292,26 @@ export function defineAgentTool<
 
   const wrappedTool = tool(
     async (rawInput) => {
+      logAgentToolTrace({
+        toolName: options.name,
+        stage: 'invoke_start',
+        message: 'Tool wrapper invoked.',
+        data: {
+          hasRawInput: rawInput != null
+        }
+      })
+
       const parsedInput = options.inputSchema.safeParse(rawInput ?? {})
       if (!parsedInput.success) {
+        logAgentToolTrace({
+          toolName: options.name,
+          stage: 'input_validation_failed',
+          message: 'Tool input validation failed.',
+          data: {
+            error: parsedInput.error.message
+          }
+        })
+
         return serializeEnvelope(
           buildFailureEnvelope(
             options.name,
@@ -284,10 +324,31 @@ export function defineAgentTool<
       }
 
       try {
+        logAgentToolTrace({
+          toolName: options.name,
+          stage: 'execute_start',
+          message: 'Entering tool execute().'
+        })
+
         const rawOutput = await options.execute(parsedInput.data)
+        logAgentToolTrace({
+          toolName: options.name,
+          stage: 'execute_success',
+          message: 'Tool execute() completed successfully.'
+        })
+
         const parsedOutput = options.outputSchema.safeParse(rawOutput)
 
         if (!parsedOutput.success) {
+          logAgentToolTrace({
+            toolName: options.name,
+            stage: 'output_validation_failed',
+            message: 'Tool output validation failed.',
+            data: {
+              error: parsedOutput.error.message
+            }
+          })
+
           return serializeEnvelope(
             buildFailureEnvelope(
               options.name,
@@ -305,6 +366,17 @@ export function defineAgentTool<
         const nextSuggestions = options.nextSuggestions?.(parsedOutput.data, parsedInput.data) ?? []
         const receipt = options.buildReceipt?.(parsedOutput.data, parsedInput.data)
 
+        logAgentToolTrace({
+          toolName: options.name,
+          stage: 'envelope_success',
+          message: 'Building success envelope for tool result.',
+          data: {
+            hasReceipt: Boolean(receipt),
+            receiptKind: receipt?.kind ?? null,
+            completionSemantics: metadata.completionSemantics
+          }
+        })
+
         return serializeEnvelope(
           buildSuccessEnvelope(
             options.name,
@@ -316,6 +388,15 @@ export function defineAgentTool<
           )
         )
       } catch (error) {
+        logAgentToolTrace({
+          toolName: options.name,
+          stage: 'execute_error',
+          message: 'Tool execute() threw an error.',
+          data: {
+            error: toErrorMessage(error)
+          }
+        })
+
         return serializeEnvelope(
           buildFailureEnvelope(
             options.name,

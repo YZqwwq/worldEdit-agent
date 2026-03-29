@@ -212,6 +212,7 @@ const buildCharacterEditorOutputSection = (
           })
         : details.appliedTools
     )
+    pushField(fields, 'internalWarning', '内部警告', details.internalWarning)
     pushField(fields, 'suggestedFollowUp', '建议下一步', details.suggestedFollowUp)
   }
 

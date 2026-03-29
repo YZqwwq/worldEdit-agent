@@ -4,6 +4,27 @@ import {
   upsertCharacterDescriptionInputSchema,
   upsertCharacterDescriptionOutputSchema
 } from './shared'
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const logUpsertCharacterDescriptionTrace = (input: {
+  stage: string
+  message: string
+  data?: Record<string, unknown>
+}): void => {
+  const line =
+    `[upsert_character_description stage=${input.stage}] ${input.message}` +
+    (input.data ? ` ${JSON.stringify(input.data)}` : '')
+
+  try {
+    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
+    appendFileSync(logPath, `[${new Date().toISOString()}] ${line}\n`)
+  } catch {
+    // ignore local debug log failures
+  }
+
+  console.error(line)
+}
 
 export const upsertCharacterDescriptionTool = defineAgentTool({
   name: 'upsert_character_description',
@@ -33,7 +54,25 @@ export const upsertCharacterDescriptionTool = defineAgentTool({
     completionSemantics: 'definitive'
   },
   async execute(input) {
+    logUpsertCharacterDescriptionTrace({
+      stage: 'execute_enter',
+      message: 'Starting execute().',
+      data: {
+        entityId: input.entityId,
+        descriptionLength: input.description.length
+      }
+    })
+
     const detail = await worldbuildingService.getEntityDetail(input.entityId)
+    logUpsertCharacterDescriptionTrace({
+      stage: 'detail_loaded',
+      message: 'Loaded character detail before write.',
+      data: {
+        found: Boolean(detail),
+        entityType: detail?.entity.type ?? null
+      }
+    })
+
     if (!detail) {
       throw new Error(`Character not found: ${input.entityId}`)
     }
@@ -44,6 +83,16 @@ export const upsertCharacterDescriptionTool = defineAgentTool({
     const current =
       detail.components.find((component) => component.componentType === 'character_profile')?.data ?? {}
 
+    logUpsertCharacterDescriptionTrace({
+      stage: 'upsert_start',
+      message: 'Calling worldbuildingService.upsertComponent().',
+      data: {
+        entityId: input.entityId,
+        previousDescriptionLength:
+          typeof current.description === 'string' ? current.description.length : 0
+      }
+    })
+
     const component = await worldbuildingService.upsertComponent({
       entityId: input.entityId,
       componentType: 'character_profile',
@@ -53,12 +102,30 @@ export const upsertCharacterDescriptionTool = defineAgentTool({
       }
     })
 
+    logUpsertCharacterDescriptionTrace({
+      stage: 'upsert_success',
+      message: 'worldbuildingService.upsertComponent() completed.',
+      data: {
+        entityId: input.entityId,
+        componentId: component.id
+      }
+    })
+
     return { component }
   },
   successMessage(data, input) {
     return `Updated character description for ${input.entityId} with component ${data.component.id}.`
   },
   buildReceipt(data, input) {
+    logUpsertCharacterDescriptionTrace({
+      stage: 'build_receipt',
+      message: 'Building definitive receipt after successful write.',
+      data: {
+        entityId: input.entityId,
+        componentId: data.component.id
+      }
+    })
+
     return {
       kind: 'character_description_updated',
       summary: `character_profile.description for ${input.entityId} has been committed.`,

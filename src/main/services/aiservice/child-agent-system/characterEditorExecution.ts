@@ -6,6 +6,8 @@ import {
   ToolMessage
 } from '@langchain/core/messages'
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph'
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { bindToolsToModel } from '../agentrsystem/modelwithtool/modelwithtool'
 import { getConfiguredQuickModel } from '../agentrsystem/modelwithtool/model'
@@ -75,6 +77,46 @@ const normalizeText = (value: unknown): string => String(value ?? '').trim().toL
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
+
+const logCharacterEditorTrace = (input: {
+  payload?: Partial<CharacterEditorExecutionPayload>
+  stage: string
+  message: string
+  data?: Record<string, unknown>
+}): void => {
+  const taskId = input.payload?.taskId ?? 'unknown'
+  const executionId = input.payload?.executionId ?? 'unknown'
+  const prefix = `[character_editor task=${taskId} execution=${executionId} stage=${input.stage}]`
+  const line =
+    `${prefix} ${input.message}` +
+    (input.data ? ` ${JSON.stringify(input.data)}` : '')
+
+  try {
+    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
+    appendFileSync(logPath, `[${new Date().toISOString()}] ${line}\n`)
+  } catch {
+    // ignore local debug log failures
+  }
+
+  console.error(line)
+}
+
+const logAbortTrace = (input: {
+  payload?: Partial<CharacterEditorExecutionPayload>
+  stage: string
+  error: unknown
+  data?: Record<string, unknown>
+}): void => {
+  logCharacterEditorTrace({
+    payload: input.payload,
+    stage: `abort_${input.stage}`,
+    message: 'Abort detected in character_editor.',
+    data: {
+      error: toErrorMessage(input.error),
+      ...(input.data ?? {})
+    }
+  })
+}
 
 const isAbortLikeError = (error: unknown): boolean => normalizeText(toErrorMessage(error)) === 'abort'
 
@@ -170,6 +212,23 @@ const buildFailureOutput = (
     appliedTools
   })
 
+const buildCompletedAfterWrite = (input: {
+  payload: CharacterEditorExecutionPayload
+  appliedTools?: CharacterEditorHandlerOutput['appliedTools']
+  write: SuccessfulDescriptionWrite
+}): CharacterEditorHandlerOutput =>
+  characterEditorHandlerOutputSchema.parse({
+    outcome: 'completed',
+    summary: '人物简介已更新，等待主 agent 确认下一步。',
+    userFacingMessage:
+      `人物「${input.write.characterName || input.payload.characterName || input.write.entityId || '目标角色'}」的简介已经更新。` +
+      ' 你可以确认是否结束当前任务；如果还想继续润色或追加修改，也可以直接告诉我。',
+    changedScopes: ['profile'],
+    appliedTools: input.appliedTools ?? [],
+    suggestedFollowUp:
+      input.write.receipt?.summary || '如有需要，可继续提出润色、扩写或定向修改要求。'
+  })
+
 const buildCompletedAfterWriteFallback = (input: {
   payload: CharacterEditorExecutionPayload
   appliedTools?: CharacterEditorHandlerOutput['appliedTools']
@@ -178,13 +237,17 @@ const buildCompletedAfterWriteFallback = (input: {
 }): CharacterEditorHandlerOutput =>
   characterEditorHandlerOutputSchema.parse({
     outcome: 'completed',
-    summary: '人物简介已写入，但子 agent 的收尾确认被中断。',
+    summary: '人物简介已更新，等待主 agent 确认下一步。',
     userFacingMessage:
-      `人物「${input.write.characterName || input.payload.characterName || input.write.entityId || '目标角色'}」的简介已经写入 description 字段。` +
-      ' 但子 agent 在收尾确认时被中止，因此本轮我按“已写入完成，但总结异常”处理。请先检查当前简介内容；如果需要，我可以继续润色或追加修改。',
+      `人物「${input.write.characterName || input.payload.characterName || input.write.entityId || '目标角色'}」的简介已经更新。` +
+      ' 你可以确认是否结束当前任务；如果还想继续润色或追加修改，也可以直接告诉我。',
     changedScopes: ['profile'],
     appliedTools: input.appliedTools ?? [],
-    suggestedFollowUp: input.write.receipt?.summary || `收尾中断原因：${input.reason}`
+    internalWarning:
+      'description 写入已成功，但子 agent 在最终结构化收尾阶段遇到中止。' +
+      ` 本轮已按完成处理。原因：${input.reason}`,
+    suggestedFollowUp:
+      input.write.receipt?.summary || '如有需要，可继续提出润色、扩写或定向修改要求。'
   })
 
 const toSuccessfulDescriptionWrite = (input: {
@@ -326,12 +389,61 @@ const runCharacterToolLoop = async (
   let successfulWrite: SuccessfulDescriptionWrite | undefined
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+    logCharacterEditorTrace({
+      payload,
+      stage: 'round_start',
+      message: 'Starting model round.',
+      data: {
+        round,
+        messageCount: messages.length,
+        committedWrites: runtime.committedWrites.length,
+        hasSuccessfulWrite: Boolean(successfulWrite),
+        timeoutMs: childAgentTimeoutMs
+      }
+    })
+    logCharacterEditorTrace({
+      payload,
+      stage: 'invoke_with_timeout',
+      message: 'Calling boundModel.invoke with AbortSignal.timeout.',
+      data: {
+        round,
+        timeoutMs: childAgentTimeoutMs
+      }
+    })
+
     let response: BaseMessage
     try {
+      console.log('错误检测1'+ Date.now())
       response = await boundModel.invoke(messages, {
         signal: AbortSignal.timeout(childAgentTimeoutMs)
       } as Record<string, unknown>)
     } catch (error) {
+      if (isAbortLikeError(error)) {
+        logAbortTrace({
+          payload,
+          stage: 'inner_model_invoke',
+          error,
+          data: {
+            round,
+            timeoutMs: childAgentTimeoutMs,
+            committedWrites: runtime.committedWrites.length,
+            hasSuccessfulWrite: Boolean(successfulWrite)
+          }
+        })
+      }
+
+      logCharacterEditorTrace({
+        payload,
+        stage: 'model_invoke_error',
+        message: 'Model invocation threw before response was received.',
+        data: {
+          round,
+          error: toErrorMessage(error),
+          committedWrites: runtime.committedWrites.length,
+          hasSuccessfulWrite: Boolean(successfulWrite)
+        }
+      })
+
       if (successfulWrite || getLastCommittedWrite(runtime)) {
         return buildCompletedAfterWriteFallback({
           payload,
@@ -347,10 +459,32 @@ const runCharacterToolLoop = async (
     messages.push(aiMessage)
 
     const toolCalls = (aiMessage as AIMessage & { tool_calls?: any[] }).tool_calls ?? []
+    logCharacterEditorTrace({
+      payload,
+      stage: 'model_response',
+      message: 'Model response received.',
+      data: {
+        round,
+        toolCalls: toolCalls.map((toolCall) => toolCall.name || 'unknown_tool'),
+        contentPreview: contentToText(aiMessage.content).trim().slice(0, 160)
+      }
+    })
+
     if (toolCalls.length === 0) {
       const rawText = contentToText(aiMessage.content).trim()
       const jsonText = extractJsonObject(rawText)
       if (!jsonText) {
+        logCharacterEditorTrace({
+          payload,
+          stage: 'final_output_missing_json',
+          message: 'Final response did not contain parsable JSON.',
+          data: {
+            round,
+            rawTextPreview: rawText.slice(0, 240),
+            hasSuccessfulWrite: Boolean(successfulWrite)
+          }
+        })
+
         if (successfulWrite) {
           return buildCompletedAfterWriteFallback({
             payload,
@@ -374,6 +508,17 @@ const runCharacterToolLoop = async (
           appliedTools
         })
       } catch (error) {
+        logCharacterEditorTrace({
+          payload,
+          stage: 'final_output_parse_error',
+          message: 'Final JSON could not be parsed into handler output.',
+          data: {
+            round,
+            error: toErrorMessage(error),
+            hasSuccessfulWrite: Boolean(successfulWrite)
+          }
+        })
+
         if (successfulWrite) {
           return buildCompletedAfterWriteFallback({
             payload,
@@ -384,6 +529,17 @@ const runCharacterToolLoop = async (
         }
         throw error
       }
+
+      logCharacterEditorTrace({
+        payload,
+        stage: 'final_output_parsed',
+        message: 'Final handler output parsed successfully.',
+        data: {
+          round,
+          outcome: parsed.outcome,
+          changedScopes: parsed.changedScopes
+        }
+      })
 
       if (parsed.outcome === 'needs_input' && !parsed.pendingContext) {
         return buildNeedsInputOutput({
@@ -406,6 +562,17 @@ const runCharacterToolLoop = async (
     for (const toolCall of toolCalls) {
       const tool = characterEditorTools[toolCall.name as keyof typeof characterEditorTools]
 
+      logCharacterEditorTrace({
+        payload,
+        stage: 'tool_call_start',
+        message: 'Invoking tool from model response.',
+        data: {
+          round,
+          toolName: toolCall.name || 'unknown_tool',
+          toolCallId: toolCall.id || null
+        }
+      })
+
       if (!tool || !toolCall.id) {
         appliedTools.push({
           name: toolCall.name || 'unknown_tool',
@@ -426,6 +593,21 @@ const runCharacterToolLoop = async (
         const resultText = String(result)
         const envelope = parseAgentToolResultEnvelope(resultText)
         const status = envelope?.ok === true ? 'ok' : 'error'
+
+        logCharacterEditorTrace({
+          payload,
+          stage: 'tool_call_result',
+          message: 'Tool returned a result envelope.',
+          data: {
+            round,
+            toolName: toolCall.name,
+            status,
+            hasEnvelope: Boolean(envelope),
+            hasReceipt: Boolean(envelope?.receipt),
+            completionSemantics: envelope?.meta.completionSemantics ?? null
+          }
+        })
+
         appliedTools.push({
           name: toolCall.name,
           status
@@ -438,6 +620,18 @@ const runCharacterToolLoop = async (
           if (committedWrite) {
             successfulWrite = committedWrite
             runtime.committedWrites.push(committedWrite)
+            logCharacterEditorTrace({
+              payload,
+              stage: 'committed_write_recorded',
+              message: 'Recorded definitive write receipt.',
+              data: {
+                round,
+                toolName: toolCall.name,
+                receiptKind: envelope.receipt.kind,
+                entityId: committedWrite.entityId ?? null,
+                committedWrites: runtime.committedWrites.length
+              }
+            })
           }
         }
         messages.push(
@@ -449,6 +643,17 @@ const runCharacterToolLoop = async (
           })
         )
       } catch (error) {
+        logCharacterEditorTrace({
+          payload,
+          stage: 'tool_call_error',
+          message: 'Tool invocation threw an error.',
+          data: {
+            round,
+            toolName: toolCall.name,
+            error: toErrorMessage(error)
+          }
+        })
+
         appliedTools.push({
           name: toolCall.name,
           status: 'error'
@@ -462,6 +667,25 @@ const runCharacterToolLoop = async (
           })
         )
       }
+    }
+
+    if (successfulWrite) {
+      logCharacterEditorTrace({
+        payload,
+        stage: 'early_complete_after_write',
+        message: 'Returning completed output immediately after definitive write.',
+        data: {
+          round,
+          committedWrites: runtime.committedWrites.length,
+          entityId: successfulWrite.entityId ?? null
+        }
+      })
+
+      return buildCompletedAfterWrite({
+        payload,
+        appliedTools,
+        write: successfulWrite
+      })
     }
   }
 
@@ -706,6 +930,17 @@ export async function runCharacterEditorExecution(
   }
   const characterEditorGraph = createCharacterEditorGraph(runtime)
 
+  logCharacterEditorTrace({
+    payload,
+    stage: 'execution_start',
+    message: 'Starting character_editor execution.',
+    data: {
+      worldId: payload.worldId ?? null,
+      entityId: payload.entityId ?? null,
+      characterName: payload.characterName ?? null
+    }
+  })
+
   try {
     const result = await characterEditorGraph.invoke({ payload })
 
@@ -714,11 +949,51 @@ export async function runCharacterEditorExecution(
       throw new Error('character_editor graph finished without handler output.')
     }
 
+    logCharacterEditorTrace({
+      payload,
+      stage: 'execution_success',
+      message: 'Graph returned handler output.',
+      data: {
+        outcome: handlerOutput.outcome,
+        committedWrites: runtime.committedWrites.length
+      }
+    })
+
     return characterEditorHandlerOutputSchema.parse(handlerOutput)
   } catch (error) {
+    logCharacterEditorTrace({
+      payload,
+      stage: 'execution_catch',
+      message: 'Graph invocation threw an error.',
+      data: {
+        error: toErrorMessage(error),
+        isAbortLike: isAbortLikeError(error),
+        committedWrites: runtime.committedWrites.length
+      }
+    })
+
     if (isAbortLikeError(error)) {
+      logAbortTrace({
+        payload,
+        stage: 'outer_graph_invoke',
+        error,
+        data: {
+          committedWrites: runtime.committedWrites.length
+        }
+      })
+
       const committedWrite = getLastCommittedWrite(runtime)
       if (committedWrite) {
+        logCharacterEditorTrace({
+          payload,
+          stage: 'execution_abort_recovered',
+          message: 'Abort recovered using committed write.',
+          data: {
+            entityId: committedWrite.entityId ?? null,
+            committedWrites: runtime.committedWrites.length
+          }
+        })
+
         return buildCompletedAfterWriteFallback({
           payload,
           write: committedWrite,
@@ -726,6 +1001,27 @@ export async function runCharacterEditorExecution(
         })
       }
     }
+
+    if (isAbortLikeError(error)) {
+      logAbortTrace({
+        payload,
+        stage: 'rethrow_to_dispatcher',
+        error,
+        data: {
+          committedWrites: runtime.committedWrites.length
+        }
+      })
+    }
+
+    logCharacterEditorTrace({
+      payload,
+      stage: 'execution_rethrow',
+      message: 'Rethrowing execution error to dispatcher.',
+      data: {
+        error: toErrorMessage(error),
+        committedWrites: runtime.committedWrites.length
+      }
+    })
 
     throw error
   }

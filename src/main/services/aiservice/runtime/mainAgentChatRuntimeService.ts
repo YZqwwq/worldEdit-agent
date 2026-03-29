@@ -3,6 +3,7 @@ import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { HumanMessage } from '@langchain/core/messages'
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
+import type { TaskLifecycleState } from '@share/cache/AItype/states/taskLifecycleState'
 import { agent } from '../agentrsystem/agentReactSystem'
 import { contentToText } from '../messageoutput/transformRespones'
 import { handleGraphLogEvent, runWithGraphLogContext } from '../../log/graphlog'
@@ -23,7 +24,8 @@ function debugLog(message: string) {
 class MainAgentChatRuntimeService {
   async runUserMessage(
     message: string,
-    onChunk?: (chunk: StreamChunk) => void
+    onChunk?: (chunk: StreamChunk) => void,
+    taskLifecycle?: TaskLifecycleState
   ): Promise<MainAgentChatRuntimeResult> {
     const runId = randomUUID()
     debugLog(`sendStreamMessage called with: ${message}`)
@@ -34,7 +36,7 @@ class MainAgentChatRuntimeService {
       debugLog('Calling agent.streamEvents')
 
       const stream = await agent.streamEvents(
-        { messages: [new HumanMessage(message)] },
+        { messages: [new HumanMessage(message)], taskLifecycle },
         { version: 'v2' }
       )
       debugLog('streamEvents returned stream iterator')

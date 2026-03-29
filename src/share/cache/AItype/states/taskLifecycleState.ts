@@ -36,7 +36,7 @@ export type MainAgentEventPriority = 'interactive' | 'background'
 export type MainAgentEventConsumer =
   | 'chat_runtime'
   | 'task_notification_consumer'
-  | 'user_input_router'
+  | 'lifecycle_control'
 
 export type MainAgentDispatchState =
   | 'idle'

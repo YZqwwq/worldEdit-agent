@@ -194,6 +194,7 @@ export const characterEditorHandlerOutputSchema = z.object({
   userFacingMessage: z.string().trim().min(1).max(3000),
   changedScopes: z.array(characterEditingScopeSchema).max(8).default([]),
   appliedTools: z.array(characterEditorAppliedToolSchema).max(20).default([]),
+  internalWarning: z.string().trim().max(1000).optional(),
   suggestedFollowUp: z.string().trim().max(500).optional(),
   pendingContext: characterEditorPendingContextSchema.optional()
 })
