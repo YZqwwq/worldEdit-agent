@@ -3,7 +3,11 @@ import { SystemMessage } from '@langchain/core/messages'
 import { AppDataSource } from '../../../../../database'
 import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import { contentToText } from '../../../messageoutput/transformRespones'
-import { type StateData, type MessageData, type MemorySnapshot } from '@share/cache/AItype/states/memoryState'
+import {
+  type StateData,
+  type MessageData,
+  type MemorySnapshot
+} from '@share/cache/AItype/states/memoryState'
 import { MemoryStateRecord } from '../../../../../../share/entity/database/MemoryStateRecord'
 import { MemoryEntry } from '../../../../../../share/entity/database/MemoryEntry'
 import { getHistoryStatePath, getShortTermPath, getHistoryRawPath } from '../../../../../config/pathConfig'
@@ -24,6 +28,12 @@ const defaultState = (): StateData => ({
 })
 
 type LegacySnapshot = {
+  state: StateData
+  shortTerm: MessageData[]
+  summary: string
+}
+
+export type MemoryCheckpoint = {
   state: StateData
   shortTerm: MessageData[]
   summary: string
@@ -328,6 +338,39 @@ ${summaryInput}
         compressed_at: msg.compressed_at
       }))
     }))
+  }
+
+  public async getCheckpoint(): Promise<MemoryCheckpoint> {
+    await this.initialize()
+    return this.withLock(async () => ({
+      state: JSON.parse(JSON.stringify(this.state)) as StateData,
+      summary: this.summary,
+      shortTerm: this.shortTerm.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp,
+        compressed: msg.compressed,
+        compressed_at: msg.compressed_at
+      }))
+    }))
+  }
+
+  public async restoreCheckpoint(checkpoint: MemoryCheckpoint): Promise<void> {
+    await this.initialize()
+    await this.withLock(async () => {
+      this.state = JSON.parse(JSON.stringify(checkpoint.state)) as StateData
+      this.summary = checkpoint.summary
+      this.shortTerm = checkpoint.shortTerm.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp,
+        compressed: msg.compressed,
+        compressed_at: msg.compressed_at
+      }))
+      this.normalizeState()
+      await this.saveShortTerm()
+      await this.saveState()
+    })
   }
 
   // 添加消息

@@ -34,6 +34,30 @@ export class Message {
   })
   sessionId!: string
 
+  @Column({
+    type: 'integer',
+    nullable: true
+  })
+  turnId!: number | null
+
+  @Column({
+    type: 'text',
+    default: 'committed'
+  })
+  status!: 'draft' | 'committed' | 'interrupted' | 'reverted'
+
+  @Column({
+    type: 'text',
+    nullable: true
+  })
+  eventId!: string | null
+
+  @Column({
+    type: 'text',
+    nullable: true
+  })
+  consumer!: string | null
+
   // 创建时间
   @CreateDateColumn()
   createdAt!: Date

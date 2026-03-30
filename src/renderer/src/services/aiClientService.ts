@@ -27,7 +27,9 @@ const mapHistoryToMessages = (history: any[]): ChatMessage[] =>
     id: msg.id,
     text: msg.content,
     sender: msg.role,
-    timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : undefined
+    timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : undefined,
+    turnId: typeof msg.turnId === 'number' ? msg.turnId : undefined,
+    status: typeof msg.status === 'string' ? msg.status : undefined
   }))
 
 /**
@@ -134,6 +136,34 @@ async function clearHistory(): Promise<void> {
   }
 }
 
+async function interruptCurrentRun(): Promise<{ ok: boolean; message: string }> {
+  try {
+    return await window.api.interruptCurrentRun()
+  } catch (error) {
+    console.error('Failed to interrupt current run:', error)
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
+async function revertLastChatTurn(): Promise<{ ok: boolean; message: string; revertedTurnId?: number }> {
+  try {
+    const result = await window.api.revertLastChatTurn()
+    if (result.ok) {
+      await refreshHistory()
+    }
+    return result
+  } catch (error) {
+    console.error('Failed to revert last chat turn:', error)
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
 /**
  * 清空所有 AI 运行数据（历史、记忆、人格、上传文件）
  */
@@ -227,6 +257,8 @@ export function useAIChatService(): {
   agentLogs: Ref<AgentLog[]>
   isLoading: Ref<boolean>
   sendMessage: (text: string) => Promise<void>
+  interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
+  revertLastChatTurn: () => Promise<{ ok: boolean; message: string; revertedTurnId?: number }>
   loadHistory: () => Promise<void>
   refreshHistory: () => Promise<void>
   clearHistory: () => Promise<void>
@@ -238,6 +270,8 @@ export function useAIChatService(): {
     agentLogs,
     isLoading,
     sendMessage,
+    interruptCurrentRun,
+    revertLastChatTurn,
     loadHistory,
     refreshHistory,
     clearHistory,

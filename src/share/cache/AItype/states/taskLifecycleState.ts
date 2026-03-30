@@ -175,6 +175,25 @@ export interface MainAgentSaveMessageEffect extends MainAgentEffectBase {
   type: 'save_message'
   role: 'user' | 'ai'
   content: string
+  turnId?: number
+  messageStatus?: 'draft' | 'committed' | 'interrupted' | 'reverted'
+  eventIdRef?: string
+  consumer?: string
+}
+
+export interface MainAgentUpdateChatTurnEffect extends MainAgentEffectBase {
+  type: 'update_chat_turn'
+  turnId: number
+  status: 'processing' | 'completed' | 'interrupted' | 'failed'
+  errorMessage?: string
+}
+
+export interface MainAgentSyncMemoryMessagesEffect extends MainAgentEffectBase {
+  type: 'sync_memory_messages'
+  messages: Array<{
+    role: 'user' | 'ai'
+    content: string
+  }>
 }
 
 export interface MainAgentEmitTraceEffect extends MainAgentEffectBase {
@@ -201,6 +220,8 @@ export interface MainAgentStreamErrorEffect extends MainAgentEffectBase {
 
 export type MainAgentEffect =
   | MainAgentSaveMessageEffect
+  | MainAgentUpdateChatTurnEffect
+  | MainAgentSyncMemoryMessagesEffect
   | MainAgentEmitTraceEffect
   | MainAgentStreamDoneEffect
   | MainAgentStreamErrorEffect

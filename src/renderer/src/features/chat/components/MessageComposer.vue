@@ -59,11 +59,16 @@
 
     <button
       type="button"
-      class="flex h-14 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 px-8 text-sm font-semibold text-white shadow-md transition-all hover:from-blue-600 hover:to-indigo-700 hover:shadow-lg active:scale-95 focus:ring-4 focus:ring-blue-500/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
-      :disabled="isLoading || !modelValue.trim()"
-      @click="emitSend"
+      class="flex h-14 flex-shrink-0 items-center justify-center rounded-xl px-8 text-sm font-semibold text-white shadow-md transition-all active:scale-95 focus:ring-4 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+      :class="
+        isLoading
+          ? 'bg-gradient-to-br from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 hover:shadow-lg focus:ring-amber-500/30'
+          : 'bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 hover:shadow-lg focus:ring-blue-500/30'
+      "
+      :disabled="!isLoading && !modelValue.trim()"
+      @click="handlePrimaryAction"
     >
-      {{ isLoading ? '思考中...' : '发送' }}
+      {{ isLoading ? '终止' : '发送' }}
     </button>
   </div>
 </template>
@@ -81,6 +86,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
   (e: 'send'): void
+  (e: 'interrupt'): void
   (e: 'pick-file'): void
   (e: 'delete-file', file: UploadedChatFile): void
 }>()
@@ -95,6 +101,15 @@ const handleInput = (event: Event): void => {
 const emitSend = (): void => {
   if (!props.modelValue.trim() || props.isLoading) return
   emit('send')
+}
+
+const handlePrimaryAction = (): void => {
+  if (props.isLoading) {
+    emit('interrupt')
+    return
+  }
+
+  emitSend()
 }
 
 const focusInput = (): void => {

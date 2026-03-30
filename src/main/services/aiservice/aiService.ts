@@ -3,6 +3,8 @@ import { Message } from '../../../share/entity/database/Message'
 import { chatMessageService } from './chat/chatMessageService'
 import { aiSessionMaintenanceService } from './maintenance/aiSessionMaintenanceService'
 import { mainAgentEntryService } from './runtime/mainAgentEntryService'
+import { mainAgentRunControlService } from './runtime/mainAgentRunControlService'
+import { mainAgentTurnService, type RevertLastTurnResult } from './runtime/mainAgentTurnService'
 
 class AIService {
   /**
@@ -40,6 +42,25 @@ class AIService {
       text: message,
       onChunk
     })
+  }
+
+  interruptCurrentRun(): { ok: boolean; message: string } {
+    const interrupted = mainAgentRunControlService.interruptActiveRun()
+    if (!interrupted) {
+      return {
+        ok: false,
+        message: '当前没有正在生成的主 agent 回复。'
+      }
+    }
+
+    return {
+      ok: true,
+      message: '已请求停止当前主 agent 回复。'
+    }
+  }
+
+  async revertLastChatTurn(): Promise<RevertLastTurnResult> {
+    return mainAgentTurnService.revertLastRevertibleTurn()
   }
 }
 

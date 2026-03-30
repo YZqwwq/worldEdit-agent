@@ -98,6 +98,14 @@ export function initializeAIEndpoints(): void {
     return aiService.getHistory()
   })
 
+  ipcMain.handle('ai:interruptCurrentRun', () => {
+    return aiService.interruptCurrentRun()
+  })
+
+  ipcMain.handle('ai:revertLastChatTurn', async () => {
+    return aiService.revertLastChatTurn()
+  })
+
   // 清除历史记录
   ipcMain.handle('ai:clearHistory', async (_event) => {
     return aiService.clearHistory()

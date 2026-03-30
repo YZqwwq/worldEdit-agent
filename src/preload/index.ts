@@ -39,6 +39,8 @@ type Api = {
 
   // 获取历史记录
   getHistory: () => Promise<any[]>
+  interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
+  revertLastChatTurn: () => Promise<{ ok: boolean; message: string; revertedTurnId?: number }>
   clearHistory: () => Promise<void>
   purgeAllData: () => Promise<number>
   resetPersonaState: () => Promise<void>
@@ -98,6 +100,8 @@ const api: Api = {
   },
 
   getHistory: () => ipcRenderer.invoke('ai:getHistory'),
+  interruptCurrentRun: () => ipcRenderer.invoke('ai:interruptCurrentRun'),
+  revertLastChatTurn: () => ipcRenderer.invoke('ai:revertLastChatTurn'),
   clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
   purgeAllData: () => ipcRenderer.invoke('ai:purgeAllData'),
   resetPersonaState: () => ipcRenderer.invoke('ai:resetPersonaState'),

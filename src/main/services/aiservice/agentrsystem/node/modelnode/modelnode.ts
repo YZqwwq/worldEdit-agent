@@ -74,8 +74,39 @@ function fixToolCalls(response: BaseMessage): BaseMessage {
   return response
 }
 
+function combineSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
+  const validSignals = signals.filter((signal): signal is AbortSignal => Boolean(signal))
+  if (validSignals.length === 0) {
+    return undefined
+  }
+  if (validSignals.length === 1) {
+    return validSignals[0]
+  }
+
+  const controller = new AbortController()
+  const onAbort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort()
+    }
+    for (const signal of validSignals) {
+      signal.removeEventListener('abort', onAbort)
+    }
+  }
+
+  for (const signal of validSignals) {
+    if (signal.aborted) {
+      onAbort()
+      break
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  }
+
+  return controller.signal
+}
+
 export async function llmCall(
-  state: typeof MessagesState.State
+  state: typeof MessagesState.State,
+  config?: { signal?: AbortSignal }
 ): Promise<Partial<typeof MessagesState.State>> {
   debugLog(`llmCall: start`)
   // 动态调整消息顺序：确保 SystemMessage 位于首位，历史消息位于中间，当前用户输入位于最后
@@ -103,16 +134,17 @@ export async function llmCall(
 
   let response: BaseMessage
   let finalChunk: AIMessageChunk | undefined
-  const controller = new AbortController()
+  const timeoutController = new AbortController()
   const timeout = setTimeout(() => {
-    controller.abort()
+    timeoutController.abort()
     debugLog(`llmCall: Timeout reached (20s)`)
   }, 20000)
 
   try {
     const modelWithTool = await getModelWithTool()
+    const combinedSignal = combineSignals([config?.signal, timeoutController.signal])
     const callOptions: Record<string, unknown> = {
-      signal: controller.signal
+      signal: combinedSignal
     }
     if (state.personaPolicy?.sampling) {
       callOptions.temperature = state.personaPolicy.sampling.temperature
@@ -131,7 +163,7 @@ export async function llmCall(
       }
     }
   } catch (error: any) {
-    if (error.name === 'AbortError' || controller.signal.aborted) {
+    if (error.name === 'AbortError' || timeoutController.signal.aborted || config?.signal?.aborted) {
       debugLog(`llmCall: Aborted due to timeout, returning partial content`)
       // If we have content, we proceed to return it.
     } else {

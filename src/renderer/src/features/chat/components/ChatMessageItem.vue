@@ -16,7 +16,7 @@
         />
       </div>
 
-      <div class="min-w-0" :class="bodyClass">
+      <div class="group relative min-w-0" :class="bodyClass">
         <header class="mb-1 flex flex-wrap items-center gap-1" :class="headerClass">
         <span
           class="inline-flex h-5 items-center rounded-sm px-2.5 text-[12px] font-bold leading-none tracking-[0.08em]"
@@ -38,6 +38,16 @@
         <div class="max-w-[min(100%,960px)] rounded-[18px] border px-4 py-2 shadow-sm" :class="cardClass">
           <MdPreview :modelValue="message.text" class="chat-md-preview" theme="light" />
         </div>
+
+        <button
+          v-if="showRevertAction"
+          type="button"
+          class="absolute -bottom-4 right-2 flex h-9 w-9 translate-y-1 items-center justify-center rounded-full border border-slate-200 bg-white text-sm text-slate-500 shadow-sm opacity-0 transition-all duration-150 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 group-hover:translate-y-0 group-hover:opacity-100"
+          title="回退这一轮并把消息放回输入框"
+          @click="$emit('revert-message', message)"
+        >
+          ↺
+        </button>
       </div>
     </div>
   </article>
@@ -53,10 +63,12 @@ import type { ChatParticipantProfile } from '../types'
 const props = defineProps<{
   message: ChatMessage
   participant?: ChatParticipantProfile
+  canRevert?: boolean
 }>()
 
 defineEmits<{
   (e: 'edit-avatar', sender: ChatSender): void
+  (e: 'revert-message', message: ChatMessage): void
 }>()
 
 const defaultProfiles: Record<
@@ -110,6 +122,8 @@ const profile = computed(() => {
 })
 
 const isUser = computed(() => props.message.sender === 'user')
+
+const showRevertAction = computed(() => Boolean(props.canRevert) && isUser.value)
 
 const formattedTime = computed(() => {
   if (!props.message.timestamp) return ''

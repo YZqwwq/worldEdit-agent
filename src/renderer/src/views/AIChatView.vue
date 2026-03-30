@@ -26,7 +26,9 @@
         <ChatMessageList
           :messages="messages"
           :participants="chatParticipants"
+          :revertible-message-id="revertibleUserMessageId"
           @edit-avatar="openAvatarEditor"
+          @revert-message="handleRevertLastTurn"
         />
       </div>
 
@@ -37,6 +39,7 @@
             :is-loading="isLoading"
             :uploaded-files="uploadedFiles"
             @send="handleSend"
+            @interrupt="handleInterruptRun"
             @pick-file="handlePickFile"
             @delete-file="requestDeleteFile"
           />
@@ -393,6 +396,7 @@ import ChatHeader from '../features/chat/components/ChatHeader.vue'
 import ChatMessageList from '../features/chat/components/ChatMessageList.vue'
 import MessageComposer from '../features/chat/components/MessageComposer.vue'
 import type { ChatParticipantProfile, UploadedChatFile } from '../features/chat/types'
+import type { ChatMessage } from '../../../share/cache/render/aiagent/chatMessage'
 import type { ChatAvatarProfilesPayload, ChatParticipantKey } from '../../../share/cache/render/aiagent/chatAvatarProfile'
 import type {
   ModelConfigInput,
@@ -405,6 +409,8 @@ const {
   messages,
   isLoading,
   sendMessage,
+  interruptCurrentRun,
+  revertLastChatTurn,
   loadHistory,
   refreshHistory,
   purgeAllData,
@@ -448,6 +454,32 @@ let taskMonitorTimer: number | null = null
 
 const showRightSidebar = computed(() => showLogs.value || showTasks.value)
 const AUTO_SCROLL_THRESHOLD_PX = 120
+
+const revertibleTurnId = computed<number | undefined>(() => {
+  if (isLoading.value) {
+    return undefined
+  }
+
+  const lastMessage = messages.value.at(-1)
+  if (!lastMessage || lastMessage.sender !== 'ai' || typeof lastMessage.turnId !== 'number') {
+    return undefined
+  }
+
+  return lastMessage.turnId
+})
+
+const revertibleUserMessage = computed<ChatMessage | undefined>(() => {
+  const turnId = revertibleTurnId.value
+  if (typeof turnId !== 'number') {
+    return undefined
+  }
+
+  return [...messages.value]
+    .reverse()
+    .find((message) => message.sender === 'user' && message.turnId === turnId)
+})
+
+const revertibleUserMessageId = computed<number | undefined>(() => revertibleUserMessage.value?.id)
 
 const deleteFileConfirmMessage = computed<string>(() => {
   const file = pendingDeleteFile.value
@@ -688,6 +720,27 @@ const handleSend = async (): Promise<void> => {
   userInput.value = ''
   uploadedFiles.value = []
   await loadTaskMonitorSnapshot(true)
+}
+
+const handleInterruptRun = async (): Promise<void> => {
+  const result = await interruptCurrentRun()
+  showNotice(result.ok ? '停止请求已发送' : '无法停止当前回复', result.message, result.ok ? 'info' : 'warning')
+}
+
+const handleRevertLastTurn = async (message?: ChatMessage): Promise<void> => {
+  const result = await revertLastChatTurn()
+  if (result.ok) {
+    const textToRestore = message?.text || revertibleUserMessage.value?.text || ''
+    userInput.value = textToRestore
+    await loadTaskMonitorSnapshot(true)
+    showNotice('已撤回上一轮', result.message, 'success')
+    await nextTick()
+    scrollMessagesToBottom()
+    await restoreInputFocus()
+    return
+  }
+
+  showNotice('撤回失败', result.message, 'warning')
 }
 
 const handlePickFile = async (): Promise<void> => {

@@ -7,9 +7,11 @@ import type { TaskLifecycleState } from '@share/cache/AItype/states/taskLifecycl
 import { agent } from '../agentrsystem/agentReactSystem'
 import { contentToText } from '../messageoutput/transformRespones'
 import { handleGraphLogEvent, runWithGraphLogContext } from '../../log/graphlog'
+import { mainAgentRunControlService } from './mainAgentRunControlService'
 
 export type MainAgentChatRuntimeResult = {
   fullText: string
+  interrupted: boolean
 }
 
 function debugLog(message: string) {
@@ -23,48 +25,70 @@ function debugLog(message: string) {
 
 class MainAgentChatRuntimeService {
   async runUserMessage(
+    eventId: string,
+    turnId: number,
     message: string,
     onChunk?: (chunk: StreamChunk) => void,
     taskLifecycle?: TaskLifecycleState
   ): Promise<MainAgentChatRuntimeResult> {
     const runId = randomUUID()
+    const controller = mainAgentRunControlService.startRun({ eventId, turnId })
+    let fullText = ''
     debugLog(`sendStreamMessage called with: ${message}`)
     debugLog(`RunID generated: ${runId}`)
 
-    return runWithGraphLogContext(runId, async () => {
-      debugLog('Entered runWithGraphLogContext')
-      debugLog('Calling agent.streamEvents')
+    try {
+      return await runWithGraphLogContext(runId, async () => {
+        debugLog('Entered runWithGraphLogContext')
+        debugLog('Calling agent.streamEvents')
 
-      const stream = await agent.streamEvents(
-        { messages: [new HumanMessage(message)], taskLifecycle },
-        { version: 'v2' }
-      )
-      debugLog('streamEvents returned stream iterator')
+        const stream = await agent.streamEvents(
+          { messages: [new HumanMessage(message)], taskLifecycle },
+          { version: 'v2', signal: controller.signal } as {
+            version: 'v2'
+            signal: AbortSignal
+          }
+        )
+        debugLog('streamEvents returned stream iterator')
 
-      let fullText = ''
+        for await (const event of stream) {
+          const logChunk = handleGraphLogEvent(event)
+          if (logChunk && onChunk) onChunk(logChunk)
 
-      for await (const event of stream) {
-        const logChunk = handleGraphLogEvent(event)
-        if (logChunk && onChunk) onChunk(logChunk)
-
-        if (event.event === 'on_chat_model_stream') {
-          const chunk = event.data.chunk
-          if (chunk && chunk.content) {
-            const token = contentToText(chunk.content)
-            if (token) {
-              fullText += token
-              onChunk?.({
-                type: 'text_delta',
-                content: token
-              })
+          if (event.event === 'on_chat_model_stream') {
+            const chunk = event.data.chunk
+            if (chunk && chunk.content) {
+              const token = contentToText(chunk.content)
+              if (token) {
+                fullText += token
+                onChunk?.({
+                  type: 'text_delta',
+                  content: token
+                })
+              }
             }
           }
         }
+
+        debugLog('Stream loop finished')
+        return { fullText, interrupted: false }
+      }, onChunk)
+    } catch (error) {
+      const interrupted =
+        controller.signal.aborted ||
+        (error instanceof Error && error.name === 'AbortError')
+      if (!interrupted) {
+        throw error
       }
 
-      debugLog('Stream loop finished')
-      return { fullText }
-    }, onChunk)
+      debugLog('User interrupted active main-agent run')
+      return {
+        fullText,
+        interrupted: true
+      }
+    } finally {
+      mainAgentRunControlService.finishRun(eventId)
+    }
   }
 }
 

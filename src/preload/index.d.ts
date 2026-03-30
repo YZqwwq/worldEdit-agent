@@ -37,6 +37,8 @@ declare global {
     onStreamChunk: (callback: (chunk: StreamChunk) => void) => () => void
 
     getHistory: () => Promise<any[]>
+    interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
+    revertLastChatTurn: () => Promise<{ ok: boolean; message: string; revertedTurnId?: number }>
     clearHistory: () => Promise<void>
     purgeAllData: () => Promise<number>
     resetPersonaState: () => Promise<void>

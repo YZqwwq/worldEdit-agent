@@ -6,4 +6,6 @@ export interface ChatMessage {
   text: string
   sender: ChatSender
   timestamp?: number
+  turnId?: number
+  status?: 'draft' | 'committed' | 'interrupted' | 'reverted'
 }

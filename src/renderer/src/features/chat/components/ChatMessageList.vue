@@ -5,7 +5,9 @@
       :key="message.id"
       :message="message"
       :participant="participants?.[message.sender]"
+      :can-revert="message.id === revertibleMessageId"
       @edit-avatar="$emit('edit-avatar', $event)"
+      @revert-message="$emit('revert-message', $event)"
     />
   </div>
 </template>
@@ -17,10 +19,12 @@ import type { ChatParticipantProfile } from '../types'
 
 defineEmits<{
   (e: 'edit-avatar', sender: ChatSender): void
+  (e: 'revert-message', message: ChatMessage): void
 }>()
 
 defineProps<{
   messages: ChatMessage[]
   participants?: Partial<Record<ChatSender, ChatParticipantProfile>>
+  revertibleMessageId?: number
 }>()
 </script>
