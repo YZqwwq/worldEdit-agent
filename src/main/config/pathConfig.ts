@@ -94,15 +94,14 @@ const migrateLegacyDir = (targetDir: string, legacyCandidates: string[]): void =
   }
 }
 
-// 角色提示路径
-export const getRolePromptPath = (): string =>
-  pickExisting(
-    unique([
-      join(getStaticPromptResourceRoot(), 'role-prompt', 'roleprompt.md'),
-      join(process.cwd(), 'src', 'main', 'prompt-resource', 'role-prompt', 'roleprompt.md'),
-      join(process.cwd(), 'prompt-resource', 'role-prompt', 'roleprompt.md')
-    ])
-  )
+export const getAiServicePromptDir = (): string => {
+  const dir = join(app.getPath('userData'), 'aiservice', 'prompt')
+  ensureDir(dir)
+  return dir
+}
+
+export const getCharacterPromptProfilePath = (): string =>
+  join(getAiServicePromptDir(), 'character.md')
 
 // 角色状态路径
 export const getPersonaStatePath = (): string =>

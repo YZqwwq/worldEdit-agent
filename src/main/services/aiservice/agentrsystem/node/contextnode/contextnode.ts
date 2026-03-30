@@ -1,13 +1,14 @@
 import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
-import {
-  loadRolePrompt,
-  loadPersonaState,
-  formatPersonaState
-} from '../../manager/personal/personalManager'
+import { loadPersonaState } from '../../manager/personal/personalManager'
 import { tools } from '../../modelwithtool/tool'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
+import {
+  buildMoodPrompt,
+  loadCharacterPrompt,
+  loadExpressionPrompt
+} from '../../../prompt/agentPromptService'
 
 /**
  * ContextNode: 负责构建全局上下文，包括 Persona、Memory 等。
@@ -19,32 +20,16 @@ export async function contextNode(
   
   const messages: BaseMessage[] = []
 
-  // 1. 读取静态 Persona (法弥拉设定)
-  const persona = await loadRolePrompt()
-  if (persona) {
-    messages.push(new SystemMessage(persona))
+  const characterPrompt = await loadCharacterPrompt()
+  if (characterPrompt) {
+    messages.push(new SystemMessage(characterPrompt))
   }
 
   const personaState = await loadPersonaState()
-  if (personaState) {
-    messages.push(new SystemMessage(formatPersonaState(personaState)))
+  const moodPrompt = buildMoodPrompt(personaState, state.personaPolicy)
+  if (moodPrompt) {
+    messages.push(new SystemMessage(moodPrompt))
   }
-
-  if (state.personaPolicy?.style?.instruction) {
-    messages.push(new SystemMessage(`回复风格约束:\n${state.personaPolicy.style.instruction}`))
-  }
-
-  messages.push(
-    new SystemMessage(
-      [
-        '上下文继承规则：',
-        '1. 你当前能看到的短期记忆、最近对话和工具结果摘要，都是本轮决策的有效上下文。',
-        '2. 如果最近几轮已经明确确认了目标 worldId、worldName、entityId、characterName，后续调用写入类或委派类工具时必须优先沿用这些已确认标识。',
-        '3. 不要因为用户本轮只说“继续扩写她”“拓展她的简介”就丢失上一轮已经确认过的人物与世界观。',
-        '4. 只有在现有上下文无法唯一确定目标时，才向用户继续追问；如果系统已经能唯一锁定目标，不要重复索取世界观名称或人物标识。'
-      ].join('\n')
-    )
-  )
 
   if (state.taskLifecycle?.activeTask) {
     messages.push(
@@ -103,6 +88,11 @@ export async function contextNode(
         additional_kwargs: { isHistory: true }
       }))
     }
+  }
+
+  const expressionPrompt = loadExpressionPrompt()
+  if (expressionPrompt) {
+    messages.push(new SystemMessage(expressionPrompt))
   }
 
   // 注意：LangGraph 的 reducer 通常是追加模式。

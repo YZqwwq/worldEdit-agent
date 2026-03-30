@@ -201,6 +201,29 @@
 
 主图不再承担子 agent notification 的处理。
 
+### Prompt 架构
+
+当前主 agent 的 prompt 已拆成三层：
+
+1. `character`
+   稳定身份层，定义“主 agent 是谁”，运行时文件位于 `userData/aiservice/prompt/character.md`
+
+2. `mood`
+   人格状态层，定义“主 agent 当前以什么行为状态与用户协作”，由内部静态 prompt 加上 `PersonaState / PersonaPolicy` 共同生成
+
+3. `expression`
+   输出契约层，定义“最终怎么说、哪些不能说”，属于内部静态 prompt，不对用户开放编辑
+
+当前注入顺序是：
+
+`character -> mood -> task/context/tool rules -> memory/history -> expression`
+
+这意味着：
+
+- 用户可调整的是身份画像，不是系统内部约束
+- 情绪调控和输出规范属于主 agent 内部控制面
+- 文档型 prompt 与运行时 prompt 已分离，开发说明放在 `developmentlog/prompt/...`，真正运行时 prompt 放在 `src/main/services/aiservice/prompt`
+
 ---
 
 ## 子 agent 架构

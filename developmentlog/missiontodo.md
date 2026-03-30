@@ -3,6 +3,19 @@ middle:
 任务：完善富文本流式传输方式改为 fullcontent
 
 
+high：
+文件：aiservice/prompt / contextNode / AIagent-design.md
+任务：完善主 agent 的人格 prompt 体系
+说明：本轮已完成运行时 prompt 正式化。当前运行时 prompt 已迁入 `src/main/services/aiservice/prompt`；`character` 在 Electron 启动时初始化到 `userData/aiservice/prompt/character.md`，`mood / expression` 保持内部静态控制，不向用户开放。
+
+后续任务：
+1. 为 character prompt 增加 IPC 读写接口，供后续设置面板直接编辑
+2. 将 `expression` 中的高风险规则补成输出后置 validator，而不只依赖 prompt
+3. 把工具结果的用户态摘要与内部原始结果进一步分离，减少内部结构泄露
+4. 将人物引用承接能力从纯 prompt 提醒升级为运行时实体引用槽
+5. 评估是否需要给不同任务场景配置不同的 mood 子模板
+
+
 hight：
 加入短期记忆
 

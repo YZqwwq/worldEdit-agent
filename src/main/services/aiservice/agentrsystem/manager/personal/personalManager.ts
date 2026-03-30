@@ -3,7 +3,6 @@ import type { PersonaState, PersonaMetrics, PersonaBufferItem } from '@share/cac
 import { AppDataSource } from '../../../../../database'
 import { PersonaStateRecord } from '../../../../../../share/entity/database/PersonaStateRecord'
 import {
-  getRolePromptPath,
   getPersonaStatePath,
   getPersonaStateFallbackPath
 } from '../../../../../config/pathConfig'
@@ -170,17 +169,6 @@ export const initPersonaStorage = async (): Promise<void> => {
   await repo.save(row)
 }
 
-// 加载角色提示
-export const loadRolePrompt = async (): Promise<string | null> => {
-  try {
-    const text = await readFile(getRolePromptPath(), 'utf-8')
-    const trimmed = text?.trim()
-    return trimmed ? trimmed : null
-  } catch {
-    return null
-  }
-}
-
 // 加载 PersonaState
 export const loadPersonaState = async (): Promise<PersonaState | null> => {
   await initPersonaStorage()
@@ -220,9 +208,4 @@ export const evolvePersonaState = (
     recent_interaction_buffer: buffer,
     last_updated: nowIso
   }
-}
-
-// 格式化 PersonaState 为字符串
-export const formatPersonaState = (personaState: PersonaState): string => {
-  return `人格倾向状态:\n${personaState.current_behavioral_narrative}`
 }
