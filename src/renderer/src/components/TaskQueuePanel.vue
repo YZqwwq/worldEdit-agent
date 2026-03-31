@@ -2,11 +2,11 @@
   <aside class="flex min-h-0 min-w-0 flex-1 flex-col bg-white">
     <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
       <h3 class="text-sm font-semibold uppercase tracking-[0.22em] text-slate-700">
-        子 Agent 任务
+        Agent 调试面板
       </h3>
       <div class="flex items-center gap-2">
         <span v-if="loading" class="text-xs text-slate-400">同步中...</span>
-        <span v-else-if="hasRunningExecution" class="text-xs font-medium text-emerald-600">
+        <span v-else-if="hasActiveWork" class="text-xs font-medium text-emerald-600">
           运行中
         </span>
         <span v-else class="text-xs text-slate-400">空闲</span>
@@ -18,8 +18,12 @@
         正在读取任务队列...
       </div>
 
-      <div v-else-if="!snapshot?.activeTask" class="py-10 text-center text-sm text-slate-400">
-        暂无运行中的子 agent 任务
+      <div v-else-if="!snapshot" class="py-10 text-center text-sm text-slate-400">
+        还没有调试快照
+      </div>
+
+      <div v-else-if="!hasPanelData" class="py-10 text-center text-sm text-slate-400">
+        当前没有运行中的 turn 或子任务
       </div>
 
       <div v-else class="space-y-5">
@@ -56,16 +60,107 @@
         </section>
 
         <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div class="mb-3 flex items-center justify-between">
+            <h4 class="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+              最近 Turn
+            </h4>
+            <span class="text-xs text-slate-400">
+              {{ snapshot.recentTurns.length }} 条
+            </span>
+          </div>
+
+          <div v-if="snapshot.recentTurns.length === 0" class="py-6 text-center text-sm text-slate-400">
+            还没有普通聊天 turn 记录
+          </div>
+
+          <div v-else class="space-y-3">
+            <article
+              v-for="turn in snapshot.recentTurns"
+              :key="turn.id"
+              class="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium text-slate-700">
+                    #{{ turn.id }} 普通聊天轮
+                  </div>
+                  <div class="mt-1 text-[11px] text-slate-400">
+                    创建于 {{ formatIsoTime(turn.createdAt) }}
+                    <span v-if="turn.startedAt"> · 开始 {{ formatIsoTime(turn.startedAt) }}</span>
+                    <span v-if="getTurnTerminalTime(turn)">
+                      · 结束 {{ formatIsoTime(getTurnTerminalTime(turn)) }}
+                    </span>
+                  </div>
+                </div>
+                <span
+                  class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  :class="turnStatusClass(turn.status)"
+                >
+                  {{ formatTurnStatus(turn.status) }}
+                </span>
+              </div>
+
+              <div class="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                <span class="rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                  {{ turn.consumer }}
+                </span>
+                <span
+                  v-if="turn.reversible"
+                  class="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700"
+                >
+                  可回退
+                </span>
+                <span v-if="turn.userMessageId" class="rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                  user #{{ turn.userMessageId }}
+                </span>
+                <span v-if="turn.aiMessageId" class="rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                  ai #{{ turn.aiMessageId }}
+                </span>
+              </div>
+
+              <div v-if="turn.userPreview" class="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div class="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-400">
+                  User
+                </div>
+                <p class="mt-1 text-sm leading-6 text-slate-700">
+                  {{ turn.userPreview }}
+                </p>
+              </div>
+
+              <div v-if="turn.aiPreview" class="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div class="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-400">
+                  AI
+                </div>
+                <p class="mt-1 text-sm leading-6 text-slate-700">
+                  {{ turn.aiPreview }}
+                </p>
+              </div>
+
+              <div
+                v-if="turn.errorMessage"
+                class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700"
+              >
+                {{ turn.errorMessage }}
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
                 当前主任务
               </div>
-              <h4 class="mt-2 text-sm font-semibold text-slate-800">
+              <h4 v-if="snapshot.activeTask" class="mt-2 text-sm font-semibold text-slate-800">
                 {{ snapshot.activeTask.title }}
               </h4>
+              <p v-else class="mt-2 text-sm leading-6 text-slate-500">
+                当前没有运行中的子 agent 任务
+              </p>
             </div>
             <span
+              v-if="snapshot.activeTask"
               class="rounded-full px-2.5 py-1 text-[11px] font-medium"
               :class="taskStatusClass(snapshot.activeTask.status)"
             >
@@ -73,7 +168,7 @@
             </span>
           </div>
 
-          <div class="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
+          <div v-if="snapshot.activeTask" class="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
             <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
               {{ formatExecutor(snapshot.activeTask.executorKind) }}
             </span>
@@ -85,19 +180,19 @@
             </span>
           </div>
 
-          <p v-if="snapshot.activeTask.summary" class="mt-4 text-sm leading-6 text-slate-600">
+          <p v-if="snapshot.activeTask?.summary" class="mt-4 text-sm leading-6 text-slate-600">
             {{ snapshot.activeTask.summary }}
           </p>
 
           <div
-            v-if="snapshot.activeTask.progressNotes"
+            v-if="snapshot.activeTask?.progressNotes"
             class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"
           >
             {{ snapshot.activeTask.progressNotes }}
           </div>
         </section>
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <section v-if="snapshot.activeTask" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div class="mb-3 flex items-center justify-between">
             <h4 class="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
               Execution 队列
@@ -263,7 +358,7 @@
           </div>
         </section>
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <section v-if="snapshot.activeTask" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div class="mb-3 flex items-center justify-between">
             <h4 class="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
               交互追踪
@@ -315,24 +410,49 @@
 import { computed, ref } from 'vue'
 import type {
   MainAgentDispatchState,
-  TaskTraceActor,
-  TaskExecutionSnapshot,
-  TaskTraceStage,
   TaskExecutionStatus,
   TaskExecutorKind,
   TaskMonitorSnapshot,
+  TaskTraceActor,
+  TaskTraceStage,
+  TaskExecutionSnapshot,
   TaskStatus
 } from '../../../share/cache/AItype/states/taskLifecycleState'
+import type {
+  MainAgentTurnSnapshot,
+  MainAgentTurnStatus
+} from '../../../share/cache/AItype/states/mainAgentTurnState'
 
 const props = defineProps<{
   snapshot: TaskMonitorSnapshot | null
   loading?: boolean
 }>()
 
+const hasProcessingTurn = computed(() =>
+  (props.snapshot?.recentTurns ?? []).some((turn) => turn.status === 'processing')
+)
+
 const hasRunningExecution = computed(() =>
   (props.snapshot?.executions ?? []).some((execution) =>
     ['queued', 'dispatching', 'running', 'awaiting_input'].includes(execution.status)
   )
+)
+
+const hasActiveWork = computed(
+  () =>
+    hasRunningExecution.value ||
+    hasProcessingTurn.value ||
+    props.snapshot?.dispatch.state === 'processing'
+)
+
+const hasPanelData = computed(
+  () =>
+    Boolean(props.snapshot) &&
+    Boolean(
+      props.snapshot?.activeTask ||
+        (props.snapshot?.recentTurns.length ?? 0) > 0 ||
+        (props.snapshot?.dispatch.totalQueued ?? 0) > 0
+    )
 )
 
 const expandedExecutionIds = ref<number[]>([])
@@ -363,6 +483,24 @@ const dispatchStateClass = (state: MainAgentDispatchState): string => {
   if (state === 'user-active') return 'bg-sky-50 text-sky-700'
   if (state === 'tasklist-active') return 'bg-indigo-50 text-indigo-700'
   return 'bg-slate-100 text-slate-600'
+}
+
+const formatTurnStatus = (status: MainAgentTurnStatus): string => {
+  if (status === 'queued') return '排队中'
+  if (status === 'processing') return '处理中'
+  if (status === 'completed') return '已完成'
+  if (status === 'interrupted') return '已中断'
+  if (status === 'failed') return '失败'
+  return '已回退'
+}
+
+const turnStatusClass = (status: MainAgentTurnStatus): string => {
+  if (status === 'queued') return 'bg-sky-50 text-sky-700'
+  if (status === 'processing') return 'bg-emerald-50 text-emerald-700'
+  if (status === 'completed') return 'bg-slate-100 text-slate-700'
+  if (status === 'interrupted') return 'bg-amber-50 text-amber-700'
+  if (status === 'failed') return 'bg-rose-50 text-rose-700'
+  return 'bg-slate-200 text-slate-600'
 }
 
 const formatExecutor = (executorKind: TaskExecutorKind): string => {
@@ -451,6 +589,9 @@ const traceStageClass = (stage: TaskTraceStage): string => {
   if (stage === 'main_response_user') return 'bg-sky-50 text-sky-700'
   return 'bg-slate-100 text-slate-700'
 }
+
+const getTurnTerminalTime = (turn: MainAgentTurnSnapshot): string | undefined =>
+  turn.revertedAt ?? turn.interruptedAt ?? turn.completedAt
 
 const formatIsoTime = (iso?: string): string => {
   if (!iso) return '-'

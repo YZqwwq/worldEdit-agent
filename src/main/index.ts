@@ -8,6 +8,7 @@ import { initMemoryStorage } from './config/storageInit'
 import { registerAppResourceProtocol } from './protocols/resourceProtocol'
 import { taskRecoveryService } from './services/task/taskRecoveryService'
 import { subAgentExecutionQueueService } from './services/task/subAgentExecutionQueueService'
+import { mainAgentEventRecoveryService } from './services/aiservice/runtime/mainAgentEventRecoveryService'
 
 function createWindow(): void {
   // Create the browser window.
@@ -68,6 +69,9 @@ app.whenReady().then(async () => {
   initializeAIEndpoints() // 调用
   await taskRecoveryService.recoverInterruptedExecutions()
   await subAgentExecutionQueueService.enqueueQueuedExecutions()
+  await mainAgentEventRecoveryService.reconcileUserMessageEvents()
+  await mainAgentEventRecoveryService.reconcileTaskNotificationEvents()
+  await mainAgentEventRecoveryService.enqueueQueuedUserEvents()
   await taskRecoveryService.enqueuePendingNotifications()
 
   createWindow()

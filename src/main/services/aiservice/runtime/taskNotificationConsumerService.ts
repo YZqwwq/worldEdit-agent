@@ -16,9 +16,10 @@ class TaskNotificationConsumerService {
       eventId: event.id,
       sessionId: event.sessionId
     }
-    const consumed = await taskNotificationService.consumePendingNotification(
+    const consumed = await taskNotificationService.beginMainAgentConsumption(
       event.payload.taskId,
-      event.payload.notificationId
+      event.payload.notificationId,
+      event.id
     )
     if (!consumed) {
       return {
@@ -35,6 +36,7 @@ class TaskNotificationConsumerService {
       actor: 'main_agent',
       stage: 'main_received_subagent',
       message: '主 agent 已收到子 agent 的通知，开始决定下一步动作。',
+      dedupeKey: `${event.id}:main_received_subagent:main_agent`,
       payload: {
         notificationType: consumed.notification.type,
         taskStatus: consumed.activeTask.status
@@ -62,7 +64,9 @@ class TaskNotificationConsumerService {
             ...effectContext,
             type: 'save_message',
             role: 'ai',
-            content: visibleMessage
+            content: visibleMessage,
+            eventIdRef: event.id,
+            consumer: 'task_notification_consumer'
           },
           {
             ...effectContext,
@@ -72,6 +76,7 @@ class TaskNotificationConsumerService {
             actor: 'main_agent',
             stage: 'main_response_user',
             message: '主 agent 决定向用户发送可见消息。',
+            dedupeKey: `${event.id}:main_response_user:main_agent`,
             payload: {
               visibleMessage,
               reason: decision.reason
@@ -95,6 +100,7 @@ class TaskNotificationConsumerService {
         actor: 'main_agent',
         stage: 'main_response_silent',
         message: '主 agent 决定暂不向用户发送可见消息。',
+        dedupeKey: `${event.id}:main_response_silent:main_agent`,
         payload: {
           action: decision.action,
           reason: decision.reason
@@ -121,7 +127,9 @@ class TaskNotificationConsumerService {
             ...effectContext,
             type: 'save_message',
             role: 'ai',
-            content: fallbackMessage
+            content: fallbackMessage,
+            eventIdRef: event.id,
+            consumer: 'task_notification_consumer'
           },
           {
             ...effectContext,
@@ -131,6 +139,7 @@ class TaskNotificationConsumerService {
             actor: 'main_agent',
             stage: 'main_response_user',
             message: '主 agent 在处理任务通知时遇到异常，已回退为直接向用户发送通知。',
+            dedupeKey: `${event.id}:main_response_user:main_agent`,
             payload: {
               fallback: true,
               reason
@@ -154,6 +163,7 @@ class TaskNotificationConsumerService {
         actor: 'main_agent',
         stage: 'main_response_silent',
         message: '主 agent 在处理任务通知时遇到异常，且没有可直接展示的消息。',
+        dedupeKey: `${event.id}:main_response_silent:main_agent`,
         payload: {
           fallback: true,
           reason

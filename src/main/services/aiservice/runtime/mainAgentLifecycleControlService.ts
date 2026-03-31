@@ -67,7 +67,9 @@ const buildHandledResult = (input: {
         ...effectContext,
         type: 'save_message',
         role: 'ai',
-        content: input.visibleMessage
+        content: input.visibleMessage,
+        eventIdRef: input.event.id,
+        consumer: 'lifecycle_control'
       },
       {
         ...effectContext,
@@ -77,6 +79,7 @@ const buildHandledResult = (input: {
         actor: 'user',
         stage: 'user_replied_to_task',
         message: input.userTraceMessage,
+        dedupeKey: `${input.event.id}:user_replied_to_task:user`,
         payload: input.payload
       },
       {
@@ -87,6 +90,7 @@ const buildHandledResult = (input: {
         actor: 'main_agent',
         stage: input.mainTraceStage ?? 'main_response_user',
         message: input.mainTraceMessage,
+        dedupeKey: `${input.event.id}:${input.mainTraceStage ?? 'main_response_user'}:main_agent`,
         payload: input.payload
       },
       {

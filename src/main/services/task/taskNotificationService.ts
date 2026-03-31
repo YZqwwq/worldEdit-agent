@@ -30,6 +30,7 @@ type ConsumedNotificationResult = {
   notice: TaskLifecycleNotice
   notification: TaskNotificationRecord
   payload: SubAgentProtocolPayload
+  nextStatus: TaskRecord['status']
 }
 
 const toSnapshot = (task: TaskRecord): ActiveTaskSnapshot => ({
@@ -109,6 +110,7 @@ class TaskNotificationService {
         executionId: input.executionId,
         type: input.type,
         status: 'pending',
+        mainAgentEventId: null,
         payloadJson: JSON.stringify(input.payload)
       })
 
@@ -128,9 +130,20 @@ class TaskNotificationService {
     return rows[0] ?? null
   }
 
-  async consumePendingNotification(
+  async getNotification(
     taskId: number,
-    notificationId?: number
+    notificationId: number
+  ): Promise<TaskNotificationRecord | null> {
+    return this.repo.findOneBy({
+      id: notificationId,
+      taskId
+    })
+  }
+
+  async beginMainAgentConsumption(
+    taskId: number,
+    notificationId: number,
+    eventId: string
   ): Promise<ConsumedNotificationResult | null> {
     return AppDataSource.transaction(async (manager) => {
       const taskRepo = manager.getRepository(TaskRecord)
@@ -141,53 +154,121 @@ class TaskNotificationService {
         throw new Error(`Task not found: ${taskId}`)
       }
 
-      const notification =
-        typeof notificationId === 'number'
-          ? await notificationRepo.findOneBy({
-              id: notificationId,
-              taskId,
-              status: 'pending'
-            })
-          : (
-              await notificationRepo.find({
-                where: { taskId, status: 'pending' },
-                order: { createdAt: 'ASC' },
-                take: 1
-              })
-            )[0]
+      const notification = await notificationRepo.findOneBy({
+        id: notificationId,
+        taskId
+      })
       if (!notification) {
         return null
       }
 
-      notification.status = 'consumed'
-      notification.consumedAt = new Date()
+      if (notification.status === 'consumed') {
+        if (notification.mainAgentEventId !== eventId) {
+          return null
+        }
+      } else if (notification.status === 'processing') {
+        if (notification.mainAgentEventId !== eventId) {
+          return null
+        }
+      } else {
+        notification.status = 'processing'
+        notification.mainAgentEventId = eventId
+        notification.processingStartedAt = new Date()
+        await notificationRepo.save(notification)
+      }
 
       const payload = parseSubAgentProtocolPayload(parseJsonObject(notification.payloadJson), {
         outcome: taskNotificationTypeToSubAgentOutcome(notification.type)
       })
       const consumed = buildConsumedNotice(task, notification, payload)
-      assertTaskStatusTransition(task.status, consumed.nextStatus)
-      task.status = consumed.nextStatus
-      if (consumed.nextStatus === 'cancelled') {
-        task.pendingContextJson = '{}'
-        task.closureSummary = payload.summary || task.closureSummary
-        task.closedAt = new Date()
-      }
-
-      await notificationRepo.save(notification)
-      await taskRepo.save(task)
 
       return {
         activeTask: toSnapshot(task),
         notice: consumed.notice,
         notification,
-        payload
+        payload,
+        nextStatus: consumed.nextStatus
       }
     })
   }
 
-  async consumeNextPendingNotification(taskId: number): Promise<ConsumedNotificationResult | null> {
-    return this.consumePendingNotification(taskId)
+  async completeMainAgentConsumption(
+    taskId: number,
+    notificationId: number,
+    eventId: string
+  ): Promise<ConsumedNotificationResult | null> {
+    return AppDataSource.transaction(async (manager) => {
+      const taskRepo = manager.getRepository(TaskRecord)
+      const notificationRepo = manager.getRepository(TaskNotificationRecord)
+
+      const task = await taskRepo.findOneBy({ id: taskId })
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`)
+      }
+
+      const notification = await notificationRepo.findOneBy({
+        id: notificationId,
+        taskId
+      })
+      if (!notification) {
+        return null
+      }
+      if (notification.mainAgentEventId !== eventId) {
+        return null
+      }
+
+      const payload = parseSubAgentProtocolPayload(parseJsonObject(notification.payloadJson), {
+        outcome: taskNotificationTypeToSubAgentOutcome(notification.type)
+      })
+      const consumed = buildConsumedNotice(task, notification, payload)
+
+      if (notification.status !== 'consumed') {
+        assertTaskStatusTransition(task.status, consumed.nextStatus)
+        task.status = consumed.nextStatus
+        if (consumed.nextStatus === 'cancelled') {
+          task.pendingContextJson = '{}'
+          task.closureSummary = payload.summary || task.closureSummary
+          task.closedAt = new Date()
+        }
+        notification.status = 'consumed'
+        notification.consumedAt = new Date()
+        await taskRepo.save(task)
+        await notificationRepo.save(notification)
+      }
+
+      return {
+        activeTask: toSnapshot(task),
+        notice: consumed.notice,
+        notification,
+        payload,
+        nextStatus: consumed.nextStatus
+      }
+    })
+  }
+
+  async listNotificationsAwaitingMainCommit(): Promise<TaskNotificationRecord[]> {
+    return this.repo.find({
+      where: { status: 'processing' },
+      order: { processingStartedAt: 'ASC', createdAt: 'ASC', id: 'ASC' }
+    })
+  }
+
+  async resetMainAgentConsumptionToPending(
+    taskId: number,
+    notificationId: number
+  ): Promise<TaskNotificationRecord | null> {
+    const notification = await this.repo.findOneBy({
+      id: notificationId,
+      taskId
+    })
+    if (!notification) {
+      return null
+    }
+    notification.status = 'pending'
+    notification.mainAgentEventId = null
+    notification.processingStartedAt = null
+    notification.consumedAt = null
+    return this.repo.save(notification)
   }
 }
 

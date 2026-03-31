@@ -13,12 +13,13 @@ import { mainAgentLifecycleControlService } from './mainAgentLifecycleControlSer
 import { taskNotificationConsumerService } from './taskNotificationConsumerService'
 import { taskNotificationDispatchBridge } from '../../task/taskNotificationDispatchBridge'
 import { mainAgentTurnService } from './mainAgentTurnService'
+import { taskNotificationService } from '../../task/taskNotificationService'
 
 class MainAgentEntryService {
   constructor() {
     mainAgentDispatchService.configure({
       processEvent: async (event) => {
-        await this.processEvent(event)
+        return this.processEvent(event)
       }
     })
     taskNotificationDispatchBridge.configure({
@@ -43,7 +44,7 @@ class MainAgentEntryService {
     await mainAgentDispatchService.enqueueTaskNotification(input)
   }
 
-  private async processEvent(event: MainAgentEvent): Promise<void> {
+  private async processEvent(event: MainAgentEvent): Promise<MainAgentEventConsumptionResult> {
     const result = await processMainAgentEvent(event, {
       createChatTurn: async ({ eventId, sessionId, userMessageId }) => {
         const turn = await mainAgentTurnService.createUserMessageTurn({
@@ -68,6 +69,14 @@ class MainAgentEntryService {
       logUserMessageError: (error) => logError('Error in stream:', error)
     })
     await mainAgentEffectApplierService.apply(result)
+    if (event.type === 'task_notification') {
+      await taskNotificationService.completeMainAgentConsumption(
+        event.payload.taskId,
+        event.payload.notificationId,
+        event.id
+      )
+    }
+    return result
   }
 
   private async consumeTaskNotificationEvent(

@@ -53,6 +53,7 @@ class MainAgentEffectApplierService {
           actor: effect.actor,
           stage: effect.stage,
           message: effect.message,
+          dedupeKey: effect.dedupeKey,
           payload: {
             ...(effect.payload ?? {}),
             mainAgentEvent: {

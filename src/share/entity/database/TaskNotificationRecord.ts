@@ -27,11 +27,17 @@ export class TaskNotificationRecord {
   @Column({ type: 'text', nullable: false, default: 'pending' })
   status!: TaskNotificationStatus
 
+  @Column({ type: 'text', nullable: true })
+  mainAgentEventId!: string | null
+
   @Column({ type: 'text', nullable: false, default: '{}' })
   payloadJson!: string
 
   @CreateDateColumn()
   createdAt!: Date
+
+  @Column({ type: 'datetime', nullable: true })
+  processingStartedAt!: Date | null
 
   @Column({ type: 'datetime', nullable: true })
   consumedAt!: Date | null

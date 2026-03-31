@@ -1,10 +1,15 @@
 import { AppDataSource } from '../../../database'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
+import { Message } from '@share/entity/database/Message'
 import { chatMessageService } from '../chat/chatMessageService'
 import {
   memoryManager,
   type MemoryCheckpoint
 } from '../agentrsystem/manager/memory/MemoryManager'
+import {
+  REVERTIBLE_MAIN_AGENT_TURN_STATUSES,
+  type MainAgentTurnSnapshot
+} from '@share/cache/AItype/states/mainAgentTurnState'
 
 type SerializedMemoryCheckpoint = {
   state?: MemoryCheckpoint['state']
@@ -40,9 +45,31 @@ const parseCheckpoint = (raw: string): MemoryCheckpoint | null => {
   }
 }
 
+const toPreview = (input: string): string | undefined => {
+  const normalized = input.replace(/\s+/g, ' ').trim()
+  if (!normalized) {
+    return undefined
+  }
+  return normalized.length > 88 ? `${normalized.slice(0, 88)}...` : normalized
+}
+
 class MainAgentTurnService {
   private get repo() {
     return AppDataSource.getRepository(MainAgentTurnRecord)
+  }
+
+  private get messageRepo() {
+    return AppDataSource.getRepository(Message)
+  }
+
+  private getLatestVisibleAnchorMessageId(turn: MainAgentTurnRecord): number | null {
+    if (typeof turn.aiMessageId === 'number' && turn.aiMessageId > 0) {
+      return turn.aiMessageId
+    }
+    if (typeof turn.userMessageId === 'number' && turn.userMessageId > 0) {
+      return turn.userMessageId
+    }
+    return null
   }
 
   async createUserMessageTurn(input: {
@@ -74,6 +101,10 @@ class MainAgentTurnService {
     const saved = await this.repo.save(turn)
     await chatMessageService.attachMessageToTurn(input.userMessageId, saved.id)
     return saved
+  }
+
+  async findByEventId(eventId: string): Promise<MainAgentTurnRecord | null> {
+    return this.repo.findOneBy({ eventId })
   }
 
   async markProcessing(turnId: number): Promise<void> {
@@ -117,9 +148,84 @@ class MainAgentTurnService {
     await this.repo.save(turn)
   }
 
+  async reconcileIncompleteTurnForFailedEvent(input: {
+    eventId: string
+    errorMessage: string
+  }): Promise<void> {
+    const turn = await this.repo.findOneBy({ eventId: input.eventId })
+    if (!turn) {
+      return
+    }
+
+    if (
+      turn.status === 'completed' ||
+      turn.status === 'interrupted' ||
+      turn.status === 'reverted' ||
+      turn.status === 'failed'
+    ) {
+      return
+    }
+
+    const checkpoint = parseCheckpoint(turn.memoryCheckpointJson)
+    if (checkpoint) {
+      await memoryManager.restoreCheckpoint(checkpoint)
+    }
+
+    await chatMessageService.markMessagesRevertedByEvent(input.eventId, 'ai')
+    await this.markFailed(turn.id, input.errorMessage)
+  }
+
+  async listRecentTurns(limit = 8): Promise<MainAgentTurnSnapshot[]> {
+    const turns = await this.repo.find({
+      order: { createdAt: 'DESC', id: 'DESC' },
+      take: limit
+    })
+
+    if (turns.length === 0) {
+      return []
+    }
+
+    const messageIds = turns.flatMap((turn) =>
+      [turn.userMessageId, turn.aiMessageId].filter(
+        (id): id is number => typeof id === 'number' && id > 0
+      )
+    )
+    const messages = messageIds.length
+      ? await this.messageRepo.find({
+          where: [...new Set(messageIds)].map((id) => ({ id }))
+        })
+      : []
+    const messageMap = new Map(messages.map((message) => [message.id, message]))
+
+    return turns.map((turn) => ({
+      id: turn.id,
+      eventId: turn.eventId,
+      sessionId: turn.sessionId,
+      consumer: turn.consumer,
+      status: turn.status,
+      reversible: turn.reversible === 1,
+      userMessageId: turn.userMessageId ?? undefined,
+      aiMessageId: turn.aiMessageId ?? undefined,
+      userPreview:
+        typeof turn.userMessageId === 'number'
+          ? toPreview(messageMap.get(turn.userMessageId)?.content ?? '')
+          : undefined,
+      aiPreview:
+        typeof turn.aiMessageId === 'number'
+          ? toPreview(messageMap.get(turn.aiMessageId)?.content ?? '')
+          : undefined,
+      createdAt: turn.createdAt.toISOString(),
+      startedAt: turn.startedAt?.toISOString(),
+      completedAt: turn.completedAt?.toISOString(),
+      interruptedAt: turn.interruptedAt?.toISOString(),
+      revertedAt: turn.revertedAt?.toISOString(),
+      errorMessage: turn.errorMessage || undefined
+    }))
+  }
+
   async revertLastRevertibleTurn(): Promise<RevertLastTurnResult> {
     const turns = await this.repo.find({
-      where: [{ status: 'completed' }, { status: 'interrupted' }],
+      where: REVERTIBLE_MAIN_AGENT_TURN_STATUSES.map((status) => ({ status })),
       order: { createdAt: 'DESC', id: 'DESC' },
       take: 1
     })
@@ -131,7 +237,8 @@ class MainAgentTurnService {
       }
     }
 
-    if (!turn.userMessageId || !turn.aiMessageId) {
+    const anchorMessageId = this.getLatestVisibleAnchorMessageId(turn)
+    if (!anchorMessageId) {
       return {
         ok: false,
         message: '最后一轮聊天缺少完整消息记录，暂时无法撤回。'
@@ -139,7 +246,7 @@ class MainAgentTurnService {
     }
 
     const latestVisibleMessage = await chatMessageService.getLatestVisibleMessage()
-    if (!latestVisibleMessage || latestVisibleMessage.id !== turn.aiMessageId) {
+    if (!latestVisibleMessage || latestVisibleMessage.id !== anchorMessageId) {
       return {
         ok: false,
         message: '最后一轮聊天之后已经出现了更新的消息，当前只允许撤回最末一轮回复。'
@@ -155,7 +262,11 @@ class MainAgentTurnService {
     }
 
     await memoryManager.restoreCheckpoint(checkpoint)
-    await chatMessageService.markMessagesReverted([turn.userMessageId, turn.aiMessageId])
+    await chatMessageService.markMessagesReverted(
+      [turn.userMessageId, turn.aiMessageId].filter(
+        (id): id is number => typeof id === 'number' && id > 0
+      )
+    )
 
     turn.status = 'reverted'
     turn.revertedAt = new Date()

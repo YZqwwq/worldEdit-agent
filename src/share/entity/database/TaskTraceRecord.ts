@@ -24,6 +24,9 @@ export class TaskTraceRecord {
   @Column({ type: 'text', nullable: false, default: '' })
   message!: string
 
+  @Column({ type: 'text', nullable: true })
+  dedupeKey!: string | null
+
   @Column({ type: 'text', nullable: false, default: '{}' })
   payloadJson!: string
 

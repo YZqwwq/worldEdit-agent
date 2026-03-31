@@ -13,6 +13,7 @@ import { taskExecutionService } from './taskExecutionService'
 import { mapTaskExecutionInspection } from './taskExecutionInspectionMapper'
 import { taskTraceService } from './taskTraceService'
 import { mainAgentDispatchService } from '../middlelayer/event-in-wait/mainAgentDispatchService'
+import { mainAgentTurnService } from '../aiservice/runtime/mainAgentTurnService'
 
 type CreateTaskInput = {
   title: string
@@ -96,13 +97,15 @@ class TaskService {
   }
 
   async getTaskMonitorSnapshot(): Promise<TaskMonitorSnapshot> {
+    const recentTurns = await mainAgentTurnService.listRecentTurns()
     const activeTask = await this.getActiveTask()
     if (!activeTask) {
       return {
         activeTask: undefined,
         executions: [],
         traces: [],
-        dispatch: mainAgentDispatchService.getSnapshot()
+        dispatch: mainAgentDispatchService.getSnapshot(),
+        recentTurns
       }
     }
 
@@ -112,7 +115,8 @@ class TaskService {
       activeTask: toSnapshot(activeTask),
       executions: runs.map((run) => toExecutionSnapshot(run)),
       traces,
-      dispatch: mainAgentDispatchService.getSnapshot()
+      dispatch: mainAgentDispatchService.getSnapshot(),
+      recentTurns
     }
   }
 

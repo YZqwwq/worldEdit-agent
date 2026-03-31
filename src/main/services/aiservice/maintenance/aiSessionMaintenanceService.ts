@@ -5,6 +5,7 @@ import { TaskNotificationRecord } from '@share/entity/database/TaskNotificationR
 import { TaskRecord } from '@share/entity/database/TaskRecord'
 import { TaskTraceRecord } from '@share/entity/database/TaskTraceRecord'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
+import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { memoryManager } from '../agentrsystem/manager/memory/MemoryManager'
 import { resetPersonaState } from '../agentrsystem/manager/personal/personalManager'
 import { chatMessageService } from '../chat/chatMessageService'
@@ -13,8 +14,10 @@ import { mainAgentRunControlService } from '../runtime/mainAgentRunControlServic
 
 class AiSessionMaintenanceService {
   async clearHistory(): Promise<void> {
+    mainAgentDispatchService.reset()
     mainAgentRunControlService.reset()
     await chatMessageService.clearAll()
+    await AppDataSource.getRepository(MainAgentEventRecord).clear()
     await AppDataSource.getRepository(MainAgentTurnRecord).clear()
     await memoryManager.resetStorage()
   }
@@ -25,6 +28,7 @@ class AiSessionMaintenanceService {
       await manager.getRepository(TaskNotificationRecord).clear()
       await manager.getRepository(TaskExecutionRecord).clear()
       await manager.getRepository(TaskRecord).clear()
+      await manager.getRepository(MainAgentEventRecord).clear()
       await manager.getRepository(MainAgentTurnRecord).clear()
       await manager.getRepository(Message).clear()
     })

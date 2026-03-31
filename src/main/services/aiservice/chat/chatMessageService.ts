@@ -1,5 +1,9 @@
 import { AppDataSource } from '../../../database'
 import { Message } from '@share/entity/database/Message'
+import {
+  VISIBLE_MAIN_AGENT_MESSAGE_STATUSES,
+  type MainAgentMessageStatus
+} from '@share/cache/AItype/states/mainAgentTurnState'
 
 class ChatMessageService {
   private get repo() {
@@ -12,20 +16,35 @@ class ChatMessageService {
     options?: {
       sessionId?: string
       turnId?: number | null
-      status?: Message['status']
+      status?: MainAgentMessageStatus
       eventId?: string | null
       consumer?: string | null
     }
   ): Promise<Message | null> {
     try {
-      const message = new Message()
+      const eventId = options?.eventId?.trim() || null
+      const consumer = options?.consumer?.trim() || null
+      const sessionId = options?.sessionId?.trim() || 'default'
+      const existing =
+        eventId && role === 'ai'
+          ? await this.repo.findOne({
+              where: {
+                eventId,
+                role,
+                ...(consumer ? { consumer } : {})
+              },
+              order: { id: 'DESC' }
+            })
+          : null
+
+      const message = existing ?? new Message()
       message.role = role
       message.content = content
-      message.sessionId = options?.sessionId?.trim() || 'default'
-      message.turnId = options?.turnId ?? null
+      message.sessionId = sessionId
+      message.turnId = options?.turnId ?? message.turnId ?? null
       message.status = options?.status ?? 'committed'
-      message.eventId = options?.eventId?.trim() || null
-      message.consumer = options?.consumer?.trim() || null
+      message.eventId = eventId
+      message.consumer = consumer
       return await this.repo.save(message)
     } catch (error) {
       console.error('Failed to save message:', error)
@@ -36,10 +55,7 @@ class ChatMessageService {
   async getRecentHistory(limit = 50): Promise<Message[]> {
     try {
       const messages = await this.repo.find({
-        where: [
-          { status: 'committed' },
-          { status: 'interrupted' }
-        ],
+        where: VISIBLE_MAIN_AGENT_MESSAGE_STATUSES.map((status) => ({ status })),
         order: {
           createdAt: 'DESC',
           id: 'DESC'
@@ -72,6 +88,29 @@ class ChatMessageService {
     }
   }
 
+  async attachMessageEventMetadata(
+    messageId: number,
+    input: {
+      eventId: string
+      consumer?: string | null
+    }
+  ): Promise<Message | null> {
+    try {
+      const message = await this.repo.findOneBy({ id: messageId })
+      if (!message) {
+        return null
+      }
+      message.eventId = input.eventId.trim()
+      if (typeof input.consumer === 'string') {
+        message.consumer = input.consumer.trim() || null
+      }
+      return await this.repo.save(message)
+    } catch (error) {
+      console.error('Failed to attach event metadata to message:', error)
+      return null
+    }
+  }
+
   async markMessagesReverted(messageIds: number[]): Promise<void> {
     if (messageIds.length === 0) {
       return
@@ -87,9 +126,29 @@ class ChatMessageService {
     await this.repo.save(messages)
   }
 
+  async markMessagesRevertedByEvent(eventId: string, role?: 'user' | 'ai'): Promise<void> {
+    const trimmed = eventId.trim()
+    if (!trimmed) {
+      return
+    }
+
+    const messages = await this.repo.find({
+      where: role
+        ? { eventId: trimmed, role }
+        : { eventId: trimmed }
+    })
+    if (messages.length === 0) {
+      return
+    }
+    for (const message of messages) {
+      message.status = 'reverted'
+    }
+    await this.repo.save(messages)
+  }
+
   async getLatestVisibleMessage(): Promise<Message | null> {
     const rows = await this.repo.find({
-      where: [{ status: 'committed' }, { status: 'interrupted' }],
+      where: VISIBLE_MAIN_AGENT_MESSAGE_STATUSES.map((status) => ({ status })),
       order: {
         createdAt: 'DESC',
         id: 'DESC'

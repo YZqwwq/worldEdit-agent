@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm'
+import type { MainAgentMessageStatus } from '@share/cache/AItype/states/mainAgentTurnState'
 
 @Entity('message')
 export class Message {
@@ -44,7 +45,7 @@ export class Message {
     type: 'text',
     default: 'committed'
   })
-  status!: 'draft' | 'committed' | 'interrupted' | 'reverted'
+  status!: MainAgentMessageStatus
 
   @Column({
     type: 'text',

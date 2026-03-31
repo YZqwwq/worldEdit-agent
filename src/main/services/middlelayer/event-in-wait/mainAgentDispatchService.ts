@@ -1,14 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import type {
   MainAgentEvent,
+  MainAgentEventConsumptionResult,
   MainAgentDispatchState,
   MainAgentTaskNotificationPayload,
   MainAgentUserMessagePayload,
   TaskDispatchSnapshot
 } from '@share/cache/AItype/states/taskLifecycleState'
+import { mainAgentEventLogService } from '../../aiservice/runtime/mainAgentEventLogService'
+import { chatMessageService } from '../../aiservice/chat/chatMessageService'
 
 type DispatchHandlers = {
-  processEvent?: (event: MainAgentEvent) => Promise<void>
+  processEvent?: (event: MainAgentEvent) => Promise<MainAgentEventConsumptionResult>
 }
 
 type QueueEntry = {
@@ -23,6 +26,7 @@ const MAX_CONSECUTIVE_USER_EVENTS = 3
 
 class MainAgentDispatchService {
   private readonly queue: QueueEntry[] = []
+  private readonly queuedEventIds = new Set<string>()
   private readonly queuedTaskNotificationIds = new Set<number>()
   private processing = false
   private currentEvent: MainAgentEvent | null = null
@@ -72,14 +76,25 @@ class MainAgentDispatchService {
   }
 
   async enqueueUserMessage(input: MainAgentUserMessagePayload): Promise<void> {
-    return this.enqueueEvent({
+    const event = await mainAgentEventLogService.createUserMessageEvent({
       id: createId(),
-      type: 'user_message',
-      source: 'user',
       sessionId: DEFAULT_SESSION_ID,
       priority: 'interactive',
       createdAt: Date.now(),
-      payload: input
+      payload: {
+        messageId: input.messageId,
+        text: input.text
+      }
+    })
+    await chatMessageService.attachMessageEventMetadata(input.messageId, {
+      eventId: event.id
+    })
+    return this.enqueueLoadedEvent({
+      ...event,
+      payload: {
+        ...event.payload,
+        onChunk: input.onChunk
+      }
     })
   }
 
@@ -88,19 +103,30 @@ class MainAgentDispatchService {
       return
     }
 
-    return this.enqueueEvent(
-      {
+    const dedupeKey = `task_notification:${input.notificationId}`
+    const existing = await mainAgentEventLogService.getActiveTaskNotificationEventByDedupeKey(dedupeKey)
+    if (existing) {
+      return this.enqueueLoadedEvent(existing, {
+        dedupeTaskNotificationId: input.notificationId
+      })
+    }
+
+    const event = await mainAgentEventLogService.createTaskNotificationEvent({
       id: createId(),
-      type: 'task_notification',
-      source: 'task_queue',
       sessionId: DEFAULT_SESSION_ID,
       priority: 'background',
       createdAt: Date.now(),
-      dedupeKey: `task_notification:${input.notificationId}`,
+      dedupeKey,
       payload: input
-      },
-      { dedupeTaskNotificationId: input.notificationId }
-    )
+    })
+
+    return this.enqueueLoadedEvent(event, {
+      dedupeTaskNotificationId: input.notificationId
+    })
+  }
+
+  async enqueueRecoveredEvent(event: MainAgentEvent): Promise<void> {
+    return this.enqueueLoadedEvent(event)
   }
 
   reset(): void {
@@ -108,17 +134,23 @@ class MainAgentDispatchService {
       const entry = this.queue.shift()
       entry?.reject(new Error('Main agent dispatch queue has been reset.'))
     }
+    this.queuedEventIds.clear()
     this.queuedTaskNotificationIds.clear()
     this.processing = false
     this.currentEvent = null
     this.consecutiveUserEventsProcessed = 0
   }
 
-  private async enqueueEvent(
+  private async enqueueLoadedEvent(
     event: MainAgentEvent,
     options?: { dedupeTaskNotificationId?: number }
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
+      if (this.queuedEventIds.has(event.id)) {
+        resolve()
+        return
+      }
+      this.queuedEventIds.add(event.id)
       if (typeof options?.dedupeTaskNotificationId === 'number') {
         this.queuedTaskNotificationIds.add(options.dedupeTaskNotificationId)
       }
@@ -167,12 +199,21 @@ class MainAgentDispatchService {
 
         try {
           this.currentEvent = entry.event
-          await this.processEvent(entry.event)
+          await mainAgentEventLogService.markProcessing(entry.event.id)
+          const result = await this.processEvent(entry.event)
+          await mainAgentEventLogService.markCompleted(entry.event.id, {
+            consumer: result.consumer,
+            summary: result.summary
+          })
           this.trackProcessedEvent(entry.event)
           entry.resolve()
         } catch (error) {
+          await mainAgentEventLogService.markFailed(entry.event.id, {
+            errorMessage: error instanceof Error ? error.message : String(error)
+          })
           entry.reject(error)
         } finally {
+          this.queuedEventIds.delete(entry.event.id)
           if (entry.event.source === 'task_queue') {
             this.queuedTaskNotificationIds.delete(entry.event.payload.notificationId)
           }
@@ -202,11 +243,11 @@ class MainAgentDispatchService {
     return `任务 #${event.payload.taskId} / 通知 #${event.payload.notificationId}`
   }
 
-  private async processEvent(event: MainAgentEvent): Promise<void> {
+  private async processEvent(event: MainAgentEvent): Promise<MainAgentEventConsumptionResult> {
     if (!this.handlers.processEvent) {
       throw new Error('MainAgentDispatchService is missing processEvent handler.')
     }
-    await this.handlers.processEvent(event)
+    return this.handlers.processEvent(event)
   }
 }
 

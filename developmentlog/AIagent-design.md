@@ -226,6 +226,194 @@
 
 ---
 
+## Turn 语义
+
+当前系统已经正式引入 `turn` 作为普通聊天轮的控制单元。
+
+### 1. turn 是什么
+
+`turn` 表示：
+
+`主 agent 对一条用户输入所形成的一次可追踪、可终止、可回退的普通聊天处理单元`
+
+它不是：
+
+- 主队列 event 本身
+- task
+- execution
+- 单条 message
+
+当前 `turn` 只服务于：
+
+- `user_message -> chat_runtime`
+
+也就是说，只有真正进入主图推理路径的普通聊天，才会创建 turn。
+
+### 2. 哪些路径不创建 turn
+
+以下路径当前不创建可回退 turn：
+
+- `lifecycle_control` 直接处理的控制消息
+  - 例如取消任务
+  - 确认结束任务
+  - 用户补参续跑子 agent
+- `task_notification_consumer` 处理后的任务通知消息
+
+这些消息仍然会显示在聊天列表中，但它们属于：
+
+`系统控制消息`
+
+而不是：
+
+`普通聊天 turn`
+
+### 3. turn 的核心组成
+
+一个 turn 至少包含：
+
+- `turnId`
+- `eventId`
+- `sessionId`
+- `consumer=chat_runtime`
+- `status`
+- `userMessageId`
+- `aiMessageId`
+- `memoryCheckpointBeforeTurn`
+- `startedAt`
+- `completedAt / interruptedAt / revertedAt`
+
+其中最关键的约束是：
+
+1. 一个 turn 必须绑定一条 user message
+2. 一个 turn 最多绑定一条本轮 AI message
+3. turn 开始前必须保存一份 memory checkpoint
+
+### 4. turn 状态
+
+当前 turn 状态固定为：
+
+- `queued`
+- `processing`
+- `completed`
+- `interrupted`
+- `failed`
+- `reverted`
+
+语义如下：
+
+- `queued`
+  - turn 已创建，但主图尚未开始执行
+- `processing`
+  - 主图正在运行，可能正在流式输出
+- `completed`
+  - 正常完成，形成最终 AI 回复
+- `interrupted`
+  - 用户主动中断本轮响应，但本轮已经结束
+- `failed`
+  - 运行异常结束，且没有形成可提交结果
+- `reverted`
+  - 该 turn 已被撤回，不再参与默认消息历史与后续上下文
+
+允许的状态迁移为：
+
+- `queued -> processing`
+- `processing -> completed`
+- `processing -> interrupted`
+- `processing -> failed`
+- `completed -> reverted`
+- `interrupted -> reverted`
+
+### 5. 暂停语义
+
+当前系统中的“暂停”正式定义为：
+
+`中断当前主 agent 响应`
+
+它不是：
+
+- 原地挂起
+- 保留运行现场后续跑
+- 从上次 token 位置继续生成
+
+因此：
+
+`interrupted 是终态，不是中间态`
+
+### 6. interrupted turn 的处理规则
+
+当普通聊天 turn 被中断时：
+
+1. 本轮 turn 结束为 `interrupted`
+2. 如果已经生成了 partial AI 文本：
+   - partial 文本视为本轮最终结果
+   - 会写入消息历史
+   - 会写入 memory
+   - 允许回退
+3. 如果中断发生在首个 AI token 之前：
+   - 不生成 AI message
+   - 用户输入仍视为本轮已结束输入
+   - 该 interrupted turn 仍允许回退
+
+### 7. 回退语义
+
+当前系统只允许：
+
+`回退最后一个 terminal 且 reversible 的 chat_runtime turn`
+
+也就是：
+
+- 最后一个 `completed` turn
+- 或最后一个 `interrupted` turn
+
+当前不允许回退：
+
+- `lifecycle_control` 产生的控制消息
+- `task_notification_consumer` 产生的任务通知消息
+- 非最后一轮的历史 turn
+
+### 8. 回退动作的真实含义
+
+回退不是简单删除最后一条 AI 消息。
+
+回退必须同时完成两件事：
+
+1. 将该 turn 关联的 user / ai message 标记为 `reverted`
+2. 将 memory 恢复到 `memoryCheckpointBeforeTurn`
+
+因此回退的真实语义是：
+
+`撤销整轮普通聊天对系统上下文造成的影响`
+
+### 9. turn 与 message 的关系
+
+当前约定如下：
+
+- `message` 是 UI 展示与历史持久化单元
+- `turn` 是普通聊天轮的运行控制与回退单元
+
+因此：
+
+- 一个 turn 必须绑定一条 user message
+- 一个 turn 最多绑定一条 AI message
+- 一个 message 可以不属于任何 turn
+- 被标记为 `reverted` 的 message 不参与默认历史查询
+
+### 10. turn 与 event / task 的关系
+
+当前约定如下：
+
+- `event` 是主队列的调度输入单元
+- `turn` 是普通聊天事件在执行层形成的聊天轮单元
+- 不是每个 event 都有 turn
+- task / execution / notification 不属于 turn 体系
+
+一句话：
+
+`队列负责调度`
+`turn 负责普通聊天轮的终态、回退与上下文一致性`
+
+---
+
 ## 子 agent 架构
 
 ### 子 agent 的角色

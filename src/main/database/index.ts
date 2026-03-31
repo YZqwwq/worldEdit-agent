@@ -11,6 +11,7 @@ import { TaskExecutionRecord } from '../../share/entity/database/TaskExecutionRe
 import { TaskNotificationRecord } from '../../share/entity/database/TaskNotificationRecord'
 import { TaskTraceRecord } from '../../share/entity/database/TaskTraceRecord'
 import { MainAgentTurnRecord } from '../../share/entity/database/MainAgentTurnRecord'
+import { MainAgentEventRecord } from '../../share/entity/database/MainAgentEventRecord'
 import { WorldRecord } from '../../share/entity/database/WorldRecord'
 import { WorldEntityRecord } from '../../share/entity/database/WorldEntityRecord'
 import { WorldEntityComponentRecord } from '../../share/entity/database/WorldEntityComponentRecord'
@@ -35,6 +36,7 @@ export const AppDataSource = new DataSource({
     TaskNotificationRecord,
     TaskTraceRecord,
     MainAgentTurnRecord,
+    MainAgentEventRecord,
     WorldRecord,
     WorldEntityRecord,
     WorldEntityComponentRecord,

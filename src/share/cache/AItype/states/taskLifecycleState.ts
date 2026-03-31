@@ -1,6 +1,11 @@
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type { SubAgentProtocolPayload } from './taskCommunication'
 import type { TaskExecutionInspectionSection } from './taskExecutionInspection'
+import type {
+  MainAgentMessageStatus,
+  MainAgentTurnRuntimeStatus,
+  MainAgentTurnSnapshot
+} from './mainAgentTurnState'
 
 export type TaskStatus =
   | 'active'
@@ -26,7 +31,7 @@ export type TaskNotificationType =
   | 'subagent_needs_input'
   | 'subagent_cancelled'
 
-export type TaskNotificationStatus = 'pending' | 'consumed'
+export type TaskNotificationStatus = 'pending' | 'processing' | 'consumed'
 
 export type TaskTraceActor = 'subagent' | 'main_agent' | 'user' | 'system'
 
@@ -107,6 +112,7 @@ export interface TaskMonitorSnapshot {
   executions: TaskExecutionSnapshot[]
   traces: TaskTraceSnapshot[]
   dispatch: TaskDispatchSnapshot
+  recentTurns: MainAgentTurnSnapshot[]
 }
 
 export interface TaskTraceSnapshot {
@@ -176,7 +182,7 @@ export interface MainAgentSaveMessageEffect extends MainAgentEffectBase {
   role: 'user' | 'ai'
   content: string
   turnId?: number
-  messageStatus?: 'draft' | 'committed' | 'interrupted' | 'reverted'
+  messageStatus?: MainAgentMessageStatus
   eventIdRef?: string
   consumer?: string
 }
@@ -184,7 +190,7 @@ export interface MainAgentSaveMessageEffect extends MainAgentEffectBase {
 export interface MainAgentUpdateChatTurnEffect extends MainAgentEffectBase {
   type: 'update_chat_turn'
   turnId: number
-  status: 'processing' | 'completed' | 'interrupted' | 'failed'
+  status: MainAgentTurnRuntimeStatus
   errorMessage?: string
 }
 
@@ -203,6 +209,7 @@ export interface MainAgentEmitTraceEffect extends MainAgentEffectBase {
   actor: TaskTraceActor
   stage: TaskTraceStage
   message: string
+  dedupeKey?: string
   payload?: Record<string, unknown>
 }
 

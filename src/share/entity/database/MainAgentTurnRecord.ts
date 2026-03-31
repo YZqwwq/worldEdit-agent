@@ -1,12 +1,8 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm'
-
-export type MainAgentTurnStatus =
-  | 'queued'
-  | 'processing'
-  | 'completed'
-  | 'interrupted'
-  | 'failed'
-  | 'reverted'
+import type {
+  MainAgentTurnConsumer,
+  MainAgentTurnStatus
+} from '@share/cache/AItype/states/mainAgentTurnState'
 
 @Entity('main_agent_turn')
 export class MainAgentTurnRecord {
@@ -29,7 +25,7 @@ export class MainAgentTurnRecord {
     type: 'text',
     default: 'chat_runtime'
   })
-  consumer!: string
+  consumer!: MainAgentTurnConsumer
 
   @Column({
     type: 'text',

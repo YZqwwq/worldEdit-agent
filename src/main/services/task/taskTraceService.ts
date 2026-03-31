@@ -12,6 +12,7 @@ type EmitTaskTraceInput = {
   actor: TaskTraceActor
   stage: TaskTraceStage
   message: string
+  dedupeKey?: string
   payload?: Record<string, unknown>
 }
 
@@ -31,12 +32,24 @@ class TaskTraceService {
   }
 
   async emit(input: EmitTaskTraceInput): Promise<TaskTraceRecord> {
+    const dedupeKey = input.dedupeKey?.trim()
+    if (dedupeKey) {
+      const existing = await this.repo.findOne({
+        where: { dedupeKey },
+        order: { id: 'DESC' }
+      })
+      if (existing) {
+        return existing
+      }
+    }
+
     const trace = this.repo.create({
       taskId: input.taskId,
       executionId: input.executionId ?? null,
       actor: input.actor,
       stage: input.stage,
       message: input.message.trim(),
+      dedupeKey: dedupeKey || null,
       payloadJson: JSON.stringify(input.payload ?? {})
     })
     return this.repo.save(trace)
