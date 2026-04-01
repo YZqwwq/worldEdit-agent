@@ -37,8 +37,12 @@ class AIService {
     onChunk?: (chunk: StreamChunk) => void
   ): Promise<void> {
     const savedMessage = await chatMessageService.saveMessage('user', message)
+    if (!savedMessage || typeof savedMessage.id !== 'number' || savedMessage.id <= 0) {
+      throw new Error('User message could not be persisted, so the main-agent event was not enqueued.')
+    }
+
     await mainAgentEntryService.enqueueUserMessage({
-      messageId: savedMessage?.id ?? 0,
+      messageId: savedMessage.id,
       text: message,
       onChunk
     })

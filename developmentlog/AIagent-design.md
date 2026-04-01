@@ -414,6 +414,204 @@
 
 ---
 
+## 恢复链简洁模型
+
+当前系统的恢复链不再按“看到什么状态就猜什么”来判断，而是按固定层次判断。
+
+恢复逻辑只分三层：
+
+### 1. 调度信封层
+
+这一层只有一个对象：
+
+- `MainAgentEventRecord`
+
+它的作用是：
+
+- 记录主队列里到底有哪些 event
+- 记录 event 当前处于 `queued / processing / completed / failed` 的哪一阶段
+- 为启动恢复提供可重放的调度锚点
+
+它不是最终业务真相。
+
+也就是说：
+
+- `event` 用来判断“主 agent 有没有接手、需不需要重放”
+- `event` 不直接决定“这条业务是不是已经真正提交完成”
+
+### 2. 业务 owner 层
+
+真正决定“业务是否已经提交完成”的 owner 只有两个：
+
+1. 普通聊天链：`turn`
+2. 任务通知链：`notification`
+
+具体约定如下：
+
+- `user_message` 的 owner 是 `turn`
+- `task_notification` 的 owner 是 `TaskNotificationRecord`
+
+因此恢复时永远先问：
+
+`这条链对应的 owner 已经提交了吗？`
+
+而不是先去猜：
+
+- message 写没写
+- memory 有没有同步
+- trace 有没有出现
+
+### 3. 副作用层
+
+以下对象属于副作用层：
+
+- `message`
+- `memory`
+- `trace`
+
+它们的职责是：
+
+- 展示用户可见结果
+- 提供上下文记忆
+- 提供调试与审计轨迹
+
+它们很重要，但它们不主导恢复判定。
+
+恢复时的原则是：
+
+- 先依据 owner 判断是否已经提交
+- 再决定是否补记、回滚或重放副作用
+
+### 4. user_message 提交链
+
+`user_message` 的恢复 owner 是 `turn`。
+
+开始处理的判定点：
+
+- `MainAgentEventRecord.status: queued -> processing`
+- 对应 `turn.status: queued -> processing`
+
+真正提交完成的判定点：
+
+- `turn.status -> completed`
+- 或 `turn.status -> interrupted`
+
+一旦 turn 已进入以上终态，就表示这轮普通聊天已经提交完成。
+
+此时即使 event log 还没来得及写 `completed`，启动恢复时也只需要：
+
+- 补记 event 完成
+
+而不应该重放本轮聊天。
+
+如果启动时发现：
+
+- event 仍是 `processing`
+- 但 turn 还没有进入 `completed / interrupted / reverted / failed`
+
+则说明该轮普通聊天在提交前中断。
+
+当前恢复策略是：
+
+1. 恢复 `memoryCheckpointBeforeTurn`
+2. 回退该 event 关联的 AI message
+3. 将 turn 标记为 `failed`
+4. 将 event 标记为 `failed`
+
+因此：
+
+`user_message` 当前采用的是“未提交则补偿失败”，而不是自动重放聊天生成
+
+### 5. task_notification 提交链
+
+`task_notification` 的恢复 owner 是 `TaskNotificationRecord`。
+
+开始处理的判定点：
+
+- `TaskNotificationRecord.status: pending -> processing`
+- 同时绑定 `mainAgentEventId`
+
+真正提交完成的判定点：
+
+- 主 agent 已完成 decision 与 effect apply
+- `TaskNotificationRecord.status: processing -> consumed`
+
+一旦 notification 已进入 `consumed`，就表示这条任务通知已经完成主控提交。
+
+此时即使 event log 还停留在 `processing`，启动恢复时也只需要：
+
+- 补记 event 完成
+
+而不应该再次重放通知消费。
+
+如果启动时发现：
+
+- notification 仍为 `processing`
+- 且 `mainAgentEventId` 与 event 一致
+
+则说明这条通知已被主 agent 接手，但尚未提交完成。
+
+当前恢复策略是：
+
+1. 将对应 event 重新置回 `queued`
+2. 将同一个 event 重新送回主队列
+3. 依赖 message 幂等与 trace 轻量幂等避免重复输出
+
+如果启动时发现：
+
+- notification 为 `processing`
+- 但 `mainAgentEventId` 已丢失或与 event 不一致
+
+则说明通知 owner 已失去可靠锚点。
+
+当前恢复策略是：
+
+1. 将 notification 重置为 `pending`
+2. 由正常 pending-notification 恢复链重新桥接回主队列
+
+因此：
+
+`task_notification` 当前采用的是“未提交则重放”，而不是直接判失败
+
+### 6. 启动恢复顺序
+
+当前启动恢复按以下固定顺序执行：
+
+1. 恢复被中断的 execution
+2. 重新排入 `queued` execution
+3. 对 `processing user_message event` 做 owner 判定与补偿
+4. 对 `queued / processing / failed task_notification event` 做 owner 判定与重放整理
+5. 重新排入 `queued user_message event`
+6. 重新桥接所有 `pending notification`
+
+这条顺序的目的只有一个：
+
+`先修 owner 状态，再恢复调度入口`
+
+避免把脏状态直接重新送回主队列。
+
+### 7. 恢复链的统一判断规则
+
+当前系统对恢复链统一采用以下判断：
+
+1. 先看调度信封是否停在 `processing`
+2. 再看对应 owner 是否已经提交
+3. owner 已提交：
+   - 不重放业务
+   - 只补记 event 完成
+4. owner 未提交：
+   - 按该链的补偿规则回滚或重放
+
+一句话总结：
+
+`event 负责调度锚点`
+`turn / notification 负责提交真相`
+`message / memory / trace 负责副作用`
+
+这就是当前恢复链的简洁模型。
+
+---
+
 ## 子 agent 架构
 
 ### 子 agent 的角色
