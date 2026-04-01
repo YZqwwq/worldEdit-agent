@@ -1,5 +1,6 @@
 import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
 import { tools } from '../aiservice/agentrsystem/modelwithtool/tool'
+import { subAgentRegistry } from './subAgentRegistry'
 
 type CapabilityInfo = {
   executorKind: TaskExecutorKind
@@ -8,19 +9,10 @@ type CapabilityInfo = {
   message: string
 }
 
-const EXECUTOR_TOOL_MAP: Record<TaskExecutorKind, string> = {
-  general_task_worker: 'delegate_general_task',
-  code_worker: 'delegate_code_worker',
-  doc_worker: 'delegate_doc_worker',
-  character_editor: 'delegate_character_editor',
-  tool_builder: 'delegate_tool_builder',
-  architecture_analyst: 'delegate_architecture_analyst',
-  general_research: 'delegate_general_research'
-}
-
 class SubAgentCapabilityService {
   getCapability(executorKind: TaskExecutorKind): CapabilityInfo {
-    const requiredToolName = EXECUTOR_TOOL_MAP[executorKind]
+    const entry = subAgentRegistry[executorKind]
+    const requiredToolName = entry.delegateToolName
     const available = Boolean(tools[requiredToolName])
 
     return {

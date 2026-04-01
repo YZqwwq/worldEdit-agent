@@ -139,6 +139,9 @@
 拆分任务：
 
 - [ ] 建立 executor registry
+- [x] 建立主 agent 工具注册清单
+- [x] 建立 child-agent 工具注册清单
+- [x] 建立 executor -> delegate tool 的统一注册清单
 - [ ] 收拢 capability 规则
 - [ ] 收拢 delegate tool 与 dispatcher handler 映射
 - [ ] 收拢 timeout / retry / protocol parser 等 executor 元数据
@@ -156,3 +159,4 @@
 - [x] 将 active task context 升级为 latest active notification 视图
 - [x] 将 subagent protocol details 收紧为 outcome-aware typed details
 - [x] 让 child-agent 原生产出 typed details，并让主 agent 通知消费优先读取 details
+- [x] 建立主 agent / child-agent / subagent 的第一阶段 registry 骨架
