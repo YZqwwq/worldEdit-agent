@@ -188,14 +188,49 @@ export const characterEditorAppliedToolSchema = z.object({
   status: z.enum(['ok', 'error'])
 })
 
+export const characterEditorCompletedDetailsSchema = z.object({
+  kind: z.literal('completed'),
+  changedScopes: z.array(characterEditingScopeSchema).max(8).optional(),
+  appliedTools: z.array(characterEditorAppliedToolSchema).max(20).optional(),
+  internalWarning: z.string().trim().max(1000).optional(),
+  suggestedFollowUp: z.string().trim().max(500).optional()
+})
+
+export const characterEditorNeedsInputDetailsSchema = z.object({
+  kind: z.literal('needs_input'),
+  phase: z.enum(['resolve_world', 'resolve_character', 'apply_edit']).optional(),
+  missingFields: z.array(z.string().trim().min(1).max(120)).max(8).optional(),
+  suggestedPrompt: z.string().trim().max(500).optional(),
+  appliedTools: z.array(characterEditorAppliedToolSchema).max(20).optional()
+})
+
+export const characterEditorFailedDetailsSchema = z.object({
+  kind: z.literal('failed'),
+  errorType: z
+    .enum(['validation', 'not_found', 'tool_error', 'model_error', 'runtime_error', 'unknown'])
+    .optional(),
+  retryable: z.boolean().optional(),
+  internalWarning: z.string().trim().max(1000).optional(),
+  appliedTools: z.array(characterEditorAppliedToolSchema).max(20).optional()
+})
+
+export const characterEditorCancelledDetailsSchema = z.object({
+  kind: z.literal('cancelled'),
+  reason: z.string().trim().max(500).optional()
+})
+
+export const characterEditorDetailsSchema = z.discriminatedUnion('kind', [
+  characterEditorCompletedDetailsSchema,
+  characterEditorNeedsInputDetailsSchema,
+  characterEditorFailedDetailsSchema,
+  characterEditorCancelledDetailsSchema
+])
+
 export const characterEditorHandlerOutputSchema = z.object({
   outcome: z.enum(['completed', 'needs_input', 'failed']),
   summary: z.string().trim().min(1).max(500),
-  userFacingMessage: z.string().trim().min(1).max(3000),
-  changedScopes: z.array(characterEditingScopeSchema).max(8).default([]),
-  appliedTools: z.array(characterEditorAppliedToolSchema).max(20).default([]),
-  internalWarning: z.string().trim().max(1000).optional(),
-  suggestedFollowUp: z.string().trim().max(500).optional(),
+  message: z.string().trim().min(1).max(3000),
+  details: characterEditorDetailsSchema,
   pendingContext: characterEditorPendingContextSchema.optional()
 })
 

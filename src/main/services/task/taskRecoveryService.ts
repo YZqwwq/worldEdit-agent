@@ -45,7 +45,13 @@ class TaskRecoveryService {
             `任务「${task.title}」对应的子 agent 在应用关闭或重启时被中断。` +
             ' 当前不会自动重放该 execution，以避免重复写入；请向用户说明情况，并由主 agent 决定是否重试。',
           errorMessage:
-            `Execution ${run.id} was interrupted before completion and was reconciled during startup.`
+            `Execution ${run.id} was interrupted before completion and was reconciled during startup.`,
+          details: {
+            kind: 'failed',
+            errorType: 'runtime_error',
+            retryable: false,
+            internalWarning: 'execution reconciled during startup recovery'
+          }
         }),
         errorReport: `Execution ${run.id} was interrupted before completion and was reconciled during startup.`
       })

@@ -1,14 +1,13 @@
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
   MainAgentEvent,
-  MainAgentEventConsumptionResult,
   MainAgentTaskNotificationEvent
 } from '@share/cache/AItype/states/taskLifecycleState'
 import { logError } from '../../../../share/utils/error/error'
 import { mainAgentDispatchService } from '../../middlelayer/event-in-wait/mainAgentDispatchService'
 import { mainAgentChatRuntimeService } from './mainAgentChatRuntimeService'
 import { mainAgentEffectApplierService } from './mainAgentEffectApplierService'
-import { processMainAgentEvent } from './mainAgentEventProcessor'
+import { orchestrateMainAgentEvent } from './mainAgentEventOrchestration'
 import { mainAgentLifecycleControlService } from './mainAgentLifecycleControlService'
 import { taskNotificationConsumerService } from './taskNotificationConsumerService'
 import { taskNotificationDispatchBridge } from '../../task/taskNotificationDispatchBridge'
@@ -44,8 +43,8 @@ class MainAgentEntryService {
     await mainAgentDispatchService.enqueueTaskNotification(input)
   }
 
-  private async processEvent(event: MainAgentEvent): Promise<MainAgentEventConsumptionResult> {
-    const result = await processMainAgentEvent(event, {
+  private async processEvent(event: MainAgentEvent) {
+    return orchestrateMainAgentEvent(event, {
       createChatTurn: async ({ eventId, sessionId, userMessageId }) => {
         const turn = await mainAgentTurnService.createUserMessageTurn({
           eventId,
@@ -66,22 +65,20 @@ class MainAgentEntryService {
         ),
       consumeTaskNotification: (taskEvent) =>
         this.consumeTaskNotificationEvent(taskEvent),
+      applyEffects: (result) => mainAgentEffectApplierService.apply(result),
+      completeTaskNotificationConsumption: (taskEvent) =>
+        taskNotificationService.completeMainAgentConsumption(
+          taskEvent.payload.taskId,
+          taskEvent.payload.notificationId,
+          taskEvent.id
+        ).then(() => undefined),
       logUserMessageError: (error) => logError('Error in stream:', error)
     })
-    await mainAgentEffectApplierService.apply(result)
-    if (event.type === 'task_notification') {
-      await taskNotificationService.completeMainAgentConsumption(
-        event.payload.taskId,
-        event.payload.notificationId,
-        event.id
-      )
-    }
-    return result
   }
 
   private async consumeTaskNotificationEvent(
     event: MainAgentTaskNotificationEvent
-  ): Promise<MainAgentEventConsumptionResult> {
+  ) {
     return taskNotificationConsumerService.consume(event)
   }
 }

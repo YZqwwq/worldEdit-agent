@@ -7,6 +7,7 @@ import type {
   MainAgentTaskNotificationEvent,
   MainAgentUserMessageEvent
 } from '@share/cache/AItype/states/taskLifecycleState'
+import { assertMainAgentEventStatusTransition } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
 
 type PersistedUserPayload = {
   messageId: number
@@ -158,6 +159,7 @@ class MainAgentEventLogService {
   async markProcessing(eventId: string): Promise<void> {
     const row = await this.repo.findOneBy({ id: eventId })
     if (!row) return
+    assertMainAgentEventStatusTransition(row.status, 'processing')
     row.status = 'processing'
     row.startedAt = row.startedAt ?? new Date()
     row.finishedAt = null
@@ -167,6 +169,7 @@ class MainAgentEventLogService {
   async markCompleted(eventId: string, input?: CompletionInput): Promise<void> {
     const row = await this.repo.findOneBy({ id: eventId })
     if (!row) return
+    assertMainAgentEventStatusTransition(row.status, 'completed')
     row.status = 'completed'
     row.consumer = input?.consumer ?? row.consumer
     row.summary = input?.summary?.trim() || row.summary
@@ -181,6 +184,7 @@ class MainAgentEventLogService {
   ): Promise<void> {
     const row = await this.repo.findOneBy({ id: eventId })
     if (!row) return
+    assertMainAgentEventStatusTransition(row.status, 'failed')
     row.status = 'failed'
     row.consumer = input.consumer ?? row.consumer
     row.summary = input.summary?.trim() || row.summary
@@ -192,6 +196,7 @@ class MainAgentEventLogService {
   async resetToQueued(eventId: string): Promise<void> {
     const row = await this.repo.findOneBy({ id: eventId })
     if (!row) return
+    assertMainAgentEventStatusTransition(row.status, 'queued')
     row.status = 'queued'
     row.finishedAt = null
     await this.repo.save(row)

@@ -28,7 +28,9 @@ const activeTaskContextNotificationSchema = z.object({
   type: z.string().min(1),
   status: z.string().min(1),
   message: z.string().optional(),
-  createdAt: z.string()
+  createdAt: z.string(),
+  processingStartedAt: z.string().optional(),
+  mainAgentEventId: z.string().optional()
 })
 
 const getActiveTaskContextOutputSchema = z.object({
@@ -51,7 +53,7 @@ const getActiveTaskContextOutputSchema = z.object({
   pendingContext: z.record(z.string(), z.unknown()),
   missingFields: z.array(z.string()),
   recentExecutions: z.array(activeTaskContextExecutionSchema),
-  latestPendingNotification: activeTaskContextNotificationSchema.nullable(),
+  latestActiveNotification: activeTaskContextNotificationSchema.nullable(),
   dispatch: z.object({
     state: z.string(),
     queuedUserCount: z.number().int().min(0),
@@ -89,7 +91,7 @@ const getMissingFields = (pendingContext: Record<string, unknown>): string[] => 
 export const getActiveTaskContextTool = defineAgentTool({
   name: 'get_active_task_context',
   description:
-    'Inspect the current active child-agent task context, including pendingContext, recent executions, pending notification, and dispatch state.',
+    'Inspect the current active child-agent task context, including pendingContext, recent executions, active notification, and dispatch state.',
   inputSchema: getActiveTaskContextInputSchema,
   outputSchema: getActiveTaskContextOutputSchema,
   metadata: {
@@ -104,7 +106,7 @@ export const getActiveTaskContextTool = defineAgentTool({
     ],
     inputSummary: '可选提供 recentExecutionsLimit，用于限制返回多少条最近 execution，默认 4 条。',
     outputSummary:
-      '返回当前 active task、pendingContext、missingFields、recentExecutions、latestPendingNotification、dispatch，以及建议下一步使用的工具。',
+      '返回当前 active task、pendingContext、missingFields、recentExecutions、latestActiveNotification、dispatch，以及建议下一步使用的工具。',
     examples: [
       '在用户补充 world 名之前，先调用本工具确认当前 task 是否真的在等待 worldName。'
     ],
@@ -123,21 +125,21 @@ export const getActiveTaskContextTool = defineAgentTool({
         pendingContext: {},
         missingFields: [],
         recentExecutions: [],
-        latestPendingNotification: null,
+        latestActiveNotification: null,
         dispatch,
         recommendedNextTool: undefined
       })
     }
 
     const limit = input.recentExecutionsLimit ?? 4
-    const [pendingContext, recentRuns, latestPendingNotification] = await Promise.all([
+    const [pendingContext, recentRuns, latestActiveNotification] = await Promise.all([
       taskService.getPendingContext(activeTask.id),
       taskExecutionService.listRunsForTask(activeTask.id, limit),
-      taskNotificationService.getNextPendingNotification(activeTask.id)
+      taskNotificationService.getLatestActiveNotification(activeTask.id)
     ])
 
-    const notificationPayload = latestPendingNotification
-      ? parseSubAgentProtocolPayload(parseJsonObject(latestPendingNotification.payloadJson))
+    const notificationPayload = latestActiveNotification
+      ? parseSubAgentProtocolPayload(parseJsonObject(latestActiveNotification.payloadJson))
       : null
 
     const missingFields = getMissingFields(pendingContext)
@@ -176,14 +178,16 @@ export const getActiveTaskContextTool = defineAgentTool({
         startedAt: run.startedAt?.toISOString(),
         finishedAt: run.finishedAt?.toISOString()
       })),
-      latestPendingNotification: latestPendingNotification
+      latestActiveNotification: latestActiveNotification
         ? {
-            id: latestPendingNotification.id,
-            executionId: latestPendingNotification.executionId,
-            type: latestPendingNotification.type,
-            status: latestPendingNotification.status,
+            id: latestActiveNotification.id,
+            executionId: latestActiveNotification.executionId,
+            type: latestActiveNotification.type,
+            status: latestActiveNotification.status,
             message: notificationPayload?.message || notificationPayload?.summary || undefined,
-            createdAt: latestPendingNotification.createdAt.toISOString()
+            createdAt: latestActiveNotification.createdAt.toISOString(),
+            processingStartedAt: latestActiveNotification.processingStartedAt?.toISOString(),
+            mainAgentEventId: latestActiveNotification.mainAgentEventId || undefined
           }
         : null,
       dispatch,

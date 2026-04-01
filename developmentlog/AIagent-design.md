@@ -1,6 +1,6 @@
 # AI Agent 架构说明
 
-> 状态说明（2026-03-30）
+> 状态说明（2026-04-01）
 >
 > 本文件只描述当前项目已经落地并正在运行的 AI 系统架构，不记录未来规划、差距分析或任务列表。
 
@@ -31,10 +31,11 @@
 `-> Preload / IPC`
 `-> AIService`
 `-> MainAgentEntryService`
+`-> MainAgentEventLogService（event 持久化）`
 `-> MainAgentDispatchService`
-`-> 按 event 类型分流`
-`   - user_message -> lifecycle control / chat runtime`
-`   - task_notification -> task notification consumer`
+`-> MainAgentEventOrchestration`
+`   - user_message -> prepare -> consume -> apply -> commit`
+`   - task_notification -> consume -> apply -> commit`
 `-> MainAgentEffectApplierService`
 `-> message / task / trace / memory 持久化`
 
@@ -70,15 +71,17 @@
 
 - 接收 `user_message`
 - 接收 `task_notification`
+- 持久化 `MainAgentEventRecord`
 - 统一排队
 - 串行消费
-- 将 event 分发给后续处理器
+- 将 event 交给显式 orchestration 表执行
 
 关键对象：
 
 - `MainAgentEntryService`
+- `MainAgentEventLogService`
 - `MainAgentDispatchService`
-- `processMainAgentEvent`
+- `mainAgentEventOrchestration`
 
 ### 4. 生命周期控制层
 
@@ -87,6 +90,8 @@
 - 判断用户消息是不是任务控制语义
 - 处理取消任务、确认结束、补参续跑
 - 为普通聊天路径准备 `taskLifecycle`
+- 用轻量分类模型判断 `none / create_task / continue_task / confirm_close_task`
+- 当分类模型不可用时保守回退为 `none`
 
 关键对象：
 
@@ -168,22 +173,76 @@
 主队列实现：
 
 - `MainAgentDispatchService`
+- `MainAgentEventLogService`
+
+### 主 event 日志
+
+当前主 agent 的 queue event 已持久化为 `MainAgentEventRecord`。
+
+它的职责是：
+
+- 作为主队列调度锚点
+- 记录 `queued / processing / completed / failed`
+- 为启动恢复提供统一入口
+- 为 `task_notification` 提供 dedupeKey 去重基础
+
+一句话：
+
+`队列负责串行消费`
+`event log 负责可恢复调度`
 
 ### 主 agent 内部职责
 
-主 agent 当前内部已经分成四类职责：
+主 agent 当前内部已经分成五类职责：
 
 1. `事件消费`
    由 `MainAgentEntryService -> MainAgentDispatchService` 完成
 
-2. `生命周期控制`
+2. `事件 orchestration`
+   由 `mainAgentEventOrchestration` 完成
+
+3. `生命周期控制`
    由 `MainAgentLifecycleControlService` 完成
 
-3. `推理执行`
+4. `推理执行`
    由 `MainAgentChatRuntimeService -> agentReactSystem` 完成
 
-4. `子任务协调`
+5. `子任务协调`
    由 `taskNotificationConsumerService`、`taskContinuationService`、任务层服务共同完成
+
+### 主 event orchestration
+
+当前主 agent 已不再使用隐式的 `processMainAgentEvent` 过程函数，而是使用显式 orchestration 表。
+
+当前两类 event 的固定执行结构如下：
+
+- `user_message`
+  - `prepare`
+  - `consume`
+  - `apply`
+  - `commit`
+- `task_notification`
+  - `consume`
+  - `apply`
+  - `commit`
+
+语义如下：
+
+- `prepare`
+  - 为执行创建 owner 或准备上下文
+  - 例如创建 chat turn
+- `consume`
+  - 运行真正的业务处理
+  - 例如生命周期控制、主图执行、notification 消费
+- `apply`
+  - 将 effect 落到 message / task / trace / memory
+- `commit`
+  - 提交 owner 终态
+  - 例如完成 task notification consumption
+
+这意味着：
+
+`主 agent 的控制流程已经从“散在 service 调用链里”收敛成了显式执行阶段`
 
 ### 主图
 
@@ -223,6 +282,19 @@
 - 用户可调整的是身份画像，不是系统内部约束
 - 情绪调控和输出规范属于主 agent 内部控制面
 - 文档型 prompt 与运行时 prompt 已分离，开发说明放在 `developmentlog/prompt/...`，真正运行时 prompt 放在 `src/main/services/aiservice/prompt`
+
+### 生命周期分类方式
+
+当前生命周期判断已收敛成：
+
+- 取消任务 / 确认结束 / 等待补参时的直接续跑
+  - 由 `MainAgentLifecycleControlService` 直接处理
+- 其他是否属于 `create_task / continue_task / confirm_close_task / none`
+  - 由 `taskLifecycleIntentResolver` 调用轻量模型分类
+- 轻量模型失败时
+  - 保守回退为 `none`
+
+这意味着当前系统不再维护一套大规模字符规则来做任务分类。
 
 ---
 
@@ -869,9 +941,44 @@
 其中：
 
 - `summary` 表示本轮结果摘要
-- `message` 表示主 agent 可直接使用的用户可见文案候选
+- `message` 表示 executor 提供的补充文案，不再作为主控语义判断依据
 - `pendingContext` 用于续跑
-- `details` 用于 executor-specific 扩展信息
+- `details` 表示唯一正式协议字段，主 agent 通过它理解语义并生成主控通知
+
+### 唯一协议约定
+
+当前主子 agent 已统一到唯一协议：
+
+- 主 agent 只用 `outcome + details` 判断语义
+- 子 agent 必须原生产出与 `outcome` 对应的 typed `details`
+- dispatcher 不再负责把子 agent 私有字段翻译成主协议
+- `message` 与 `errorMessage` 只作为补充文本或兼容兜底，不作为主控语义真源
+
+当前 `details` 的正式语义：
+
+- `completed.details`
+  - `changedScopes`
+  - `appliedTools`
+  - `internalWarning`
+  - `suggestedFollowUp`
+- `needs_input.details`
+  - `phase`
+  - `missingFields`
+  - `suggestedPrompt`
+  - `appliedTools`
+- `failed.details`
+  - `errorType`
+  - `retryable`
+  - `internalWarning`
+  - `appliedTools`
+- `cancelled.details`
+  - `reason`
+
+这意味着：
+
+- 主子 agent 之间的语义沟通以 `details.kind` 为中心
+- 用户可见文案应由主控层基于 typed details 生成
+- `message` 允许存在，但它是“补充文案”，不是“协议字段的替代品”
 
 ---
 

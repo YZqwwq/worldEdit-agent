@@ -37,7 +37,7 @@ const CONFIRM_CLOSE_PATTERNS = [
   /close/i
 ]
 
-const matchesAny = (text: string, patterns: RegExp[]): boolean =>
+const matchesAnyPattern = (text: string, patterns: RegExp[]): boolean =>
   patterns.some((pattern) => pattern.test(text))
 
 const createEffectContext = (event: MainAgentUserMessageEvent) => ({
@@ -121,7 +121,7 @@ class MainAgentLifecycleControlService {
     if (activeTask) {
       await taskService.touchTask(activeTask.id, event.payload.messageId)
 
-      if (matchesAny(text, CANCEL_PATTERNS)) {
+      if (matchesAnyPattern(text, CANCEL_PATTERNS)) {
         const latestRun = await taskExecutionService.getLatestRun(activeTask.id)
         if (latestRun && !['reported_done', 'failed', 'cancelled'].includes(latestRun.status)) {
           await taskExecutionService.setRunStatus(latestRun.id, 'cancelled', {
@@ -153,7 +153,7 @@ class MainAgentLifecycleControlService {
 
       if (
         activeTask.status === 'awaiting_user_confirmation' &&
-        matchesAny(text, CONFIRM_CLOSE_PATTERNS)
+        matchesAnyPattern(text, CONFIRM_CLOSE_PATTERNS)
       ) {
         const latestRun = await taskExecutionService.getLatestRun(activeTask.id)
 

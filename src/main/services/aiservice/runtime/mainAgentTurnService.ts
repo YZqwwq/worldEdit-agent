@@ -10,6 +10,10 @@ import {
   REVERTIBLE_MAIN_AGENT_TURN_STATUSES,
   type MainAgentTurnSnapshot
 } from '@share/cache/AItype/states/mainAgentTurnState'
+import {
+  assertMainAgentTurnStatusTransition,
+  isTerminalMainAgentTurnStatus
+} from '@share/cache/AItype/states/mainAgentOrchestrationRules'
 
 type SerializedMemoryCheckpoint = {
   state?: MemoryCheckpoint['state']
@@ -110,6 +114,7 @@ class MainAgentTurnService {
   async markProcessing(turnId: number): Promise<void> {
     const turn = await this.repo.findOneBy({ id: turnId })
     if (!turn) return
+    assertMainAgentTurnStatusTransition(turn.status, 'processing')
     turn.status = 'processing'
     if (!turn.startedAt) {
       turn.startedAt = new Date()
@@ -127,6 +132,7 @@ class MainAgentTurnService {
   async markCompleted(turnId: number): Promise<void> {
     const turn = await this.repo.findOneBy({ id: turnId })
     if (!turn) return
+    assertMainAgentTurnStatusTransition(turn.status, 'completed')
     turn.status = 'completed'
     turn.completedAt = new Date()
     await this.repo.save(turn)
@@ -135,6 +141,7 @@ class MainAgentTurnService {
   async markInterrupted(turnId: number): Promise<void> {
     const turn = await this.repo.findOneBy({ id: turnId })
     if (!turn) return
+    assertMainAgentTurnStatusTransition(turn.status, 'interrupted')
     turn.status = 'interrupted'
     turn.interruptedAt = new Date()
     await this.repo.save(turn)
@@ -143,6 +150,7 @@ class MainAgentTurnService {
   async markFailed(turnId: number, errorMessage: string): Promise<void> {
     const turn = await this.repo.findOneBy({ id: turnId })
     if (!turn) return
+    assertMainAgentTurnStatusTransition(turn.status, 'failed')
     turn.status = 'failed'
     turn.errorMessage = errorMessage.trim()
     await this.repo.save(turn)
@@ -157,12 +165,7 @@ class MainAgentTurnService {
       return
     }
 
-    if (
-      turn.status === 'completed' ||
-      turn.status === 'interrupted' ||
-      turn.status === 'reverted' ||
-      turn.status === 'failed'
-    ) {
+    if (isTerminalMainAgentTurnStatus(turn.status)) {
       return
     }
 
@@ -268,6 +271,7 @@ class MainAgentTurnService {
       )
     )
 
+    assertMainAgentTurnStatusTransition(turn.status, 'reverted')
     turn.status = 'reverted'
     turn.revertedAt = new Date()
     await this.repo.save(turn)

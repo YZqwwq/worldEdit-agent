@@ -19,6 +19,7 @@ import {
   type AgentToolReceipt
 } from '../ai-utils/core/agentTool'
 import {
+  characterEditorAppliedToolSchema,
   characterEditorHandlerOutputSchema,
   characterEditorDirectionSchema,
   characterEditorPendingContextSchema,
@@ -30,6 +31,7 @@ import { modelConfigService } from '../../modelconfig/modelConfigService'
 
 type CharacterEditorExecutionPayload = z.infer<typeof delegateCharacterEditorTaskPayloadSchema>
 type CharacterEditorHandlerOutput = z.infer<typeof characterEditorHandlerOutputSchema>
+type CharacterEditorAppliedTool = z.infer<typeof characterEditorAppliedToolSchema>
 type CharacterEditorPendingContext = z.infer<typeof characterEditorPendingContextSchema>
 type CharacterEditingScope = z.infer<typeof characterEditingScopeSchema>
 type CharacterEditorDirection = z.infer<typeof characterEditorDirectionSchema>
@@ -45,6 +47,8 @@ type CharacterEditorExecutionRuntime = {
 }
 
 const MAX_TOOL_ROUNDS = 6
+
+type CharacterEditorAppliedTools = CharacterEditorAppliedTool[]
 
 const CharacterEditorState = Annotation.Root({
   payload: Annotation<CharacterEditorExecutionPayload | undefined>({
@@ -171,7 +175,7 @@ const buildPendingContext = (input: {
 
 const buildNeedsInputOutput = (input: {
   summary: string
-  userFacingMessage: string
+  message: string
   changedScopes: CharacterEditingScope[]
   payload: CharacterEditorExecutionPayload
   phase: CharacterEditorPendingContext['phase']
@@ -179,14 +183,24 @@ const buildNeedsInputOutput = (input: {
   targetWorldName?: string
   resolvedWorldId?: string
   resolvedEntityId?: string
-  appliedTools?: CharacterEditorHandlerOutput['appliedTools']
+  appliedTools?: CharacterEditorAppliedTools
 }): CharacterEditorHandlerOutput =>
   characterEditorHandlerOutputSchema.parse({
     outcome: 'needs_input',
     summary: input.summary,
-    userFacingMessage: input.userFacingMessage,
-    changedScopes: input.changedScopes,
-    appliedTools: input.appliedTools ?? [],
+    message: input.message,
+    details: {
+      kind: 'needs_input',
+      phase: input.phase,
+      missingFields:
+        input.phase === 'resolve_world'
+          ? ['worldName']
+          : input.phase === 'resolve_character'
+            ? ['characterName']
+            : undefined,
+      suggestedPrompt: input.message,
+      appliedTools: input.appliedTools ?? []
+    },
     pendingContext: buildPendingContext({
       phase: input.phase,
       payload: input.payload,
@@ -194,60 +208,72 @@ const buildNeedsInputOutput = (input: {
       targetWorldName: input.targetWorldName,
       resolvedWorldId: input.resolvedWorldId,
       resolvedEntityId: input.resolvedEntityId,
-      lastNeedsInputMessage: input.userFacingMessage
+      lastNeedsInputMessage: input.message
     })
   })
 
 const buildFailureOutput = (
   summary: string,
-  userFacingMessage: string,
+  message: string,
   changedScopes: CharacterEditingScope[],
-  appliedTools: CharacterEditorHandlerOutput['appliedTools']
+  appliedTools: CharacterEditorAppliedTools
 ): CharacterEditorHandlerOutput =>
   characterEditorHandlerOutputSchema.parse({
     outcome: 'failed',
     summary,
-    userFacingMessage,
-    changedScopes,
-    appliedTools
+    message,
+    details: {
+      kind: 'failed',
+      errorType: 'runtime_error',
+      retryable: false,
+      internalWarning:
+        changedScopes.length > 0 ? `执行在以下范围内失败：${changedScopes.join(', ')}` : undefined,
+      appliedTools
+    }
   })
 
 const buildCompletedAfterWrite = (input: {
   payload: CharacterEditorExecutionPayload
-  appliedTools?: CharacterEditorHandlerOutput['appliedTools']
+  appliedTools?: CharacterEditorAppliedTools
   write: SuccessfulDescriptionWrite
 }): CharacterEditorHandlerOutput =>
   characterEditorHandlerOutputSchema.parse({
     outcome: 'completed',
     summary: '人物简介已更新，等待主 agent 确认下一步。',
-    userFacingMessage:
+    message:
       `人物「${input.write.characterName || input.payload.characterName || input.write.entityId || '目标角色'}」的简介已经更新。` +
       ' 你可以确认是否结束当前任务；如果还想继续润色或追加修改，也可以直接告诉我。',
-    changedScopes: ['profile'],
-    appliedTools: input.appliedTools ?? [],
-    suggestedFollowUp:
-      input.write.receipt?.summary || '如有需要，可继续提出润色、扩写或定向修改要求。'
+    details: {
+      kind: 'completed',
+      changedScopes: ['profile'],
+      appliedTools: input.appliedTools ?? [],
+      suggestedFollowUp:
+        input.write.receipt?.summary || '如有需要，可继续提出润色、扩写或定向修改要求。'
+    }
   })
 
 const buildCompletedAfterWriteFallback = (input: {
   payload: CharacterEditorExecutionPayload
-  appliedTools?: CharacterEditorHandlerOutput['appliedTools']
+  appliedTools?: CharacterEditorAppliedTools
   write: SuccessfulDescriptionWrite
   reason: string
 }): CharacterEditorHandlerOutput =>
   characterEditorHandlerOutputSchema.parse({
     outcome: 'completed',
     summary: '人物简介已更新，等待主 agent 确认下一步。',
-    userFacingMessage:
+    message:
       `人物「${input.write.characterName || input.payload.characterName || input.write.entityId || '目标角色'}」的简介已经更新。` +
       ' 你可以确认是否结束当前任务；如果还想继续润色或追加修改，也可以直接告诉我。',
-    changedScopes: ['profile'],
-    appliedTools: input.appliedTools ?? [],
-    internalWarning:
-      'description 写入已成功，但子 agent 在最终结构化收尾阶段遇到中止。' +
-      ` 本轮已按完成处理。原因：${input.reason}`,
-    suggestedFollowUp:
-      input.write.receipt?.summary || '如有需要，可继续提出润色、扩写或定向修改要求。'
+    details: {
+      kind: 'completed',
+      changedScopes: ['profile'],
+      appliedTools: input.appliedTools ?? [],
+      internalWarning:
+        'description 写入已成功，但子 agent 在最终结构化收尾阶段遇到中止。' +
+        ` 本轮已按完成处理。原因：${input.reason}`,
+      suggestedFollowUp:
+        input.write.receipt?.summary || '如有需要，可继续提出润色、扩写或定向修改要求。'
+    }
   })
 
 const toSuccessfulDescriptionWrite = (input: {
@@ -361,9 +387,12 @@ const buildPrompt = (payload: CharacterEditorExecutionPayload): string => {
       {
         outcome: 'completed',
         summary: '一句话总结本轮执行结果',
-        userFacingMessage: '给主 agent 的用户可见说明',
-        changedScopes: ['profile'],
-        suggestedFollowUp: '如有需要，可提示用户下一步'
+        message: '给主 agent 的用户可见说明',
+        details: {
+          kind: 'completed',
+          changedScopes: ['profile'],
+          suggestedFollowUp: '如有需要，可提示用户下一步'
+        }
       },
       null,
       2
@@ -385,7 +414,7 @@ const runCharacterToolLoop = async (
     new HumanMessage(`请处理这次人物编辑执行：${payload.userRequest}`)
   ]
 
-  const appliedTools: CharacterEditorHandlerOutput['appliedTools'] = []
+  const appliedTools: CharacterEditorAppliedTools = []
   let successfulWrite: SuccessfulDescriptionWrite | undefined
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -537,15 +566,15 @@ const runCharacterToolLoop = async (
         data: {
           round,
           outcome: parsed.outcome,
-          changedScopes: parsed.changedScopes
+          detailsKind: parsed.details.kind
         }
       })
 
       if (parsed.outcome === 'needs_input' && !parsed.pendingContext) {
         return buildNeedsInputOutput({
           summary: parsed.summary,
-          userFacingMessage: parsed.userFacingMessage,
-          changedScopes: parsed.changedScopes,
+          message: parsed.message,
+          changedScopes: getEffectiveEditingScopes(payload),
           payload,
           phase: 'apply_edit',
           targetCharacterName: payload.characterName,
@@ -735,7 +764,7 @@ const resolveWorldNode = async (
     return {
       handlerOutput: buildNeedsInputOutput({
         summary: '当前人物编辑任务缺少明确 world 名称。',
-        userFacingMessage:
+        message:
           '要继续编辑该人物，我需要你先提供明确的世界观名称。请告诉我这个角色属于哪个世界观。',
         changedScopes,
         payload,
@@ -761,7 +790,7 @@ const resolveWorldNode = async (
     return {
       handlerOutput: buildNeedsInputOutput({
         summary: `未找到名称为「${candidateWorldName}」的世界观。`,
-        userFacingMessage:
+        message:
           `我没有找到名称为「${candidateWorldName}」的世界观，请确认世界观名称后再继续。`,
         changedScopes,
         payload,
@@ -775,7 +804,7 @@ const resolveWorldNode = async (
   return {
     handlerOutput: buildNeedsInputOutput({
       summary: `世界观名称「${candidateWorldName}」对应多个候选。`,
-      userFacingMessage:
+      message:
         `世界观名称「${candidateWorldName}」对应多个候选，请提供更明确的世界观名称。`,
       changedScopes,
       payload,
@@ -808,7 +837,7 @@ const resolveCharacterNode = async (
       return {
         handlerOutput: buildNeedsInputOutput({
           summary: '提供的 entityId 不是有效的人物实体。',
-          userFacingMessage:
+          message:
             '当前提供的人物实体无效，请重新提供明确的人物名称或正确的角色实体信息。',
           changedScopes,
           payload,
@@ -831,7 +860,7 @@ const resolveCharacterNode = async (
     return {
       handlerOutput: buildNeedsInputOutput({
         summary: '当前人物编辑任务缺少明确人物名称。',
-        userFacingMessage:
+        message:
           '要继续编辑，我还需要明确的人物名称。请告诉我你要编辑哪个角色。',
         changedScopes,
         payload,
@@ -858,7 +887,7 @@ const resolveCharacterNode = async (
     return {
       handlerOutput: buildNeedsInputOutput({
         summary: `在世界观「${worldName || worldId || ''}」中未找到人物「${candidateCharacterName}」。`,
-        userFacingMessage:
+        message:
           `我在世界观「${worldName || worldId || ''}」里没有找到名为「${candidateCharacterName}」的人物，请确认角色名后再继续。`,
         changedScopes,
         payload,
@@ -873,7 +902,7 @@ const resolveCharacterNode = async (
   return {
     handlerOutput: buildNeedsInputOutput({
       summary: `在世界观「${worldName || worldId || ''}」中找到了多个名为「${candidateCharacterName}」的人物候选。`,
-      userFacingMessage:
+      message:
         `在世界观「${worldName || worldId || ''}」中找到了多个名为「${candidateCharacterName}」的人物，请提供更具体的角色信息后再继续。`,
       changedScopes,
       payload,

@@ -90,41 +90,6 @@ ${userInput}
 4. 如果 activeTask.status 不是 awaiting_user_confirmation，不要返回 confirm_close_task。
 5. 不要输出额外解释。`
 
-const inferDecisionFallback = (
-  userInput: string,
-  activeTask?: ActiveTaskSnapshot
-): TaskDecisionResult => {
-  const text = userInput.trim().toLowerCase()
-  const closePatterns = [/完成了/, /结束吧/, /不用继续/, /可以关了/, /就这样吧/]
-  if (activeTask && closePatterns.some((pattern) => pattern.test(text))) {
-    return {
-      decision: {
-        type: 'confirm_close_task',
-        confidence: 0.66,
-        reason: '用户表达了结束当前任务的意图'
-      }
-    }
-  }
-
-  if (activeTask) {
-    return {
-      decision: {
-        type: 'continue_task',
-        confidence: 0.55,
-        reason: '当前存在活跃任务，默认将本轮输入视为对当前任务的补充'
-      }
-    }
-  }
-
-  return {
-    decision: {
-      type: 'none',
-      confidence: 0.45,
-      reason: '未识别出足以创建任务的明确信号'
-    }
-  }
-}
-
 const inferDecisionWithModel = async (
   userInput: string,
   activeTask?: ActiveTaskSnapshot
@@ -142,6 +107,14 @@ const inferDecisionWithModel = async (
   return taskDecisionSchema.parse(JSON.parse(jsonText))
 }
 
+const inferDecisionFallback = (): TaskDecisionResult => ({
+  decision: {
+    type: 'none',
+    confidence: 0.2,
+    reason: '分类模型不可用时，保守回退为普通聊天'
+  }
+})
+
 export const toTaskLifecycleDecision = (input: TaskDecisionResult): TaskLifecycleDecision => ({
   type: input.decision.type as TaskLifecycleDecisionType,
   confidence: input.decision.confidence,
@@ -157,6 +130,17 @@ class TaskLifecycleIntentResolver {
     userInput: string,
     activeTask?: ActiveTaskSnapshot
   ): Promise<TaskDecisionResult> {
+    if (!userInput.trim()) {
+      const inferred = inferDecisionFallback()
+      emitGraphThought('taskLifecyclePreparation', {
+        stage: 'task_decision',
+        source: 'fallback',
+        reason: 'empty_input',
+        modelResponse: inferred
+      })
+      return inferred
+    }
+
     try {
       const inferred = await inferDecisionWithModel(userInput, activeTask)
       emitGraphThought('taskLifecyclePreparation', {
@@ -166,7 +150,7 @@ class TaskLifecycleIntentResolver {
       })
       return inferred
     } catch (error) {
-      const inferred = inferDecisionFallback(userInput, activeTask)
+      const inferred = inferDecisionFallback()
       emitGraphThought('taskLifecyclePreparation', {
         stage: 'task_decision',
         source: 'fallback',

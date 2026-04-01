@@ -4,7 +4,10 @@ import type {
   TaskExecutionInspectionField,
   TaskExecutionInspectionSection
 } from '@share/cache/AItype/states/taskExecutionInspection'
-import { parseSubAgentProtocolPayload } from '@share/cache/AItype/states/taskCommunication'
+import {
+  parseSubAgentProtocolPayload,
+  type SubAgentProtocolDetails
+} from '@share/cache/AItype/states/taskCommunication'
 
 const parseJsonObject = (input: string): Record<string, unknown> => {
   try {
@@ -194,33 +197,59 @@ const buildCharacterEditorOutputSection = (
     )
   }
 
-  const details = isRecord(protocol.details) ? protocol.details : undefined
-  if (details) {
-    pushField(fields, 'changedScopes', '变更范围', details.changedScopes)
-    pushField(
-      fields,
-      'appliedTools',
-      '调用工具',
-      Array.isArray(details.appliedTools)
-        ? details.appliedTools.map((item) => {
-            if (isRecord(item)) {
-              const name = normalizeText(item.name)
-              const status = normalizeText(item.status)
-              return status ? `${name} (${status})` : name
-            }
-            return formatValue(item)
-          })
-        : details.appliedTools
-    )
-    pushField(fields, 'internalWarning', '内部警告', details.internalWarning)
-    pushField(fields, 'suggestedFollowUp', '建议下一步', details.suggestedFollowUp)
-  }
+  const details = protocol.details
+  appendDetailsFields(fields, details)
 
   return {
     title: '输出',
     summary: protocol.summary || summary?.trim() || undefined,
     fields,
     rawJson: formatJson(payload)
+  }
+}
+
+const formatAppliedTools = (details: SubAgentProtocolDetails): string[] | undefined => {
+  if (!('appliedTools' in details) || !Array.isArray(details.appliedTools)) {
+    return undefined
+  }
+  const normalized = details.appliedTools.map((item) =>
+    item.status ? `${item.name} (${item.status})` : item.name
+  )
+  return normalized.length > 0 ? normalized : undefined
+}
+
+const appendDetailsFields = (
+  fields: TaskExecutionInspectionField[],
+  details?: SubAgentProtocolDetails
+): void => {
+  if (!details) {
+    return
+  }
+
+  pushField(fields, 'detailsKind', '详情类型', details.kind)
+
+  switch (details.kind) {
+    case 'completed':
+      pushField(fields, 'changedScopes', '变更范围', details.changedScopes)
+      pushField(fields, 'appliedTools', '调用工具', formatAppliedTools(details))
+      pushField(fields, 'internalWarning', '内部警告', details.internalWarning)
+      pushField(fields, 'suggestedFollowUp', '建议下一步', details.suggestedFollowUp)
+      return
+    case 'needs_input':
+      pushField(fields, 'pendingPhase', '待补参阶段', formatCharacterPendingPhase(details.phase))
+      pushField(fields, 'missingFields', '缺失字段', details.missingFields)
+      pushField(fields, 'suggestedPrompt', '建议追问', details.suggestedPrompt)
+      pushField(fields, 'appliedTools', '调用工具', formatAppliedTools(details))
+      return
+    case 'failed':
+      pushField(fields, 'errorType', '错误类型', details.errorType)
+      pushField(fields, 'retryable', '可重试', details.retryable)
+      pushField(fields, 'internalWarning', '内部警告', details.internalWarning)
+      pushField(fields, 'appliedTools', '调用工具', formatAppliedTools(details))
+      return
+    case 'cancelled':
+      pushField(fields, 'cancelReason', '取消原因', details.reason)
+      return
   }
 }
 

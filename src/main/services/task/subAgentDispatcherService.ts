@@ -10,6 +10,7 @@ import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleS
 import {
   buildSubAgentProtocolPayload,
   subAgentOutcomeToNotificationType,
+  type SubAgentProtocolDetails,
   type SubAgentOutcome
 } from '@share/cache/AItype/states/taskCommunication'
 import { runCharacterEditorExecution } from '../aiservice/child-agent-system/characterEditorExecution'
@@ -20,7 +21,7 @@ type DispatchResult = {
   summary: string
   userMessage: string
   pendingContext?: Record<string, unknown>
-  details?: Record<string, unknown>
+  details?: SubAgentProtocolDetails
   errorReport?: string
 }
 
@@ -84,15 +85,10 @@ const characterEditorHandler: DispatchHandler = async ({ payload }) => {
     return {
       outcome: result.outcome,
       summary: result.summary,
-      userMessage: result.userFacingMessage,
+      userMessage: result.message,
       pendingContext: result.pendingContext,
-      details: {
-        changedScopes: result.changedScopes,
-        appliedTools: result.appliedTools,
-        internalWarning: result.internalWarning,
-        suggestedFollowUp: result.suggestedFollowUp
-      },
-      errorReport: result.outcome === 'failed' ? result.userFacingMessage : undefined
+      details: result.details,
+      errorReport: result.outcome === 'failed' ? result.message : undefined
     }
   } catch (error) {
     const normalized = await normalizeErrorMessage(error)
@@ -100,6 +96,11 @@ const characterEditorHandler: DispatchHandler = async ({ payload }) => {
       outcome: 'failed',
       summary: '人物编辑子 agent 在执行过程中抛出异常。',
       userMessage: normalized,
+      details: {
+        kind: 'failed',
+        errorType: 'runtime_error',
+        retryable: false
+      },
       errorReport: normalized
     }
   }
@@ -153,7 +154,13 @@ class SubAgentDispatcherService {
           outcome: 'failed',
           summary: `当前没有为执行器 ${execution.executorKind} 注册 dispatcher handler。`,
           message: `当前没有为执行器 ${execution.executorKind} 注册子 agent 处理器，无法继续执行。`,
-          errorMessage: `Missing dispatcher handler for executor ${execution.executorKind}`
+          errorMessage: `Missing dispatcher handler for executor ${execution.executorKind}`,
+          details: {
+            kind: 'failed',
+            errorType: 'runtime_error',
+            retryable: false,
+            internalWarning: 'dispatcher handler missing'
+          }
         }),
         errorReport: `Missing dispatcher handler for executor ${execution.executorKind}`
       })
@@ -221,7 +228,12 @@ class SubAgentDispatcherService {
           outcome: 'failed',
           summary: `执行器 ${execution.executorKind} 在后台运行时抛出异常。`,
           message: `执行器 ${execution.executorKind} 在后台运行时抛出异常：${message}`,
-          errorMessage: message
+          errorMessage: message,
+          details: {
+            kind: 'failed',
+            errorType: 'runtime_error',
+            retryable: false
+          }
         }),
         errorReport: message
       })

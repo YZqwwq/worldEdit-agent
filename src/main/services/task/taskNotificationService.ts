@@ -15,6 +15,10 @@ import {
   type SubAgentProtocolPayload
 } from '@share/cache/AItype/states/taskCommunication'
 import { assertTaskStatusTransition } from '@share/cache/AItype/states/taskLifecycleRules'
+import {
+  ACTIVE_TASK_NOTIFICATION_STATUSES,
+  assertTaskNotificationStatusTransition
+} from '@share/cache/AItype/states/mainAgentOrchestrationRules'
 
 type PublishExecutionEventInput = {
   taskId: number
@@ -130,6 +134,16 @@ class TaskNotificationService {
     return rows[0] ?? null
   }
 
+  async getLatestActiveNotification(taskId: number): Promise<TaskNotificationRecord | null> {
+    const rows = await this.repo.find({
+      where: ACTIVE_TASK_NOTIFICATION_STATUSES.map((status) => ({ taskId, status })),
+      order: { updatedAt: 'DESC', createdAt: 'DESC', id: 'DESC' },
+      take: 1
+    })
+
+    return rows[0] ?? null
+  }
+
   async getNotification(
     taskId: number,
     notificationId: number
@@ -171,6 +185,7 @@ class TaskNotificationService {
           return null
         }
       } else {
+        assertTaskNotificationStatusTransition(notification.status, 'processing')
         notification.status = 'processing'
         notification.mainAgentEventId = eventId
         notification.processingStartedAt = new Date()
@@ -223,6 +238,7 @@ class TaskNotificationService {
       const consumed = buildConsumedNotice(task, notification, payload)
 
       if (notification.status !== 'consumed') {
+        assertTaskNotificationStatusTransition(notification.status, 'consumed')
         assertTaskStatusTransition(task.status, consumed.nextStatus)
         task.status = consumed.nextStatus
         if (consumed.nextStatus === 'cancelled') {
@@ -264,6 +280,7 @@ class TaskNotificationService {
     if (!notification) {
       return null
     }
+    assertTaskNotificationStatusTransition(notification.status, 'pending')
     notification.status = 'pending'
     notification.mainAgentEventId = null
     notification.processingStartedAt = null
