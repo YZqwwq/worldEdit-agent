@@ -27,7 +27,6 @@ import {
   delegateCharacterEditorTaskPayloadSchema
 } from '../ai-utils/tools/character/shared'
 import { worldbuildingService } from '../../worldbuilding/worldbuildingService'
-import { modelConfigService } from '../../modelconfig/modelConfigService'
 
 type CharacterEditorExecutionPayload = z.infer<typeof delegateCharacterEditorTaskPayloadSchema>
 type CharacterEditorHandlerOutput = z.infer<typeof characterEditorHandlerOutputSchema>
@@ -44,6 +43,7 @@ type SuccessfulDescriptionWrite = {
 
 type CharacterEditorExecutionRuntime = {
   committedWrites: SuccessfulDescriptionWrite[]
+  timeoutMs: number
 }
 
 const MAX_TOOL_ROUNDS = 6
@@ -407,7 +407,7 @@ const runCharacterToolLoop = async (
   const model = await getConfiguredQuickModel()
   const boundModel = bindToolsToModel(model, characterEditorTools)
   const effectiveScopes = getEffectiveEditingScopes(payload)
-  const childAgentTimeoutMs = await modelConfigService.getChildAgentTimeoutMs()
+  const childAgentTimeoutMs = runtime.timeoutMs
 
   const messages: BaseMessage[] = [
     new SystemMessage(buildPrompt(payload)),
@@ -951,11 +951,13 @@ const createCharacterEditorGraph = (runtime: CharacterEditorExecutionRuntime) =>
     .compile()
 
 export async function runCharacterEditorExecution(
-  rawPayload: unknown
+  rawPayload: unknown,
+  options: { timeoutMs: number }
 ): Promise<CharacterEditorHandlerOutput> {
   const payload = delegateCharacterEditorTaskPayloadSchema.parse(rawPayload)
   const runtime: CharacterEditorExecutionRuntime = {
-    committedWrites: []
+    committedWrites: [],
+    timeoutMs: options.timeoutMs
   }
   const characterEditorGraph = createCharacterEditorGraph(runtime)
 

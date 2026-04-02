@@ -1,4 +1,4 @@
-import { mainAgentDispatchService } from '../../middlelayer/event-in-wait/mainAgentDispatchService'
+import { mainAgentDispatchService } from './queue/mainAgentDispatchQueueService'
 import { taskNotificationService } from '../../task/taskNotificationService'
 import { mainAgentEventLogService } from './mainAgentEventLogService'
 import { mainAgentTurnService } from './mainAgentTurnService'

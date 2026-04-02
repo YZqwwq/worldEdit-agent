@@ -10,7 +10,6 @@ import type {
 import {
   buildTaskNoticeFromSubAgentPayload,
   getExecutionStatusForSubAgentOutcome,
-  parseSubAgentProtocolPayload,
   taskNotificationTypeToSubAgentOutcome,
   type SubAgentProtocolPayload
 } from '@share/cache/AItype/states/taskCommunication'
@@ -19,6 +18,7 @@ import {
   ACTIVE_TASK_NOTIFICATION_STATUSES,
   assertTaskNotificationStatusTransition
 } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
+import { getSubAgentRuntimeSpec } from './subAgentRegistry'
 
 type PublishExecutionEventInput = {
   taskId: number
@@ -192,9 +192,12 @@ class TaskNotificationService {
         await notificationRepo.save(notification)
       }
 
-      const payload = parseSubAgentProtocolPayload(parseJsonObject(notification.payloadJson), {
-        outcome: taskNotificationTypeToSubAgentOutcome(notification.type)
-      })
+      const payload = getSubAgentRuntimeSpec(task.executorKind).protocol.parsePayload(
+        parseJsonObject(notification.payloadJson),
+        {
+          outcome: taskNotificationTypeToSubAgentOutcome(notification.type)
+        }
+      )
       const consumed = buildConsumedNotice(task, notification, payload)
 
       return {
@@ -232,9 +235,12 @@ class TaskNotificationService {
         return null
       }
 
-      const payload = parseSubAgentProtocolPayload(parseJsonObject(notification.payloadJson), {
-        outcome: taskNotificationTypeToSubAgentOutcome(notification.type)
-      })
+      const payload = getSubAgentRuntimeSpec(task.executorKind).protocol.parsePayload(
+        parseJsonObject(notification.payloadJson),
+        {
+          outcome: taskNotificationTypeToSubAgentOutcome(notification.type)
+        }
+      )
       const consumed = buildConsumedNotice(task, notification, payload)
 
       if (notification.status !== 'consumed') {

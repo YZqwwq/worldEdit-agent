@@ -827,6 +827,50 @@
 `控制上相连`
 `执行上解耦`
 
+### 5. executor runtime spec
+
+当前系统中的 subagent registry 已从“能力清单”升级为第一版 `executor runtime spec`。
+
+它不只描述：
+
+- 这个 executor 叫什么
+- 主 agent 通过哪个 delegate tool 注册它
+- 它使用哪个 child-agent toolkit
+
+还描述：
+
+- `dispatchHandler`
+  - dispatcher 拉起该 executor 时应调用哪个执行入口
+- `continuationHandler`
+  - 当任务处于 `awaiting_user_input` 时，用户补参后应如何续跑
+- `timeoutPolicy`
+  - 该 executor 的单次模型执行超时从哪里获取
+- `retryPolicy`
+  - 默认是否可重试、是否允许自动重试、最多重试几次
+- `protocol`
+  - 该 executor 使用哪一版协议
+  - 如何 build payload
+  - 如何 parse / normalize payload
+
+这意味着：
+
+`registry 不再只是“有哪些 executor”`
+`而是“每个 executor 在 runtime 中如何运行”的正式说明书`
+
+当前这层已经开始进入真实调用路径：
+
+- `continue_active_child_agent`
+  - 不再把输出固定写死为 `character_editor`
+  - 而是返回通用续跑结果结构，再由当前 active task 的 executorKind 填充
+- `character_editor`
+  - 内部不再直接读取 `modelConfigService` 获取 timeout
+  - 而是由 runtime spec 先解析 timeout，再注入执行入口
+
+这意味着：
+
+`续跑输出开始面向多 executor 泛化`
+`child-agent 内部运行参数也开始通过 runtime spec 注入`
+
 ---
 
 ## 与消息列表的配合方式
@@ -979,6 +1023,22 @@
 - 主子 agent 之间的语义沟通以 `details.kind` 为中心
 - 用户可见文案应由主控层基于 typed details 生成
 - `message` 允许存在，但它是“补充文案”，不是“协议字段的替代品”
+
+### 协议与 runtime spec 的关系
+
+当前协议层和 executor runtime spec 的边界如下：
+
+- `taskCommunication`
+  - 定义系统级通用协议 shape
+  - 例如 `outcome / summary / message / details / pendingContext`
+- `executor runtime spec`
+  - 声明某个 executor 运行时使用哪套协议适配器
+  - 并将 parser / builder / timeout / retry / continuation 收拢到同一入口
+
+一句话：
+
+`taskCommunication 定义协议语言`
+`runtime spec 定义某个 executor 怎样使用这门语言`
 
 ---
 

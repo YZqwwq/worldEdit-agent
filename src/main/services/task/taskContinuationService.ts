@@ -2,25 +2,24 @@ import { AppDataSource } from '../../database'
 import { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
 import { TaskRecord } from '../../../share/entity/database/TaskRecord'
 import { worldbuildingService } from '../worldbuilding/worldbuildingService'
-import { subAgentExecutionQueueService } from '../task/subAgentExecutionQueueService'
-import { taskExecutionService } from '../task/taskExecutionService'
-import { taskService } from '../task/taskService'
-import { taskTraceService } from '../task/taskTraceService'
-import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
+import { taskService } from './taskService'
 import type { WorldEntityDetailPayload } from '@share/cache/worldbuilding/worldbuilding'
 import {
-  characterEditorPendingContextSchema,
   delegateCharacterEditorInputSchema,
   delegateCharacterEditorOutputSchema,
   delegateCharacterEditorTaskPayloadSchema
-} from './ai-utils/tools/character/shared'
+} from '../aiservice/ai-utils/tools/character/shared'
+import { continueActiveChildAgentOutputSchema } from '../aiservice/ai-utils/tools/task/shared'
 import * as z from 'zod'
+import { subAgentExecutionQueueService } from './queue/subAgentExecutionQueueService'
+import { subAgentRegistry } from './subAgentRegistry'
+import { awaitingUserInputNode } from '../aiservice/runtime/nodes/awaitingUserInputNode'
 
 type CharacterEditorStartInput = z.infer<typeof delegateCharacterEditorInputSchema>
 type CharacterEditorStartResult = z.infer<typeof delegateCharacterEditorOutputSchema>
 type CharacterEditorTaskPayload = z.infer<typeof delegateCharacterEditorTaskPayloadSchema>
+type ContinueActiveChildAgentResult = z.infer<typeof continueActiveChildAgentOutputSchema>
 
-const CANCEL_PATTERNS = [/取消/, /结束/, /算了/, /不用了/, /先这样/, /停止/]
 const ACTIVE_TASK_STATUSES = [
   'active',
   'running',
@@ -137,58 +136,6 @@ const resolveCharacterEditorTarget = async (input: CharacterEditorStartInput): P
   }
 }
 
-const assertNoInFlightExecution = async (taskId: number): Promise<void> => {
-  const latestRun = await taskExecutionService.getLatestRun(taskId)
-  if (!latestRun) {
-    return
-  }
-
-  if (['queued', 'dispatching', 'running'].includes(latestRun.status)) {
-    throw new Error(
-      `Task #${taskId} already has an in-flight execution (#${latestRun.id}, status=${latestRun.status}).`
-    )
-  }
-}
-
-const queueCharacterEditorExecution = async (
-  task: TaskRecord,
-  payload: CharacterEditorTaskPayload
-): Promise<CharacterEditorStartResult> => {
-  await assertNoInFlightExecution(task.id)
-
-  const queuedRun = await taskExecutionService.queueRun({
-    taskId: task.id,
-    executorKind: 'character_editor',
-    inputPayload: {}
-  })
-
-  const finalPayload = delegateCharacterEditorTaskPayloadSchema.parse({
-    ...payload,
-    taskId: task.id,
-    executionId: queuedRun.id
-  })
-
-  await taskExecutionService.updateRunInputPayload(queuedRun.id, finalPayload)
-  await taskService.setTaskStatus(task.id, { status: 'running' })
-  await subAgentExecutionQueueService.enqueueExecution(queuedRun.id)
-
-  return delegateCharacterEditorOutputSchema.parse({
-    accepted: true,
-    taskId: task.id,
-    executionId: queuedRun.id,
-    executorKind: 'character_editor',
-    status: 'running',
-    target: {
-      entityId: finalPayload.entityId,
-      characterName: finalPayload.characterName,
-      worldId: finalPayload.worldId,
-      worldName: finalPayload.worldName
-    },
-    summary: `人物编辑任务已进入后台执行链：${finalPayload.userRequest.slice(0, 160)}`,
-    nextAction: 'await_subagent_result'
-  })
-}
-
 const createCharacterEditorTaskWithExecution = async (input: {
   title: string
   goal: string
@@ -263,77 +210,6 @@ const createCharacterEditorTaskWithExecution = async (input: {
   })
 }
 
-type ContinuationHandler = (input: {
-  task: TaskRecord
-  userReply: string
-}) => Promise<CharacterEditorStartResult>
-
-const continueCharacterEditorTask: ContinuationHandler = async ({ task, userReply }) => {
-  if (CANCEL_PATTERNS.some((pattern) => pattern.test(userReply))) {
-    throw new Error('The user reply looks like a cancellation, not a continuation payload.')
-  }
-
-  const pendingContextRaw = await taskService.getPendingContext(task.id)
-  const parsedPendingContext = characterEditorPendingContextSchema.safeParse(pendingContextRaw)
-  if (!parsedPendingContext.success) {
-    throw new Error('Active task pendingContext is missing or incompatible with character_editor.')
-  }
-
-  const pendingContext = parsedPendingContext.data
-  const trimmedInput = userReply.trim()
-
-  await taskTraceService.emit({
-    taskId: task.id,
-    actor: 'user',
-    stage: 'user_replied_to_task',
-    message: '主 agent 已通过 continuation service 吸收用户补参。',
-    payload: {
-      userInput: trimmedInput,
-      phase: pendingContext.phase
-    }
-  })
-
-  const nextCharacterName =
-    pendingContext.phase === 'resolve_character' && !pendingContext.targetCharacterName
-      ? trimmedInput
-      : pendingContext.targetCharacterName
-  const nextWorldName =
-    pendingContext.phase === 'resolve_world' ? trimmedInput : pendingContext.targetWorldName
-
-  const result = await queueCharacterEditorExecution(task, {
-    taskId: task.id,
-    executionId: 0,
-    worldId: pendingContext.resolvedWorldId,
-    worldName: nextWorldName,
-    entityId: pendingContext.resolvedEntityId,
-    characterName: nextCharacterName,
-    userRequest: trimmedInput,
-    originalUserRequest: pendingContext.originalUserRequest,
-    editingScope: pendingContext.editingScope,
-    editingDirection: pendingContext.editingDirection,
-    expectedOutcome: pendingContext.expectedOutcome,
-    source: pendingContext.source,
-    pendingContext
-  })
-
-  await taskTraceService.emit({
-    taskId: task.id,
-    executionId: result.executionId,
-    actor: 'main_agent',
-    stage: 'main_response_silent',
-    message: '主 agent 已通过 continuation service 续跑子 agent execution。',
-    payload: {
-      phase: pendingContext.phase
-    }
-  })
-
-  return result
-}
-
-const CONTINUATION_HANDLERS: Partial<Record<TaskExecutorKind, ContinuationHandler>> = {
-  character_editor: continueCharacterEditorTask
-}
-
 class TaskContinuationService {
   async startCharacterEditorTask(input: CharacterEditorStartInput): Promise<CharacterEditorStartResult> {
     const resolvedTarget = await resolveCharacterEditorTarget(input)
@@ -372,22 +248,59 @@ class TaskContinuationService {
     })
   }
 
-  async continueActiveTask(userReply: string): Promise<CharacterEditorStartResult> {
+  async continueActiveTask(
+    userReply: string,
+    options?: { skipIntentCheck?: boolean }
+  ): Promise<ContinueActiveChildAgentResult> {
     const activeTask = await taskService.getActiveTask()
     if (!activeTask || activeTask.status !== 'awaiting_user_input') {
       throw new Error('No active child-agent task is currently waiting for user input.')
     }
 
-    const handler = CONTINUATION_HANDLERS[activeTask.executorKind]
+    if (!options?.skipIntentCheck) {
+      const pendingContext = await taskService.getPendingContext(activeTask.id)
+      const decision = await awaitingUserInputNode.resolve({
+        userInput: userReply,
+        activeTask: {
+          id: activeTask.id,
+          title: activeTask.title,
+          status: activeTask.status,
+          executorKind: activeTask.executorKind
+        },
+        pendingContext
+      })
+
+      if (decision.type === 'cancel_task') {
+        throw new Error('The latest user reply looks like a cancellation request, not continuation input.')
+      }
+      if (decision.type === 'ask_status') {
+        throw new Error('The latest user reply is asking about task status, not supplying continuation input.')
+      }
+      if (decision.type !== 'continue_task') {
+        throw new Error('The latest user reply does not yet provide enough information to safely resume the child-agent task.')
+      }
+    }
+
+    const handler = subAgentRegistry[activeTask.executorKind].continuationHandler
     if (!handler) {
       throw new Error(
         `Current active task #${activeTask.id} does not have a registered continuation handler for ${activeTask.executorKind}.`
       )
     }
 
-    return handler({
+    const result = await handler({
       task: activeTask,
       userReply
+    })
+
+    return continueActiveChildAgentOutputSchema.parse({
+      accepted: true,
+      taskId: result.taskId,
+      executionId: result.executionId,
+      executorKind: activeTask.executorKind,
+      status: 'running',
+      summary: result.summary,
+      nextAction: 'await_subagent_result'
     })
   }
 }

@@ -4,32 +4,12 @@ import { taskExecutionService } from './taskExecutionService'
 import { taskNotificationService } from './taskNotificationService'
 import { taskService } from './taskService'
 import { taskTraceService } from './taskTraceService'
-import { taskNotificationDispatchBridge } from './taskNotificationDispatchBridge'
-import type { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
-import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
+import { taskNotificationDispatchBridge } from '../aiservice/runtime/queue/taskNotificationDispatchBridge'
 import {
-  buildSubAgentProtocolPayload,
   subAgentOutcomeToNotificationType,
-  type SubAgentProtocolDetails,
-  type SubAgentOutcome
 } from '@share/cache/AItype/states/taskCommunication'
-import { runCharacterEditorExecution } from '../aiservice/child-agent-system/characterEditorExecution'
 import { modelConfigService } from '../modelconfig/modelConfigService'
-
-type DispatchResult = {
-  outcome: SubAgentOutcome
-  summary: string
-  userMessage: string
-  pendingContext?: Record<string, unknown>
-  details?: SubAgentProtocolDetails
-  errorReport?: string
-}
-
-type DispatchHandler = (input: {
-  task: TaskRecord
-  execution: TaskExecutionRecord
-  payload: Record<string, unknown>
-}) => Promise<DispatchResult>
+import { getSubAgentRuntimeSpec } from './subAgentRegistry'
 
 const parseJsonObject = (input: string): Record<string, unknown> => {
   try {
@@ -43,12 +23,15 @@ const parseJsonObject = (input: string): Record<string, unknown> => {
   return {}
 }
 
-const normalizeErrorMessage = async (error: unknown): Promise<string> => {
+const normalizeErrorMessage = async (
+  error: unknown,
+  timeoutMsPromise?: Promise<number>
+): Promise<string> => {
   const raw = error instanceof Error ? error.message : String(error)
   if (/^abort$/i.test(raw.trim())) {
-    const timeoutMs = await modelConfigService
-      .getChildAgentTimeoutMs()
-      .catch(() => null)
+    const timeoutMs = await (timeoutMsPromise ?? modelConfigService.getChildAgentTimeoutMs()).catch(
+      () => null
+    )
     const timeoutLabel =
       typeof timeoutMs === 'number' && timeoutMs > 0
         ? `（当前单次模型调用上限约 ${Math.ceil(timeoutMs / 1000)} 秒）`
@@ -76,38 +59,6 @@ const enqueueNotificationSafely = async (
       error
     )
   }
-}
-
-const characterEditorHandler: DispatchHandler = async ({ payload }) => {
-  try {
-    const result = await runCharacterEditorExecution(payload)
-
-    return {
-      outcome: result.outcome,
-      summary: result.summary,
-      userMessage: result.message,
-      pendingContext: result.pendingContext,
-      details: result.details,
-      errorReport: result.outcome === 'failed' ? result.message : undefined
-    }
-  } catch (error) {
-    const normalized = await normalizeErrorMessage(error)
-    return {
-      outcome: 'failed',
-      summary: '人物编辑子 agent 在执行过程中抛出异常。',
-      userMessage: normalized,
-      details: {
-        kind: 'failed',
-        errorType: 'runtime_error',
-        retryable: false
-      },
-      errorReport: normalized
-    }
-  }
-}
-
-const HANDLERS: Partial<Record<TaskExecutorKind, DispatchHandler>> = {
-  character_editor: characterEditorHandler
 }
 
 class SubAgentDispatcherService {
@@ -141,7 +92,8 @@ class SubAgentDispatcherService {
       message: `子 agent ${execution.executorKind} 已激活并开始执行。`
     })
 
-    const handler = HANDLERS[execution.executorKind]
+    const registryEntry = getSubAgentRuntimeSpec(execution.executorKind)
+    const handler = registryEntry.dispatchHandler
     const payload = parseJsonObject(execution.inputPayloadJson)
 
     if (!handler) {
@@ -150,7 +102,7 @@ class SubAgentDispatcherService {
         executionId: execution.id,
         type: 'subagent_failed',
         summary: `当前没有为执行器 ${execution.executorKind} 注册 dispatcher handler。`,
-        payload: buildSubAgentProtocolPayload({
+        payload: registryEntry.protocol.buildPayload({
           outcome: 'failed',
           summary: `当前没有为执行器 ${execution.executorKind} 注册 dispatcher handler。`,
           message: `当前没有为执行器 ${execution.executorKind} 注册子 agent 处理器，无法继续执行。`,
@@ -158,7 +110,7 @@ class SubAgentDispatcherService {
           details: {
             kind: 'failed',
             errorType: 'runtime_error',
-            retryable: false,
+            retryable: registryEntry.retryPolicy.defaultRetryable,
             internalWarning: 'dispatcher handler missing'
           }
         }),
@@ -195,7 +147,7 @@ class SubAgentDispatcherService {
         executionId: execution.id,
         type: subAgentOutcomeToNotificationType(result.outcome),
         summary: result.summary,
-        payload: buildSubAgentProtocolPayload({
+        payload: registryEntry.protocol.buildPayload({
           outcome: result.outcome,
           summary: result.summary,
           message: result.userMessage,
@@ -218,13 +170,13 @@ class SubAgentDispatcherService {
       })
       await enqueueNotificationSafely(task.id, notification.id)
     } catch (error) {
-      const message = await normalizeErrorMessage(error)
+      const message = await normalizeErrorMessage(error, registryEntry.timeoutPolicy.resolveTimeoutMs())
       const notification = await taskNotificationService.publishExecutionEvent({
         taskId: task.id,
         executionId: execution.id,
         type: 'subagent_failed',
         summary: `执行器 ${execution.executorKind} 在后台运行时抛出异常。`,
-        payload: buildSubAgentProtocolPayload({
+        payload: registryEntry.protocol.buildPayload({
           outcome: 'failed',
           summary: `执行器 ${execution.executorKind} 在后台运行时抛出异常。`,
           message: `执行器 ${execution.executorKind} 在后台运行时抛出异常：${message}`,
@@ -232,7 +184,7 @@ class SubAgentDispatcherService {
           details: {
             kind: 'failed',
             errorType: 'runtime_error',
-            retryable: false
+            retryable: registryEntry.retryPolicy.defaultRetryable
           }
         }),
         errorReport: message

@@ -1,19 +1,10 @@
 import * as z from 'zod'
 import { defineAgentTool } from '../../core/agentTool'
-import { taskContinuationService } from '../../../taskContinuationService'
+import { taskContinuationService } from '../../../../task/taskContinuationService'
+import { continueActiveChildAgentOutputSchema } from './shared'
 
 const continueActiveChildAgentInputSchema = z.object({
   userReply: z.string().trim().min(1).max(4000)
-})
-
-const continueActiveChildAgentOutputSchema = z.object({
-  accepted: z.literal(true),
-  taskId: z.number().int().positive(),
-  executionId: z.number().int().positive(),
-  executorKind: z.literal('character_editor'),
-  status: z.literal('running'),
-  summary: z.string().trim().min(1).max(500),
-  nextAction: z.literal('await_subagent_result')
 })
 
 export const continueActiveChildAgentTool = defineAgentTool({
@@ -49,9 +40,9 @@ export const continueActiveChildAgentTool = defineAgentTool({
       accepted: true,
       taskId: result.taskId,
       executionId: result.executionId,
-      executorKind: 'character_editor',
+      executorKind: result.executorKind,
       status: 'running',
-      summary: `已接收补充信息并续跑人物编辑子 agent：${input.userReply.trim().slice(0, 160)}`,
+      summary: `已接收补充信息并续跑 ${result.executorKind} 子 agent：${input.userReply.trim().slice(0, 160)}`,
       nextAction: 'await_subagent_result'
     })
   },

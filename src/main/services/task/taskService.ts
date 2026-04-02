@@ -12,7 +12,7 @@ import { assertTaskStatusTransition } from '@share/cache/AItype/states/taskLifec
 import { taskExecutionService } from './taskExecutionService'
 import { mapTaskExecutionInspection } from './taskExecutionInspectionMapper'
 import { taskTraceService } from './taskTraceService'
-import { mainAgentDispatchService } from '../middlelayer/event-in-wait/mainAgentDispatchService'
+import { mainAgentDispatchService } from '../aiservice/runtime/queue/mainAgentDispatchQueueService'
 import { mainAgentTurnService } from '../aiservice/runtime/mainAgentTurnService'
 
 type CreateTaskInput = {

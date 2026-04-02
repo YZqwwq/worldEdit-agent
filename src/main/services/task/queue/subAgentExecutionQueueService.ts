@@ -1,6 +1,6 @@
 import { AsyncLocalStorageProviderSingleton } from '@langchain/core/singletons'
-import { subAgentDispatcherService } from './subAgentDispatcherService'
-import { taskExecutionService } from './taskExecutionService'
+import { subAgentDispatcherService } from '../subAgentDispatcherService'
+import { taskExecutionService } from '../taskExecutionService'
 
 class SubAgentExecutionQueueService {
   private readonly queue: number[] = []

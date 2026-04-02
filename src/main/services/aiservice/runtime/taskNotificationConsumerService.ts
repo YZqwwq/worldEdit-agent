@@ -5,7 +5,7 @@ import type {
 } from '@share/cache/AItype/states/taskLifecycleState'
 import { taskNotificationService } from '../../task/taskNotificationService'
 import { taskTraceService } from '../../task/taskTraceService'
-import { decideTaskNotification } from './taskNotificationDecisionHandler'
+import { taskNotificationDecisionNode } from './nodes/taskNotificationDecisionNode'
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
@@ -54,7 +54,7 @@ class TaskNotificationConsumerService {
     }
 
     try {
-      const decision = decideTaskNotification(taskEvent)
+      const decision = taskNotificationDecisionNode.decide(taskEvent)
       const visibleMessage = decision.visibleMessage?.trim()
       const effects: MainAgentEventConsumptionResult['effects'] = []
 

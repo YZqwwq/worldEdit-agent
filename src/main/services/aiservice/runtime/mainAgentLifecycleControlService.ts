@@ -7,24 +7,19 @@ import type {
 import { taskExecutionService } from '../../task/taskExecutionService'
 import { taskService } from '../../task/taskService'
 import { subAgentCapabilityService } from '../../task/subAgentCapabilityService'
-import { taskContinuationService } from '../taskContinuationService'
+import { taskContinuationService } from '../../task/taskContinuationService'
 import { emitGraphThought } from '../../log/graphlog'
 import {
   getSuggestedExecutor,
-  taskLifecycleIntentResolver,
+  taskLifecycleIntentNode,
   toTaskLifecycleDecision
-} from './taskLifecycleIntentResolver'
-
-const CANCEL_PATTERNS = [
-  /取消/,
-  /不用了/,
-  /先这样/,
-  /停止/,
-  /算了/,
-  /不做了/,
-  /结束这个任务/,
-  /cancel/i
-]
+} from './nodes/taskLifecycleIntentNode'
+import {
+  awaitingUserInputNode,
+  buildAwaitingUserInputClarifyMessage,
+  buildAwaitingUserInputStatusMessage,
+  matchesObviousTaskCancellation
+} from './nodes/awaitingUserInputNode'
 
 const CONFIRM_CLOSE_PATTERNS = [
   /可以了/,
@@ -121,7 +116,117 @@ class MainAgentLifecycleControlService {
     if (activeTask) {
       await taskService.touchTask(activeTask.id, event.payload.messageId)
 
-      if (matchesAnyPattern(text, CANCEL_PATTERNS)) {
+      if (activeTask.status === 'awaiting_user_input') {
+        const pendingContext = await taskService.getPendingContext(activeTask.id)
+        const decision = await awaitingUserInputNode.resolve({
+          userInput: text,
+          activeTask,
+          pendingContext
+        })
+
+        if (decision.type === 'cancel_task') {
+          const latestRun = await taskExecutionService.getLatestRun(activeTask.id)
+          if (latestRun && !['reported_done', 'failed', 'cancelled'].includes(latestRun.status)) {
+            await taskExecutionService.setRunStatus(latestRun.id, 'cancelled', {
+              errorReport: `Cancelled by user input: ${text.slice(0, 200)}`
+            })
+          }
+
+          await taskService.setTaskStatus(activeTask.id, {
+            status: 'cancelled',
+            closureSummary: `用户取消任务：${text.slice(0, 200)}`
+          })
+
+          return {
+            handledResult: buildHandledResult({
+              event,
+              summary: 'user_message_cancelled_active_task',
+              visibleMessage: `好的，任务「${activeTask.title}」已取消。`,
+              taskId: activeTask.id,
+              executionId: latestRun?.id,
+              userTraceMessage: '用户明确要求取消当前任务。',
+              mainTraceMessage: '主 agent 已根据用户指令取消当前任务。',
+              payload: {
+                action: 'cancel_task',
+                userInput: text,
+                decisionSource: decision.source
+              }
+            })
+          }
+        }
+
+        if (decision.type === 'ask_status') {
+          return {
+            handledResult: buildHandledResult({
+              event,
+              summary: 'user_message_requested_task_status_while_awaiting_input',
+              visibleMessage: buildAwaitingUserInputStatusMessage({
+                activeTask,
+                pendingContext
+              }),
+              taskId: activeTask.id,
+              userTraceMessage: '用户在任务等待补参时询问当前状态。',
+              mainTraceMessage: '主 agent 已解释当前任务等待的补充信息。',
+              payload: {
+                action: 'ask_task_status',
+                userInput: text,
+                decisionSource: decision.source,
+                decisionConfidence: decision.confidence
+              }
+            })
+          }
+        }
+
+        if (decision.type === 'clarify') {
+          return {
+            handledResult: buildHandledResult({
+              event,
+              summary: 'user_message_clarified_before_resuming_task',
+              visibleMessage: buildAwaitingUserInputClarifyMessage({
+                activeTask,
+                pendingContext
+              }),
+              taskId: activeTask.id,
+              userTraceMessage: '用户在任务等待补参时发送了暂不可直接续跑的输入。',
+              mainTraceMessage: '主 agent 已阻止误续跑，并要求用户进一步澄清。',
+              payload: {
+                action: 'clarify_task_input',
+                userInput: text,
+                decisionSource: decision.source,
+                decisionConfidence: decision.confidence
+              }
+            })
+          }
+        }
+
+        const result = await taskContinuationService.continueActiveTask(text, {
+          skipIntentCheck: true
+        })
+
+        return {
+          handledResult: buildHandledResult({
+            event,
+            summary: 'user_message_resumed_active_task',
+            visibleMessage:
+              `已收到补充信息，我会继续处理任务「${activeTask.title}」。` +
+              ' 你可以继续补充要求，我会在子 agent 返回后同步结果。',
+            taskId: activeTask.id,
+            executionId: result.executionId,
+            userTraceMessage: '用户已补充当前任务所需信息。',
+            mainTraceMessage: '主 agent 已吸收用户补参并续跑当前子 agent。',
+            payload: {
+              action: 'continue_task',
+              userInput: text,
+              executionId: result.executionId,
+              executorKind: result.executorKind,
+              decisionSource: decision.source,
+              decisionConfidence: decision.confidence
+            }
+          })
+        }
+      }
+
+      if (matchesObviousTaskCancellation(text)) {
         const latestRun = await taskExecutionService.getLatestRun(activeTask.id)
         if (latestRun && !['reported_done', 'failed', 'cancelled'].includes(latestRun.status)) {
           await taskExecutionService.setRunStatus(latestRun.id, 'cancelled', {
@@ -178,30 +283,6 @@ class MainAgentLifecycleControlService {
           })
         }
       }
-
-      if (activeTask.status === 'awaiting_user_input') {
-        const result = await taskContinuationService.continueActiveTask(text)
-
-        return {
-          handledResult: buildHandledResult({
-            event,
-            summary: 'user_message_resumed_active_task',
-            visibleMessage:
-              `已收到补充信息，我会继续处理任务「${activeTask.title}」。` +
-              ' 你可以继续补充要求，我会在子 agent 返回后同步结果。',
-            taskId: activeTask.id,
-            executionId: result.executionId,
-            userTraceMessage: '用户已补充当前任务所需信息。',
-            mainTraceMessage: '主 agent 已吸收用户补参并续跑当前子 agent。',
-            payload: {
-              action: 'continue_task',
-              userInput: text,
-              executionId: result.executionId,
-              executorKind: result.executorKind
-            }
-          })
-        }
-      }
     }
 
     const taskLifecycle = await this.prepareTaskLifecycle(text, activeTask)
@@ -212,7 +293,7 @@ class MainAgentLifecycleControlService {
     userInput: string,
     activeTask?: TaskLifecycleState['activeTask']
   ): Promise<TaskLifecycleState | undefined> {
-    const inferred = await taskLifecycleIntentResolver.resolve(userInput, activeTask)
+    const inferred = await taskLifecycleIntentNode.resolve(userInput, activeTask)
     const decision = toTaskLifecycleDecision(inferred)
 
     let nextActiveTask = activeTask

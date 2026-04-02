@@ -6,10 +6,10 @@ import type {
   TaskLifecycleDecision,
   TaskLifecycleDecisionType
 } from '@share/cache/AItype/states/taskLifecycleState'
-import { contentToText } from '../messageoutput/transformRespones'
-import { toErrorMessage } from '../../../../share/utils/error/error'
-import { getQuickModel } from '../agentrsystem/modelwithtool/quick-base-model'
-import { emitGraphThought } from '../../log/graphlog'
+import { contentToText } from '../../messageoutput/transformRespones'
+import { toErrorMessage } from '../../../../../share/utils/error/error'
+import { getQuickModel } from '../../agentrsystem/modelwithtool/quick-base-model'
+import { emitGraphThought } from '../../../log/graphlog'
 
 const taskDecisionSchema = z.object({
   decision: z.object({
@@ -52,7 +52,7 @@ const extractJsonObject = (text: string): string | null => {
   return trimmed.slice(start, end + 1)
 }
 
-const buildPrompt = (userInput: string, activeTask?: ActiveTaskSnapshot): string => `你是主代理的任务生命周期判断器。
+const buildPrompt = (userInput: string, activeTask?: ActiveTaskSnapshot): string => `你是主代理的任务生命周期判断节点。
 
 职责边界：
 1. 主代理只负责任务注册、通知用户任务开始、在执行代理上报完成后请求用户确认结束。
@@ -125,14 +125,14 @@ export const getSuggestedExecutor = (
   executorKind?: TaskExecutorKind
 ): TaskExecutorKind => executorKind || 'general_task_worker'
 
-class TaskLifecycleIntentResolver {
+class TaskLifecycleIntentNode {
   async resolve(
     userInput: string,
     activeTask?: ActiveTaskSnapshot
   ): Promise<TaskDecisionResult> {
     if (!userInput.trim()) {
       const inferred = inferDecisionFallback()
-      emitGraphThought('taskLifecyclePreparation', {
+      emitGraphThought('taskLifecycleIntentNode', {
         stage: 'task_decision',
         source: 'fallback',
         reason: 'empty_input',
@@ -143,7 +143,7 @@ class TaskLifecycleIntentResolver {
 
     try {
       const inferred = await inferDecisionWithModel(userInput, activeTask)
-      emitGraphThought('taskLifecyclePreparation', {
+      emitGraphThought('taskLifecycleIntentNode', {
         stage: 'task_decision',
         source: 'quick_model',
         modelResponse: inferred
@@ -151,7 +151,7 @@ class TaskLifecycleIntentResolver {
       return inferred
     } catch (error) {
       const inferred = inferDecisionFallback()
-      emitGraphThought('taskLifecyclePreparation', {
+      emitGraphThought('taskLifecycleIntentNode', {
         stage: 'task_decision',
         source: 'fallback',
         reason: toErrorMessage(error),
@@ -162,4 +162,4 @@ class TaskLifecycleIntentResolver {
   }
 }
 
-export const taskLifecycleIntentResolver = new TaskLifecycleIntentResolver()
+export const taskLifecycleIntentNode = new TaskLifecycleIntentNode()

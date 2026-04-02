@@ -2,8 +2,8 @@ import * as z from 'zod'
 import { taskExecutionService } from '../../../../task/taskExecutionService'
 import { taskNotificationService } from '../../../../task/taskNotificationService'
 import { taskService } from '../../../../task/taskService'
-import { mainAgentDispatchService } from '../../../../middlelayer/event-in-wait/mainAgentDispatchService'
-import { parseSubAgentProtocolPayload } from '@share/cache/AItype/states/taskCommunication'
+import { mainAgentDispatchService } from '../../../runtime/queue/mainAgentDispatchQueueService'
+import { getSubAgentRuntimeSpec } from '../../../../task/subAgentRegistry'
 import { defineAgentTool } from '../../core/agentTool'
 
 const getActiveTaskContextInputSchema = z.object({
@@ -139,7 +139,9 @@ export const getActiveTaskContextTool = defineAgentTool({
     ])
 
     const notificationPayload = latestActiveNotification
-      ? parseSubAgentProtocolPayload(parseJsonObject(latestActiveNotification.payloadJson))
+      ? getSubAgentRuntimeSpec(activeTask.executorKind).protocol.parsePayload(
+          parseJsonObject(latestActiveNotification.payloadJson)
+        )
       : null
 
     const missingFields = getMissingFields(pendingContext)

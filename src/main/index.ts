@@ -7,7 +7,7 @@ import { initDatabase } from './database' // 导入数据库初始化
 import { initMemoryStorage } from './config/storageInit'
 import { registerAppResourceProtocol } from './protocols/resourceProtocol'
 import { taskRecoveryService } from './services/task/taskRecoveryService'
-import { subAgentExecutionQueueService } from './services/task/subAgentExecutionQueueService'
+import { subAgentExecutionQueueService } from './services/task/queue/subAgentExecutionQueueService'
 import { mainAgentEventRecoveryService } from './services/aiservice/runtime/mainAgentEventRecoveryService'
 
 function createWindow(): void {

@@ -9,7 +9,7 @@ import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecor
 import { memoryManager } from '../agentrsystem/manager/memory/MemoryManager'
 import { resetPersonaState } from '../agentrsystem/manager/personal/personalManager'
 import { chatMessageService } from '../chat/chatMessageService'
-import { mainAgentDispatchService } from '../../middlelayer/event-in-wait/mainAgentDispatchService'
+import { mainAgentDispatchService } from '../runtime/queue/mainAgentDispatchQueueService'
 import { mainAgentRunControlService } from '../runtime/mainAgentRunControlService'
 
 class AiSessionMaintenanceService {

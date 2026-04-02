@@ -138,13 +138,17 @@
 
 拆分任务：
 
-- [ ] 建立 executor registry
+- [x] 建立 executor registry
 - [x] 建立主 agent 工具注册清单
 - [x] 建立 child-agent 工具注册清单
 - [x] 建立 executor -> delegate tool 的统一注册清单
-- [ ] 收拢 capability 规则
-- [ ] 收拢 delegate tool 与 dispatcher handler 映射
-- [ ] 收拢 timeout / retry / protocol parser 等 executor 元数据
+- [x] 将 dispatcher handler 并入 executor registry
+- [x] 收拢 capability 规则
+- [x] 收拢 delegate tool 与 dispatcher handler 映射
+- [x] 收拢 timeout / retry / protocol parser 等 executor 元数据
+- [x] 收拢 continuation handler
+- [x] 将 continue_active_child_agent 输出从固定 executor 形态泛化
+- [x] 让 child-agent 内部 timeout 通过 runtime spec 注入
 
 ---
 

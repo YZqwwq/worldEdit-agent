@@ -2,10 +2,10 @@ import { AppDataSource } from '../../database'
 import { TaskNotificationRecord } from '../../../share/entity/database/TaskNotificationRecord'
 import { TaskRecord } from '../../../share/entity/database/TaskRecord'
 import { taskExecutionService } from './taskExecutionService'
-import { taskNotificationDispatchBridge } from './taskNotificationDispatchBridge'
+import { taskNotificationDispatchBridge } from '../aiservice/runtime/queue/taskNotificationDispatchBridge'
 import { taskNotificationService } from './taskNotificationService'
 import { taskTraceService } from './taskTraceService'
-import { buildSubAgentProtocolPayload } from '@share/cache/AItype/states/taskCommunication'
+import { getSubAgentRuntimeSpec } from './subAgentRegistry'
 
 class TaskRecoveryService {
   private get notificationRepo() {
@@ -33,12 +33,13 @@ class TaskRecoveryService {
         continue
       }
 
+      const runtimeSpec = getSubAgentRuntimeSpec(run.executorKind)
       await taskNotificationService.publishExecutionEvent({
         taskId: task.id,
         executionId: run.id,
         type: 'subagent_failed',
         summary: `执行器 ${run.executorKind} 在应用重启前中断，当前已转入人工恢复流程。`,
-        payload: buildSubAgentProtocolPayload({
+        payload: runtimeSpec.protocol.buildPayload({
           outcome: 'failed',
           summary: `执行器 ${run.executorKind} 在应用重启前中断，当前已转入人工恢复流程。`,
           message:
@@ -49,7 +50,7 @@ class TaskRecoveryService {
           details: {
             kind: 'failed',
             errorType: 'runtime_error',
-            retryable: false,
+            retryable: runtimeSpec.retryPolicy.defaultRetryable,
             internalWarning: 'execution reconciled during startup recovery'
           }
         }),

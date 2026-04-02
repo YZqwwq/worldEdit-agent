@@ -4,13 +4,13 @@ import type {
   MainAgentTaskNotificationEvent
 } from '@share/cache/AItype/states/taskLifecycleState'
 import { logError } from '../../../../share/utils/error/error'
-import { mainAgentDispatchService } from '../../middlelayer/event-in-wait/mainAgentDispatchService'
+import { mainAgentDispatchService } from './queue/mainAgentDispatchQueueService'
 import { mainAgentChatRuntimeService } from './mainAgentChatRuntimeService'
 import { mainAgentEffectApplierService } from './mainAgentEffectApplierService'
 import { orchestrateMainAgentEvent } from './mainAgentEventOrchestration'
 import { mainAgentLifecycleControlService } from './mainAgentLifecycleControlService'
 import { taskNotificationConsumerService } from './taskNotificationConsumerService'
-import { taskNotificationDispatchBridge } from '../../task/taskNotificationDispatchBridge'
+import { taskNotificationDispatchBridge } from './queue/taskNotificationDispatchBridge'
 import { mainAgentTurnService } from './mainAgentTurnService'
 import { taskNotificationService } from '../../task/taskNotificationService'
 

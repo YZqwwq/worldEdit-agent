@@ -1,5 +1,5 @@
 import { defineAgentTool } from '../../core/agentTool'
-import { taskContinuationService } from '../../../taskContinuationService'
+import { taskContinuationService } from '../../../../task/taskContinuationService'
 import {
   delegateCharacterEditorInputSchema,
   delegateCharacterEditorOutputSchema

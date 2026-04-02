@@ -4,10 +4,8 @@ import type {
   TaskExecutionInspectionField,
   TaskExecutionInspectionSection
 } from '@share/cache/AItype/states/taskExecutionInspection'
-import {
-  parseSubAgentProtocolPayload,
-  type SubAgentProtocolDetails
-} from '@share/cache/AItype/states/taskCommunication'
+import { type SubAgentProtocolDetails } from '@share/cache/AItype/states/taskCommunication'
+import { getSubAgentRuntimeSpec } from './subAgentRegistry'
 
 const parseJsonObject = (input: string): Record<string, unknown> => {
   try {
@@ -156,6 +154,7 @@ const buildCharacterEditorInputSection = (
 }
 
 const buildCharacterEditorOutputSection = (
+  executorKind: TaskExecutorKind,
   payload: Record<string, unknown>,
   summary?: string
 ): TaskExecutionInspectionSection | undefined => {
@@ -169,7 +168,7 @@ const buildCharacterEditorOutputSection = (
       : undefined
   }
 
-  const protocol = parseSubAgentProtocolPayload(payload, {
+  const protocol = getSubAgentRuntimeSpec(executorKind).protocol.parsePayload(payload, {
     summary: summary?.trim()
   })
 
@@ -269,7 +268,7 @@ const buildExecutionOutputSection = (
   summary?: string
 ): TaskExecutionInspectionSection | undefined => {
   if (executorKind === 'character_editor') {
-    return buildCharacterEditorOutputSection(payload, summary)
+    return buildCharacterEditorOutputSection(executorKind, payload, summary)
   }
   return buildGenericSection('输出', payload, summary)
 }
