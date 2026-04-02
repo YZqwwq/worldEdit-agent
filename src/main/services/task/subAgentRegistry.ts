@@ -1,6 +1,7 @@
 import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
 import type { TaskRecord } from '../../../share/entity/database/TaskRecord'
 import type { TaskExecutionRecord } from '../../../share/entity/database/TaskExecutionRecord'
+import type { TaskExecutionInspectionSection } from '@share/cache/AItype/states/taskExecutionInspection'
 import type {
   SubAgentOutcome,
   SubAgentProtocolDetails
@@ -17,6 +18,13 @@ import {
   continueCharacterEditorTask,
   type CharacterEditorContinuationResult
 } from '../aiservice/child-agent-system/nodes/characterEditorContinuationNode'
+import {
+  buildCharacterEditorInspectionInputSection,
+  buildCharacterEditorInspectionOutputSection,
+  getCharacterEditorMissingFields,
+  getCharacterEditorRecommendedNextTool,
+  startCharacterEditorTask
+} from '../aiservice/child-agent-system/characterEditorRuntimeSupport'
 
 export type SubAgentDispatchResult = {
   outcome: SubAgentOutcome
@@ -31,12 +39,15 @@ export type SubAgentDispatchHandler = (input: {
   task: TaskRecord
   execution: TaskExecutionRecord
   payload: Record<string, unknown>
+  runtime: Pick<SubAgentRegistryEntry, 'executorKind' | 'timeoutPolicy' | 'retryPolicy' | 'protocol'>
 }) => Promise<SubAgentDispatchResult>
 
 export type SubAgentContinuationHandler = (input: {
   task: TaskRecord
   userReply: string
 }) => Promise<CharacterEditorContinuationResult>
+
+export type SubAgentStartHandler = (input: unknown) => Promise<unknown>
 
 export type SubAgentTimeoutPolicy = {
   kind: 'model_config_child_agent_timeout'
@@ -62,6 +73,20 @@ export type SubAgentProtocolAdapter = {
   buildPayload: typeof buildSubAgentProtocolPayload
 }
 
+export type SubAgentInspectionAdapter = {
+  buildInputSection?: (payload: Record<string, unknown>) => TaskExecutionInspectionSection | undefined
+  buildOutputSection?: (input: {
+    payload: Record<string, unknown>
+    summary?: string
+    protocol: SubAgentProtocolAdapter
+  }) => TaskExecutionInspectionSection | undefined
+  getMissingFields?: (pendingContext: Record<string, unknown>) => string[]
+  getRecommendedNextTool?: (input: {
+    taskStatus: string
+    delegateToolName: string
+  }) => string | undefined
+}
+
 const defaultTimeoutPolicy: SubAgentTimeoutPolicy = {
   kind: 'model_config_child_agent_timeout',
   resolveTimeoutMs: () => modelConfigService.getChildAgentTimeoutMs()
@@ -79,8 +104,8 @@ const defaultProtocolAdapter: SubAgentProtocolAdapter = {
   buildPayload: buildSubAgentProtocolPayload
 }
 
-const characterEditorDispatchHandler: SubAgentDispatchHandler = async ({ payload }) => {
-  const timeoutMs = await defaultTimeoutPolicy.resolveTimeoutMs()
+const characterEditorDispatchHandler: SubAgentDispatchHandler = async ({ payload, runtime }) => {
+  const timeoutMs = await runtime.timeoutPolicy.resolveTimeoutMs()
   const result = await runCharacterEditorExecution(payload, {
     timeoutMs
   })
@@ -101,10 +126,12 @@ export type SubAgentRegistryEntry = {
   enabled: boolean
   description: string
   dispatchHandler?: SubAgentDispatchHandler
+  startHandler?: SubAgentStartHandler
   continuationHandler?: SubAgentContinuationHandler
   timeoutPolicy: SubAgentTimeoutPolicy
   retryPolicy: SubAgentRetryPolicy
   protocol: SubAgentProtocolAdapter
+  inspection?: SubAgentInspectionAdapter
 }
 
 export const subAgentRegistry: Record<TaskExecutorKind, SubAgentRegistryEntry> = {
@@ -145,6 +172,7 @@ export const subAgentRegistry: Record<TaskExecutorKind, SubAgentRegistryEntry> =
     enabled: true,
     description: '人物描述编辑子 agent。',
     dispatchHandler: characterEditorDispatchHandler,
+    startHandler: startCharacterEditorTask,
     continuationHandler: continueCharacterEditorTask,
     timeoutPolicy: defaultTimeoutPolicy,
     retryPolicy: {
@@ -152,7 +180,18 @@ export const subAgentRegistry: Record<TaskExecutorKind, SubAgentRegistryEntry> =
       defaultRetryable: false,
       maxAttempts: 1
     },
-    protocol: defaultProtocolAdapter
+    protocol: defaultProtocolAdapter,
+    inspection: {
+      buildInputSection: buildCharacterEditorInspectionInputSection,
+      buildOutputSection: ({ payload, summary, protocol }) =>
+        buildCharacterEditorInspectionOutputSection({
+          payload,
+          summary,
+          parsePayload: protocol.parsePayload
+        }),
+      getMissingFields: getCharacterEditorMissingFields,
+      getRecommendedNextTool: getCharacterEditorRecommendedNextTool
+    }
   },
   tool_builder: {
     executorKind: 'tool_builder',

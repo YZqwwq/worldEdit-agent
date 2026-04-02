@@ -1,7 +1,7 @@
-import { mainAgentDispatchService } from './queue/mainAgentDispatchQueueService'
-import { taskNotificationService } from '../../task/taskNotificationService'
-import { mainAgentEventLogService } from './mainAgentEventLogService'
-import { mainAgentTurnService } from './mainAgentTurnService'
+import { mainAgentDispatchService } from './mainAgentDispatchQueueService'
+import { taskNotificationService } from '../../../task/taskNotificationService'
+import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
+import { mainAgentTurnService } from '../mainAgentTurnService'
 
 class MainAgentEventRecoveryService {
   async reconcileUserMessageEvents(): Promise<void> {

@@ -8,7 +8,7 @@ import { initMemoryStorage } from './config/storageInit'
 import { registerAppResourceProtocol } from './protocols/resourceProtocol'
 import { taskRecoveryService } from './services/task/taskRecoveryService'
 import { subAgentExecutionQueueService } from './services/task/queue/subAgentExecutionQueueService'
-import { mainAgentEventRecoveryService } from './services/aiservice/runtime/mainAgentEventRecoveryService'
+import { mainAgentEventRecoveryService } from './services/aiservice/runtime/queue/mainAgentEventRecoveryQueueService'
 
 function createWindow(): void {
   // Create the browser window.

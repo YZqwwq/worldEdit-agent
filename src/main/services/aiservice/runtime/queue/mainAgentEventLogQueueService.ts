@@ -1,4 +1,4 @@
-import { AppDataSource } from '../../../database'
+import { AppDataSource } from '../../../../database'
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import type { MainAgentEventStatus } from '@share/cache/AItype/states/mainAgentEventState'
 import type {

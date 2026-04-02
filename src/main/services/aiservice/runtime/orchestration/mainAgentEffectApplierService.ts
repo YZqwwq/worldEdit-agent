@@ -2,11 +2,11 @@ import type {
   MainAgentEffect,
   MainAgentEventConsumptionResult
 } from '@share/cache/AItype/states/taskLifecycleState'
-import { contentToParts } from '../messageoutput/transformRespones'
-import { chatMessageService } from '../chat/chatMessageService'
-import { taskTraceService } from '../../task/taskTraceService'
-import { mainAgentTurnService } from './mainAgentTurnService'
-import { memoryManager } from '../agentrsystem/manager/memory/MemoryManager'
+import { contentToParts } from '../../messageoutput/transformRespones'
+import { chatMessageService } from '../../chat/chatMessageService'
+import { taskTraceService } from '../../../task/taskTraceService'
+import { mainAgentTurnService } from '../mainAgentTurnService'
+import { memoryManager } from '../../agentrsystem/manager/memory/MemoryManager'
 
 class MainAgentEffectApplierService {
   async apply(result: MainAgentEventConsumptionResult): Promise<void> {

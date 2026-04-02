@@ -29,19 +29,43 @@
 
 这部分属于主 agent 的 LangGraph 主图执行路径。
 
-### 2. 主控决策节点
+### 2. 主控运行时节点
 
 目录：
 
-- `src/main/services/aiservice/runtime/nodes/*`
+- `src/main/services/aiservice/runtime/lifecycle/*`
+- `src/main/services/aiservice/runtime/notification/*`
+- `src/main/services/aiservice/runtime/orchestration/*`
 
 当前包含：
 
-- `awaitingUserInputNode.ts`
-- `taskLifecycleIntentNode.ts`
-- `taskNotificationDecisionNode.ts`
+- `lifecycle/mainAgentLifecycleControlService.ts`
+- `lifecycle/nodes/awaitingUserInputNode.ts`
+- `lifecycle/nodes/taskLifecycleIntentNode.ts`
+- `lifecycle/nodes/taskLifecycleSynthesisNode.ts`
+- `orchestration/mainAgentEffectApplierService.ts`
+- `notification/taskNotificationConsumerService.ts`
+- `notification/nodes/taskNotificationConsumeNode.ts`
+- `notification/nodes/taskNotificationDecisionNode.ts`
+- `notification/nodes/taskNotificationEffectNode.ts`
+- `orchestration/mainAgentEventOrchestration.ts`
 
-这部分虽然还没有接入 `agentReactSystem.ts` 那张主图，但语义上已经属于主 agent 的“决策节点层”，不再散落为普通 helper / handler。
+这部分都属于主 agent 的图外控制面。
+
+它们不进入 `agentReactSystem.ts`，因为负责的是：
+
+- event 分流
+- 生命周期判断
+- notification 消费
+- orchestration 阶段控制
+
+而不是：
+
+- persona
+- context
+- LLM 推理
+- tool 调用
+- memory 写入
 
 ### 3. 主图适配与编排层
 
@@ -51,11 +75,7 @@
 
 当前仍然保留的主控适配层：
 
-- `mainAgentLifecycleControlService.ts`
 - `mainAgentChatRuntimeService.ts`
-- `mainAgentEventOrchestration.ts`
-- `mainAgentEffectApplierService.ts`
-- `taskNotificationConsumerService.ts`
 - `mainAgentEntryService.ts`
 
 这层的职责是：
@@ -69,8 +89,8 @@
 一句话：
 
 - `agentrsystem/node/*` 是“图内执行节点”
-- `runtime/nodes/*` 是“图外主控决策节点”
-- `runtime/*.ts` 是“主控编排与适配层”
+- `runtime/lifecycle|notification|orchestration/*` 是“图外主控控制面”
+- `runtime/*.ts` 是“主图适配层与共享 runtime 服务”
 
 ---
 
@@ -83,6 +103,8 @@
 本轮已归位：
 
 - `mainAgentDispatchQueueService.ts`
+- `mainAgentEventLogQueueService.ts`
+- `mainAgentEventRecoveryQueueService.ts`
 - `taskNotificationDispatchBridge.ts`
 
 这部分负责：
@@ -90,13 +112,9 @@
 - 主 agent 事件排队
 - task notification 入主队列桥接
 - 调度串行消费
+- event 持久化与恢复
 
-### 仍与队列强相关、但尚未移动的文件
-
-- `mainAgentEventLogService.ts`
-- `mainAgentEventRecoveryService.ts`
-
-它们已经在语义上明显属于 queue / recovery 控制面，后续建议继续向 `runtime/queue` 收拢。
+这层本质上是“调度信封层”，因此不进入主图，也不和 lifecycle / notification 决策节点混放。
 
 ---
 
@@ -133,6 +151,7 @@
 - `subAgentDispatcherService.ts`
 - `subAgentCapabilityService.ts`
 - `queue/subAgentExecutionQueueService.ts`
+- `characterEditorRuntimeSupport.ts`
 
 这部分属于“子 agent runtime 控制面”，不是主图节点本身，也不是具体 executor 节点。
 
@@ -150,10 +169,10 @@
 
 它当前负责：
 
-- 新任务创建入口
+- executor start 入口的统一调用
 - active task continuation 统一入口
 - 调用 awaiting-input 决策节点
-- 调用 registry 中的 continuation handler
+- 调用 registry 中的 `startHandler / continuationHandler`
 
 注意：
 
@@ -231,15 +250,32 @@
 - `task/characterEditorContinuation.ts`
   - -> `aiservice/child-agent-system/nodes/characterEditorContinuationNode.ts`
 
-### 主控决策散点
+### 主控控制面拆分
 
 已收敛到：
 
-- `runtime/nodes/awaitingUserInputNode.ts`
-- `runtime/nodes/taskLifecycleIntentNode.ts`
-- `runtime/nodes/taskNotificationDecisionNode.ts`
+- `runtime/lifecycle/nodes/awaitingUserInputNode.ts`
+- `runtime/lifecycle/nodes/taskLifecycleIntentNode.ts`
+- `runtime/lifecycle/nodes/taskLifecycleSynthesisNode.ts`
+- `runtime/orchestration/mainAgentEffectApplierService.ts`
+- `runtime/notification/nodes/taskNotificationConsumeNode.ts`
+- `runtime/notification/nodes/taskNotificationDecisionNode.ts`
+- `runtime/notification/nodes/taskNotificationEffectNode.ts`
+- `runtime/orchestration/mainAgentEventOrchestration.ts`
 
 并删除旧的散点文件。
+
+### runtime spec 支撑文件
+
+当前 `character_editor` 的 executor-specific runtime spec 支撑能力已收敛到：
+
+- `aiservice/child-agent-system/characterEditorRuntimeSupport.ts`
+
+这里集中放置：
+
+- `startHandler` 对应的任务创建逻辑
+- inspection input/output section 生成
+- `missingFields / recommendedNextTool` 等展示语义
 
 ---
 
@@ -247,24 +283,50 @@
 
 ### P1
 
-- 将 `mainAgentEventLogService.ts` 归入 `runtime/queue`
-- 将 `mainAgentEventRecoveryService.ts` 归入 `runtime/queue`
+- 继续评估 `MainAgentEntryService` 是否需要拆出更纯粹的 runtime adapter / bootstrap 角色
 
 ### P1
 
-- 将 `mainAgentLifecycleControlService.ts` 中的 `buildHandledResult` 抽成显式 effect builder 节点
-- 将 `prepareTaskLifecycle()` 抽成 `taskLifecycleSynthesisNode`
+- 将 `runtime` 根目录里仍然偏“控制面”的文件继续收敛，避免根目录再次堆平
+- 为 `runtime/lifecycle` 和 `runtime/notification` 增加更稳定的 index 或 barrel strategy（如果团队认为有必要）
+- 继续抽出跨 executor 可复用的 inspection schema，避免每个 executor 都重新组织输入/输出字段
 
 ### P1
 
-- 将 `taskNotificationConsumerService.ts` 进一步拆成：
-  - consume node
-  - effect builder node
+- 将主图适配层与控制面层的边界继续写入设计文档与 inspection 工具，减少后续误放文件
 
 ### P2
 
 - 评估 `mainAgentChatRuntimeService.ts` 是否应更明确地作为“主图运行适配器”
-- 评估 `mainAgentEventOrchestration.ts` 中结果构造函数是否继续节点化 / reducer 化
+- 评估 `runtime/orchestration/mainAgentEventOrchestration.ts` 中结果构造函数是否继续节点化 / reducer 化
+
+---
+
+## 当前任务
+
+1. `character_editor` 续跑语义继续收敛
+- 重点文件：
+  - `src/main/services/aiservice/child-agent-system/nodes/characterEditorContinuationNode.ts`
+  - `src/main/services/aiservice/child-agent-system/characterEditorExecution.ts`
+
+2. continuation spec 继续从 executor 私有字段上升
+- 重点文件：
+  - `src/main/services/aiservice/ai-utils/tools/character/shared.ts`
+  - `src/main/services/task/subAgentRegistry.ts`
+- 任务说明：
+  - 这是协议层升级项，不影响当前 LLM 主图与子 agent 的既有运行链
+  - 可按“系统级 continuation envelope + executor 私有 context”方式渐进改造
+
+3. inspection 通用语义继续抽象
+- 重点文件：
+  - `src/main/services/aiservice/child-agent-system/characterEditorRuntimeSupport.ts`
+  - `src/main/services/task/taskExecutionInspectionMapper.ts`
+  - `src/main/services/aiservice/ai-utils/tools/task/getActiveTaskContext.ts`
+
+4. 后续 executor 接入模板化
+- 重点文件：
+  - `src/main/services/task/subAgentRegistry.ts`
+  - `src/main/services/task/taskContinuationService.ts`
 
 ---
 

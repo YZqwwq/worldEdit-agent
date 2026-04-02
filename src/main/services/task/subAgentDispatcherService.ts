@@ -132,7 +132,7 @@ class SubAgentDispatcherService {
     }
 
     try {
-      const result = await handler({ task, execution, payload })
+      const result = await handler({ task, execution, payload, runtime: registryEntry })
       await taskService.setPendingContext(
         task.id,
         result.outcome === 'needs_input' &&

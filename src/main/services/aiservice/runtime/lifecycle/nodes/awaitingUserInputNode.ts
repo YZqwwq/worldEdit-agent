@@ -1,11 +1,11 @@
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
 import type { ActiveTaskSnapshot } from '@share/cache/AItype/states/taskLifecycleState'
-import { contentToText } from '../../messageoutput/transformRespones'
-import { toErrorMessage } from '../../../../../share/utils/error/error'
-import { getQuickModel } from '../../agentrsystem/modelwithtool/quick-base-model'
-import { emitGraphThought } from '../../../log/graphlog'
-import { characterEditorPendingContextSchema } from '../../ai-utils/tools/character/shared'
+import { contentToText } from '../../../messageoutput/transformRespones'
+import { toErrorMessage } from '../../../../../../share/utils/error/error'
+import { getQuickModel } from '../../../agentrsystem/modelwithtool/quick-base-model'
+import { emitGraphThought } from '../../../../log/graphlog'
+import { characterEditorPendingContextSchema } from '../../../ai-utils/tools/character/shared'
 
 const OBVIOUS_TASK_CANCEL_PATTERNS = [
   /取消/,

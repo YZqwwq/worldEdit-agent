@@ -59,6 +59,29 @@ const queueCharacterEditorExecution = async (
   })
 }
 
+const buildContinuationUserRequest = (input: {
+  phase: 'resolve_world' | 'resolve_character' | 'apply_edit'
+  originalUserRequest: string
+  userReply: string
+}): string => {
+  const trimmedOriginal = input.originalUserRequest.trim()
+  const trimmedReply = input.userReply.trim()
+
+  if (input.phase === 'apply_edit') {
+    return trimmedReply
+  }
+
+  if (!trimmedOriginal) {
+    return trimmedReply
+  }
+
+  if (!trimmedReply || trimmedReply === trimmedOriginal) {
+    return trimmedOriginal
+  }
+
+  return `${trimmedOriginal}\n\n补充定位信息：${trimmedReply}`
+}
+
 export const continueCharacterEditorTask = async (input: {
   task: TaskRecord
   userReply: string
@@ -84,11 +107,16 @@ export const continueCharacterEditorTask = async (input: {
   })
 
   const nextCharacterName =
-    pendingContext.phase === 'resolve_character' && !pendingContext.targetCharacterName
-      ? trimmedInput
+    pendingContext.phase === 'resolve_character'
+      ? trimmedInput || pendingContext.targetCharacterName
       : pendingContext.targetCharacterName
   const nextWorldName =
     pendingContext.phase === 'resolve_world' ? trimmedInput : pendingContext.targetWorldName
+  const nextUserRequest = buildContinuationUserRequest({
+    phase: pendingContext.phase,
+    originalUserRequest: pendingContext.originalUserRequest,
+    userReply: trimmedInput
+  })
 
   const result = await queueCharacterEditorExecution(input.task, {
     taskId: input.task.id,
@@ -97,7 +125,7 @@ export const continueCharacterEditorTask = async (input: {
     worldName: nextWorldName,
     entityId: pendingContext.resolvedEntityId,
     characterName: nextCharacterName,
-    userRequest: trimmedInput,
+    userRequest: nextUserRequest,
     originalUserRequest: pendingContext.originalUserRequest,
     editingScope: pendingContext.editingScope,
     editingDirection: pendingContext.editingDirection,

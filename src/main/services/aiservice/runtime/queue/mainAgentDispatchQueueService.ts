@@ -7,7 +7,7 @@ import type {
   MainAgentUserMessagePayload,
   TaskDispatchSnapshot
 } from '@share/cache/AItype/states/taskLifecycleState'
-import { mainAgentEventLogService } from '../mainAgentEventLogService'
+import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
 import { chatMessageService } from '../../chat/chatMessageService'
 
 type DispatchHandlers = {

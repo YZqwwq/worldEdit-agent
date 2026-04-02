@@ -1,19 +1,14 @@
 import type {
   MainAgentEventConsumptionResult,
   MainAgentUserMessageEvent,
-  TaskLifecycleState,
-  TaskTraceStage
+  TaskLifecycleState
 } from '@share/cache/AItype/states/taskLifecycleState'
-import { taskExecutionService } from '../../task/taskExecutionService'
-import { taskService } from '../../task/taskService'
-import { subAgentCapabilityService } from '../../task/subAgentCapabilityService'
-import { taskContinuationService } from '../../task/taskContinuationService'
-import { emitGraphThought } from '../../log/graphlog'
-import {
-  getSuggestedExecutor,
-  taskLifecycleIntentNode,
-  toTaskLifecycleDecision
-} from './nodes/taskLifecycleIntentNode'
+import { taskExecutionService } from '../../../task/taskExecutionService'
+import { taskService } from '../../../task/taskService'
+import { taskContinuationService } from '../../../task/taskContinuationService'
+import { buildLifecycleHandledResult } from './effects/lifecycleHandledEffectBuilder'
+import { taskLifecycleIntentNode } from './nodes/taskLifecycleIntentNode'
+import { taskLifecycleSynthesisNode } from './nodes/taskLifecycleSynthesisNode'
 import {
   awaitingUserInputNode,
   buildAwaitingUserInputClarifyMessage,
@@ -34,69 +29,6 @@ const CONFIRM_CLOSE_PATTERNS = [
 
 const matchesAnyPattern = (text: string, patterns: RegExp[]): boolean =>
   patterns.some((pattern) => pattern.test(text))
-
-const createEffectContext = (event: MainAgentUserMessageEvent) => ({
-  eventId: event.id,
-  sessionId: event.sessionId
-})
-
-const buildHandledResult = (input: {
-  event: MainAgentUserMessageEvent
-  summary: string
-  visibleMessage: string
-  taskId: number
-  executionId?: number
-  userTraceMessage: string
-  mainTraceMessage: string
-  mainTraceStage?: TaskTraceStage
-  payload?: Record<string, unknown>
-}): MainAgentEventConsumptionResult => {
-  const effectContext = createEffectContext(input.event)
-
-  return {
-    handled: true,
-    consumer: 'lifecycle_control',
-    summary: input.summary,
-    effects: [
-      {
-        ...effectContext,
-        type: 'save_message',
-        role: 'ai',
-        content: input.visibleMessage,
-        eventIdRef: input.event.id,
-        consumer: 'lifecycle_control'
-      },
-      {
-        ...effectContext,
-        type: 'emit_trace',
-        taskId: input.taskId,
-        executionId: input.executionId,
-        actor: 'user',
-        stage: 'user_replied_to_task',
-        message: input.userTraceMessage,
-        dedupeKey: `${input.event.id}:user_replied_to_task:user`,
-        payload: input.payload
-      },
-      {
-        ...effectContext,
-        type: 'emit_trace',
-        taskId: input.taskId,
-        executionId: input.executionId,
-        actor: 'main_agent',
-        stage: input.mainTraceStage ?? 'main_response_user',
-        message: input.mainTraceMessage,
-        dedupeKey: `${input.event.id}:${input.mainTraceStage ?? 'main_response_user'}:main_agent`,
-        payload: input.payload
-      },
-      {
-        ...effectContext,
-        type: 'stream_done',
-        onChunk: input.event.payload.onChunk,
-        fullText: input.visibleMessage
-      }
-    ]
-  }
-}
 
 export type MainAgentLifecycleControlResult = {
   handledResult?: MainAgentEventConsumptionResult
@@ -138,7 +70,7 @@ class MainAgentLifecycleControlService {
           })
 
           return {
-            handledResult: buildHandledResult({
+            handledResult: buildLifecycleHandledResult({
               event,
               summary: 'user_message_cancelled_active_task',
               visibleMessage: `好的，任务「${activeTask.title}」已取消。`,
@@ -157,7 +89,7 @@ class MainAgentLifecycleControlService {
 
         if (decision.type === 'ask_status') {
           return {
-            handledResult: buildHandledResult({
+            handledResult: buildLifecycleHandledResult({
               event,
               summary: 'user_message_requested_task_status_while_awaiting_input',
               visibleMessage: buildAwaitingUserInputStatusMessage({
@@ -179,7 +111,7 @@ class MainAgentLifecycleControlService {
 
         if (decision.type === 'clarify') {
           return {
-            handledResult: buildHandledResult({
+            handledResult: buildLifecycleHandledResult({
               event,
               summary: 'user_message_clarified_before_resuming_task',
               visibleMessage: buildAwaitingUserInputClarifyMessage({
@@ -204,7 +136,7 @@ class MainAgentLifecycleControlService {
         })
 
         return {
-          handledResult: buildHandledResult({
+          handledResult: buildLifecycleHandledResult({
             event,
             summary: 'user_message_resumed_active_task',
             visibleMessage:
@@ -240,7 +172,7 @@ class MainAgentLifecycleControlService {
         })
 
         return {
-          handledResult: buildHandledResult({
+          handledResult: buildLifecycleHandledResult({
             event,
             summary: 'user_message_cancelled_active_task',
             visibleMessage: `好的，任务「${activeTask.title}」已取消。`,
@@ -268,7 +200,7 @@ class MainAgentLifecycleControlService {
         })
 
         return {
-          handledResult: buildHandledResult({
+          handledResult: buildLifecycleHandledResult({
             event,
             summary: 'user_message_confirmed_task_completion',
             visibleMessage: `好的，任务「${activeTask.title}」已结束。`,
@@ -294,83 +226,10 @@ class MainAgentLifecycleControlService {
     activeTask?: TaskLifecycleState['activeTask']
   ): Promise<TaskLifecycleState | undefined> {
     const inferred = await taskLifecycleIntentNode.resolve(userInput, activeTask)
-    const decision = toTaskLifecycleDecision(inferred)
-
-    let nextActiveTask = activeTask
-    let notice: TaskLifecycleState['notice']
-    let capability: TaskLifecycleState['capability']
-
-    if (decision.type === 'create_task' && inferred.task && decision.confidence >= 0.75) {
-      if (activeTask) {
-        notice = {
-          type: 'task_registration_blocked',
-          message:
-            `当前已有活跃任务「${activeTask.title}」正在进行。` +
-            ' 在单人格主上下文里不要并行创建第二个任务，请优先继续、确认完成或取消当前任务。'
-        }
-
-        return {
-          activeTask,
-          decision,
-          notice
-        }
-      }
-
-      capability = subAgentCapabilityService.getCapability(
-        getSuggestedExecutor(inferred.task.executorKind)
-      )
-
-      emitGraphThought('lifecycleControl', {
-        stage: 'task_capability_check',
-        capability: {
-          executorKind: capability.executorKind,
-          requiredToolName: capability.requiredToolName,
-          available: capability.available,
-          message: capability.message
-        }
-      })
-
-      if (!capability.available) {
-        notice = {
-          type: 'task_registration_blocked',
-          message: capability.message
-        }
-      }
-    } else if (decision.type === 'confirm_close_task' && activeTask) {
-      if (activeTask.status === 'awaiting_user_confirmation') {
-        await taskService.setTaskStatus(activeTask.id, {
-          status: 'done',
-          closureSummary: '用户确认当前任务结束'
-        })
-        nextActiveTask = undefined
-        notice = {
-          type: 'task_waiting_confirmation',
-          message: `任务「${activeTask.title}」已确认结束。`
-        }
-      } else {
-        notice = {
-          type: 'task_registration_blocked',
-          message:
-            `当前任务「${activeTask.title}」尚未进入可确认结束阶段。` +
-            ' 如果用户是想停止当前任务，应走取消语义；如果任务仍在执行，应等待子 agent 返回结果。'
-        }
-      }
-    } else if (decision.type === 'continue_task' && activeTask) {
-      if (activeTask.status === 'awaiting_user_input') {
-        notice = {
-          type: 'task_needs_input',
-          message:
-            '当前任务正在等待用户补充信息。如果用户已经给出补参，请优先调用 continue_active_child_agent 工具续跑对应子 agent，而不是直接口头结束任务。'
-        }
-      }
-    }
-
-    return {
-      activeTask: nextActiveTask,
-      decision,
-      notice,
-      capability
-    }
+    return taskLifecycleSynthesisNode.synthesize({
+      activeTask,
+      inferred
+    })
   }
 }
 

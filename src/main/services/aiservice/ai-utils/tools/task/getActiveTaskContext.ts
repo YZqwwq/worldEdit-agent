@@ -77,17 +77,6 @@ const parseJsonObject = (input: string): Record<string, unknown> => {
   return {}
 }
 
-const getMissingFields = (pendingContext: Record<string, unknown>): string[] => {
-  const phase = typeof pendingContext.phase === 'string' ? pendingContext.phase : ''
-  if (phase === 'resolve_world') {
-    return ['worldName']
-  }
-  if (phase === 'resolve_character') {
-    return ['characterName']
-  }
-  return []
-}
-
 export const getActiveTaskContextTool = defineAgentTool({
   name: 'get_active_task_context',
   description:
@@ -144,13 +133,13 @@ export const getActiveTaskContextTool = defineAgentTool({
         )
       : null
 
-    const missingFields = getMissingFields(pendingContext)
+    const runtimeSpec = getSubAgentRuntimeSpec(activeTask.executorKind)
+    const missingFields = runtimeSpec.inspection?.getMissingFields?.(pendingContext) ?? []
     const recommendedNextTool =
-      activeTask.status === 'awaiting_user_input'
-        ? 'continue_active_child_agent'
-        : activeTask.executorKind === 'character_editor' && activeTask.status === 'active'
-          ? 'delegate_character_editor'
-          : undefined
+      runtimeSpec.inspection?.getRecommendedNextTool?.({
+        taskStatus: activeTask.status,
+        delegateToolName: runtimeSpec.delegateToolName
+      }) ?? (activeTask.status === 'awaiting_user_input' ? 'continue_active_child_agent' : undefined)
 
     return getActiveTaskContextOutputSchema.parse({
       found: true,

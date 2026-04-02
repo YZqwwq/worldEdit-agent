@@ -4,7 +4,6 @@ import type {
   TaskExecutionInspectionField,
   TaskExecutionInspectionSection
 } from '@share/cache/AItype/states/taskExecutionInspection'
-import { type SubAgentProtocolDetails } from '@share/cache/AItype/states/taskCommunication'
 import { getSubAgentRuntimeSpec } from './subAgentRegistry'
 
 const parseJsonObject = (input: string): Record<string, unknown> => {
@@ -18,8 +17,6 @@ const parseJsonObject = (input: string): Record<string, unknown> => {
   }
   return {}
 }
-
-const normalizeText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -66,34 +63,6 @@ const pushField = (
   fields.push({ key, label, value: text })
 }
 
-const formatCharacterDirection = (value: unknown): string => {
-  if (value === 'character_deeds') return '人物事迹'
-  if (value === 'character_profile') return '人物档案'
-  if (value === 'demographic_facts') return '基础属性'
-  return formatValue(value)
-}
-
-const formatCharacterSource = (value: unknown): string => {
-  if (value === 'chat') return '聊天'
-  if (value === 'world_entity_view') return '世界实体面板'
-  return formatValue(value)
-}
-
-const formatCharacterPendingPhase = (value: unknown): string => {
-  if (value === 'resolve_world') return '解析世界'
-  if (value === 'resolve_character') return '解析人物'
-  if (value === 'apply_edit') return '执行编辑'
-  return formatValue(value)
-}
-
-const formatOutcome = (value: unknown): string => {
-  if (value === 'completed') return '完成'
-  if (value === 'needs_input') return '需要补参'
-  if (value === 'failed') return '失败'
-  if (value === 'cancelled') return '已取消'
-  return formatValue(value)
-}
-
 const buildGenericSection = (
   title: string,
   payload: Record<string, unknown>,
@@ -114,150 +83,13 @@ const buildGenericSection = (
   }
 }
 
-const buildCharacterEditorInputSection = (
-  payload: Record<string, unknown>
-): TaskExecutionInspectionSection | undefined => {
-  if (!isNonEmptyRecord(payload)) return undefined
-
-  const fields: TaskExecutionInspectionField[] = []
-  pushField(fields, 'originalUserRequest', '用户原始请求', payload.originalUserRequest)
-  if (normalizeText(payload.userRequest) !== normalizeText(payload.originalUserRequest)) {
-    pushField(fields, 'userRequest', '本轮执行请求', payload.userRequest)
-  }
-  pushField(fields, 'characterName', '目标人物', payload.characterName)
-  pushField(fields, 'entityId', '实体 ID', payload.entityId)
-  pushField(fields, 'worldName', '所属世界', payload.worldName)
-  pushField(fields, 'worldId', '世界 ID', payload.worldId)
-  pushField(fields, 'editingDirection', '编辑方向', formatCharacterDirection(payload.editingDirection))
-  pushField(fields, 'expectedOutcome', '预期结果', payload.expectedOutcome)
-  pushField(fields, 'source', '任务来源', formatCharacterSource(payload.source))
-  pushField(fields, 'editingScope', '建议编辑范围', payload.editingScope)
-
-  const pendingContext = isRecord(payload.pendingContext) ? payload.pendingContext : undefined
-  if (pendingContext) {
-    pushField(fields, 'pendingPhase', '续跑阶段', formatCharacterPendingPhase(pendingContext.phase))
-    pushField(
-      fields,
-      'lastNeedsInputMessage',
-      '上轮补参提示',
-      pendingContext.lastNeedsInputMessage
-    )
-  }
-
-  return {
-    title: '输入',
-    summary:
-      normalizeText(payload.originalUserRequest) || normalizeText(payload.userRequest) || undefined,
-    fields,
-    rawJson: formatJson(payload)
-  }
-}
-
-const buildCharacterEditorOutputSection = (
-  executorKind: TaskExecutorKind,
-  payload: Record<string, unknown>,
-  summary?: string
-): TaskExecutionInspectionSection | undefined => {
-  if (!isNonEmptyRecord(payload)) {
-    return summary?.trim()
-      ? {
-          title: '输出',
-          summary: summary.trim(),
-          fields: []
-        }
-      : undefined
-  }
-
-  const protocol = getSubAgentRuntimeSpec(executorKind).protocol.parsePayload(payload, {
-    summary: summary?.trim()
-  })
-
-  const hasPayload =
-    Boolean(protocol.summary || protocol.message || protocol.errorMessage)
-  if (!hasPayload) return undefined
-
-  const fields: TaskExecutionInspectionField[] = []
-  pushField(fields, 'outcome', '执行结果', formatOutcome(protocol.outcome))
-  pushField(fields, 'message', '回报给主 Agent', protocol.message)
-  pushField(fields, 'errorMessage', '错误信息', protocol.errorMessage)
-
-  if (isRecord(protocol.pendingContext)) {
-    pushField(
-      fields,
-      'pendingPhase',
-      '待补参阶段',
-      formatCharacterPendingPhase(protocol.pendingContext.phase)
-    )
-    pushField(
-      fields,
-      'lastNeedsInputMessage',
-      '待补参提示',
-      protocol.pendingContext.lastNeedsInputMessage
-    )
-  }
-
-  const details = protocol.details
-  appendDetailsFields(fields, details)
-
-  return {
-    title: '输出',
-    summary: protocol.summary || summary?.trim() || undefined,
-    fields,
-    rawJson: formatJson(payload)
-  }
-}
-
-const formatAppliedTools = (details: SubAgentProtocolDetails): string[] | undefined => {
-  if (!('appliedTools' in details) || !Array.isArray(details.appliedTools)) {
-    return undefined
-  }
-  const normalized = details.appliedTools.map((item) =>
-    item.status ? `${item.name} (${item.status})` : item.name
-  )
-  return normalized.length > 0 ? normalized : undefined
-}
-
-const appendDetailsFields = (
-  fields: TaskExecutionInspectionField[],
-  details?: SubAgentProtocolDetails
-): void => {
-  if (!details) {
-    return
-  }
-
-  pushField(fields, 'detailsKind', '详情类型', details.kind)
-
-  switch (details.kind) {
-    case 'completed':
-      pushField(fields, 'changedScopes', '变更范围', details.changedScopes)
-      pushField(fields, 'appliedTools', '调用工具', formatAppliedTools(details))
-      pushField(fields, 'internalWarning', '内部警告', details.internalWarning)
-      pushField(fields, 'suggestedFollowUp', '建议下一步', details.suggestedFollowUp)
-      return
-    case 'needs_input':
-      pushField(fields, 'pendingPhase', '待补参阶段', formatCharacterPendingPhase(details.phase))
-      pushField(fields, 'missingFields', '缺失字段', details.missingFields)
-      pushField(fields, 'suggestedPrompt', '建议追问', details.suggestedPrompt)
-      pushField(fields, 'appliedTools', '调用工具', formatAppliedTools(details))
-      return
-    case 'failed':
-      pushField(fields, 'errorType', '错误类型', details.errorType)
-      pushField(fields, 'retryable', '可重试', details.retryable)
-      pushField(fields, 'internalWarning', '内部警告', details.internalWarning)
-      pushField(fields, 'appliedTools', '调用工具', formatAppliedTools(details))
-      return
-    case 'cancelled':
-      pushField(fields, 'cancelReason', '取消原因', details.reason)
-      return
-  }
-}
-
 const buildExecutionInputSection = (
   executorKind: TaskExecutorKind,
   payload: Record<string, unknown>
 ): TaskExecutionInspectionSection | undefined => {
-  if (executorKind === 'character_editor') {
-    return buildCharacterEditorInputSection(payload)
+  const inspection = getSubAgentRuntimeSpec(executorKind).inspection
+  if (inspection?.buildInputSection) {
+    return inspection.buildInputSection(payload)
   }
   return buildGenericSection('输入', payload)
 }
@@ -267,8 +99,13 @@ const buildExecutionOutputSection = (
   payload: Record<string, unknown>,
   summary?: string
 ): TaskExecutionInspectionSection | undefined => {
-  if (executorKind === 'character_editor') {
-    return buildCharacterEditorOutputSection(executorKind, payload, summary)
+  const runtimeSpec = getSubAgentRuntimeSpec(executorKind)
+  if (runtimeSpec.inspection?.buildOutputSection) {
+    return runtimeSpec.inspection.buildOutputSection({
+      payload,
+      summary,
+      protocol: runtimeSpec.protocol
+    })
   }
   return buildGenericSection('输出', payload, summary)
 }

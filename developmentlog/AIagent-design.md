@@ -31,8 +31,8 @@
 `-> Preload / IPC`
 `-> AIService`
 `-> MainAgentEntryService`
-`-> MainAgentEventLogService（event 持久化）`
-`-> MainAgentDispatchService`
+`-> mainAgentEventLogQueueService（event 持久化）`
+`-> mainAgentDispatchQueueService`
 `-> MainAgentEventOrchestration`
 `   - user_message -> prepare -> consume -> apply -> commit`
 `   - task_notification -> consume -> apply -> commit`
@@ -79,8 +79,8 @@
 关键对象：
 
 - `MainAgentEntryService`
-- `MainAgentEventLogService`
-- `MainAgentDispatchService`
+- `mainAgentEventLogQueueService`
+- `mainAgentDispatchQueueService`
 - `mainAgentEventOrchestration`
 
 ### 4. 生命周期控制层
@@ -95,8 +95,10 @@
 
 关键对象：
 
-- `MainAgentLifecycleControlService`
-- `taskLifecycleIntentResolver`
+- `mainAgentLifecycleControlService`
+- `awaitingUserInputNode`
+- `taskLifecycleIntentNode`
+- `taskLifecycleSynthesisNode`
 
 ### 5. 主 agent 推理执行层
 
@@ -112,7 +114,6 @@
 
 - `MainAgentChatRuntimeService`
 - `agentReactSystem`
-- `MainAgentEffectApplierService`
 
 ### 6. 任务与后台编排层
 
@@ -172,8 +173,8 @@
 
 主队列实现：
 
-- `MainAgentDispatchService`
-- `MainAgentEventLogService`
+- `mainAgentDispatchQueueService`
+- `mainAgentEventLogQueueService`
 
 ### 主 event 日志
 
@@ -196,19 +197,27 @@
 主 agent 当前内部已经分成五类职责：
 
 1. `事件消费`
-   由 `MainAgentEntryService -> MainAgentDispatchService` 完成
+   由 `MainAgentEntryService -> mainAgentDispatchQueueService` 完成
 
 2. `事件 orchestration`
    由 `mainAgentEventOrchestration` 完成
 
 3. `生命周期控制`
-   由 `MainAgentLifecycleControlService` 完成
+   由 `mainAgentLifecycleControlService` 完成
 
 4. `推理执行`
    由 `MainAgentChatRuntimeService -> agentReactSystem` 完成
 
 5. `子任务协调`
    由 `taskNotificationConsumerService`、`taskContinuationService`、任务层服务共同完成
+
+其中：
+
+- `mainAgentEventOrchestration`
+  - 负责定义 `prepare / consume / apply / commit` 阶段
+- `MainAgentEffectApplierService`
+  - 负责执行 `apply` 阶段生成的 effects
+  - 因此它属于 orchestration 执行层，而不是主图推理层
 
 ### 主 event orchestration
 
@@ -243,6 +252,38 @@
 这意味着：
 
 `主 agent 的控制流程已经从“散在 service 调用链里”收敛成了显式执行阶段`
+
+### runtime 文件排布
+
+当前 `src/main/services/aiservice/runtime` 按控制面职责拆分为四个区域：
+
+- `runtime/queue`
+  - 主消息队列、event log、启动恢复、notification 入队桥接
+- `runtime/orchestration`
+  - event 的 `prepare / consume / apply / commit` 编排表
+- `runtime/lifecycle`
+  - 用户消息进入主图前的生命周期判断、awaiting-input 续跑闸门、effect builder
+- `runtime/notification`
+  - 子 agent notification 的消费、决策与 effect 生成
+
+另外，`runtime` 根目录只保留主图适配器和共享运行时服务，例如：
+
+- `MainAgentEntryService`
+- `MainAgentChatRuntimeService`
+- `MainAgentTurnService`
+
+而 `apply` 阶段的副作用落地器已经归入 `runtime/orchestration`，因为它属于 event orchestration 的执行阶段，而不是主图适配层。
+
+这样排布的原因是：
+
+1. `agentReactSystem` 是推理图，只负责 persona、context、LLM、tool、memory。
+2. `runtime/*` 是控制面，负责 event 调度、生命周期控制、notification 消费、effect 提交。
+3. 消息队列和生命周期控制不是推理节点，把它们并进 LangGraph 会让主图承担不属于它的职责。
+
+一句话：
+
+`主图负责推理`
+`runtime 负责控制`
 
 ### 主图
 
@@ -288,9 +329,9 @@
 当前生命周期判断已收敛成：
 
 - 取消任务 / 确认结束 / 等待补参时的直接续跑
-  - 由 `MainAgentLifecycleControlService` 直接处理
+  - 由 `mainAgentLifecycleControlService` 直接处理
 - 其他是否属于 `create_task / continue_task / confirm_close_task / none`
-  - 由 `taskLifecycleIntentResolver` 调用轻量模型分类
+  - 由 `taskLifecycleIntentNode` 调用轻量模型分类
 - 轻量模型失败时
   - 保守回退为 `none`
 
@@ -802,8 +843,8 @@
 `-> TaskNotificationRecord(pending)`
 `-> TaskNotificationDispatchBridge`
 `-> MainAgentEntryService.enqueueTaskNotification(...)`
-`-> MainAgentDispatchService`
-`-> taskNotificationConsumerService.consume(...)`
+`-> mainAgentDispatchQueueService`
+`-> notification/taskNotificationConsumerService.consume(...)`
 
 然后由主 agent 决定：
 
@@ -841,6 +882,8 @@
 
 - `dispatchHandler`
   - dispatcher 拉起该 executor 时应调用哪个执行入口
+- `startHandler`
+  - 主 agent 通过 delegate tool 创建新任务时，应调用哪个启动入口
 - `continuationHandler`
   - 当任务处于 `awaiting_user_input` 时，用户补参后应如何续跑
 - `timeoutPolicy`
@@ -851,6 +894,9 @@
   - 该 executor 使用哪一版协议
   - 如何 build payload
   - 如何 parse / normalize payload
+- `inspection`
+  - 该 executor 如何生成 inspection 输入/输出 section
+  - 如何推导 `missingFields` 与 `recommendedNextTool`
 
 这意味着：
 
@@ -883,7 +929,7 @@
 
 `UI -> IPC -> AIService`
 `-> MainAgentEntryService.enqueueUserMessage(...)`
-`-> MainAgentDispatchService`
+`-> mainAgentDispatchQueueService`
 
 这时会形成一条 `user_message` event。
 

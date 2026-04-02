@@ -6,7 +6,7 @@ import type {
   MainAgentUserMessageEvent,
   TaskLifecycleState
 } from '@share/cache/AItype/states/taskLifecycleState'
-import type { MainAgentLifecycleControlResult } from './mainAgentLifecycleControlService'
+import type { MainAgentLifecycleControlResult } from '../lifecycle/mainAgentLifecycleControlService'
 import {
   MAIN_AGENT_FLOW_RULES,
   type MainAgentCommitOwner

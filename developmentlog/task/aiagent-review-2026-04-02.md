@@ -9,60 +9,35 @@
 
 ---
 
-## 1. awaiting_user_input 阶段对用户输入的吸收过于激进
+## 1. awaiting_user_input 阶段的误续跑风险已完成第一轮收敛
 
-### 问题描述
+### 当前状态
 
-当前只要 active task 处于 `awaiting_user_input`，主 agent 就会直接把用户输入交给 continuation service 继续执行，而不会先判断这条输入到底是不是“有效补参”。
+这条问题已完成第一轮修复，不再是当前最高优先级阻塞项。
 
-这意味着以下输入也可能被错误吸收：
+主 agent 现在不会在 `awaiting_user_input` 下无条件直通 continuation，而是先经过统一的安全分流：
 
-- 进度询问
-  - 例如“现在进度怎么样？”
-- 暂停性表达
-  - 例如“等等，我再想想”
-- 含糊反馈
-  - 例如“不是这个”
-- 新意图切换
-  - 例如用户开始说另一件事
+- `continue_task`
+- `cancel_task`
+- `ask_status`
+- `clarify`
 
-### 当前行为
+当前实现已收敛到：
 
-- `mainAgentLifecycleControlService` 在检测到 `activeTask.status === 'awaiting_user_input'` 后，直接调用 `taskContinuationService.continueActiveTask(text)`
-- `characterEditorContinuation` 再把该输入当作世界名、角色名或新一轮 `userRequest` 写入后续 execution
+- `src/main/services/aiservice/runtime/lifecycle/mainAgentLifecycleControlService.ts`
+- `src/main/services/aiservice/runtime/lifecycle/nodes/awaitingUserInputNode.ts`
+- `src/main/services/task/taskContinuationService.ts`
 
-### 风险
+### 已完成修复
 
-- 会把非补参型消息错误写进任务执行链
-- 用户体验会表现为“系统误解了我的话”
-- 任务可能进入错误分支并继续后台执行
-- 某些输入会直接触发异常，导致当前 `user_message` 事件失败
+- 生命周期层不再在 `awaiting_user_input` 下直接续跑
+- 取消 / 问进度 / 澄清 / 继续 已统一先走同一个决策入口
+- continuation 入口也复用了同一个闸门，避免工具侧绕过聊天入口误续跑
 
-### 额外一致性问题
+### 剩余关注点
 
-生命周期层和 continuation 层对“取消语义”的识别规则不一致。
-
-- 生命周期层取消词见：
-  - `src/main/services/aiservice/runtime/mainAgentLifecycleControlService.ts`
-- continuation 层取消词见：
-  - `src/main/services/task/characterEditorContinuation.ts`
-
-例如：
-
-- 生命周期层没有把“结束”识别为取消
-- continuation 层却把“结束”识别为取消型输入并抛错
-
-结果是：
-
-- 输入“结束”
-- 不会先走任务取消
-- 反而会进入 continuation
-- 最后抛出 `The user reply looks like a cancellation, not a continuation payload.`
-
-### 代码位置
-
-- `src/main/services/aiservice/runtime/mainAgentLifecycleControlService.ts`
-- `src/main/services/task/characterEditorContinuation.ts`
+- 词表 / 小模型 / fallback 的边界仍可继续调优
+- 当前属于“已止血并收口”，不是“语义层绝对最终版”
 
 ---
 
@@ -103,38 +78,29 @@
 
 ### 代码位置
 
-- `src/main/services/task/characterEditorContinuation.ts`
+- `src/main/services/aiservice/child-agent-system/nodes/characterEditorContinuationNode.ts`
 - `src/main/services/aiservice/child-agent-system/characterEditorExecution.ts`
 
 ---
 
-## 3. runtime spec 已抽象，但 timeout 仍未完全通过 registry entry 驱动
+## 3. timeout policy 已完成收口到 registry entry 驱动
 
-### 问题描述
+### 当前状态
 
-当前代码已经把 executor runtime spec 抽到了 `subAgentRegistry`，包括：
+这条问题已完成修复。
 
-- `dispatchHandler`
-- `continuationHandler`
-- `timeoutPolicy`
-- `retryPolicy`
-- `protocol`
+当前 `dispatchHandler` 不再直接读取 `defaultTimeoutPolicy`，而是通过当前 executor 的 registry entry 注入 timeout。
 
-但 `character_editor` 的 dispatch handler 内部仍然直接使用 `defaultTimeoutPolicy`，并不是从当前 registry entry 自身注入 timeout。
-
-### 含义
-
-这说明 runtime spec 的设计方向是对的，但 timeout 这块还没有完全做到“声明即生效”。
-
-### 风险
-
-- 文档和真实执行路径存在偏差
-- 后续若要按 executor 定制 timeout，会优先在这里出现不一致
-- registry 的可扩展性已经有了，但行为仍然带有“默认实现硬编码”的尾巴
-
-### 代码位置
+### 当前实现
 
 - `src/main/services/task/subAgentRegistry.ts`
+  - `dispatchHandler` 已通过 `runtime.timeoutPolicy.resolveTimeoutMs()` 取值
+- `src/main/services/task/subAgentDispatcherService.ts`
+  - dispatch 时把当前 registry entry 作为 runtime 配置注入 handler
+
+### 当前含义
+
+这意味着 timeout 现在已经真正属于 runtime spec 的实例化配置，而不是 dispatch handler 私有硬编码。
 
 ---
 
@@ -164,7 +130,7 @@
 - 生产侧：
   - `src/main/services/aiservice/child-agent-system/characterEditorExecution.ts`
 - 消费侧：
-  - `src/main/services/task/characterEditorContinuation.ts`
+  - `src/main/services/aiservice/child-agent-system/nodes/characterEditorContinuationNode.ts`
 
 ### 含义
 
@@ -188,100 +154,87 @@
 
 ---
 
-## 5. registry 还没有覆盖任务创建入口
+## 5. 任务创建入口已进入 runtime spec，但仍只覆盖 character_editor
 
-### 判断
+### 当前状态
 
-这条分析也是正确的。
+这条问题已完成第一轮修复。
 
-当前 runtime spec 已经覆盖了：
+当前 runtime spec 现在已经覆盖：
 
 - `dispatchHandler`
+- `startHandler`
 - `continuationHandler`
 - `timeoutPolicy`
 - `retryPolicy`
 - `protocol`
 
-但“如何启动一个 executor 的新任务”还没有进入 registry。
+### 已完成修复
 
-### 当前体现
-
-`character_editor` 的创建入口仍然主要写在：
-
-- `taskContinuationService.ts`
-
-包括：
-
-- 目标解析
-- 初始 task/execution 创建
-- 初始 payload 组装
-- 任务 summary / title 生成
-- 首次 enqueue
-
-这些都还是 `character_editor` 启动逻辑本体，而不是 runtime spec 中的 `startHandler` 之类统一入口。
+- `character_editor` 的 start logic 已从 `taskContinuationService.ts` 抽出
+- 当前启动逻辑已进入：
+  - `src/main/services/aiservice/child-agent-system/characterEditorRuntimeSupport.ts`
+- `taskContinuationService.ts` 现在只保留任务域统一入口，再通过：
+  - `src/main/services/task/subAgentRegistry.ts`
+  调用 `startHandler`
 
 ### 代码位置
 
-- `src/main/services/aiservice/taskContinuationService.ts`
-- 对照：
-  - `src/main/services/task/subAgentRegistry.ts`
+- `src/main/services/aiservice/child-agent-system/characterEditorRuntimeSupport.ts`
+- `src/main/services/task/taskContinuationService.ts`
+- `src/main/services/task/subAgentRegistry.ts`
 
 ### 含义
 
-这说明当前系统已经做到：
+这说明 runtime spec 已不再只是“执行期 registry”，而是开始进入“任务启动 + 执行 + 续跑”一体化入口。
 
-- “续跑入口 registry 化”
+### 剩余缺口
 
-但还没有做到：
-
-- “任务启动入口 registry 化”
-
-也就是说，runtime spec 目前更像是“执行期 registry”，还不是完整的“任务全生命周期 registry”。
-
-### 风险
-
-- 新增 executor 时，容易继续把 start logic 堆进 `taskContinuationService`
-- 启动逻辑和续跑逻辑会分散在不同层，扩展成本增加
-- registry 还不能真正成为“单一 executor runtime 真源”
+- 当前只覆盖 `character_editor`
+- 新增 executor 时，仍需要补齐各自的 `startHandler`
 
 ---
 
-## 6. 展示层和调试层仍保留 character_editor 特判
+## 6. 展示层和调试层对 character_editor 的特判已开始收敛，但还未彻底消失
 
-### 判断
+### 当前状态
 
-这条分析基本正确，而且是当前 runtime spec 落地阶段很典型的中间态。
+这条问题已完成第一轮收敛，但还不是最终形态。
 
-协议解析本身已经开始走 runtime spec，但展示语义还没有完全泛化。
+### 已完成收敛
+
+- `taskExecutionInspectionMapper.ts`
+  - 已不再按 `executorKind === 'character_editor'` 直接硬分支
+  - 改为通过 registry entry 的 `inspection` adapter 取输入/输出 section
+- `getActiveTaskContext.ts`
+  - 已不再直接按 `phase` 特判 `missingFields`
+  - 已改为优先读取 registry entry 的 `inspection.getMissingFields()`
+  - `recommendedNextTool` 也已改为优先读取 `inspection.getRecommendedNextTool()`
 
 ### 当前体现
 
-在展示与调试相关代码中，仍然存在明显的 `character_editor` 特化处理：
+`character_editor` 的 inspection 语义已经进入 runtime spec，但 executor-specific 展示实现目前仍然存在于：
 
-- `taskExecutionInspectionMapper.ts`
-  - 有 `buildCharacterEditorInputSection`
-  - 有 `buildCharacterEditorOutputSection`
-  - 有 `formatCharacterPendingPhase`
-  - 输入/输出 section 仍按 `executorKind === 'character_editor'` 分支
-- `getActiveTaskContext.ts`
-  - `getMissingFields()` 直接按 `phase=resolve_world|resolve_character` 推导
-  - `recommendedNextTool` 仍然直接特判 `character_editor`
+- `src/main/services/aiservice/child-agent-system/characterEditorRuntimeSupport.ts`
 
 ### 代码位置
 
 - `src/main/services/task/taskExecutionInspectionMapper.ts`
 - `src/main/services/aiservice/ai-utils/tools/task/getActiveTaskContext.ts`
+- `src/main/services/aiservice/child-agent-system/characterEditorRuntimeSupport.ts`
 
 ### 需要说明的边界
 
-这里不是“完全没有统一”。
+这里已经不是“展示层完全没统一”，而是：
 
-因为它已经部分统一了：
+因为它现在已经通过 runtime spec 统一了调用入口：
 
-- notification payload 的解析走了
-  - `getSubAgentRuntimeSpec(...).protocol.parsePayload(...)`
+- `inspection.buildInputSection`
+- `inspection.buildOutputSection`
+- `inspection.getMissingFields`
+- `inspection.getRecommendedNextTool`
 
-但还没有完全统一到“展示与调试语义”层，例如：
+但还没有完全统一到“跨 executor 的通用 inspection schema”层，例如：
 
 - phase 的可视化名称
 - missing fields 的推导
@@ -290,10 +243,11 @@
 
 ### 含义
 
-这说明 runtime spec 已经进入：
+这说明 runtime spec 现在已经进入：
 
 - 运行路径
 - 协议解析路径
+- inspection 入口路径
 
 但还没有完全进入：
 
@@ -303,9 +257,8 @@
 
 ### 风险
 
-- 新增 executor 时，调试面板和上下文工具会继续追加分支
-- 最终会出现“运行层可扩展，展示层难扩展”的结构不对称
-- executor-specific 语义可能散落到多个界面辅助层中
+- 新增 executor 时，仍需要各自补 inspection adapter
+- 如果不继续抽象公共 inspection 语义，executor-specific 字段组织仍会继续累积
 
 ---
 
@@ -315,16 +268,40 @@
 
 优先级建议：
 
-1. 先修正 `awaiting_user_input` 阶段的输入吸收规则
-2. 再修正 `resolve_character` 场景下 continuation 对用户补充信息的合并逻辑
-3. 再补齐 continuation spec / start entry / 展示语义 这三块尚未完全统一的层
-4. 最后把 timeout policy 真正收拢到 runtime spec 的实例化路径里
+1. 继续修正 `resolve_character` 场景下 continuation 对用户补充信息的合并逻辑
+2. 再补齐 continuation spec 与 inspection 通用语义这两块尚未完全统一的层
+3. 最后继续把新增 executor 接入同一套 `startHandler + inspection` runtime spec 结构
 
 ---
 
-## 相关文件
+## 当前任务
 
-- `src/main/services/aiservice/runtime/mainAgentLifecycleControlService.ts`
-- `src/main/services/task/characterEditorContinuation.ts`
+1. 继续完善 `resolve_character` 的 continuation 合并语义
+- 校准“新回复覆盖旧角色名”后的 payload 合成规则
+- 继续验证 `userRequest / originalUserRequest / pendingContext` 在补参续跑时的边界
+
+2. 推进 `pendingContext -> continuation spec`
+- 明确哪些字段应上升为系统级 continuation 语义
+- 降低 executor 私有 pendingContext 方言继续扩散的风险
+- 这是结构协议升级任务，当前不阻塞 LLM 运行链，可独立排期推进
+- 目标是把 `pendingContext` 从 executor 私有续跑上下文，升级为系统级 continuation envelope + executorContext
+
+3. 抽象 inspection 通用语义
+- 从 `characterEditorRuntimeSupport.ts` 中继续提炼跨 executor 可复用的 inspection schema
+- 让 `missingFields / phaseLabel / recommendedNextTool / input-output section` 进一步通用化
+
+4. 为后续 executor 接入补齐 runtime spec 模板
+- 新 executor 默认需要接入 `startHandler`
+- 新 executor 默认需要接入 `inspection`
+- 保持 `dispatch / start / continuation / timeout / retry / protocol / inspection` 为统一真源
+
+---
+
+## 当前剩余优先项相关文件
+
+- `src/main/services/aiservice/runtime/lifecycle/mainAgentLifecycleControlService.ts`
+- `src/main/services/aiservice/runtime/lifecycle/nodes/awaitingUserInputNode.ts`
+- `src/main/services/aiservice/child-agent-system/nodes/characterEditorContinuationNode.ts`
 - `src/main/services/aiservice/child-agent-system/characterEditorExecution.ts`
+- `src/main/services/task/taskContinuationService.ts`
 - `src/main/services/task/subAgentRegistry.ts`
