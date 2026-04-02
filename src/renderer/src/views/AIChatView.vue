@@ -32,7 +32,7 @@
         />
       </div>
 
-        <div class="border-t border-slate-200/80 bg-white/80 px-8 pb-7 pt-5">
+        <div class="px-8 pb-7 pt-3">
           <MessageComposer
             ref="composerRef"
             v-model="userInput"
