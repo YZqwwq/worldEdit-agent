@@ -1,19 +1,19 @@
-import type { DynamicStructuredTool } from '@langchain/core/tools'
-import { isAgentTool } from './agentTool'
+import type { UnifiedToolRegistryEntry } from '../toolkits/unifiedToolRegistry'
 
 export function buildToolUsageSystemPrompt(
-  toolRegistry: Record<string, DynamicStructuredTool>
+  toolRegistryEntries: UnifiedToolRegistryEntry[]
 ): string | null {
-  const tools = Object.values(toolRegistry).filter(isAgentTool)
-  if (tools.length === 0) {
+  if (toolRegistryEntries.length === 0) {
     return null
   }
 
-  const toolSections = tools
-    .map((registeredTool, index) => {
+  const toolSections = toolRegistryEntries
+    .map((entry, index) => {
+      const registeredTool = entry.tool
       const metadata = registeredTool.agentMetadata
       const lines = [
         `${index + 1}. ${registeredTool.name}`,
+        `类别：${entry.category}；访问：${entry.access}；面向：${entry.audience}`,
         `用途：${registeredTool.baseDescription}`,
         `何时使用：${metadata.whenToUse.join('；')}`,
         `不要使用：${metadata.whenNotToUse?.join('；') || '当问题不需要该工具时不要调用。'}`,

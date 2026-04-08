@@ -1,31 +1,17 @@
-import { ChatOpenAI } from '@langchain/openai'
-import { ChatAnthropic } from '@langchain/anthropic'
 import { ModelAdaptor } from '@share/cache/AItype/model/modelAdaptor'
 import { type ModelOptions } from '@share/cache/AItype/model/modelOptions'
 import { modelConfigService } from '../../../modelconfig/modelConfigService'
+import {
+  createConfiguredModelRuntime,
+  type ConfiguredModelRuntime
+} from '../../model-adapters/modelProviderAdapter'
 
 export function createChatModel(options: ModelOptions): ModelAdaptor {
-  let model: ModelAdaptor = new ChatOpenAI({})
+  return createConfiguredModelRuntime(options).model
+}
 
-  if (options.vendor === 'openai') {
-    model = new ChatOpenAI({
-      model: options.model,
-      temperature: options.temperature,
-      apiKey: options.apiKey,
-      streaming: options.streaming,
-      useResponsesApi: options.useResponsesApi,
-      configuration: options.baseURL ? { baseURL: options.baseURL } : undefined
-    })
-  } else if (options.vendor === 'anthropic') {
-    model = new ChatAnthropic({
-      model: options.model,
-      temperature: options.temperature,
-      apiKey: options.apiKey
-    })
-  } else {
-    throw new Error(`Unsupported vendor: ${options.vendor}`)
-  }
-  return model
+export function createChatModelRuntime(options: ModelOptions): ConfiguredModelRuntime {
+  return createConfiguredModelRuntime(options)
 }
 
 export async function getConfiguredModelOptions(): Promise<ModelOptions> {
@@ -37,9 +23,23 @@ export async function getConfiguredModel(): Promise<ModelAdaptor> {
   return createChatModel(options)
 }
 
+export async function getConfiguredModelRuntime(): Promise<ConfiguredModelRuntime> {
+  const options = await getConfiguredModelOptions()
+  return createChatModelRuntime(options)
+}
+
 export async function getConfiguredQuickModel(): Promise<ModelAdaptor> {
   const options = await getConfiguredModelOptions()
   return createChatModel({
+    ...options,
+    temperature: Math.min(options.temperature ?? 0.7, 0.7),
+    streaming: false
+  })
+}
+
+export async function getConfiguredQuickModelRuntime(): Promise<ConfiguredModelRuntime> {
+  const options = await getConfiguredModelOptions()
+  return createChatModelRuntime({
     ...options,
     temperature: Math.min(options.temperature ?? 0.7, 0.7),
     streaming: false

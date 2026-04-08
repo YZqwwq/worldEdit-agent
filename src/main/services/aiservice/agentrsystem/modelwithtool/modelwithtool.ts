@@ -1,64 +1,24 @@
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { Runnable } from '@langchain/core/runnables'
-import { convertToOpenAITool } from '@langchain/core/utils/function_calling'
-import type { ModelAdaptor } from '@share/cache/AItype/model/modelAdaptor'
-import { getConfiguredModel } from './model'
-import { tools } from './tool'
-
-function cleanSchema(schema: any): any {
-  if (typeof schema !== 'object' || schema === null) return schema
-
-  if (Array.isArray(schema)) {
-    return schema.map(cleanSchema)
-  }
-
-  const newSchema = { ...schema }
-  
-  // Remove problematic keys that Gemini/Proxy might reject
-  if ('additionalProperties' in newSchema) {
-    delete newSchema.additionalProperties
-  }
-  // The error explicitly mentioned "schema" key being unknown in parameters
-  if ('schema' in newSchema) {
-    delete newSchema.schema
-  }
-
-    // 新增：同时移除 $schema，因为它是 Zod 生成的但 Gemini 不支持的字段
-  if ('$schema' in newSchema) {
-    delete newSchema.$schema
-  }
-
-  // Recursively clean properties
-  for (const key in newSchema) {
-    newSchema[key] = cleanSchema(newSchema[key])
-  }
-
-  return newSchema
-}
+import { getToolsForMainAgent } from '../../ai-utils/toolkits/unifiedToolRegistry'
+import {
+  normalizeModelResponse,
+  type ConfiguredModelRuntime
+} from '../../model-adapters/modelProviderAdapter'
+import { getConfiguredModelRuntime } from './model'
 
 class ModelWithTool {
-  model: ModelAdaptor
+  runtime: ConfiguredModelRuntime
   boundModel: Runnable
   tools: Record<string, DynamicStructuredTool>
 
-  constructor(model: ModelAdaptor, toolsinput: Record<string, DynamicStructuredTool>) {
-    this.model = model
+  constructor(runtime: ConfiguredModelRuntime, toolsinput: Record<string, DynamicStructuredTool>) {
+    this.runtime = runtime
     this.tools = toolsinput
 
     const toolsArray = Object.values(this.tools)
-    
-    // Pre-process tools to ensure compatibility with Gemini/Proxy
-    const formattedTools = toolsArray.map(t => {
-      const openAITool = convertToOpenAITool(t)
-      if (openAITool.function && openAITool.function.parameters) {
-        openAITool.function.parameters = cleanSchema(openAITool.function.parameters)
-      }
-      return openAITool
-    })
-
-    // bindTools returns a new Runnable, it does not mutate the model
-    // We pass the formatted tools (raw objects) instead of DynamicStructuredTool instances
-    this.boundModel = this.model.bindTools(formattedTools)
+    const formattedTools = this.runtime.familyAdapter.formatTools(toolsArray)
+    this.boundModel = this.runtime.model.bindTools(formattedTools as any)
   }
 
   getModel(): Runnable {
@@ -67,13 +27,21 @@ class ModelWithTool {
 }
 
 export function bindToolsToModel(
-  model: ModelAdaptor,
+  runtime: ConfiguredModelRuntime,
   toolRegistry: Record<string, DynamicStructuredTool>
 ): Runnable {
-  return new ModelWithTool(model, toolRegistry).getModel()
+  return new ModelWithTool(runtime, toolRegistry).getModel()
 }
 
-export async function getModelWithTool(): Promise<Runnable> {
-  const model = await getConfiguredModel()
-  return bindToolsToModel(model, tools)
+export async function getModelWithTool(): Promise<{
+  runnable: Runnable
+  runtime: ConfiguredModelRuntime
+}> {
+  const runtime = await getConfiguredModelRuntime()
+  return {
+    runnable: bindToolsToModel(runtime, getToolsForMainAgent()),
+    runtime
+  }
 }
+
+export { normalizeModelResponse }

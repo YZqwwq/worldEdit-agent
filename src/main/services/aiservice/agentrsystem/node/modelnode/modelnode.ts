@@ -1,9 +1,9 @@
 import { BaseMessage, SystemMessage, AIMessage, AIMessageChunk } from '@langchain/core/messages'
-import { getModelWithTool } from '../../modelwithtool/modelwithtool'
+import { getModelWithTool, normalizeModelResponse } from '../../modelwithtool/modelwithtool'
 import { MessagesState } from '../../state/messageState'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { ProxyResponseMetadata } from '../../../../../../share/cache/AItype/model/proxyResponseMetadata'
+import type { ConfiguredModelRuntime } from '../../../model-adapters/modelProviderAdapter'
 
 function debugLog(msg: string) {
   try {
@@ -12,66 +12,6 @@ function debugLog(msg: string) {
   } catch (e) {
     // ignore
   }
-}
-
-// Helper to fix missing tool_calls from proxy response (Gemini/OpenAI compatible)
-function fixToolCalls(response: BaseMessage): BaseMessage {
-  // Relax check to support AIMessageChunk
-  const isAIMessage = response instanceof AIMessage || response.constructor.name === 'AIMessageChunk' || (response as any)._getType?.() === 'ai'
-  if (!isAIMessage) return response
-  
-  const aiMsg = response as AIMessage
-  
-  // If tool_calls is already present, do nothing
-  if (aiMsg.tool_calls && aiMsg.tool_calls.length > 0) {
-    debugLog(`fixToolCalls: tool_calls already present: ${aiMsg.tool_calls.length}`)
-    return response
-  }
-
-  const metadata = response.response_metadata as ProxyResponseMetadata
-  debugLog(`fixToolCalls: metadata keys: ${metadata ? Object.keys(metadata).join(',') : 'null'}`)
-  
-  if (!metadata || !metadata.output || !Array.isArray(metadata.output)) {
-    debugLog(`fixToolCalls: no output array in metadata`)
-    return response
-  }
-
-  const toolCalls: any[] = []
-  for (const item of metadata.output) {
-    // Check for "function_call" type which some proxies return instead of tool_calls mapping
-    if (item.type === 'function_call' || item.type === 'tool_call') {
-      try {
-        const args = typeof item.arguments === 'string' 
-          ? JSON.parse(item.arguments) 
-          : item.arguments
-          
-        toolCalls.push({
-          name: item.name,
-          args: args,
-          // Use consistent ID generation if missing, but ideally proxy provides it
-          id: item.call_id || item.id || `call_${Math.random().toString(36).substring(2, 10)}`,
-          type: 'tool_call'
-        })
-      } catch (e) {
-        console.warn('Failed to parse tool arguments:', e)
-      }
-    }
-  }
-
-  debugLog(`fixToolCalls: found ${toolCalls.length} hidden tool calls`)
-
-  if (toolCalls.length > 0) {
-    // Create new AIMessage with populated tool_calls
-    return new AIMessage({
-      content: response.content,
-      additional_kwargs: response.additional_kwargs,
-      response_metadata: response.response_metadata,
-      tool_calls: toolCalls,
-      id: response.id
-    })
-  }
-
-  return response
 }
 
 function combineSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
@@ -133,6 +73,7 @@ export async function llmCall(
   sortedMessages.push(...currentMsgs)
 
   let response: BaseMessage
+  let runtime: ConfiguredModelRuntime | undefined
   let finalChunk: AIMessageChunk | undefined
   const timeoutController = new AbortController()
   const timeout = setTimeout(() => {
@@ -141,7 +82,9 @@ export async function llmCall(
   }, 20000)
 
   try {
-    const modelWithTool = await getModelWithTool()
+    const configured = await getModelWithTool()
+    const modelWithTool = configured.runnable
+    runtime = configured.runtime
     const combinedSignal = combineSignals([config?.signal, timeoutController.signal])
     const callOptions: Record<string, unknown> = {
       signal: combinedSignal
@@ -184,10 +127,14 @@ export async function llmCall(
         id: rawResponse.id
       })
   debugLog(`llmCall: invoked model (streamed)`)
-  
-  // Fix tool calls if missing
-  response = fixToolCalls(response)
-  debugLog(`llmCall: fixed tool calls`)
+
+  if (runtime) {
+    const normalizedResponse = normalizeModelResponse(runtime, response)
+    if (normalizedResponse !== response) {
+      debugLog(`llmCall: normalized provider response`)
+    }
+    response = normalizedResponse
+  }
 
   return {
     messages: [response] as BaseMessage[], // ✅ 显式转换

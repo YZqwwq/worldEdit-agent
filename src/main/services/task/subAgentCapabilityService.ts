@@ -1,5 +1,5 @@
 import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
-import { tools } from '../aiservice/agentrsystem/modelwithtool/tool'
+import { getToolsForMainAgent } from '../aiservice/ai-utils/toolkits/unifiedToolRegistry'
 import { subAgentRegistry } from './subAgentRegistry'
 
 type CapabilityInfo = {
@@ -13,6 +13,7 @@ class SubAgentCapabilityService {
   getCapability(executorKind: TaskExecutorKind): CapabilityInfo {
     const entry = subAgentRegistry[executorKind]
     const requiredToolName = entry.delegateToolName
+    const tools = getToolsForMainAgent()
     const available = Boolean(tools[requiredToolName])
 
     return {

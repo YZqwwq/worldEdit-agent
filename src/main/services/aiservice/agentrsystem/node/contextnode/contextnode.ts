@@ -2,8 +2,8 @@ import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
 import { loadPersonaState } from '../../manager/personal/personalManager'
-import { tools } from '../../modelwithtool/tool'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
+import { getToolEntriesForMainAgent } from '../../../ai-utils/toolkits/unifiedToolRegistry'
 import {
   buildMoodPrompt,
   loadCharacterPrompt,
@@ -64,7 +64,7 @@ export async function contextNode(
     )
   }
 
-  const toolUsagePrompt = buildToolUsageSystemPrompt(tools)
+  const toolUsagePrompt = buildToolUsageSystemPrompt(getToolEntriesForMainAgent())
   if (toolUsagePrompt) {
     messages.push(new SystemMessage(toolUsagePrompt))
   }

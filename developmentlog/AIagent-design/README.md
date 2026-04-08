@@ -98,18 +98,19 @@
 ### `tool/`
 
 - [howtousetool.md](/Users/admin/Documents/trae_projects/worldEdit-agent/developmentlog/AIagent-design/tool/howtousetool.md)
+- [unified-tool-registry-design.md](/Users/admin/Documents/trae_projects/worldEdit-agent/developmentlog/AIagent-design/tool/unified-tool-registry-design.md)
 
 这个目录解释工具系统设计，包括：
 
-- 原子工具定义
-- toolkit 装配
-- 工具契约
-- 工具使用规则
+- [howtousetool.md](/Users/admin/Documents/trae_projects/worldEdit-agent/developmentlog/AIagent-design/tool/howtousetool.md)
+  说明当前工具系统怎么接入、怎么使用、怎么维护
+- [unified-tool-registry-design.md](/Users/admin/Documents/trae_projects/worldEdit-agent/developmentlog/AIagent-design/tool/unified-tool-registry-design.md)
+  说明当前统一注册架构、resolver、facade 和 runner 的边界
 
 什么时候读：
 
-- 想改工具注册方式
-- 想统一主 agent / 子 agent 的工具使用规则
+- 想新增工具、调整工具规范或接入路径
+- 想理解主 agent / 子 agent 的工具来源与装配边界
 
 ## 按问题找文档
 
@@ -125,8 +126,10 @@
   先读 [task-design.md](/Users/admin/Documents/trae_projects/worldEdit-agent/developmentlog/AIagent-design/task/task-design.md)
 - 想知道“人格和 prompt 为什么这么分层”：
   进入 `persona/` 和 `prompt/characterPrompt/`
-- 想知道“工具为什么这样组织”：
+- 想知道“工具系统怎么接入和维护”：
   先读 [howtousetool.md](/Users/admin/Documents/trae_projects/worldEdit-agent/developmentlog/AIagent-design/tool/howtousetool.md)
+- 想知道“统一注册器当前长什么样”：
+  先读 [unified-tool-registry-design.md](/Users/admin/Documents/trae_projects/worldEdit-agent/developmentlog/AIagent-design/tool/unified-tool-registry-design.md)
 
 ## 当前维护原则
 

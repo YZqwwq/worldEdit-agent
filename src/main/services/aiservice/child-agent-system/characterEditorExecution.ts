@@ -9,10 +9,10 @@ import { Annotation, END, START, StateGraph } from '@langchain/langgraph'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { bindToolsToModel } from '../agentrsystem/modelwithtool/modelwithtool'
-import { getConfiguredQuickModel } from '../agentrsystem/modelwithtool/model'
+import { bindToolsToModel, normalizeModelResponse } from '../agentrsystem/modelwithtool/modelwithtool'
+import { getConfiguredQuickModelRuntime } from '../agentrsystem/modelwithtool/model'
 import { contentToText } from '../messageoutput/transformRespones'
-import { characterEditorTools } from '../ai-utils/toolkits/characterEditorToolkit'
+import { characterEditorToolRegistry, characterEditorTools } from '../ai-utils/toolkits/characterEditorToolkit'
 import { buildToolUsageSystemPrompt } from '../ai-utils/core/toolUsagePrompt'
 import {
   parseAgentToolResultEnvelope,
@@ -359,7 +359,7 @@ const buildDirectionRules = (editingDirection?: CharacterEditorDirection): strin
 const buildPrompt = (payload: CharacterEditorExecutionPayload): string => {
   const effectiveScopes = getEffectiveEditingScopes(payload)
   const availableScopes = effectiveScopes.join(', ') || '未指定'
-  const toolPrompt = buildToolUsageSystemPrompt(characterEditorTools) || ''
+  const toolPrompt = buildToolUsageSystemPrompt(characterEditorToolRegistry) || ''
   const directionRules = buildDirectionRules(payload.editingDirection)
 
   return [
@@ -404,8 +404,8 @@ const runCharacterToolLoop = async (
   payload: CharacterEditorExecutionPayload,
   runtime: CharacterEditorExecutionRuntime
 ): Promise<CharacterEditorHandlerOutput> => {
-  const model = await getConfiguredQuickModel()
-  const boundModel = bindToolsToModel(model, characterEditorTools)
+  const runtimeBundle = await getConfiguredQuickModelRuntime()
+  const boundModel = bindToolsToModel(runtimeBundle, characterEditorTools)
   const effectiveScopes = getEffectiveEditingScopes(payload)
   const childAgentTimeoutMs = runtime.timeoutMs
 
@@ -484,7 +484,9 @@ const runCharacterToolLoop = async (
       throw error
     }
 
-    const aiMessage = normalizeAiMessage(response as BaseMessage)
+    const aiMessage = normalizeAiMessage(
+      normalizeModelResponse(runtimeBundle, response as BaseMessage)
+    )
     messages.push(aiMessage)
 
     const toolCalls = (aiMessage as AIMessage & { tool_calls?: any[] }).tool_calls ?? []
