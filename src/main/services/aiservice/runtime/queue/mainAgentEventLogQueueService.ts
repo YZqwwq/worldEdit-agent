@@ -8,10 +8,15 @@ import type {
   MainAgentUserMessageEvent
 } from '@share/cache/AItype/states/taskLifecycleState'
 import { assertMainAgentEventStatusTransition } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
+import {
+  buildMainAgentMessageContent,
+  normalizeMainAgentMessageContent,
+  type MainAgentMessageContentPart
+} from '@share/cache/AItype/states/mainAgentMessageContent'
 
 type PersistedUserPayload = {
   messageId: number
-  text: string
+  content: MainAgentMessageContentPart[]
 }
 
 type PersistedTaskPayload = {
@@ -49,9 +54,36 @@ const toUserMessageEvent = (
   dedupeKey: row.dedupeKey || undefined,
   payload: {
     messageId: payload.messageId,
-    text: payload.text
+    content: payload.content
   }
 })
+
+const normalizePersistedUserPayload = (
+  payloadRaw: Record<string, unknown>
+): PersistedUserPayload | null => {
+  if (typeof payloadRaw.messageId !== 'number') {
+    return null
+  }
+
+  const content = normalizeMainAgentMessageContent(payloadRaw.content)
+  if (content.length > 0) {
+    return {
+      messageId: payloadRaw.messageId,
+      content
+    }
+  }
+
+  if (typeof payloadRaw.text !== 'string') {
+    return null
+  }
+
+  return {
+    messageId: payloadRaw.messageId,
+    content: buildMainAgentMessageContent({
+      text: payloadRaw.text
+    })
+  }
+}
 
 const toTaskNotificationEvent = (
   row: MainAgentEventRecord,
@@ -210,16 +242,11 @@ class MainAgentEventLogService {
 
     const payloadRaw = parseJsonObject(row.payloadJson)
     if (row.type === 'user_message') {
-      if (
-        typeof payloadRaw.messageId !== 'number' ||
-        typeof payloadRaw.text !== 'string'
-      ) {
+      const payload = normalizePersistedUserPayload(payloadRaw)
+      if (!payload) {
         return null
       }
-      return toUserMessageEvent(row, {
-        messageId: payloadRaw.messageId,
-        text: payloadRaw.text
-      })
+      return toUserMessageEvent(row, payload)
     }
 
     if (
@@ -241,18 +268,11 @@ class MainAgentEventLogService {
     })
     return rows.flatMap((row) => {
       const payloadRaw = parseJsonObject(row.payloadJson)
-      if (
-        typeof payloadRaw.messageId !== 'number' ||
-        typeof payloadRaw.text !== 'string'
-      ) {
+      const payload = normalizePersistedUserPayload(payloadRaw)
+      if (!payload) {
         return []
       }
-      return [
-        toUserMessageEvent(row, {
-          messageId: payloadRaw.messageId,
-          text: payloadRaw.text
-        })
-      ]
+      return [toUserMessageEvent(row, payload)]
     })
   }
 
@@ -265,18 +285,11 @@ class MainAgentEventLogService {
     for (const row of rows) {
       const payloadRaw = parseJsonObject(row.payloadJson)
       if (row.type === 'user_message') {
-        if (
-          typeof payloadRaw.messageId !== 'number' ||
-          typeof payloadRaw.text !== 'string'
-        ) {
+        const payload = normalizePersistedUserPayload(payloadRaw)
+        if (!payload) {
           continue
         }
-        events.push(
-          toUserMessageEvent(row, {
-            messageId: payloadRaw.messageId,
-            text: payloadRaw.text
-          })
-        )
+        events.push(toUserMessageEvent(row, payload))
         continue
       }
       if (

@@ -1,7 +1,13 @@
 import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 import { Message } from '../../../share/entity/database/Message'
+import {
+  buildMainAgentMessageContent,
+  normalizeMainAgentUserInput,
+  type MainAgentUserMessageInput
+} from '@share/cache/AItype/states/mainAgentMessageContent'
 import { chatMessageService } from './chat/chatMessageService'
 import { aiSessionMaintenanceService } from './maintenance/aiSessionMaintenanceService'
+import { parseMainAgentContentForStorage } from './messagecontent/mainAgentFileParseService'
 import { mainAgentEntryService } from './runtime/mainAgentEntryService'
 import { mainAgentRunControlService } from './runtime/mainAgentRunControlService'
 import { mainAgentTurnService, type RevertLastTurnResult } from './runtime/mainAgentTurnService'
@@ -33,17 +39,26 @@ class AIService {
    * 流式发送消息：逐 chunk 通过回调返回，并汇总最终文本。
    */
   async sendStreamMessage(
-    message: string,
+    input: MainAgentUserMessageInput,
     onChunk?: (chunk: StreamChunk) => void
   ): Promise<void> {
-    const savedMessage = await chatMessageService.saveMessage('user', message)
+    const normalizedInput = normalizeMainAgentUserInput(input)
+    const content = buildMainAgentMessageContent(normalizedInput)
+    const messageText = await parseMainAgentContentForStorage(content)
+    if (!messageText.trim()) {
+      throw new Error('Empty user message is not allowed.')
+    }
+
+    const savedMessage = await chatMessageService.saveMessage('user', messageText, {
+      contentParts: content
+    })
     if (!savedMessage || typeof savedMessage.id !== 'number' || savedMessage.id <= 0) {
       throw new Error('User message could not be persisted, so the main-agent event was not enqueued.')
     }
 
     await mainAgentEntryService.enqueueUserMessage({
       messageId: savedMessage.id,
-      text: message,
+      content,
       onChunk
     })
   }

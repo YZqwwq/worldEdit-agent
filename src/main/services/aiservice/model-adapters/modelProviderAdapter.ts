@@ -1,4 +1,4 @@
-import { AIMessage, BaseMessage } from '@langchain/core/messages'
+import { AIMessage, BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { convertToOpenAITool } from '@langchain/core/utils/function_calling'
 import { ChatAnthropic } from '@langchain/anthropic'
@@ -9,12 +9,24 @@ import type { ModelProviderProfile } from '@share/cache/AItype/model/modelProvid
 import type { ModelProtocolFamily } from '@share/cache/AItype/model/modelProtocolFamily'
 import type { ProxyResponseMetadata } from '@share/cache/AItype/model/proxyResponseMetadata'
 import type { ModelVendor } from '@share/cache/AItype/model/modelVender'
+import {
+  buildQwenInputContent,
+  getMainAgentContentPartsFromMessage,
+  isQwenVisionModel,
+  messageHasMainAgentFiles,
+  parseMainAgentContentForPersistence,
+  stripMainAgentContentPartsMetadata
+} from '../messagecontent/mainAgentMessageContentService'
 
 export type ModelProtocolFamilyAdapter = {
   family: ModelProtocolFamily
   vendor: ModelVendor
   createModel: (options: ModelOptions) => ModelAdaptor
   formatTools: (tools: DynamicStructuredTool[]) => unknown[]
+  prepareMessages: (
+    messages: BaseMessage[],
+    runtime: ConfiguredModelRuntime
+  ) => Promise<BaseMessage[]>
   normalizeResponse: (response: BaseMessage) => BaseMessage
 }
 
@@ -128,6 +140,40 @@ const normalizeOpenAICompatibleResponse = (response: BaseMessage): BaseMessage =
   })
 }
 
+const prepareOpenAICompatibleMessages = async (
+  messages: BaseMessage[],
+  runtime: ConfiguredModelRuntime
+): Promise<BaseMessage[]> => {
+  const modelName = runtime.effectiveOptions.model || runtime.options.model
+
+  return Promise.all(
+    messages.map(async (message) => {
+      if (!(message instanceof HumanMessage) || !messageHasMainAgentFiles(message)) {
+        return message
+      }
+
+      const content = getMainAgentContentPartsFromMessage(message)
+      const additionalKwargs = stripMainAgentContentPartsMetadata(message.additional_kwargs)
+      const fallbackText =
+        typeof message.content === 'string' && message.content.trim()
+          ? message.content
+          : parseMainAgentContentForPersistence(content)
+
+      if (runtime.profile !== 'dashscope_qwen' || !isQwenVisionModel(modelName)) {
+        return new HumanMessage({
+          content: fallbackText,
+          additional_kwargs: additionalKwargs
+        })
+      }
+
+      return new HumanMessage({
+        content: (await buildQwenInputContent(content)) as any,
+        additional_kwargs: additionalKwargs
+      })
+    })
+  )
+}
+
 const openAICompatibleFamilyAdapter: ModelProtocolFamilyAdapter = {
   family: 'openai_compatible',
   vendor: 'openai',
@@ -142,6 +188,7 @@ const openAICompatibleFamilyAdapter: ModelProtocolFamilyAdapter = {
     })
   },
   formatTools: formatOpenAICompatibleTools,
+  prepareMessages: prepareOpenAICompatibleMessages,
   normalizeResponse: normalizeOpenAICompatibleResponse
 }
 
@@ -157,6 +204,9 @@ const anthropicNativeFamilyAdapter: ModelProtocolFamilyAdapter = {
   },
   formatTools(tools) {
     return tools
+  },
+  async prepareMessages(messages) {
+    return messages
   },
   normalizeResponse(response) {
     return response

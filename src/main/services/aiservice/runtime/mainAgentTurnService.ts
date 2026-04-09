@@ -1,7 +1,13 @@
 import { AppDataSource } from '../../../database'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { Message } from '@share/entity/database/Message'
+import {
+  buildMainAgentMessageContent,
+  buildMainAgentUserInputFromContent,
+  type MainAgentUserMessageInput
+} from '@share/cache/AItype/states/mainAgentMessageContent'
 import { chatMessageService } from '../chat/chatMessageService'
+import { getMainAgentContentPartsFromPersistedMessage } from '../messagecontent/mainAgentMessageContentService'
 import {
   memoryManager,
   type MemoryCheckpoint
@@ -26,6 +32,7 @@ export type RevertLastTurnResult =
       ok: true
       revertedTurnId: number
       message: string
+      restoredInput: MainAgentUserMessageInput
     }
   | {
       ok: false
@@ -55,6 +62,23 @@ const toPreview = (input: string): string | undefined => {
     return undefined
   }
   return normalized.length > 88 ? `${normalized.slice(0, 88)}...` : normalized
+}
+
+const restoreUserInputFromMessage = (message: Message | null): MainAgentUserMessageInput => {
+  if (!message) {
+    return {}
+  }
+
+  const content = getMainAgentContentPartsFromPersistedMessage(message)
+  if (content.length > 0) {
+    return buildMainAgentUserInputFromContent(content)
+  }
+
+  return buildMainAgentUserInputFromContent(
+    buildMainAgentMessageContent({
+      text: message.content
+    })
+  )
 }
 
 class MainAgentTurnService {
@@ -265,6 +289,10 @@ class MainAgentTurnService {
     }
 
     await memoryManager.restoreCheckpoint(checkpoint)
+    const userMessage =
+      typeof turn.userMessageId === 'number' && turn.userMessageId > 0
+        ? await this.messageRepo.findOneBy({ id: turn.userMessageId })
+        : null
     await chatMessageService.markMessagesReverted(
       [turn.userMessageId, turn.aiMessageId].filter(
         (id): id is number => typeof id === 'number' && id > 0
@@ -279,7 +307,8 @@ class MainAgentTurnService {
     return {
       ok: true,
       revertedTurnId: turn.id,
-      message: '已撤回最后一轮普通聊天回复，并恢复到生成前的记忆状态。'
+      message: '已撤回最后一轮普通聊天回复，并恢复到生成前的记忆状态。',
+      restoredInput: restoreUserInputFromMessage(userMessage)
     }
   }
 }

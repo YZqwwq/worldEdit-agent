@@ -1,6 +1,7 @@
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
+import { getMainAgentContentPartsFromMessage, parseMainAgentContentForPersistence } from '../../../messagecontent/mainAgentMessageContentService'
 import { contentToText } from '../../../messageoutput/transformRespones'
 
 export async function memoryNode(
@@ -14,8 +15,11 @@ export async function memoryNode(
   const userMsg = messages.slice().reverse().find(
     m => m instanceof HumanMessage && !m.additional_kwargs?.isHistory
   )
-  if (userMsg && typeof userMsg.content === 'string') {
-    await memoryManager.addMessage('user', userMsg.content)
+  if (userMsg) {
+    const userText = parseMainAgentContentForPersistence(getMainAgentContentPartsFromMessage(userMsg))
+    if (userText) {
+      await memoryManager.addMessage('user', userText)
+    }
   }
 
   const aiMsg = messages.slice().reverse().find(

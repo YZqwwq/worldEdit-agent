@@ -1,5 +1,6 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { StreamChunk } from '../share/cache/render/aiagent/aiContent'
+import type { MainAgentUserMessageInput } from '../share/cache/AItype/states/mainAgentMessageContent'
 import type {
   ModelConfigInput,
   ModelConfigPayload
@@ -33,22 +34,37 @@ declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
   type Api = {
     // 流式聊天接口
-    sendMessageStream: (message: string) => void
+    sendMessageStream: (message: MainAgentUserMessageInput) => void
     onStreamChunk: (callback: (chunk: StreamChunk) => void) => () => void
 
     getHistory: () => Promise<any[]>
     interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
-    revertLastChatTurn: () => Promise<{ ok: boolean; message: string; revertedTurnId?: number }>
+    revertLastChatTurn: () => Promise<{
+      ok: boolean
+      message: string
+      revertedTurnId?: number
+      restoredInput?: MainAgentUserMessageInput
+    }>
     clearHistory: () => Promise<void>
     purgeAllData: () => Promise<number>
     resetPersonaState: () => Promise<void>
     getMemorySnapshot: () => Promise<MemoryInspectionPayload>
     getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
 
-    pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
-    uploadFile: (sourcePath: string) => Promise<{ resourceUrl: string; fileName: string; size: number }>
+    pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number; mimeType?: string }>
+    uploadFile: (sourcePath: string) => Promise<{
+      resourceUrl: string
+      fileName: string
+      size: number
+      mimeType?: string
+    }>
     deleteFile: (resourceUrl: string) => Promise<boolean>
-    pickAndUploadFile: () => Promise<{ resourceUrl: string; fileName: string; size: number }>
+    pickAndUploadFile: () => Promise<{
+      resourceUrl: string
+      fileName: string
+      size: number
+      mimeType?: string
+    }>
     clearUploads: () => Promise<number>
     getAvatarProfiles: () => Promise<ChatAvatarProfilesPayload>
     saveAvatarProfile: (input: SaveChatAvatarInput) => Promise<PersistedChatAvatarProfile>

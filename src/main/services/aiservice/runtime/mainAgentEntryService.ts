@@ -1,6 +1,7 @@
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
   MainAgentEvent,
+  MainAgentUserMessagePayload,
   MainAgentTaskNotificationEvent
 } from '@share/cache/AItype/states/taskLifecycleState'
 import { logError } from '../../../../share/utils/error/error'
@@ -13,6 +14,8 @@ import { taskNotificationConsumerService } from './notification/taskNotification
 import { taskNotificationDispatchBridge } from './queue/taskNotificationDispatchBridge'
 import { mainAgentTurnService } from './mainAgentTurnService'
 import { taskNotificationService } from '../../task/taskNotificationService'
+import { chatMessageService } from '../chat/chatMessageService'
+import { getMainAgentPersistenceTextFromPersistedMessage } from '../messagecontent/mainAgentMessageContentService'
 
 class MainAgentEntryService {
   constructor() {
@@ -30,7 +33,7 @@ class MainAgentEntryService {
 
   async enqueueUserMessage(input: {
     messageId: number
-    text: string
+    content: MainAgentUserMessagePayload['content']
     onChunk?: (chunk: StreamChunk) => void
   }): Promise<void> {
     await mainAgentDispatchService.enqueueUserMessage(input)
@@ -54,12 +57,17 @@ class MainAgentEntryService {
         await mainAgentTurnService.markProcessing(turn.id)
         return { turnId: turn.id }
       },
+      getPersistedUserMessageText: async (messageId) => {
+        const message = await chatMessageService.getMessageById(messageId)
+        return getMainAgentPersistenceTextFromPersistedMessage(message)
+      },
       controlUserMessage: (userEvent) => mainAgentLifecycleControlService.controlUserMessage(userEvent),
-      runUserMessage: (eventId, turnId, message, onChunk, taskLifecycle) =>
+      runUserMessage: (eventId, turnId, userMessageId, content, onChunk, taskLifecycle) =>
         mainAgentChatRuntimeService.runUserMessage(
           eventId,
           turnId,
-          message,
+          userMessageId,
+          content,
           onChunk,
           taskLifecycle
         ),

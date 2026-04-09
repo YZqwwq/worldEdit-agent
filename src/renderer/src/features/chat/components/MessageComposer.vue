@@ -47,7 +47,7 @@
             v-else
             type="button"
             class="flex h-11 w-11 items-center justify-center rounded-full bg-slate-950 text-white shadow-md transition-all hover:scale-[1.03] hover:bg-slate-800 active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-            :disabled="!modelValue.trim()"
+            :disabled="!canSend"
             title="发送消息"
             @click="handlePrimaryAction"
           >
@@ -107,6 +107,7 @@ import type { UploadedChatFile } from '../types'
 const props = defineProps<{
   modelValue: string
   isLoading: boolean
+  canSend: boolean
   uploadedFiles: UploadedChatFile[]
 }>()
 
@@ -135,7 +136,7 @@ const handleInput = (event: Event): void => {
 }
 
 const emitSend = (): void => {
-  if (!props.modelValue.trim() || props.isLoading) return
+  if (!props.canSend || props.isLoading) return
   emit('send')
 }
 

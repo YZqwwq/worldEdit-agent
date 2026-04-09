@@ -18,13 +18,15 @@ export type MainAgentEventOrchestrationDependencies = {
     sessionId: string
     userMessageId: number
   }) => Promise<{ turnId: number }>
+  getPersistedUserMessageText: (messageId: number) => Promise<string>
   controlUserMessage: (
     event: MainAgentUserMessageEvent
   ) => Promise<MainAgentLifecycleControlResult>
   runUserMessage: (
     eventId: string,
     turnId: number,
-    message: string,
+    userMessageId: number,
+    content: MainAgentUserMessageEvent['payload']['content'],
     onChunk?: (chunk: StreamChunk) => void,
     taskLifecycle?: TaskLifecycleState
   ) => Promise<{ fullText: string; interrupted: boolean }>
@@ -81,6 +83,7 @@ const createEffectContext = (event: MainAgentEvent) => ({
 const buildInterruptedResult = (
   event: MainAgentUserMessageEvent,
   turnId: number,
+  userText: string,
   fullText: string
 ): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(event)
@@ -91,7 +94,7 @@ const buildInterruptedResult = (
       messages: [
         {
           role: 'user',
-          content: event.payload.text
+          content: userText
         },
         ...(fullText.trim()
           ? ([
@@ -241,13 +244,16 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
       const result = await dependencies.runUserMessage(
         event.id,
         prepared.turnId,
-        event.payload.text,
+        event.payload.messageId,
+        event.payload.content,
         event.payload.onChunk,
         prepared.taskLifecycle
       )
 
+      const userText = await dependencies.getPersistedUserMessageText(event.payload.messageId)
+
       if (result.interrupted) {
-        return buildInterruptedResult(event, prepared.turnId, result.fullText)
+        return buildInterruptedResult(event, prepared.turnId, userText, result.fullText)
       }
 
       return buildCompletedResult(event, prepared.turnId, result.fullText)

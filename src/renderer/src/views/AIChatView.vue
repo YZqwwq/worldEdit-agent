@@ -37,6 +37,7 @@
             ref="composerRef"
             v-model="userInput"
             :is-loading="isLoading"
+            :can-send="canSendMessage"
             :uploaded-files="uploadedFiles"
             @send="handleSend"
             @interrupt="handleInterruptRun"
@@ -396,6 +397,10 @@ import ChatHeader from '../features/chat/components/ChatHeader.vue'
 import ChatMessageList from '../features/chat/components/ChatMessageList.vue'
 import MessageComposer from '../features/chat/components/MessageComposer.vue'
 import type { ChatParticipantProfile, UploadedChatFile } from '../features/chat/types'
+import {
+  isSupportedChatImageUpload,
+  type MainAgentUserMessageInput
+} from '../../../share/cache/AItype/states/mainAgentMessageContent'
 import type { ChatMessage } from '../../../share/cache/render/aiagent/chatMessage'
 import type { ChatAvatarProfilesPayload, ChatParticipantKey } from '../../../share/cache/render/aiagent/chatAvatarProfile'
 import type {
@@ -438,6 +443,9 @@ const purgeConfirmLoading = ref(false)
 type DialogIcon = 'none' | 'info' | 'warning' | 'danger' | 'success'
 
 const uploadedFiles = ref<UploadedChatFile[]>([])
+const canSendMessage = computed(
+  () => Boolean(userInput.value.trim()) || uploadedFiles.value.length > 0
+)
 const pendingDeleteFile = ref<UploadedChatFile | null>(null)
 const showDeleteFileConfirm = ref(false)
 const deleteFileConfirmLoading = ref(false)
@@ -691,7 +699,7 @@ onBeforeUnmount(() => {
 })
 
 const handleSend = async (): Promise<void> => {
-  if (!userInput.value.trim()) return
+  if (!canSendMessage.value) return
   shouldFollowMessages.value = true
   if (uploadedFiles.value.length > 0) {
     const pending = uploadedFiles.value.filter((file) => file.status === 'pending')
@@ -706,6 +714,7 @@ const handleSend = async (): Promise<void> => {
           return {
             ...file,
             resourceUrl: uploaded.resourceUrl,
+            mimeType: uploaded.mimeType,
             status: 'uploaded'
           }
         })
@@ -716,7 +725,19 @@ const handleSend = async (): Promise<void> => {
       }
     }
   }
-  await sendMessage(userInput.value)
+  const input: MainAgentUserMessageInput = {
+    text: userInput.value,
+    files: uploadedFiles.value
+      .filter((file) => file.status === 'uploaded' && file.resourceUrl)
+      .map((file) => ({
+        fileId: file.id,
+        fileUrl: file.resourceUrl as string,
+        fileName: file.name,
+        sizeBytes: file.size,
+        mimeType: file.mimeType
+      }))
+  }
+  await sendMessage(input)
   userInput.value = ''
   uploadedFiles.value = []
   await loadTaskMonitorSnapshot(true)
@@ -730,8 +751,16 @@ const handleInterruptRun = async (): Promise<void> => {
 const handleRevertLastTurn = async (message?: ChatMessage): Promise<void> => {
   const result = await revertLastChatTurn()
   if (result.ok) {
-    const textToRestore = message?.text || revertibleUserMessage.value?.text || ''
-    userInput.value = textToRestore
+    userInput.value = result.restoredInput?.text || message?.text || revertibleUserMessage.value?.text || ''
+    uploadedFiles.value = (result.restoredInput?.files ?? []).map((file) => ({
+      id: file.fileId,
+      name: file.fileName,
+      resourceUrl: file.fileUrl,
+      sourcePath: '',
+      size: file.sizeBytes ?? 0,
+      mimeType: file.mimeType,
+      status: 'uploaded'
+    }))
     await loadTaskMonitorSnapshot(true)
     showNotice('已撤回上一轮', result.message, 'success')
     await nextTick()
@@ -746,12 +775,22 @@ const handleRevertLastTurn = async (message?: ChatMessage): Promise<void> => {
 const handlePickFile = async (): Promise<void> => {
   try {
     const result = await window.api.pickFile()
+    const validation = isSupportedChatImageUpload({
+      fileName: result.fileName,
+      mimeType: result.mimeType,
+      sizeBytes: result.size
+    })
+    if (!validation.ok) {
+      showNotice('暂不支持该文件', validation.reason, 'warning')
+      return
+    }
     const id = self.crypto?.randomUUID ? self.crypto.randomUUID() : `${Date.now()}-${result.fileName}`
     uploadedFiles.value.push({
       id,
       name: result.fileName,
       sourcePath: result.sourcePath,
       size: result.size,
+      mimeType: result.mimeType,
       status: 'pending'
     })
   } catch (error: unknown) {

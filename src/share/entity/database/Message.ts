@@ -21,6 +21,12 @@ export class Message {
   })
   content!: string
 
+  @Column({
+    type: 'text',
+    default: '[]'
+  })
+  contentJson!: string
+
   // 消息类型：text 或 structured
   @Column({
     type: 'text',

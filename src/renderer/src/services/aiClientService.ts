@@ -1,4 +1,5 @@
 import { ref, type Ref } from 'vue'
+import type { MainAgentUserMessageInput } from '../../../share/cache/AItype/states/mainAgentMessageContent'
 import type { ChatMessage } from '../../../share/cache/render/aiagent/chatMessage'
 import { partsToMarkdown } from '../utils/aiToMarkdown'
 import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
@@ -148,7 +149,12 @@ async function interruptCurrentRun(): Promise<{ ok: boolean; message: string }> 
   }
 }
 
-async function revertLastChatTurn(): Promise<{ ok: boolean; message: string; revertedTurnId?: number }> {
+async function revertLastChatTurn(): Promise<{
+  ok: boolean
+  message: string
+  revertedTurnId?: number
+  restoredInput?: MainAgentUserMessageInput
+}> {
   try {
     const result = await window.api.revertLastChatTurn()
     if (result.ok) {
@@ -202,10 +208,17 @@ async function resetPersonaState(): Promise<void> {
 
 /**
  * Sends a message to the AI and updates the chat.
- * @param text - The message text from the user.
+ * @param input - The user message payload.
  */
-async function sendMessage(text: string): Promise<void> {
-  if (!text.trim() || isLoading.value) {
+const buildOptimisticMessageText = (input: MainAgentUserMessageInput): string => {
+  const text = input.text?.trim() || ''
+  const fileLines = (input.files ?? []).map((file) => `[${file.fileName}] ${file.fileUrl}`)
+  return [text, ...fileLines].filter(Boolean).join('\n')
+}
+
+async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
+  const optimisticText = buildOptimisticMessageText(input)
+  if (!optimisticText.trim() || isLoading.value) {
     return
   }
 
@@ -213,7 +226,7 @@ async function sendMessage(text: string): Promise<void> {
   const userMsgId = Date.now()
   messages.value.push({
     id: userMsgId,
-    text: text,
+    text: optimisticText,
     sender: 'user',
     timestamp: userMsgId
   })
@@ -240,7 +253,7 @@ async function sendMessage(text: string): Promise<void> {
 
   try {
     // 3. 调用流式接口
-    window.api.sendMessageStream(text)
+    window.api.sendMessageStream(input)
   } catch (error) {
     console.error('Error sending message to AI:', error)
     const msg = messages.value.find((m) => m.id === aiMsgId)
@@ -256,9 +269,14 @@ export function useAIChatService(): {
   messages: Ref<ChatMessage[]>
   agentLogs: Ref<AgentLog[]>
   isLoading: Ref<boolean>
-  sendMessage: (text: string) => Promise<void>
+  sendMessage: (input: MainAgentUserMessageInput) => Promise<void>
   interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
-  revertLastChatTurn: () => Promise<{ ok: boolean; message: string; revertedTurnId?: number }>
+  revertLastChatTurn: () => Promise<{
+    ok: boolean
+    message: string
+    revertedTurnId?: number
+    restoredInput?: MainAgentUserMessageInput
+  }>
   loadHistory: () => Promise<void>
   refreshHistory: () => Promise<void>
   clearHistory: () => Promise<void>

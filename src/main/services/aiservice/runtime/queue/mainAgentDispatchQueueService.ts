@@ -7,6 +7,7 @@ import type {
   MainAgentUserMessagePayload,
   TaskDispatchSnapshot
 } from '@share/cache/AItype/states/taskLifecycleState'
+import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAgentMessageContentService'
 import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
 import { chatMessageService } from '../../chat/chatMessageService'
 
@@ -83,7 +84,7 @@ class MainAgentDispatchService {
       createdAt: Date.now(),
       payload: {
         messageId: input.messageId,
-        text: input.text
+        content: input.content
       }
     })
     await chatMessageService.attachMessageEventMetadata(input.messageId, {
@@ -238,7 +239,7 @@ class MainAgentDispatchService {
       return undefined
     }
     if (event.source === 'user') {
-      return event.payload.text.trim().slice(0, 48) || '用户消息处理中'
+      return parseMainAgentContentForPersistence(event.payload.content).trim().slice(0, 48) || '用户消息处理中'
     }
     return `任务 #${event.payload.taskId} / 通知 #${event.payload.notificationId}`
   }

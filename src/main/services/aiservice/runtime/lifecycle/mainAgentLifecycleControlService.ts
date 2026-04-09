@@ -15,6 +15,7 @@ import {
   buildAwaitingUserInputStatusMessage,
   matchesObviousTaskCancellation
 } from './nodes/awaitingUserInputNode'
+import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAgentMessageContentService'
 
 const CONFIRM_CLOSE_PATTERNS = [
   /可以了/,
@@ -39,7 +40,7 @@ class MainAgentLifecycleControlService {
   async controlUserMessage(
     event: MainAgentUserMessageEvent
   ): Promise<MainAgentLifecycleControlResult> {
-    const text = event.payload.text.trim()
+    const text = parseMainAgentContentForPersistence(event.payload.content).trim()
     if (!text) {
       return {}
     }

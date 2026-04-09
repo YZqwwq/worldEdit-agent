@@ -1,6 +1,12 @@
 import { AppDataSource } from '../../../database'
 import { Message } from '@share/entity/database/Message'
 import {
+  hasMainAgentFileContent,
+  normalizeMainAgentMessageContent,
+  serializeMainAgentMessageContent,
+  type MainAgentMessageContentPart
+} from '@share/cache/AItype/states/mainAgentMessageContent'
+import {
   VISIBLE_MAIN_AGENT_MESSAGE_STATUSES,
   type MainAgentMessageStatus
 } from '@share/cache/AItype/states/mainAgentTurnState'
@@ -8,6 +14,10 @@ import {
 class ChatMessageService {
   private get repo() {
     return AppDataSource.getRepository(Message)
+  }
+
+  async getMessageById(messageId: number): Promise<Message | null> {
+    return this.repo.findOneBy({ id: messageId })
   }
 
   async saveMessage(
@@ -19,6 +29,7 @@ class ChatMessageService {
       status?: MainAgentMessageStatus
       eventId?: string | null
       consumer?: string | null
+      contentParts?: MainAgentMessageContentPart[]
     }
   ): Promise<Message | null> {
     try {
@@ -38,8 +49,15 @@ class ChatMessageService {
           : null
 
       const message = existing ?? new Message()
+      const contentParts = normalizeMainAgentMessageContent(options?.contentParts)
       message.role = role
       message.content = content
+      message.contentJson =
+        contentParts.length > 0
+          ? serializeMainAgentMessageContent(contentParts)
+          : serializeMainAgentMessageContent([{ type: 'text', text: content }])
+      message.type =
+        contentParts.length > 1 || hasMainAgentFileContent(contentParts) ? 'structured' : 'text'
       message.sessionId = sessionId
       message.turnId = options?.turnId ?? message.turnId ?? null
       message.status = options?.status ?? 'committed'

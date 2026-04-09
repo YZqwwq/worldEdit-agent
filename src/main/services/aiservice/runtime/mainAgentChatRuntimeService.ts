@@ -3,11 +3,18 @@ import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { HumanMessage } from '@langchain/core/messages'
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
+import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
 import type { TaskLifecycleState } from '@share/cache/AItype/states/taskLifecycleState'
 import { agent } from '../agentrsystem/agentReactSystem'
+import {
+  attachMainAgentContentPartsMetadata,
+  getMainAgentContentPartsFromPersistedMessage,
+  parseMainAgentContentForPersistence
+} from '../messagecontent/mainAgentMessageContentService'
 import { contentToText } from '../messageoutput/transformRespones'
 import { handleGraphLogEvent, runWithGraphLogContext } from '../../log/graphlog'
 import { mainAgentRunControlService } from './mainAgentRunControlService'
+import { chatMessageService } from '../chat/chatMessageService'
 
 export type MainAgentChatRuntimeResult = {
   fullText: string
@@ -27,13 +34,18 @@ class MainAgentChatRuntimeService {
   async runUserMessage(
     eventId: string,
     turnId: number,
-    message: string,
+    userMessageId: number,
+    content: MainAgentMessageContentPart[],
     onChunk?: (chunk: StreamChunk) => void,
     taskLifecycle?: TaskLifecycleState
   ): Promise<MainAgentChatRuntimeResult> {
     const runId = randomUUID()
     const controller = mainAgentRunControlService.startRun({ eventId, turnId })
     let fullText = ''
+    const persistedMessage = await chatMessageService.getMessageById(userMessageId)
+    const originalContent = getMainAgentContentPartsFromPersistedMessage(persistedMessage)
+    const effectiveContent = originalContent.length > 0 ? originalContent : content
+    const message = parseMainAgentContentForPersistence(effectiveContent)
     debugLog(`sendStreamMessage called with: ${message}`)
     debugLog(`RunID generated: ${runId}`)
 
@@ -43,7 +55,15 @@ class MainAgentChatRuntimeService {
         debugLog('Calling agent.streamEvents')
 
         const stream = await agent.streamEvents(
-          { messages: [new HumanMessage(message)], taskLifecycle },
+          {
+            messages: [
+              new HumanMessage({
+                content: message,
+                additional_kwargs: attachMainAgentContentPartsMetadata(undefined, effectiveContent)
+              })
+            ],
+            taskLifecycle
+          },
           { version: 'v2', signal: controller.signal } as {
             version: 'v2'
             signal: AbortSignal

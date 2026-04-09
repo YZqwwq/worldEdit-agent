@@ -97,7 +97,8 @@ export async function llmCall(
         `llmCall: persona sampling temp=${callOptions.temperature}, topP=${callOptions.topP}, maxTokens=${callOptions.maxTokens}`
       )
     }
-    const stream = await modelWithTool.stream(sortedMessages, callOptions as any)
+    const preparedMessages = await runtime.familyAdapter.prepareMessages(sortedMessages, runtime)
+    const stream = await modelWithTool.stream(preparedMessages, callOptions as any)
     for await (const chunk of stream) {
       if (!finalChunk) {
         finalChunk = chunk as AIMessageChunk

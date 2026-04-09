@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { StreamChunk } from '../share/cache/render/aiagent/aiContent'
+import type { MainAgentUserMessageInput } from '../share/cache/AItype/states/mainAgentMessageContent'
 import type {
   ModelConfigInput,
   ModelConfigPayload
@@ -33,24 +34,39 @@ import type {
 // Local type to ensure availability in this module
 type Api = {
   // 流式发送
-  sendMessageStream: (message: string) => void
+  sendMessageStream: (message: MainAgentUserMessageInput) => void
   // 监听流数据包（返回移除监听函数）
   onStreamChunk: (callback: (chunk: StreamChunk) => void) => () => void
 
   // 获取历史记录
   getHistory: () => Promise<any[]>
   interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
-  revertLastChatTurn: () => Promise<{ ok: boolean; message: string; revertedTurnId?: number }>
+  revertLastChatTurn: () => Promise<{
+    ok: boolean
+    message: string
+    revertedTurnId?: number
+    restoredInput?: MainAgentUserMessageInput
+  }>
   clearHistory: () => Promise<void>
   purgeAllData: () => Promise<number>
   resetPersonaState: () => Promise<void>
   getMemorySnapshot: () => Promise<MemoryInspectionPayload>
   getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
 
-  pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number }>
-  uploadFile: (sourcePath: string) => Promise<{ resourceUrl: string; fileName: string; size: number }>
+  pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number; mimeType?: string }>
+  uploadFile: (sourcePath: string) => Promise<{
+    resourceUrl: string
+    fileName: string
+    size: number
+    mimeType?: string
+  }>
   deleteFile: (resourceUrl: string) => Promise<boolean>
-  pickAndUploadFile: () => Promise<{ resourceUrl: string; fileName: string; size: number }>
+  pickAndUploadFile: () => Promise<{
+    resourceUrl: string
+    fileName: string
+    size: number
+    mimeType?: string
+  }>
   clearUploads: () => Promise<number>
 
   getAvatarProfiles: () => Promise<ChatAvatarProfilesPayload>
@@ -87,7 +103,8 @@ type Api = {
 
 // Custom APIs for renderer
 const api: Api = {
-  sendMessageStream: (message: string) => ipcRenderer.send('ai:sendMessageStream', message),
+  sendMessageStream: (message: MainAgentUserMessageInput) =>
+    ipcRenderer.send('ai:sendMessageStream', message),
   
   onStreamChunk: (callback) => {
     const subscription = (_event: IpcRendererEvent, chunk: StreamChunk) => callback(chunk)
