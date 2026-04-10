@@ -6,6 +6,7 @@ import { continueActiveChildAgentTool } from '../tools/task/continueActiveChildA
 import { delegateCharacterEditorTool } from '../tools/task/delegateCharacterEditor'
 import { getActiveTaskContextTool } from '../tools/task/getActiveTaskContext'
 import { getTaskDetailTool } from '../tools/task/getTaskDetail'
+import { openWebPageTextTool } from '../tools/network/openWebPageText'
 import { addTool } from '../tools/utility/add'
 import { getTimeTool } from '../tools/utility/getTime'
 import { getEntityDetailTool } from '../tools/world/getEntityDetail'
@@ -67,6 +68,15 @@ export const unifiedToolRegistry: UnifiedToolRegistryEntry[] = [
     key: getTimeTool.name,
     tool: getTimeTool,
     category: 'utility',
+    audience: 'main_agent',
+    access: 'read',
+    enabled: true,
+    scopes: [{ kind: 'main_agent' }]
+  },
+  {
+    key: openWebPageTextTool.name,
+    tool: openWebPageTextTool,
+    category: 'network_read',
     audience: 'main_agent',
     access: 'read',
     enabled: true,
