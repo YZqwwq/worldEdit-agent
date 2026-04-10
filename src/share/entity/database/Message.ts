@@ -34,6 +34,12 @@ export class Message {
   })
   type!: string
 
+  @Column({
+    type: 'text',
+    nullable: true
+  })
+  requestId!: string | null
+
   // 会话 ID，用于关联消息（某次任务或对话）
   @Column({
     type: 'text',

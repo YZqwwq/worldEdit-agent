@@ -20,7 +20,8 @@ export type MainAgentEventOrchestrationDependencies = {
   }) => Promise<{ turnId: number }>
   getPersistedUserMessageText: (messageId: number) => Promise<string>
   controlUserMessage: (
-    event: MainAgentUserMessageEvent
+    event: MainAgentUserMessageEvent,
+    onChunk?: (chunk: StreamChunk) => void
   ) => Promise<MainAgentLifecycleControlResult>
   runUserMessage: (
     eventId: string,
@@ -61,12 +62,14 @@ type MainAgentEventHandler<TEvent extends MainAgentEvent> = {
   owner: MainAgentCommitOwner
   prepare?: (
     event: TEvent,
-    dependencies: MainAgentEventOrchestrationDependencies
+    dependencies: MainAgentEventOrchestrationDependencies,
+    runtime?: { onChunk?: (chunk: StreamChunk) => void }
   ) => Promise<MainAgentEventPreparedStateMap[TEvent['type']]>
   consume: (
     event: TEvent,
     prepared: MainAgentEventPreparedStateMap[TEvent['type']],
-    dependencies: MainAgentEventOrchestrationDependencies
+    dependencies: MainAgentEventOrchestrationDependencies,
+    runtime?: { onChunk?: (chunk: StreamChunk) => void }
   ) => Promise<MainAgentEventConsumptionResult>
   commit?: (
     event: TEvent,
@@ -84,7 +87,8 @@ const buildInterruptedResult = (
   event: MainAgentUserMessageEvent,
   turnId: number,
   userText: string,
-  fullText: string
+  fullText: string,
+  onChunk?: (chunk: StreamChunk) => void
 ): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(event)
   const effects: MainAgentEventConsumptionResult['effects'] = [
@@ -115,7 +119,7 @@ const buildInterruptedResult = (
     {
       ...effectContext,
       type: 'stream_done',
-      onChunk: event.payload.onChunk,
+      onChunk,
       fullText
     }
   ]
@@ -144,7 +148,8 @@ const buildInterruptedResult = (
 const buildCompletedResult = (
   event: MainAgentUserMessageEvent,
   turnId: number,
-  fullText: string
+  fullText: string,
+  onChunk?: (chunk: StreamChunk) => void
 ): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(event)
   return {
@@ -171,7 +176,7 @@ const buildCompletedResult = (
       {
         ...effectContext,
         type: 'stream_done',
-        onChunk: event.payload.onChunk,
+        onChunk,
         fullText
       }
     ]
@@ -182,7 +187,8 @@ const buildFailedUserMessageResult = (
   event: MainAgentUserMessageEvent,
   turnId: number | undefined,
   dependencies: MainAgentEventOrchestrationDependencies,
-  error: unknown
+  error: unknown,
+  onChunk?: (chunk: StreamChunk) => void
 ): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(event)
   return {
@@ -204,7 +210,7 @@ const buildFailedUserMessageResult = (
       {
         ...effectContext,
         type: 'stream_error',
-        onChunk: event.payload.onChunk,
+        onChunk,
         message: dependencies.logUserMessageError(error)
       }
     ]
@@ -214,8 +220,8 @@ const buildFailedUserMessageResult = (
 const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
   eventType: 'user_message',
   owner: MAIN_AGENT_FLOW_RULES.user_message.owner,
-  async prepare(event, dependencies) {
-    const control = await dependencies.controlUserMessage(event)
+  async prepare(event, dependencies, runtime) {
+    const control = await dependencies.controlUserMessage(event, runtime?.onChunk)
     if (control.handledResult) {
       return {
         kind: 'handled',
@@ -235,7 +241,7 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
       taskLifecycle: control.taskLifecycle
     }
   },
-  async consume(event, prepared, dependencies) {
+  async consume(event, prepared, dependencies, runtime) {
     if (prepared.kind === 'handled') {
       return prepared.result
     }
@@ -246,19 +252,19 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
         prepared.turnId,
         event.payload.messageId,
         event.payload.content,
-        event.payload.onChunk,
+        runtime?.onChunk,
         prepared.taskLifecycle
       )
 
       const userText = await dependencies.getPersistedUserMessageText(event.payload.messageId)
 
       if (result.interrupted) {
-        return buildInterruptedResult(event, prepared.turnId, userText, result.fullText)
+        return buildInterruptedResult(event, prepared.turnId, userText, result.fullText, runtime?.onChunk)
       }
 
-      return buildCompletedResult(event, prepared.turnId, result.fullText)
+      return buildCompletedResult(event, prepared.turnId, result.fullText, runtime?.onChunk)
     } catch (error) {
-      return buildFailedUserMessageResult(event, prepared.turnId, dependencies, error)
+      return buildFailedUserMessageResult(event, prepared.turnId, dependencies, error, runtime?.onChunk)
     }
   }
 }
@@ -284,10 +290,16 @@ export const MAIN_AGENT_EVENT_ORCHESTRATION_TABLE = {
 async function executeMainAgentEventHandler<TEvent extends MainAgentEvent>(
   handler: MainAgentEventHandler<TEvent>,
   event: TEvent,
-  dependencies: MainAgentEventOrchestrationDependencies
+  dependencies: MainAgentEventOrchestrationDependencies,
+  runtime?: { onChunk?: (chunk: StreamChunk) => void }
 ): Promise<MainAgentEventConsumptionResult> {
-  const prepared = handler.prepare ? await handler.prepare(event, dependencies) : null
-  const result = await handler.consume(event, prepared as MainAgentEventPreparedStateMap[TEvent['type']], dependencies)
+  const prepared = handler.prepare ? await handler.prepare(event, dependencies, runtime) : null
+  const result = await handler.consume(
+    event,
+    prepared as MainAgentEventPreparedStateMap[TEvent['type']],
+    dependencies,
+    runtime
+  )
   await dependencies.applyEffects(result)
   if (handler.commit) {
     await handler.commit(event, result, dependencies)
@@ -297,19 +309,22 @@ async function executeMainAgentEventHandler<TEvent extends MainAgentEvent>(
 
 export async function orchestrateMainAgentEvent(
   event: MainAgentEvent,
-  dependencies: MainAgentEventOrchestrationDependencies
+  dependencies: MainAgentEventOrchestrationDependencies,
+  runtime?: { onChunk?: (chunk: StreamChunk) => void }
 ): Promise<MainAgentEventConsumptionResult> {
   if (event.type === 'user_message') {
     return executeMainAgentEventHandler(
       MAIN_AGENT_EVENT_ORCHESTRATION_TABLE.user_message,
       event,
-      dependencies
+      dependencies,
+      runtime
     )
   }
 
   return executeMainAgentEventHandler(
     MAIN_AGENT_EVENT_ORCHESTRATION_TABLE.task_notification,
     event,
-    dependencies
+    dependencies,
+    runtime
   )
 }

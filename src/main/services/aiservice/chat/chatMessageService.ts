@@ -16,6 +16,51 @@ class ChatMessageService {
     return AppDataSource.getRepository(Message)
   }
 
+  private async persistMessage(
+    role: 'user' | 'ai',
+    content: string,
+    options?: {
+      sessionId?: string
+      turnId?: number | null
+      status?: MainAgentMessageStatus
+      eventId?: string | null
+      consumer?: string | null
+      contentParts?: MainAgentMessageContentPart[]
+    }
+  ): Promise<Message> {
+    const eventId = options?.eventId?.trim() || null
+    const consumer = options?.consumer?.trim() || null
+    const sessionId = options?.sessionId?.trim() || 'default'
+    const existing =
+      eventId && role === 'ai'
+        ? await this.repo.findOne({
+            where: {
+              eventId,
+              role,
+              ...(consumer ? { consumer } : {})
+            },
+            order: { id: 'DESC' }
+          })
+        : null
+
+    const message = existing ?? new Message()
+    const contentParts = normalizeMainAgentMessageContent(options?.contentParts)
+    message.role = role
+    message.content = content
+    message.contentJson =
+      contentParts.length > 0
+        ? serializeMainAgentMessageContent(contentParts)
+        : serializeMainAgentMessageContent([{ type: 'text', text: content }])
+    message.type =
+      contentParts.length > 1 || hasMainAgentFileContent(contentParts) ? 'structured' : 'text'
+    message.sessionId = sessionId
+    message.turnId = options?.turnId ?? message.turnId ?? null
+    message.status = options?.status ?? 'committed'
+    message.eventId = eventId
+    message.consumer = consumer
+    return this.repo.save(message)
+  }
+
   async getMessageById(messageId: number): Promise<Message | null> {
     return this.repo.findOneBy({ id: messageId })
   }
@@ -33,41 +78,26 @@ class ChatMessageService {
     }
   ): Promise<Message | null> {
     try {
-      const eventId = options?.eventId?.trim() || null
-      const consumer = options?.consumer?.trim() || null
-      const sessionId = options?.sessionId?.trim() || 'default'
-      const existing =
-        eventId && role === 'ai'
-          ? await this.repo.findOne({
-              where: {
-                eventId,
-                role,
-                ...(consumer ? { consumer } : {})
-              },
-              order: { id: 'DESC' }
-            })
-          : null
-
-      const message = existing ?? new Message()
-      const contentParts = normalizeMainAgentMessageContent(options?.contentParts)
-      message.role = role
-      message.content = content
-      message.contentJson =
-        contentParts.length > 0
-          ? serializeMainAgentMessageContent(contentParts)
-          : serializeMainAgentMessageContent([{ type: 'text', text: content }])
-      message.type =
-        contentParts.length > 1 || hasMainAgentFileContent(contentParts) ? 'structured' : 'text'
-      message.sessionId = sessionId
-      message.turnId = options?.turnId ?? message.turnId ?? null
-      message.status = options?.status ?? 'committed'
-      message.eventId = eventId
-      message.consumer = consumer
-      return await this.repo.save(message)
+      return await this.persistMessage(role, content, options)
     } catch (error) {
       console.error('Failed to save message:', error)
       return null
     }
+  }
+
+  async saveMessageOrThrow(
+    role: 'user' | 'ai',
+    content: string,
+    options?: {
+      sessionId?: string
+      turnId?: number | null
+      status?: MainAgentMessageStatus
+      eventId?: string | null
+      consumer?: string | null
+      contentParts?: MainAgentMessageContentPart[]
+    }
+  ): Promise<Message> {
+    return this.persistMessage(role, content, options)
   }
 
   async getRecentHistory(limit = 50): Promise<Message[]> {

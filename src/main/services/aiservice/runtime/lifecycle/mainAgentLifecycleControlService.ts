@@ -1,3 +1,4 @@
+import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
   MainAgentEventConsumptionResult,
   MainAgentUserMessageEvent,
@@ -38,7 +39,8 @@ export type MainAgentLifecycleControlResult = {
 
 class MainAgentLifecycleControlService {
   async controlUserMessage(
-    event: MainAgentUserMessageEvent
+    event: MainAgentUserMessageEvent,
+    onChunk?: (chunk: StreamChunk) => void
   ): Promise<MainAgentLifecycleControlResult> {
     const text = parseMainAgentContentForPersistence(event.payload.content).trim()
     if (!text) {
@@ -83,7 +85,8 @@ class MainAgentLifecycleControlService {
                 action: 'cancel_task',
                 userInput: text,
                 decisionSource: decision.source
-              }
+              },
+              onChunk
             })
           }
         }
@@ -105,7 +108,8 @@ class MainAgentLifecycleControlService {
                 userInput: text,
                 decisionSource: decision.source,
                 decisionConfidence: decision.confidence
-              }
+              },
+              onChunk
             })
           }
         }
@@ -127,7 +131,8 @@ class MainAgentLifecycleControlService {
                 userInput: text,
                 decisionSource: decision.source,
                 decisionConfidence: decision.confidence
-              }
+              },
+              onChunk
             })
           }
         }
@@ -154,7 +159,8 @@ class MainAgentLifecycleControlService {
               executorKind: result.executorKind,
               decisionSource: decision.source,
               decisionConfidence: decision.confidence
-            }
+            },
+            onChunk
           })
         }
       }
@@ -184,7 +190,8 @@ class MainAgentLifecycleControlService {
             payload: {
               action: 'cancel_task',
               userInput: text
-            }
+            },
+            onChunk
           })
         }
       }
@@ -212,7 +219,8 @@ class MainAgentLifecycleControlService {
             payload: {
               action: 'confirm_close_task',
               userInput: text
-            }
+            },
+            onChunk
           })
         }
       }

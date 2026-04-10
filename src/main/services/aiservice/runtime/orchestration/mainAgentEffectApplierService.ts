@@ -19,14 +19,14 @@ class MainAgentEffectApplierService {
     switch (effect.type) {
       case 'save_message':
         {
-          const saved = await chatMessageService.saveMessage(effect.role, effect.content, {
+          const saved = await chatMessageService.saveMessageOrThrow(effect.role, effect.content, {
             sessionId: effect.sessionId,
             turnId: effect.turnId,
             status: effect.messageStatus,
             eventId: effect.eventIdRef,
             consumer: effect.consumer
           })
-          if (saved && effect.role === 'ai' && typeof effect.turnId === 'number') {
+          if (effect.role === 'ai' && typeof effect.turnId === 'number') {
             await mainAgentTurnService.attachAiMessage(effect.turnId, saved.id)
           }
         }

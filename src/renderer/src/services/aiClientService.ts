@@ -217,7 +217,16 @@ const buildOptimisticMessageText = (input: MainAgentUserMessageInput): string =>
 }
 
 async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
-  const optimisticText = buildOptimisticMessageText(input)
+  const requestId =
+    input.requestId?.trim() ||
+    (globalThis.crypto?.randomUUID
+      ? globalThis.crypto.randomUUID()
+      : `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`)
+  const payload: MainAgentUserMessageInput = {
+    ...input,
+    requestId
+  }
+  const optimisticText = buildOptimisticMessageText(payload)
   if (!optimisticText.trim() || isLoading.value) {
     return
   }
@@ -253,7 +262,7 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
 
   try {
     // 3. 调用流式接口
-    window.api.sendMessageStream(input)
+    window.api.sendMessageStream(payload)
   } catch (error) {
     console.error('Error sending message to AI:', error)
     const msg = messages.value.find((m) => m.id === aiMsgId)

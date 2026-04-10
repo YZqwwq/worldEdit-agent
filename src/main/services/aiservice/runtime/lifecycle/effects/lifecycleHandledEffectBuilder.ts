@@ -1,3 +1,4 @@
+import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
   MainAgentEventConsumptionResult,
   MainAgentUserMessageEvent,
@@ -19,6 +20,7 @@ export const buildLifecycleHandledResult = (input: {
   mainTraceMessage: string
   mainTraceStage?: TaskTraceStage
   payload?: Record<string, unknown>
+  onChunk?: (chunk: StreamChunk) => void
 }): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(input.event)
 
@@ -60,7 +62,7 @@ export const buildLifecycleHandledResult = (input: {
       {
         ...effectContext,
         type: 'stream_done',
-        onChunk: input.event.payload.onChunk,
+        onChunk: input.onChunk,
         fullText: input.visibleMessage
       }
     ]

@@ -14,6 +14,10 @@ import { mainAgentRunControlService } from '../runtime/mainAgentRunControlServic
 
 class AiSessionMaintenanceService {
   async clearHistory(): Promise<void> {
+    const idle = await mainAgentRunControlService.abortAndWaitForIdle()
+    if (!idle) {
+      throw new Error('Main agent is still running; clearHistory was refused to avoid inconsistent cleanup.')
+    }
     mainAgentDispatchService.reset()
     mainAgentRunControlService.reset()
     await chatMessageService.clearAll()
@@ -23,6 +27,10 @@ class AiSessionMaintenanceService {
   }
 
   async purgeAllData(): Promise<void> {
+    const idle = await mainAgentRunControlService.abortAndWaitForIdle()
+    if (!idle) {
+      throw new Error('Main agent is still running; purgeAllData was refused to avoid inconsistent cleanup.')
+    }
     await AppDataSource.transaction(async (manager) => {
       await manager.getRepository(TaskTraceRecord).clear()
       await manager.getRepository(TaskNotificationRecord).clear()

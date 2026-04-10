@@ -10,6 +10,7 @@ export interface MainAgentUserInputFile {
 }
 
 export interface MainAgentUserMessageInput {
+  requestId?: string
   text?: string
   files?: MainAgentUserInputFile[]
 }
@@ -211,10 +212,12 @@ export const normalizeMainAgentUserInput = (
   }
 
   const raw = input as {
+    requestId?: unknown
     text?: unknown
     files?: unknown
   }
 
+  const requestId = normalizeText(raw.requestId) || undefined
   const text = typeof raw.text === 'string' ? raw.text : undefined
   const files = Array.isArray(raw.files)
     ? raw.files.flatMap((item) => {
@@ -264,6 +267,7 @@ export const normalizeMainAgentUserInput = (
     : undefined
 
   return {
+    requestId,
     text,
     files
   }

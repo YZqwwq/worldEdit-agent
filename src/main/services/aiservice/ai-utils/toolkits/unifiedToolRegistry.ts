@@ -7,6 +7,7 @@ import { delegateCharacterEditorTool } from '../tools/task/delegateCharacterEdit
 import { getActiveTaskContextTool } from '../tools/task/getActiveTaskContext'
 import { getTaskDetailTool } from '../tools/task/getTaskDetail'
 import { addTool } from '../tools/utility/add'
+import { getTimeTool } from '../tools/utility/getTime'
 import { getEntityDetailTool } from '../tools/world/getEntityDetail'
 import { getWorldSchemaCatalogTool } from '../tools/world/getWorldSchemaCatalog'
 import { listCharactersTool } from '../tools/world/listCharacters'
@@ -56,6 +57,15 @@ export const unifiedToolRegistry: UnifiedToolRegistryEntry[] = [
   {
     key: addTool.name,
     tool: addTool,
+    category: 'utility',
+    audience: 'main_agent',
+    access: 'read',
+    enabled: true,
+    scopes: [{ kind: 'main_agent' }]
+  },
+  {
+    key: getTimeTool.name,
+    tool: getTimeTool,
     category: 'utility',
     audience: 'main_agent',
     access: 'read',

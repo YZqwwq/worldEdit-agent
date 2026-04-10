@@ -4,6 +4,11 @@ export type ActiveMainAgentRunSnapshot = {
   startedAt: number
 }
 
+const waitFor = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+
 class MainAgentRunControlService {
   private activeRun:
     | {
@@ -11,22 +16,31 @@ class MainAgentRunControlService {
         turnId: number
         controller: AbortController
         startedAt: number
+        donePromise: Promise<void>
+        resolveDone: () => void
       }
     | null = null
 
   startRun(input: { eventId: string; turnId: number }): AbortController {
     const controller = new AbortController()
+    let resolveDone = () => {}
+    const donePromise = new Promise<void>((resolve) => {
+      resolveDone = resolve
+    })
     this.activeRun = {
       eventId: input.eventId,
       turnId: input.turnId,
       controller,
-      startedAt: Date.now()
+      startedAt: Date.now(),
+      donePromise,
+      resolveDone
     }
     return controller
   }
 
   finishRun(eventId: string): void {
     if (this.activeRun?.eventId === eventId) {
+      this.activeRun.resolveDone()
       this.activeRun = null
     }
   }
@@ -52,7 +66,22 @@ class MainAgentRunControlService {
     }
   }
 
+  async abortAndWaitForIdle(timeoutMs = 5000): Promise<boolean> {
+    const activeRun = this.activeRun
+    if (!activeRun) {
+      return true
+    }
+
+    activeRun.controller.abort('runtime_reset')
+    await Promise.race([activeRun.donePromise, waitFor(timeoutMs)])
+    return this.activeRun === null
+  }
+
   reset(): void {
+    if (this.activeRun) {
+      this.activeRun.controller.abort('runtime_reset')
+      this.activeRun.resolveDone()
+    }
     this.activeRun = null
   }
 }

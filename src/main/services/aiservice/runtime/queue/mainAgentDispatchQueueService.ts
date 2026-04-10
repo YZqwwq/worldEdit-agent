@@ -1,18 +1,21 @@
 import { randomUUID } from 'node:crypto'
+import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
   MainAgentEvent,
   MainAgentEventConsumptionResult,
   MainAgentDispatchState,
   MainAgentTaskNotificationPayload,
-  MainAgentUserMessagePayload,
   TaskDispatchSnapshot
 } from '@share/cache/AItype/states/taskLifecycleState'
+import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
 import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAgentMessageContentService'
 import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
-import { chatMessageService } from '../../chat/chatMessageService'
 
 type DispatchHandlers = {
-  processEvent?: (event: MainAgentEvent) => Promise<MainAgentEventConsumptionResult>
+  processEvent?: (
+    event: MainAgentEvent,
+    runtime?: { onChunk?: (chunk: StreamChunk) => void }
+  ) => Promise<MainAgentEventConsumptionResult>
 }
 
 type QueueEntry = {
@@ -29,6 +32,7 @@ class MainAgentDispatchService {
   private readonly queue: QueueEntry[] = []
   private readonly queuedEventIds = new Set<string>()
   private readonly queuedTaskNotificationIds = new Set<number>()
+  private readonly eventStreamSubscribers = new Map<string, Set<(chunk: StreamChunk) => void>>()
   private processing = false
   private currentEvent: MainAgentEvent | null = null
   private consecutiveUserEventsProcessed = 0
@@ -76,7 +80,11 @@ class MainAgentDispatchService {
     }
   }
 
-  async enqueueUserMessage(input: MainAgentUserMessagePayload): Promise<void> {
+  async enqueueUserMessage(input: {
+    messageId: number
+    content: MainAgentMessageContentPart[]
+    onChunk?: (chunk: StreamChunk) => void
+  }): Promise<void> {
     const event = await mainAgentEventLogService.createUserMessageEvent({
       id: createId(),
       sessionId: DEFAULT_SESSION_ID,
@@ -87,15 +95,8 @@ class MainAgentDispatchService {
         content: input.content
       }
     })
-    await chatMessageService.attachMessageEventMetadata(input.messageId, {
-      eventId: event.id
-    })
-    return this.enqueueLoadedEvent({
-      ...event,
-      payload: {
-        ...event.payload,
-        onChunk: input.onChunk
-      }
+    return this.enqueueLoadedEvent(event, {
+      onChunk: input.onChunk
     })
   }
 
@@ -130,6 +131,13 @@ class MainAgentDispatchService {
     return this.enqueueLoadedEvent(event)
   }
 
+  async enqueuePersistedUserEvent(
+    event: MainAgentEvent,
+    onChunk?: (chunk: StreamChunk) => void
+  ): Promise<void> {
+    return this.enqueueLoadedEvent(event, { onChunk })
+  }
+
   reset(): void {
     while (this.queue.length > 0) {
       const entry = this.queue.shift()
@@ -137,16 +145,43 @@ class MainAgentDispatchService {
     }
     this.queuedEventIds.clear()
     this.queuedTaskNotificationIds.clear()
+    this.eventStreamSubscribers.clear()
     this.processing = false
     this.currentEvent = null
     this.consecutiveUserEventsProcessed = 0
   }
 
+  private addStreamSubscriber(eventId: string, onChunk?: (chunk: StreamChunk) => void): void {
+    if (!onChunk) {
+      return
+    }
+    const existing = this.eventStreamSubscribers.get(eventId)
+    if (existing) {
+      existing.add(onChunk)
+      return
+    }
+    this.eventStreamSubscribers.set(eventId, new Set([onChunk]))
+  }
+
+  private dispatchChunk(eventId: string, chunk: StreamChunk): void {
+    const subscribers = this.eventStreamSubscribers.get(eventId)
+    if (!subscribers || subscribers.size === 0) {
+      return
+    }
+    for (const subscriber of subscribers) {
+      subscriber(chunk)
+    }
+  }
+
   private async enqueueLoadedEvent(
     event: MainAgentEvent,
-    options?: { dedupeTaskNotificationId?: number }
+    options?: {
+      dedupeTaskNotificationId?: number
+      onChunk?: (chunk: StreamChunk) => void
+    }
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
+      this.addStreamSubscriber(event.id, options?.onChunk)
       if (this.queuedEventIds.has(event.id)) {
         resolve()
         return
@@ -201,7 +236,9 @@ class MainAgentDispatchService {
         try {
           this.currentEvent = entry.event
           await mainAgentEventLogService.markProcessing(entry.event.id)
-          const result = await this.processEvent(entry.event)
+          const result = await this.processEvent(entry.event, {
+            onChunk: (chunk) => this.dispatchChunk(entry.event.id, chunk)
+          })
           await mainAgentEventLogService.markCompleted(entry.event.id, {
             consumer: result.consumer,
             summary: result.summary
@@ -215,6 +252,7 @@ class MainAgentDispatchService {
           entry.reject(error)
         } finally {
           this.queuedEventIds.delete(entry.event.id)
+          this.eventStreamSubscribers.delete(entry.event.id)
           if (entry.event.source === 'task_queue') {
             this.queuedTaskNotificationIds.delete(entry.event.payload.notificationId)
           }
@@ -244,11 +282,14 @@ class MainAgentDispatchService {
     return `任务 #${event.payload.taskId} / 通知 #${event.payload.notificationId}`
   }
 
-  private async processEvent(event: MainAgentEvent): Promise<MainAgentEventConsumptionResult> {
+  private async processEvent(
+    event: MainAgentEvent,
+    runtime?: { onChunk?: (chunk: StreamChunk) => void }
+  ): Promise<MainAgentEventConsumptionResult> {
     if (!this.handlers.processEvent) {
       throw new Error('MainAgentDispatchService is missing processEvent handler.')
     }
-    return this.handlers.processEvent(event)
+    return this.handlers.processEvent(event, runtime)
   }
 }
 

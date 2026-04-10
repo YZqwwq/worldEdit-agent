@@ -20,8 +20,8 @@ import { getMainAgentPersistenceTextFromPersistedMessage } from '../messageconte
 class MainAgentEntryService {
   constructor() {
     mainAgentDispatchService.configure({
-      processEvent: async (event) => {
-        return this.processEvent(event)
+      processEvent: async (event, runtime) => {
+        return this.processEvent(event, runtime?.onChunk)
       }
     })
     taskNotificationDispatchBridge.configure({
@@ -39,6 +39,13 @@ class MainAgentEntryService {
     await mainAgentDispatchService.enqueueUserMessage(input)
   }
 
+  async enqueuePersistedUserEvent(
+    event: Extract<MainAgentEvent, { type: 'user_message' }>,
+    onChunk?: (chunk: StreamChunk) => void
+  ): Promise<void> {
+    await mainAgentDispatchService.enqueuePersistedUserEvent(event, onChunk)
+  }
+
   async enqueueTaskNotification(input: {
     taskId: number
     notificationId: number
@@ -46,7 +53,7 @@ class MainAgentEntryService {
     await mainAgentDispatchService.enqueueTaskNotification(input)
   }
 
-  private async processEvent(event: MainAgentEvent) {
+  private async processEvent(event: MainAgentEvent, onChunk?: (chunk: StreamChunk) => void) {
     return orchestrateMainAgentEvent(event, {
       createChatTurn: async ({ eventId, sessionId, userMessageId }) => {
         const turn = await mainAgentTurnService.createUserMessageTurn({
@@ -61,7 +68,8 @@ class MainAgentEntryService {
         const message = await chatMessageService.getMessageById(messageId)
         return getMainAgentPersistenceTextFromPersistedMessage(message)
       },
-      controlUserMessage: (userEvent) => mainAgentLifecycleControlService.controlUserMessage(userEvent),
+      controlUserMessage: (userEvent, runtimeOnChunk) =>
+        mainAgentLifecycleControlService.controlUserMessage(userEvent, runtimeOnChunk),
       runUserMessage: (eventId, turnId, userMessageId, content, onChunk, taskLifecycle) =>
         mainAgentChatRuntimeService.runUserMessage(
           eventId,
@@ -81,7 +89,7 @@ class MainAgentEntryService {
           taskEvent.id
         ).then(() => undefined),
       logUserMessageError: (error) => logError('Error in stream:', error)
-    })
+    }, { onChunk })
   }
 
   private async consumeTaskNotificationEvent(

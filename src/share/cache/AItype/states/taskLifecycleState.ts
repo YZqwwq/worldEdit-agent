@@ -139,7 +139,6 @@ export interface TaskDispatchSnapshot {
 export interface MainAgentUserMessagePayload {
   messageId: number
   content: MainAgentMessageContentPart[]
-  onChunk?: (chunk: StreamChunk) => void
 }
 
 export interface MainAgentTaskNotificationPayload {
