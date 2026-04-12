@@ -17,6 +17,7 @@ import { parseMainAgentContentForStorage } from './messagecontent/mainAgentFileP
 import { mainAgentEntryService } from './runtime/mainAgentEntryService'
 import { mainAgentRunControlService } from './runtime/mainAgentRunControlService'
 import { mainAgentTurnService, type RevertLastTurnResult } from './runtime/mainAgentTurnService'
+import { interactionObservationService } from './agentrsystem/manager/personal/interactionObservationService'
 
 const DEFAULT_SESSION_ID = 'default'
 
@@ -179,6 +180,15 @@ class AIService {
         message: '当前没有正在生成的主 agent 回复。'
       }
     }
+
+    void interactionObservationService.record({
+      type: 'user_interrupt',
+      source: 'user',
+      summary: '用户主动中断当前主 agent 回复。',
+      payload: {
+        activeRun: mainAgentRunControlService.getActiveRunSnapshot()
+      }
+    })
 
     return {
       ok: true,

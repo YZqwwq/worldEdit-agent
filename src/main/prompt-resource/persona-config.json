@@ -1,0 +1,132 @@
+{
+  "decay": {
+    "sessionFactor": 0.88,
+    "transientFactor": 0.52
+  },
+  "layerWeights": {
+    "session": 0.35,
+    "transient": 0.18
+  },
+  "learningRates": {
+    "stableFromSignal": 0.32,
+    "sessionFromSignal": 0.55,
+    "transientFromInterrupt": 0.12,
+    "transientFromRevert": 0.1
+  },
+  "memoryFeedback": {
+    "preferenceStrength": 0.08,
+    "moodStrength": 0.06
+  },
+  "slot": {
+    "userMoodRetentionObservations": 6,
+    "currentFocusLimit": 5,
+    "recentReferenceLimit": 6,
+    "preferencePromotionThreshold": 0.55
+  },
+  "signalRules": [
+    {
+      "category": "verbosity",
+      "userSignal": "user_requests_more_detail",
+      "delta": 0.08,
+      "phrases": ["详细", "细一点", "展开", "多说", "解释", "步骤", "细节", "具体"]
+    },
+    {
+      "category": "verbosity",
+      "userSignal": "user_requests_brief_reply",
+      "delta": -0.08,
+      "phrases": ["简短", "精简", "一句话", "别废话", "简洁", "少说"]
+    },
+    {
+      "category": "autonomy",
+      "userSignal": "user_grants_autonomy",
+      "delta": 0.06,
+      "phrases": ["你决定", "你来定", "你来做", "直接做", "自行处理", "不用问"]
+    },
+    {
+      "category": "autonomy",
+      "userSignal": "user_requests_confirmation",
+      "delta": -0.06,
+      "phrases": ["先别", "不要动", "先问我", "先确认", "谨慎", "保守点"]
+    },
+    {
+      "category": "risk",
+      "userSignal": "user_encourages_risk",
+      "delta": 0.06,
+      "phrases": ["大胆", "激进", "尝试一下", "冒险", "试试看", "冲"]
+    },
+    {
+      "category": "risk",
+      "userSignal": "user_prefers_safety",
+      "delta": -0.06,
+      "phrases": ["稳妥", "安全优先", "降低风险", "别冒险", "保守"]
+    },
+    {
+      "category": "formality",
+      "userSignal": "user_prefers_formal_tone",
+      "delta": 0.06,
+      "phrases": ["正式一点", "礼貌一点", "专业一点", "严谨"]
+    },
+    {
+      "category": "formality",
+      "userSignal": "user_prefers_casual_tone",
+      "delta": -0.06,
+      "phrases": ["随意点", "口语化", "轻松点", "别太正式"]
+    }
+  ],
+  "moodRules": [
+    {
+      "mood": "impatient",
+      "phrases": ["快点", "怎么还", "别废话", "直接给结果", "快", "赶紧"],
+      "confidence": 0.72,
+      "valence": -0.25
+    },
+    {
+      "mood": "frustrated",
+      "phrases": ["不对", "又错了", "烦", "失败", "为什么还不行", "问题很多"],
+      "confidence": 0.8,
+      "valence": -0.45
+    },
+    {
+      "mood": "uncertain",
+      "phrases": ["不确定", "有点担心", "不知道", "拿不准", "可能"],
+      "confidence": 0.66,
+      "valence": -0.1
+    },
+    {
+      "mood": "positive",
+      "phrases": ["谢谢", "很好", "不错", "太好了", "可以", "喜欢"],
+      "confidence": 0.6,
+      "valence": 0.35
+    }
+  ],
+  "taskObservationEffects": [
+    {
+      "type": "task_completed",
+      "session": {
+        "autonomy": 0.03,
+        "risk": 0.02
+      }
+    },
+    {
+      "type": "task_failed",
+      "session": {
+        "autonomy": -0.04,
+        "risk": -0.08
+      }
+    },
+    {
+      "type": "task_needs_input",
+      "session": {
+        "autonomy": -0.05,
+        "verbosity": 0.04
+      }
+    },
+    {
+      "type": "task_cancelled",
+      "session": {
+        "autonomy": -0.03,
+        "risk": -0.03
+      }
+    }
+  ]
+}

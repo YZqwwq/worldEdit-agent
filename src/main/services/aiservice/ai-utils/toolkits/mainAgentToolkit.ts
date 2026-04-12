@@ -1,4 +1,4 @@
-import { getToolEntriesForMainAgent, getToolsForMainAgent } from './unifiedToolRegistry'
+import { getMainAgentToolEntries, getMainAgentTools } from './mainAgentToolRegistry'
 
-export const mainAgentToolRegistry = getToolEntriesForMainAgent()
-export const mainAgentTools = getToolsForMainAgent()
+export const mainAgentToolRegistry = getMainAgentToolEntries()
+export const mainAgentTools = getMainAgentTools()

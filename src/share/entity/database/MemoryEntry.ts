@@ -18,6 +18,10 @@ export class MemoryEntry {
   @Column({ type: 'text', nullable: false })
   timestamp!: string
 
+  // 全局消息序号（用于阶段归档）
+  @Column({ type: 'integer', default: 0 })
+  sequence!: number
+
   // 是否已经被压缩进长期摘要
   @Column({ type: 'boolean', default: false })
   compressed!: boolean

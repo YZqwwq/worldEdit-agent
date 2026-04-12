@@ -13,6 +13,9 @@ import {
   type MemoryCheckpoint
 } from '../agentrsystem/manager/memory/MemoryManager'
 import {
+  createDefaultLongTermMemory
+} from '../agentrsystem/manager/memory/longTermMemoryService'
+import {
   REVERTIBLE_MAIN_AGENT_TURN_STATUSES,
   type MainAgentTurnSnapshot
 } from '@share/cache/AItype/states/mainAgentTurnState'
@@ -20,11 +23,15 @@ import {
   assertMainAgentTurnStatusTransition,
   isTerminalMainAgentTurnStatus
 } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
+import { interactionObservationService } from '../agentrsystem/manager/personal/interactionObservationService'
 
 type SerializedMemoryCheckpoint = {
   state?: MemoryCheckpoint['state']
   shortTerm?: MemoryCheckpoint['shortTerm']
-  summary?: string
+  longTerm?: MemoryCheckpoint['longTerm']
+  archiveBuffer?: MemoryCheckpoint['archiveBuffer']
+  lastStageIndex?: MemoryCheckpoint['lastStageIndex']
+  lastArchivedAt?: MemoryCheckpoint['lastArchivedAt']
 }
 
 export type RevertLastTurnResult =
@@ -49,7 +56,10 @@ const parseCheckpoint = (raw: string): MemoryCheckpoint | null => {
     return {
       state: parsed.state,
       shortTerm: parsed.shortTerm,
-      summary: typeof parsed.summary === 'string' ? parsed.summary : ''
+      longTerm: parsed.longTerm ?? createDefaultLongTermMemory(),
+      archiveBuffer: Array.isArray(parsed.archiveBuffer) ? parsed.archiveBuffer : [],
+      lastStageIndex: typeof parsed.lastStageIndex === 'number' ? parsed.lastStageIndex : 0,
+      lastArchivedAt: typeof parsed.lastArchivedAt === 'string' ? parsed.lastArchivedAt : ''
     }
   } catch {
     return null
@@ -303,6 +313,17 @@ class MainAgentTurnService {
     turn.status = 'reverted'
     turn.revertedAt = new Date()
     await this.repo.save(turn)
+
+    await interactionObservationService.record({
+      type: 'user_revert',
+      source: 'user',
+      summary: '用户撤回了最后一轮普通聊天回复。',
+      payload: {
+        revertedTurnId: turn.id,
+        userMessageId: turn.userMessageId,
+        aiMessageId: turn.aiMessageId
+      }
+    })
 
     return {
       ok: true,

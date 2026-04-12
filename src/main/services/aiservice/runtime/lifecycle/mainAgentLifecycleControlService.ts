@@ -8,6 +8,7 @@ import { taskExecutionService } from '../../../task/taskExecutionService'
 import { taskService } from '../../../task/taskService'
 import { taskContinuationService } from '../../../task/taskContinuationService'
 import { buildLifecycleHandledResult } from './effects/lifecycleHandledEffectBuilder'
+import { interactionObservationService } from '../../agentrsystem/manager/personal/interactionObservationService'
 import { taskLifecycleIntentNode } from './nodes/taskLifecycleIntentNode'
 import { taskLifecycleSynthesisNode } from './nodes/taskLifecycleSynthesisNode'
 import {
@@ -46,6 +47,17 @@ class MainAgentLifecycleControlService {
     if (!text) {
       return {}
     }
+
+    await interactionObservationService.record({
+      type: 'user_message',
+      source: 'user',
+      summary: text.slice(0, 120),
+      payload: {
+        text,
+        messageId: event.payload.messageId,
+        eventId: event.id
+      }
+    })
 
     const activeTask = await taskService.getActiveTaskSnapshot()
     if (activeTask) {

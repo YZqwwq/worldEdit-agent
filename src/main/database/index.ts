@@ -5,7 +5,10 @@ import { Message } from '../../share/entity/database/Message'
 import { ModelConfig } from '../../share/entity/database/ModelConfig'
 import { MemoryStateRecord } from '../../share/entity/database/MemoryStateRecord'
 import { MemoryEntry } from '../../share/entity/database/MemoryEntry'
+import { MemorySlotRecord } from '../../share/entity/database/MemorySlotRecord'
+import { MemoryStageRecord } from '../../share/entity/database/MemoryStageRecord'
 import { PersonaStateRecord } from '../../share/entity/database/PersonaStateRecord'
+import { InteractionObservationRecord } from '../../share/entity/database/InteractionObservationRecord'
 import { TaskRecord } from '../../share/entity/database/TaskRecord'
 import { TaskExecutionRecord } from '../../share/entity/database/TaskExecutionRecord'
 import { TaskNotificationRecord } from '../../share/entity/database/TaskNotificationRecord'
@@ -30,7 +33,10 @@ export const AppDataSource = new DataSource({
     ModelConfig,
     MemoryStateRecord,
     MemoryEntry,
+    MemorySlotRecord,
+    MemoryStageRecord,
     PersonaStateRecord,
+    InteractionObservationRecord,
     TaskRecord,
     TaskExecutionRecord,
     TaskNotificationRecord,

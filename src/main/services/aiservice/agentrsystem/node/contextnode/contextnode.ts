@@ -1,9 +1,11 @@
 import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
+import { memorySlotService } from '../../manager/memory/memorySlotService'
+import { buildMemoryPromptPlan } from '../../manager/memory/memoryPromptPolicy'
 import { loadPersonaState } from '../../manager/personal/personalManager'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
-import { getToolEntriesForMainAgent } from '../../../ai-utils/toolkits/unifiedToolRegistry'
+import { getMainAgentToolEntries } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import {
   buildMoodPrompt,
   loadCharacterPrompt,
@@ -64,17 +66,25 @@ export async function contextNode(
     )
   }
 
-  const toolUsagePrompt = buildToolUsageSystemPrompt(getToolEntriesForMainAgent())
+  const toolUsagePrompt = buildToolUsageSystemPrompt(getMainAgentToolEntries())
   if (toolUsagePrompt) {
     messages.push(new SystemMessage(toolUsagePrompt))
   }
 
   const snapshot = await memoryManager.getSnapshot()
+  const slotSnapshot = await memorySlotService.reconcileFromObservations()
   if (snapshot.anchors.length > 0) {
     messages.push(new SystemMessage(snapshot.anchors.join('\n')))
   }
-  if (snapshot.summary) {
-    messages.push(new SystemMessage(`记忆摘要:\n${snapshot.summary}`))
+  const memoryPromptPlan = buildMemoryPromptPlan(snapshot, slotSnapshot)
+  if (memoryPromptPlan.longTermPrompt) {
+    messages.push(new SystemMessage(`长期稳定记忆:\n${memoryPromptPlan.longTermPrompt}`))
+  }
+  if (memoryPromptPlan.slotPrompt) {
+    messages.push(new SystemMessage(memoryPromptPlan.slotPrompt))
+  }
+  if (memoryPromptPlan.recentStagePrompt) {
+    messages.push(new SystemMessage(`最近阶段记忆:\n${memoryPromptPlan.recentStagePrompt}`))
   }
   for (const msg of snapshot.shortTerm) {
     if (msg.role === 'user') {

@@ -8,5 +8,7 @@ export interface ModelOptions {
   baseURL?: string
   streaming?: boolean
   useResponsesApi?: boolean
+  mainAgentTimeoutMs?: number
+  modelKwargs?: Record<string, unknown>
   systemPrompt?: string
 }

@@ -38,6 +38,26 @@ export class PersonaStateRecord {
   @Column({ type: 'text', default: '[]' })
   recentInteractionBufferJson!: string
 
+  // 长期稳定偏好层（JSON）
+  @Column({ type: 'text', default: '' })
+  stablePreferencesJson!: string
+
+  // 会话激素层（JSON）
+  @Column({ type: 'text', default: '' })
+  sessionHormonesJson!: string
+
+  // 瞬时状态层（JSON）
+  @Column({ type: 'text', default: '' })
+  transientStateJson!: string
+
+  // 已处理到的 observation id
+  @Column({ type: 'integer', default: 0 })
+  lastObservationId!: number
+
+  // 演化轮次
+  @Column({ type: 'integer', default: 0 })
+  evolutionTurn!: number
+
   // 行更新时间（由数据库自动维护）
   @UpdateDateColumn()
   updatedAt!: Date

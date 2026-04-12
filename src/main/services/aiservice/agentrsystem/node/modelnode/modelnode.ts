@@ -75,16 +75,23 @@ export async function llmCall(
   let response: BaseMessage
   let runtime: ConfiguredModelRuntime | undefined
   let finalChunk: AIMessageChunk | undefined
+  let timedOut = false
   const timeoutController = new AbortController()
-  const timeout = setTimeout(() => {
-    timeoutController.abort()
-    debugLog(`llmCall: Timeout reached (20s)`)
-  }, 20000)
+  let timeout: ReturnType<typeof setTimeout> | undefined
 
   try {
     const configured = await getModelWithTool()
     const modelWithTool = configured.runnable
     runtime = configured.runtime
+    const timeoutMs = Math.max(
+      10000,
+      Number(runtime.effectiveOptions.mainAgentTimeoutMs) || 60000
+    )
+    timeout = setTimeout(() => {
+      timedOut = true
+      timeoutController.abort()
+      debugLog(`llmCall: Timeout reached (${timeoutMs}ms)`)
+    }, timeoutMs)
     const combinedSignal = combineSignals([config?.signal, timeoutController.signal])
     const callOptions: Record<string, unknown> = {
       signal: combinedSignal
@@ -109,16 +116,24 @@ export async function llmCall(
   } catch (error: any) {
     if (error.name === 'AbortError' || timeoutController.signal.aborted || config?.signal?.aborted) {
       debugLog(`llmCall: Aborted due to timeout, returning partial content`)
-      // If we have content, we proceed to return it.
+      if (timedOut && !finalChunk) {
+        debugLog('llmCall: Timeout produced no chunks, throwing explicit timeout error')
+        throw new Error('模型超时，未收到回复。')
+      }
     } else {
-      clearTimeout(timeout)
+      if (timeout) {
+        clearTimeout(timeout)
+      }
       throw error
     }
   } finally {
-    clearTimeout(timeout)
+    if (timeout) {
+      clearTimeout(timeout)
+    }
   }
 
-  const rawResponse = finalChunk || new AIMessage({ content: "Error: No response from model." })
+  const rawResponse =
+    finalChunk || new AIMessage({ content: '模型未返回可用内容。' })
   response = rawResponse instanceof AIMessage
     ? rawResponse
     : new AIMessage({

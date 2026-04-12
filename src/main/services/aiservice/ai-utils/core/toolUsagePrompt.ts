@@ -1,7 +1,7 @@
-import type { UnifiedToolRegistryEntry } from '../toolkits/unifiedToolRegistry'
+import type { AgentToolRegistryEntry } from '../toolkits/toolRegistryTypes'
 
 export function buildToolUsageSystemPrompt(
-  toolRegistryEntries: UnifiedToolRegistryEntry[]
+  toolRegistryEntries: AgentToolRegistryEntry[]
 ): string | null {
   if (toolRegistryEntries.length === 0) {
     return null

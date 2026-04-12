@@ -5,6 +5,7 @@ export type UploadedChatFile = {
   sourcePath: string
   size: number
   mimeType?: string
+  previewUrl?: string
   status: 'pending' | 'uploaded'
 }
 

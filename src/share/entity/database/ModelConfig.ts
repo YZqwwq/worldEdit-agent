@@ -48,6 +48,42 @@ export class ModelConfig {
   })
   temperature!: number
 
+  @Column({
+    type: 'text',
+    default: ''
+  })
+  quickmodelkey!: string
+
+  @Column({
+    type: 'text',
+    default: 'openai'
+  })
+  quickmodeltype!: string
+
+  @Column({
+    type: 'text',
+    default: 'qwen3.5-flash'
+  })
+  quickmodel!: string
+
+  @Column({
+    type: 'text',
+    default: '快速模型'
+  })
+  quickmodelname!: string
+
+  @Column({
+    type: 'text',
+    default: ''
+  })
+  quickbaseurl!: string
+
+  @Column({
+    type: 'real',
+    default: 0.3
+  })
+  quicktemperature!: number
+
   // 是否启用流式输出
   @Column({
     type: 'boolean',
@@ -61,6 +97,13 @@ export class ModelConfig {
     default: false
   })
   useresponsesapi!: boolean
+
+  // 主 agent 单次模型调用超时（毫秒）
+  @Column({
+    type: 'integer',
+    default: 60000
+  })
+  mainagenttimeoutms!: number
 
   // 子 agent 单次模型调用超时（毫秒）
   @Column({

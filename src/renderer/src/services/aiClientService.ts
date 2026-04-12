@@ -1,6 +1,12 @@
 import { ref, type Ref } from 'vue'
-import type { MainAgentUserMessageInput } from '../../../share/cache/AItype/states/mainAgentMessageContent'
-import type { ChatMessage } from '../../../share/cache/render/aiagent/chatMessage'
+import {
+  inferMainAgentFileMediaType,
+  parseMainAgentMessageContentJson,
+  type MainAgentMessageContentPart,
+  type MainAgentUserInputFile,
+  type MainAgentUserMessageInput
+} from '../../../share/cache/AItype/states/mainAgentMessageContent'
+import type { ChatMessage, ChatMessageAttachment } from '../../../share/cache/render/aiagent/chatMessage'
 import { partsToMarkdown } from '../utils/aiToMarkdown'
 import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 
@@ -23,15 +29,57 @@ let currentStreamingMessageId: number | null = null
 let currentStreamingText = ''
 let stopListening: (() => void) | null = null
 
-const mapHistoryToMessages = (history: any[]): ChatMessage[] =>
-  history.map((msg: any) => ({
-    id: msg.id,
-    text: msg.content,
-    sender: msg.role,
-    timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : undefined,
-    turnId: typeof msg.turnId === 'number' ? msg.turnId : undefined,
-    status: typeof msg.status === 'string' ? msg.status : undefined
+const buildChatAttachmentsFromContent = (
+  content: MainAgentMessageContentPart[]
+): ChatMessageAttachment[] =>
+  content
+    .filter((part): part is Extract<MainAgentMessageContentPart, { type: 'file' }> => part.type === 'file')
+    .map((part) => ({
+      fileId: part.fileId,
+      fileName: part.fileName,
+      fileUrl: part.fileUrl,
+      mimeType: part.mimeType,
+      mediaType: part.mediaType || inferMainAgentFileMediaType(part)
+    }))
+
+const buildChatAttachmentsFromInput = (
+  files: MainAgentUserInputFile[] | undefined
+): ChatMessageAttachment[] =>
+  (files ?? []).map((file) => ({
+    fileId: file.fileId,
+    fileName: file.fileName,
+    fileUrl: file.fileUrl,
+    mimeType: file.mimeType,
+    mediaType: file.mediaType || inferMainAgentFileMediaType(file)
   }))
+
+const extractChatTextFromContent = (content: MainAgentMessageContentPart[]): string =>
+  content
+    .filter((part): part is Extract<MainAgentMessageContentPart, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text.trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim()
+
+const mapHistoryToMessages = (history: any[]): ChatMessage[] =>
+  history.map((msg: any) => {
+    const contentParts =
+      typeof msg.contentJson === 'string' && msg.contentJson.trim()
+        ? parseMainAgentMessageContentJson(msg.contentJson)
+        : []
+    const text = contentParts.length > 0 ? extractChatTextFromContent(contentParts) : String(msg.content || '')
+    const attachments = contentParts.length > 0 ? buildChatAttachmentsFromContent(contentParts) : []
+
+    return {
+      id: msg.id,
+      text,
+      attachments,
+      sender: msg.role,
+      timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : undefined,
+      turnId: typeof msg.turnId === 'number' ? msg.turnId : undefined,
+      status: typeof msg.status === 'string' ? msg.status : undefined
+    }
+  })
 
 /**
  * 处理流式数据包
@@ -64,7 +112,10 @@ function handleStreamChunk(chunk: StreamChunk): void {
       break
 
     case 'stream_error':
-      msg.text += `\n\n[Error: ${chunk.message}]`
+      msg.text =
+        msg.text === '正在思考中...' || !msg.text.trim()
+          ? chunk.message || '模型超时，未收到回复。'
+          : `${msg.text}\n\n${chunk.message || '模型超时，未收到回复。'}`
       isLoading.value = false
       cleanupListener()
       break
@@ -211,9 +262,7 @@ async function resetPersonaState(): Promise<void> {
  * @param input - The user message payload.
  */
 const buildOptimisticMessageText = (input: MainAgentUserMessageInput): string => {
-  const text = input.text?.trim() || ''
-  const fileLines = (input.files ?? []).map((file) => `[${file.fileName}] ${file.fileUrl}`)
-  return [text, ...fileLines].filter(Boolean).join('\n')
+  return input.text?.trim() || ''
 }
 
 async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
@@ -227,7 +276,8 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
     requestId
   }
   const optimisticText = buildOptimisticMessageText(payload)
-  if (!optimisticText.trim() || isLoading.value) {
+  const hasFiles = (payload.files?.length ?? 0) > 0
+  if ((!optimisticText.trim() && !hasFiles) || isLoading.value) {
     return
   }
 
@@ -236,6 +286,7 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
   messages.value.push({
     id: userMsgId,
     text: optimisticText,
+    attachments: buildChatAttachmentsFromInput(payload.files),
     sender: 'user',
     timestamp: userMsgId
   })

@@ -17,6 +17,16 @@ const routes = [
     component: () => import('../views/WorldEntityView.vue')
   },
   {
+    path: '/world/:worldId/entity/:entityId/portrait',
+    name: 'CharacterPortraitEditor',
+    component: () => import('../views/CharacterPortraitEditorView.vue')
+  },
+  {
+    path: '/world/:worldId/entity/:entityId/narrative',
+    name: 'CharacterNarrativeEditor',
+    component: () => import('../views/CharacterNarrativeEditorView.vue')
+  },
+  {
     path: '/chat',
     name: 'AIChat',
     component: () => import('../views/AIChatView.vue')

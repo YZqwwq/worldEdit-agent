@@ -4,7 +4,9 @@ import type { StreamChunk } from '../share/cache/render/aiagent/aiContent'
 import type { MainAgentUserMessageInput } from '../share/cache/AItype/states/mainAgentMessageContent'
 import type {
   ModelConfigInput,
-  ModelConfigPayload
+  ModelConfigPayload,
+  ModelSpeedTestResult,
+  ModelSpeedTestTarget
 } from '../share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '../share/cache/AItype/states/memoryInspection'
 import type { TaskMonitorSnapshot } from '../share/cache/AItype/states/taskLifecycleState'
@@ -60,6 +62,16 @@ type Api = {
     size: number
     mimeType?: string
   }>
+  uploadFileData: (input: {
+    fileName: string
+    mimeType?: string
+    data: ArrayBuffer
+  }) => Promise<{
+    resourceUrl: string
+    fileName: string
+    size: number
+    mimeType?: string
+  }>
   deleteFile: (resourceUrl: string) => Promise<boolean>
   pickAndUploadFile: () => Promise<{
     resourceUrl: string
@@ -74,6 +86,10 @@ type Api = {
 
   getModelConfig: () => Promise<ModelConfigPayload>
   saveModelConfig: (config: ModelConfigInput) => Promise<ModelConfigPayload>
+  testModelSpeed: (
+    config: ModelConfigInput,
+    target: ModelSpeedTestTarget
+  ) => Promise<ModelSpeedTestResult>
 
   listWorlds: () => Promise<WorldPayload[]>
   createWorld: (input: CreateWorldInput) => Promise<WorldPayload>
@@ -126,6 +142,7 @@ const api: Api = {
   getTaskMonitorSnapshot: () => ipcRenderer.invoke('ai:getTaskMonitorSnapshot'),
   pickFile: () => ipcRenderer.invoke('file:pick'),
   uploadFile: (sourcePath) => ipcRenderer.invoke('file:upload', sourcePath),
+  uploadFileData: (input) => ipcRenderer.invoke('file:uploadData', input),
   deleteFile: (resourceUrl) => ipcRenderer.invoke('file:delete', resourceUrl),
   pickAndUploadFile: () => ipcRenderer.invoke('file:pickAndUpload'),
   clearUploads: () => ipcRenderer.invoke('file:clearUploads'),
@@ -133,6 +150,7 @@ const api: Api = {
   saveAvatarProfile: (input) => ipcRenderer.invoke('avatar:saveProfile', input),
   getModelConfig: () => ipcRenderer.invoke('config:getModelConfig'),
   saveModelConfig: (config) => ipcRenderer.invoke('config:saveModelConfig', config),
+  testModelSpeed: (config, target) => ipcRenderer.invoke('config:testModelSpeed', config, target),
   listWorlds: () => ipcRenderer.invoke('world:listWorlds'),
   createWorld: (input) => ipcRenderer.invoke('world:createWorld', input),
   updateWorld: (input) => ipcRenderer.invoke('world:updateWorld', input),

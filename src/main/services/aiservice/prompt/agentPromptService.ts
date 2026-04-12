@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
+import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
 import type { PersonaState } from '@share/cache/AItype/states/personalState'
 import { getCharacterPromptProfilePath } from '../../../config/pathConfig'
 
@@ -52,6 +53,24 @@ const formatBehavioralNarrative = (state: PersonaState | null | undefined): stri
   return `当前人格状态：${narrative}`
 }
 
+const buildMemorySlotLines = (slots: MemorySlotSnapshot | null | undefined): string[] => {
+  if (!slots) return []
+
+  const lines: string[] = []
+
+  if (slots.conversation_state.conversation_mode) {
+    lines.push(`当前对话模式：${slots.conversation_state.conversation_mode}`)
+  }
+  if (slots.conversation_state.interaction_state) {
+    lines.push(`当前互动状态：${slots.conversation_state.interaction_state}`)
+  }
+  if (slots.user_mood.current_mood) {
+    lines.push(`近期用户情绪：${slots.user_mood.current_mood}`)
+  }
+
+  return lines
+}
+
 export const initializeAgentPromptStorage = async (): Promise<void> => {
   const targetPath = getCharacterPromptProfilePath()
   if (existsSync(targetPath)) return
@@ -85,6 +104,11 @@ export const buildMoodPrompt = (
   ].filter(Boolean)
 
   return sections.join('\n\n')
+}
+
+export const buildMemorySlotPrompt = (slots: MemorySlotSnapshot | null | undefined): string => {
+  const lines = buildMemorySlotLines(slots)
+  return lines.join('\n')
 }
 
 export const loadExpressionPrompt = (): string => DEFAULT_EXPRESSION_PROMPT

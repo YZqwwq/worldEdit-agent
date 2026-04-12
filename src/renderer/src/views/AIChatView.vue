@@ -4,7 +4,7 @@
   >
     <div class="flex h-full w-full">
       <section
-        class="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-slate-200/80 bg-white/55"
+        class="relative flex min-w-0 flex-1 flex-col overflow-hidden border-r border-slate-200/80 bg-white/55"
         :class="{ 'border-r-0': !showRightSidebar }"
       >
         <ChatHeader
@@ -20,6 +20,7 @@
 
       <div
         class="flex flex-grow flex-col overflow-y-auto px-10 py-8 scroll-smooth"
+        :style="{ paddingBottom: composerDockPadding }"
         ref="messagesContainer"
         @scroll="handleMessagesScroll"
       >
@@ -32,8 +33,9 @@
         />
       </div>
 
-        <div class="px-8 pb-7 pt-3">
+        <div class="absolute inset-x-0 bottom-0 z-20 px-8 pb-7 pt-3 pointer-events-none">
           <MessageComposer
+            class="pointer-events-auto"
             ref="composerRef"
             v-model="userInput"
             :is-loading="isLoading"
@@ -42,6 +44,7 @@
             @send="handleSend"
             @interrupt="handleInterruptRun"
             @pick-file="handlePickFile"
+            @paste-files="handlePasteFiles"
             @delete-file="requestDeleteFile"
           />
         </div>
@@ -102,10 +105,82 @@
 
         <div v-if="memorySnapshotData" class="space-y-5">
           <section class="rounded-lg border border-gray-200 p-4">
-            <h4 class="mb-2 text-sm font-semibold text-gray-800">长期记忆摘要</h4>
-            <div class="whitespace-pre-wrap break-words text-sm text-gray-700 leading-6 min-h-[72px]">
-              {{ memorySnapshotData.memory.summary || '（暂无长期摘要）' }}
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <h4 class="text-sm font-semibold text-gray-800">长期稳定记忆</h4>
+              <div class="text-xs text-gray-500">
+                更新时间 {{ formatIsoTime(memorySnapshotData.memory.longTerm.updatedAt) || '暂无' }}
+              </div>
             </div>
+            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 md:col-span-2 xl:col-span-2">
+                <div class="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">记忆总体总结</div>
+                <div class="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                  {{ memorySnapshotData.memory.longTerm.memorySummary || '暂无' }}
+                </div>
+              </div>
+              <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div class="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">用户画像</div>
+                <div class="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                  {{ memorySnapshotData.memory.longTerm.userProfile || '暂无' }}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="rounded-lg border border-gray-200 p-4">
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <h4 class="text-sm font-semibold text-gray-800">阶段记忆</h4>
+              <div class="flex flex-wrap items-center justify-end gap-2 text-xs text-gray-500">
+                <span class="rounded-full bg-slate-100 px-2 py-1">
+                  最后阶段 #{{ memorySnapshotData.memory.archiveStatus.lastStageIndex || 0 }}
+                </span>
+                <span class="rounded-full bg-slate-100 px-2 py-1">
+                  待归档 {{ memorySnapshotData.memory.archiveStatus.bufferMessageCount }} 条
+                </span>
+                <span
+                  class="inline-flex rounded-full px-2 py-1 font-medium"
+                  :class="archiveHealthClass(memorySnapshotData.memory.archiveStatus.apiStatus)"
+                >
+                  {{ describeArchiveHealth(memorySnapshotData.memory.archiveStatus.apiStatus) }}
+                </span>
+                <span class="rounded-full bg-slate-100 px-2 py-1">
+                  {{ formatIsoTime(memorySnapshotData.memory.archiveStatus.lastArchivedAt) || '暂无归档' }}
+                </span>
+              </div>
+            </div>
+            <div v-if="memorySnapshotData.memory.recentStages.length" class="space-y-3">
+              <article
+                v-for="stage in memorySnapshotData.memory.recentStages"
+                :key="`memory-stage-${stage.id}`"
+                class="rounded-xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <div class="mb-2 flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium text-slate-800">阶段 #{{ stage.stageIndex }}</span>
+                    <span class="rounded-full px-2 py-1 text-[11px]" :class="memoryStageStatusClass(stage.status)">
+                      {{ describeMemoryStageStatus(stage.status) }}
+                    </span>
+                  </div>
+                  <div class="text-xs text-slate-500">
+                    {{ describeMemoryStageTrigger(stage.triggerKind) }} · {{ stage.messageCount }} 条
+                  </div>
+                </div>
+                <div class="mb-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                  {{ stage.summary || '暂无阶段摘要' }}
+                </div>
+                <div class="rounded-lg bg-white px-3 py-3">
+                  <div class="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">阶段氛围</div>
+                  <div class="text-xs text-slate-700">
+                    {{ describeMood(stage.moodLabel) }}
+                  </div>
+                </div>
+                <div class="mt-3 text-xs text-slate-500">
+                  序号范围 #{{ stage.startSequence }} - #{{ stage.endSequence }} ·
+                  {{ formatIsoTime(stage.endedAt) || '暂无时间' }}
+                </div>
+              </article>
+            </div>
+            <div v-else class="text-sm text-gray-500">（暂无阶段记忆）</div>
           </section>
 
           <section class="rounded-lg border border-gray-200 p-4">
@@ -141,6 +216,72 @@
           </section>
 
           <section class="rounded-lg border border-gray-200 p-4">
+            <h4 class="mb-3 text-sm font-semibold text-gray-800">短期插槽状态</h4>
+            <div class="grid gap-4 md:grid-cols-2">
+              <article class="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
+                <div class="mb-3 flex items-center justify-between">
+                  <h5 class="text-sm font-medium text-emerald-900">对话控制状态</h5>
+                  <span class="rounded-full bg-white/80 px-2 py-1 text-[11px] text-emerald-700">
+                    观测 #{{ memorySnapshotData.slots.lastObservationId }}
+                  </span>
+                </div>
+                <div class="space-y-3 text-sm text-slate-700">
+                  <div>
+                    <div class="mb-1 text-xs font-medium uppercase tracking-wide text-emerald-700">对话模式</div>
+                    <div class="rounded-lg bg-white/70 px-3 py-2 text-xs text-slate-700">
+                      {{ describeConversationMode(memorySnapshotData.slots.conversation_state.conversation_mode) }}
+                    </div>
+                  </div>
+                  <div>
+                    <div class="mb-1 text-xs font-medium uppercase tracking-wide text-emerald-700">互动状态</div>
+                    <div class="rounded-lg bg-white/70 px-3 py-2 text-xs text-slate-700">
+                      {{ describeInteractionState(memorySnapshotData.slots.conversation_state.interaction_state) }}
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-3 text-xs text-emerald-800/80">
+                  更新时间：{{ formatIsoTime(memorySnapshotData.slots.conversation_state.updatedAt) || '暂无' }}
+                </div>
+              </article>
+
+              <article class="rounded-xl border border-rose-100 bg-rose-50/70 p-4">
+                <div class="mb-3 flex items-center justify-between">
+                  <h5 class="text-sm font-medium text-rose-900">用户情绪</h5>
+                  <span
+                    class="rounded-full px-2 py-1 text-[11px]"
+                    :class="moodBadgeClass(memorySnapshotData.slots.user_mood.current_mood)"
+                  >
+                    {{ describeMood(memorySnapshotData.slots.user_mood.current_mood) }}
+                  </span>
+                </div>
+                <div class="rounded-xl bg-white/70 p-3">
+                  <div class="mb-2 flex items-center justify-between text-xs text-slate-600">
+                    <span>情绪倾向</span>
+                    <span>{{ formatMoodValence(memorySnapshotData.slots.user_mood.valence) }}</span>
+                  </div>
+                  <div class="h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      class="h-full rounded-full bg-gradient-to-r from-sky-400 via-slate-300 to-rose-400"
+                      :style="{ width: moodValenceWidth(memorySnapshotData.slots.user_mood.valence) }"
+                    />
+                  </div>
+                  <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                    <div class="rounded-lg bg-rose-50 px-3 py-2">
+                      置信度：{{ formatPercent(memorySnapshotData.slots.user_mood.confidence) }}
+                    </div>
+                    <div class="rounded-lg bg-rose-50 px-3 py-2">
+                      过期游标：{{ memorySnapshotData.slots.user_mood.expiresAfterObservationId ?? '无' }}
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-3 text-xs text-rose-800/80">
+                  更新时间：{{ formatIsoTime(memorySnapshotData.slots.user_mood.updatedAt) || '暂无' }}
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="rounded-lg border border-gray-200 p-4">
             <div class="mb-2 flex items-center justify-between gap-3">
               <h4 class="text-sm font-semibold text-gray-800">人格状态</h4>
               <button
@@ -156,20 +297,95 @@
               <div class="mb-3 text-sm text-gray-700 whitespace-pre-wrap break-words">
                 {{ memorySnapshotData.persona.current_behavioral_narrative }}
               </div>
-              <div class="grid grid-cols-2 gap-2 text-xs text-gray-700 md:grid-cols-4">
-                <div class="rounded border border-gray-100 bg-gray-50 p-2">
-                  autonomy: {{ memorySnapshotData.persona.metrics.autonomy_level.toFixed(2) }}
-                </div>
-                <div class="rounded border border-gray-100 bg-gray-50 p-2">
-                  verbosity: {{ memorySnapshotData.persona.metrics.verbosity_index.toFixed(2) }}
-                </div>
-                <div class="rounded border border-gray-100 bg-gray-50 p-2">
-                  risk: {{ memorySnapshotData.persona.metrics.risk_tolerance.toFixed(2) }}
-                </div>
-                <div class="rounded border border-gray-100 bg-gray-50 p-2">
-                  formality: {{ memorySnapshotData.persona.metrics.formality_score.toFixed(2) }}
+              <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div
+                  v-for="metric in personaMetricEntries(memorySnapshotData.persona.metrics)"
+                  :key="`persona-metric-${metric.key}`"
+                  class="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                >
+                  <div class="mb-2 flex items-center justify-between text-xs text-slate-500">
+                    <span>{{ metric.label }}</span>
+                    <span class="font-medium text-slate-700">{{ metric.value.toFixed(2) }}</span>
+                  </div>
+                  <div class="h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      class="h-full rounded-full bg-gradient-to-r from-sky-500 to-blue-600"
+                      :style="{ width: metricBarWidth(metric.value) }"
+                    />
+                  </div>
                 </div>
               </div>
+
+              <div class="mt-4 grid gap-4 lg:grid-cols-3">
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <h5 class="mb-3 text-sm font-medium text-slate-800">稳定偏好层</h5>
+                  <div class="space-y-2">
+                    <div
+                      v-for="metric in personaMetricEntries(memorySnapshotData.persona.stable_preferences)"
+                      :key="`stable-${metric.key}`"
+                      class="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs text-slate-700"
+                    >
+                      <span>{{ metric.label }}</span>
+                      <span class="font-medium">{{ metric.value.toFixed(2) }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="rounded-xl border border-violet-200 bg-violet-50/70 p-4">
+                  <h5 class="mb-3 text-sm font-medium text-violet-900">会话激素层</h5>
+                  <div class="space-y-2">
+                    <div
+                      v-for="metric in personaDeltaEntries(memorySnapshotData.persona.session_hormones)"
+                      :key="`session-${metric.key}`"
+                      class="flex items-center justify-between rounded-lg border px-3 py-2 text-xs"
+                      :class="deltaToneClass(metric.value)"
+                    >
+                      <span>{{ metric.label }}</span>
+                      <span class="font-medium">{{ formatSignedMetric(metric.value) }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                  <h5 class="mb-3 text-sm font-medium text-amber-900">瞬时波动层</h5>
+                  <div class="space-y-2">
+                    <div
+                      v-for="metric in personaDeltaEntries(memorySnapshotData.persona.transient_state)"
+                      :key="`transient-${metric.key}`"
+                      class="flex items-center justify-between rounded-lg border px-3 py-2 text-xs"
+                      :class="deltaToneClass(metric.value)"
+                    >
+                      <span>{{ metric.label }}</span>
+                      <span class="font-medium">{{ formatSignedMetric(metric.value) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <h5 class="text-sm font-medium text-gray-800">最近人格观察</h5>
+                  <div class="text-xs text-gray-500">
+                    演化轮次 {{ memorySnapshotData.persona.evolution_turn }} / 观测游标
+                    {{ memorySnapshotData.persona.last_observation_id }}
+                  </div>
+                </div>
+                <div v-if="memorySnapshotData.persona.recent_interaction_buffer.length" class="space-y-2">
+                  <div
+                    v-for="item in [...memorySnapshotData.persona.recent_interaction_buffer].slice(-6).reverse()"
+                    :key="`persona-observation-${item.turn}-${item.user_signal}-${item.impact}`"
+                    class="rounded-lg border border-gray-200 bg-white px-3 py-3"
+                  >
+                    <div class="mb-1 flex items-center justify-between text-xs text-gray-500">
+                      <span class="font-medium text-gray-700">{{ formatSignalLabel(item.user_signal) }}</span>
+                      <span>turn {{ item.turn }}</span>
+                    </div>
+                    <div class="whitespace-pre-wrap break-words text-sm text-gray-700">
+                      {{ item.impact }}
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="text-sm text-gray-500">（暂无人格观察记录）</div>
+              </div>
+
               <div class="mt-3 text-xs text-gray-500">
                 最后更新：{{ formatIsoTime(memorySnapshotData.persona.last_updated) }}
               </div>
@@ -192,7 +408,7 @@
       v-if="showModelConfig"
       class="absolute inset-0 z-30 flex items-center justify-center bg-black/30 px-4"
     >
-      <div class="w-full max-w-xl rounded-xl border border-gray-200 bg-white p-6 shadow-2xl">
+      <div class="w-full max-w-xl rounded-xl border border-gray-200 bg-white p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
         <div class="mb-5 flex items-center justify-between">
           <h3 class="text-lg font-semibold text-gray-800">模型设置</h3>
           <button
@@ -204,21 +420,48 @@
           </button>
         </div>
 
+        <div class="mb-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
+          <button
+            type="button"
+            class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition"
+            :class="
+              activeModelConfigTab === 'main'
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            "
+            @click="activeModelConfigTab = 'main'"
+          >
+            主模型
+          </button>
+          <button
+            type="button"
+            class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition"
+            :class="
+              activeModelConfigTab === 'quick'
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            "
+            @click="activeModelConfigTab = 'quick'"
+          >
+            快速模型
+          </button>
+        </div>
+
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <label class="flex flex-col gap-1 text-sm text-gray-700">
             模型别名
             <input
-              v-model="modelConfigForm.modelName"
+              v-model="activeModelNameField"
               type="text"
               class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
-              placeholder="例如：默认模型"
+              :placeholder="activeModelConfigTab === 'main' ? '例如：默认模型' : '例如：快速模型'"
             />
           </label>
 
           <label class="flex flex-col gap-1 text-sm text-gray-700">
             Vendor
             <select
-              v-model="modelConfigForm.vendor"
+              v-model="activeModelVendorField"
               class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
             >
               <option value="openai">openai-compatible</option>
@@ -229,10 +472,10 @@
           <label class="flex flex-col gap-1 text-sm text-gray-700 md:col-span-2">
             模型名称
             <input
-              v-model="modelConfigForm.model"
+              v-model="activeModelIdField"
               type="text"
               class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
-              placeholder="例如：qwen-plus"
+              :placeholder="activeModelConfigTab === 'main' ? '例如：qwen-plus' : '例如：qwen3.5-flash'"
             />
           </label>
 
@@ -240,10 +483,14 @@
             API Key
             <div class="flex gap-2">
               <input
-                v-model="modelConfigForm.modelKey"
+                v-model="activeModelKeyField"
                 :type="showModelKey ? 'text' : 'password'"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
-                placeholder="请输入模型密钥"
+                :placeholder="
+                  activeModelConfigTab === 'main'
+                    ? '请输入模型密钥'
+                    : '留空时回退使用主模型 API Key'
+                "
               />
               <button
                 type="button"
@@ -258,21 +505,37 @@
           <label class="flex flex-col gap-1 text-sm text-gray-700 md:col-span-2">
             Base URL
             <input
-              v-model="modelConfigForm.baseURL"
+              v-model="activeModelBaseUrlField"
               type="text"
               class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
-              placeholder="例如：https://dashscope.aliyuncs.com/compatible-mode/v1"
+              :placeholder="
+                activeModelConfigTab === 'main'
+                  ? '例如：https://dashscope.aliyuncs.com/compatible-mode/v1'
+                  : '留空时回退使用主模型 Base URL'
+              "
             />
           </label>
 
           <label class="flex flex-col gap-1 text-sm text-gray-700">
             Temperature
             <input
-              v-model.number="modelConfigForm.temperature"
+              v-model.number="activeModelTemperatureField"
               type="number"
               min="0"
               max="2"
               step="0.1"
+              class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
+            />
+          </label>
+
+          <label class="flex flex-col gap-1 text-sm text-gray-700">
+            主 Agent 超时(ms)
+            <input
+              v-model.number="modelConfigForm.mainAgentTimeoutMs"
+              type="number"
+              min="10000"
+              max="300000"
+              step="1000"
               class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
             />
           </label>
@@ -298,6 +561,67 @@
             <input v-model="modelConfigForm.useResponsesApi" type="checkbox" />
             启用 Responses API（仅 OpenAI 兼容模型生效）
           </label>
+        </div>
+
+        <div class="mt-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h4 class="text-sm font-semibold text-slate-800">模型测速</h4>
+              <p class="text-xs text-slate-500">
+                使用当前 tab 的表单参数测试当前模型的单次响应耗时。
+              </p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="modelConfigLoading || modelConfigSaving || modelSpeedTesting !== null"
+                @click="testModelSpeed(activeModelConfigTab)"
+              >
+                {{
+                  modelSpeedTesting === activeModelConfigTab
+                    ? activeModelConfigTab === 'main'
+                      ? '主模型测速中...'
+                      : '快速模型测速中...'
+                    : activeModelConfigTab === 'main'
+                      ? '测速主模型'
+                      : '测速快速模型'
+                }}
+              </button>
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm">
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <span class="font-medium text-slate-800">
+                {{ activeModelConfigTab === 'main' ? '主模型' : '快速模型' }}
+              </span>
+                <span class="text-xs text-slate-500">
+                  {{
+                    activeModelSpeedResult?.model ||
+                  activeModelIdField ||
+                  '未测试'
+                  }}
+                </span>
+            </div>
+            <div v-if="activeModelSpeedResult" class="space-y-1 text-xs text-slate-600">
+              <div>
+                结果：
+                <span :class="activeModelSpeedResult.ok ? 'text-emerald-600' : 'text-rose-600'">
+                  {{ activeModelSpeedResult.ok ? '成功' : '失败' }}
+                </span>
+              </div>
+              <div>耗时：{{ activeModelSpeedResult.elapsedMs }} ms</div>
+              <div>适配器：{{ activeModelSpeedResult.profile }}</div>
+              <div v-if="activeModelSpeedResult.previewText" class="line-clamp-2">
+                返回：{{ activeModelSpeedResult.previewText }}
+              </div>
+              <div v-else-if="activeModelSpeedResult.error" class="line-clamp-2 text-rose-600">
+                错误：{{ activeModelSpeedResult.error }}
+              </div>
+            </div>
+            <div v-else class="text-xs text-slate-500">尚未测速</div>
+          </div>
         </div>
 
         <div class="mt-6 flex items-center justify-end gap-3">
@@ -405,9 +729,15 @@ import type { ChatMessage } from '../../../share/cache/render/aiagent/chatMessag
 import type { ChatAvatarProfilesPayload, ChatParticipantKey } from '../../../share/cache/render/aiagent/chatAvatarProfile'
 import type {
   ModelConfigInput,
-  ModelConfigPayload
+  ModelConfigPayload,
+  ModelSpeedTestResult,
+  ModelSpeedTestTarget
 } from '../../../share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '../../../share/cache/AItype/states/memoryInspection'
+import type {
+  PersonaMetricDelta,
+  PersonaMetrics
+} from '../../../share/cache/AItype/states/personalState'
 import type { TaskMonitorSnapshot } from '../../../share/cache/AItype/states/taskLifecycleState'
 
 const {
@@ -431,6 +761,9 @@ const showTasks = ref(true)
 const showModelConfig = ref(false)
 const modelConfigLoading = ref(false)
 const modelConfigSaving = ref(false)
+const modelSpeedTesting = ref<ModelSpeedTestTarget | null>(null)
+const modelSpeedResults = ref<Partial<Record<ModelSpeedTestTarget, ModelSpeedTestResult>>>({})
+const activeModelConfigTab = ref<ModelSpeedTestTarget>('main')
 const showModelKey = ref(false)
 const showMemorySnapshot = ref(false)
 const memorySnapshotLoading = ref(false)
@@ -444,7 +777,9 @@ type DialogIcon = 'none' | 'info' | 'warning' | 'danger' | 'success'
 
 const uploadedFiles = ref<UploadedChatFile[]>([])
 const canSendMessage = computed(
-  () => Boolean(userInput.value.trim()) || uploadedFiles.value.length > 0
+  () =>
+    !uploadedFiles.value.some((file) => file.status === 'pending') &&
+    (Boolean(userInput.value.trim()) || uploadedFiles.value.length > 0)
 )
 const pendingDeleteFile = ref<UploadedChatFile | null>(null)
 const showDeleteFileConfirm = ref(false)
@@ -462,6 +797,92 @@ let taskMonitorTimer: number | null = null
 
 const showRightSidebar = computed(() => showLogs.value || showTasks.value)
 const AUTO_SCROLL_THRESHOLD_PX = 120
+const composerDockPadding = computed(() => (uploadedFiles.value.length ? '10.5rem' : '7.5rem'))
+
+const activeModelSpeedResult = computed(() => modelSpeedResults.value[activeModelConfigTab.value] ?? null)
+const activeModelNameField = computed({
+  get: () =>
+    activeModelConfigTab.value === 'main'
+      ? modelConfigForm.value.modelName
+      : modelConfigForm.value.quickModelName,
+  set: (value: string) => {
+    if (activeModelConfigTab.value === 'main') {
+      modelConfigForm.value.modelName = value
+    } else {
+      modelConfigForm.value.quickModelName = value
+    }
+  }
+})
+
+const activeModelVendorField = computed({
+  get: () =>
+    activeModelConfigTab.value === 'main'
+      ? modelConfigForm.value.vendor
+      : modelConfigForm.value.quickVendor,
+  set: (value: ModelConfigInput['vendor']) => {
+    if (activeModelConfigTab.value === 'main') {
+      modelConfigForm.value.vendor = value
+    } else {
+      modelConfigForm.value.quickVendor = value
+    }
+  }
+})
+
+const activeModelIdField = computed({
+  get: () =>
+    activeModelConfigTab.value === 'main'
+      ? modelConfigForm.value.model
+      : modelConfigForm.value.quickModel,
+  set: (value: string) => {
+    if (activeModelConfigTab.value === 'main') {
+      modelConfigForm.value.model = value
+    } else {
+      modelConfigForm.value.quickModel = value
+    }
+  }
+})
+
+const activeModelKeyField = computed({
+  get: () =>
+    activeModelConfigTab.value === 'main'
+      ? modelConfigForm.value.modelKey
+      : modelConfigForm.value.quickModelKey,
+  set: (value: string) => {
+    if (activeModelConfigTab.value === 'main') {
+      modelConfigForm.value.modelKey = value
+    } else {
+      modelConfigForm.value.quickModelKey = value
+    }
+  }
+})
+
+const activeModelBaseUrlField = computed({
+  get: () =>
+    activeModelConfigTab.value === 'main'
+      ? modelConfigForm.value.baseURL
+      : modelConfigForm.value.quickBaseURL,
+  set: (value: string) => {
+    if (activeModelConfigTab.value === 'main') {
+      modelConfigForm.value.baseURL = value
+    } else {
+      modelConfigForm.value.quickBaseURL = value
+    }
+  }
+})
+
+const activeModelTemperatureField = computed({
+  get: () =>
+    activeModelConfigTab.value === 'main'
+      ? modelConfigForm.value.temperature
+      : modelConfigForm.value.quickTemperature,
+  set: (value: number) => {
+    if (activeModelConfigTab.value === 'main') {
+      modelConfigForm.value.temperature = value
+    } else {
+      modelConfigForm.value.quickTemperature = value
+    }
+  }
+})
 
 const revertibleTurnId = computed<number | undefined>(() => {
   if (isLoading.value) {
@@ -502,8 +923,15 @@ const defaultModelConfig: ModelConfigInput = {
   modelName: '默认模型',
   baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   temperature: 0.9,
+  quickModelKey: '',
+  quickVendor: 'openai',
+  quickModel: 'qwen3.5-flash',
+  quickModelName: '快速模型',
+  quickBaseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  quickTemperature: 0.3,
   streaming: true,
   useResponsesApi: false,
+  mainAgentTimeoutMs: 60000,
   childAgentTimeoutMs: 30000
 }
 
@@ -564,8 +992,18 @@ const applyModelConfig = (config: ModelConfigPayload): void => {
     modelName: config.modelName || '默认模型',
     baseURL: config.baseURL || '',
     temperature: Number.isFinite(config.temperature) ? config.temperature : 0.9,
+    quickModelKey: config.quickModelKey || '',
+    quickVendor: config.quickVendor || 'openai',
+    quickModel: config.quickModel || 'qwen3.5-flash',
+    quickModelName: config.quickModelName || '快速模型',
+    quickBaseURL: config.quickBaseURL || config.baseURL || '',
+    quickTemperature: Number.isFinite(config.quickTemperature) ? config.quickTemperature : 0.3,
     streaming: config.streaming !== false,
     useResponsesApi: config.useResponsesApi === true,
+    mainAgentTimeoutMs:
+      Number.isFinite(config.mainAgentTimeoutMs) && config.mainAgentTimeoutMs > 0
+        ? config.mainAgentTimeoutMs
+        : 60000,
     childAgentTimeoutMs:
       Number.isFinite(config.childAgentTimeoutMs) && config.childAgentTimeoutMs > 0
         ? config.childAgentTimeoutMs
@@ -611,6 +1049,7 @@ const openPersonaResetConfirm = (): void => {
 
 const openModelConfig = async (): Promise<void> => {
   await loadModelConfig()
+  modelSpeedResults.value = {}
   showModelConfig.value = true
 }
 
@@ -628,6 +1067,13 @@ const saveModelConfig = async (): Promise<void> => {
       baseURL: modelConfigForm.value.baseURL.trim(),
       modelKey: modelConfigForm.value.modelKey.trim(),
       temperature: Number(modelConfigForm.value.temperature),
+      quickModelKey: modelConfigForm.value.quickModelKey.trim(),
+      quickVendor: modelConfigForm.value.quickVendor,
+      quickModel: modelConfigForm.value.quickModel.trim(),
+      quickModelName: modelConfigForm.value.quickModelName.trim() || '快速模型',
+      quickBaseURL: modelConfigForm.value.quickBaseURL.trim(),
+      quickTemperature: Number(modelConfigForm.value.quickTemperature),
+      mainAgentTimeoutMs: Number(modelConfigForm.value.mainAgentTimeoutMs),
       childAgentTimeoutMs: Number(modelConfigForm.value.childAgentTimeoutMs)
     })
     applyModelConfig(saved)
@@ -638,6 +1084,40 @@ const saveModelConfig = async (): Promise<void> => {
     showNotice('保存模型配置失败', message, 'warning')
   } finally {
     modelConfigSaving.value = false
+  }
+}
+
+const testModelSpeed = async (target: ModelSpeedTestTarget): Promise<void> => {
+  modelSpeedTesting.value = target
+  try {
+    const result = await window.api.testModelSpeed(
+      {
+        ...modelConfigForm.value,
+        model: modelConfigForm.value.model.trim(),
+        modelName: modelConfigForm.value.modelName.trim() || '默认模型',
+        baseURL: modelConfigForm.value.baseURL.trim(),
+        modelKey: modelConfigForm.value.modelKey.trim(),
+        temperature: Number(modelConfigForm.value.temperature),
+        quickModelKey: modelConfigForm.value.quickModelKey.trim(),
+        quickVendor: modelConfigForm.value.quickVendor,
+        quickModel: modelConfigForm.value.quickModel.trim(),
+        quickModelName: modelConfigForm.value.quickModelName.trim() || '快速模型',
+        quickBaseURL: modelConfigForm.value.quickBaseURL.trim(),
+        quickTemperature: Number(modelConfigForm.value.quickTemperature),
+        mainAgentTimeoutMs: Number(modelConfigForm.value.mainAgentTimeoutMs),
+        childAgentTimeoutMs: Number(modelConfigForm.value.childAgentTimeoutMs)
+      },
+      target
+    )
+    modelSpeedResults.value = {
+      ...modelSpeedResults.value,
+      [target]: result
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    showNotice('测速失败', message, 'warning')
+  } finally {
+    modelSpeedTesting.value = null
   }
 }
 
@@ -672,6 +1152,97 @@ const handleMessagesScroll = (): void => {
   shouldFollowMessages.value = isNearBottom()
 }
 
+const createUploadedFileId = (name: string): string =>
+  self.crypto?.randomUUID ? self.crypto.randomUUID() : `${Date.now()}-${name}`
+
+const readImagePreviewUrl = async (file: File): Promise<string | undefined> => {
+  if (!String(file.type || '').startsWith('image/')) {
+    return undefined
+  }
+
+  return await new Promise<string | undefined>((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : undefined)
+    reader.onerror = () => resolve(undefined)
+    reader.readAsDataURL(file)
+  })
+}
+
+const revokePreviewUrl = (file: UploadedChatFile | null | undefined): void => {
+  const previewUrl = file?.previewUrl
+  if (previewUrl?.startsWith('blob:')) {
+    URL.revokeObjectURL(previewUrl)
+  }
+}
+
+const replaceUploadedFile = (fileId: string, next: UploadedChatFile): void => {
+  uploadedFiles.value = uploadedFiles.value.map((file) => (file.id === fileId ? next : file))
+}
+
+const removeUploadedFile = (fileId: string): UploadedChatFile | undefined => {
+  const target = uploadedFiles.value.find((item) => item.id === fileId)
+  if (!target) {
+    return undefined
+  }
+  revokePreviewUrl(target)
+  uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== fileId)
+  return target
+}
+
+const clearComposerFiles = (): void => {
+  for (const file of uploadedFiles.value) {
+    revokePreviewUrl(file)
+  }
+  uploadedFiles.value = []
+}
+
+const uploadPendingSourceFile = async (fileId: string, sourcePath: string): Promise<void> => {
+  try {
+    const uploaded = await window.api.uploadFile(sourcePath)
+    const current = uploadedFiles.value.find((file) => file.id === fileId)
+    if (!current) {
+      await window.api.deleteFile(uploaded.resourceUrl).catch(() => undefined)
+      return
+    }
+    replaceUploadedFile(fileId, {
+      ...current,
+      resourceUrl: uploaded.resourceUrl,
+      mimeType: uploaded.mimeType ?? current.mimeType,
+      previewUrl: current.previewUrl || uploaded.resourceUrl,
+      status: 'uploaded'
+    })
+  } catch (error: unknown) {
+    removeUploadedFile(fileId)
+    const message = error instanceof Error ? error.message : String(error)
+    showNotice('图片上传失败', message, 'warning')
+  }
+}
+
+const uploadClipboardImage = async (fileId: string, file: File): Promise<void> => {
+  try {
+    const uploaded = await window.api.uploadFileData({
+      fileName: file.name || `pasted-image-${Date.now()}.png`,
+      mimeType: file.type || undefined,
+      data: await file.arrayBuffer()
+    })
+    const current = uploadedFiles.value.find((item) => item.id === fileId)
+    if (!current) {
+      await window.api.deleteFile(uploaded.resourceUrl).catch(() => undefined)
+      return
+    }
+    replaceUploadedFile(fileId, {
+      ...current,
+      resourceUrl: uploaded.resourceUrl,
+      mimeType: uploaded.mimeType ?? current.mimeType,
+      status: 'uploaded'
+    })
+  } catch (error: unknown) {
+    removeUploadedFile(fileId)
+    const message = error instanceof Error ? error.message : String(error)
+    showNotice('粘贴图片失败', message, 'warning')
+  }
+}
+
 // Load history when component is mounted
 onMounted(async () => {
   await loadModelConfig()
@@ -691,7 +1262,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  uploadedFiles.value = []
+  clearComposerFiles()
   if (taskMonitorTimer) {
     clearInterval(taskMonitorTimer)
     taskMonitorTimer = null
@@ -701,30 +1272,6 @@ onBeforeUnmount(() => {
 const handleSend = async (): Promise<void> => {
   if (!canSendMessage.value) return
   shouldFollowMessages.value = true
-  if (uploadedFiles.value.length > 0) {
-    const pending = uploadedFiles.value.filter((file) => file.status === 'pending')
-    if (pending.length > 0) {
-      try {
-        const results = await Promise.all(pending.map((file) => window.api.uploadFile(file.sourcePath)))
-        const resultMap = new Map(results.map((res, index) => [pending[index].id, res]))
-        uploadedFiles.value = uploadedFiles.value.map((file) => {
-          if (file.status !== 'pending') return file
-          const uploaded = resultMap.get(file.id)
-          if (!uploaded) return file
-          return {
-            ...file,
-            resourceUrl: uploaded.resourceUrl,
-            mimeType: uploaded.mimeType,
-            status: 'uploaded'
-          }
-        })
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error)
-        showNotice('文件写入失败', message, 'warning')
-        return
-      }
-    }
-  }
   const input: MainAgentUserMessageInput = {
     text: userInput.value,
     files: uploadedFiles.value
@@ -739,7 +1286,7 @@ const handleSend = async (): Promise<void> => {
   }
   await sendMessage(input)
   userInput.value = ''
-  uploadedFiles.value = []
+  clearComposerFiles()
   await loadTaskMonitorSnapshot(true)
 }
 
@@ -752,6 +1299,7 @@ const handleRevertLastTurn = async (message?: ChatMessage): Promise<void> => {
   const result = await revertLastChatTurn()
   if (result.ok) {
     userInput.value = result.restoredInput?.text || message?.text || revertibleUserMessage.value?.text || ''
+    clearComposerFiles()
     uploadedFiles.value = (result.restoredInput?.files ?? []).map((file) => ({
       id: file.fileId,
       name: file.fileName,
@@ -759,6 +1307,7 @@ const handleRevertLastTurn = async (message?: ChatMessage): Promise<void> => {
       sourcePath: '',
       size: file.sizeBytes ?? 0,
       mimeType: file.mimeType,
+      previewUrl: file.fileUrl,
       status: 'uploaded'
     }))
     await loadTaskMonitorSnapshot(true)
@@ -784,7 +1333,7 @@ const handlePickFile = async (): Promise<void> => {
       showNotice('暂不支持该文件', validation.reason, 'warning')
       return
     }
-    const id = self.crypto?.randomUUID ? self.crypto.randomUUID() : `${Date.now()}-${result.fileName}`
+    const id = createUploadedFileId(result.fileName)
     uploadedFiles.value.push({
       id,
       name: result.fileName,
@@ -793,6 +1342,7 @@ const handlePickFile = async (): Promise<void> => {
       mimeType: result.mimeType,
       status: 'pending'
     })
+    void uploadPendingSourceFile(id, result.sourcePath)
   } catch (error: unknown) {
     if (isFilePickerCancelled(error)) {
       return
@@ -801,6 +1351,42 @@ const handlePickFile = async (): Promise<void> => {
     showNotice('文件选择失败', message, 'warning')
   }
 }
+
+const handlePasteFiles = async (files: File[]): Promise<void> => {
+  for (const file of files) {
+    const validation = isSupportedChatImageUpload({
+      fileName: file.name,
+      mimeType: file.type,
+      sizeBytes: file.size
+    })
+    if (!validation.ok) {
+      showNotice('暂不支持该文件', validation.reason, 'warning')
+      continue
+    }
+
+    const previewUrl = await readImagePreviewUrl(file)
+    const id = createUploadedFileId(file.name || 'pasted-image')
+    uploadedFiles.value.push({
+      id,
+      name: file.name || `pasted-image-${Date.now()}.png`,
+      sourcePath: '',
+      size: file.size,
+      mimeType: file.type || undefined,
+      previewUrl,
+      status: 'pending'
+    })
+    void uploadClipboardImage(id, file)
+  }
+}
+
+type PersonaMetricKey = keyof PersonaMetrics
+
+const PERSONA_METRICS: Array<{ key: PersonaMetricKey; label: string }> = [
+  { key: 'autonomy_level', label: '自主性' },
+  { key: 'verbosity_index', label: '详略度' },
+  { key: 'risk_tolerance', label: '风险倾向' },
+  { key: 'formality_score', label: '正式度' }
+]
 
 const formatIsoTime = (iso?: string): string => {
   if (!iso) return ''
@@ -814,13 +1400,218 @@ const formatIsoTime = (iso?: string): string => {
   return `${month}/${day} ${hours}:${minutes}:${seconds}`
 }
 
+const formatPercent = (value?: number): string => {
+  if (!Number.isFinite(value)) return '0%'
+  return `${Math.round((value as number) * 100)}%`
+}
+
+const metricBarWidth = (value: number): string => {
+  const normalized = Math.max(0, Math.min(1, value))
+  return `${Math.round(normalized * 100)}%`
+}
+
+const formatSignedMetric = (value: number): string => {
+  const normalized = Number.isFinite(value) ? value : 0
+  return `${normalized >= 0 ? '+' : ''}${normalized.toFixed(2)}`
+}
+
+const deltaToneClass = (value: number): string => {
+  if (value >= 0.08) {
+    return 'border-rose-200 bg-rose-50 text-rose-700'
+  }
+  if (value <= -0.08) {
+    return 'border-sky-200 bg-sky-50 text-sky-700'
+  }
+  return 'border-gray-200 bg-white text-gray-600'
+}
+
+const personaMetricEntries = (metrics: PersonaMetrics) =>
+  PERSONA_METRICS.map((metric) => ({
+    ...metric,
+    value: metrics[metric.key]
+  }))
+
+const personaDeltaEntries = (metrics: PersonaMetricDelta) =>
+  PERSONA_METRICS.map((metric) => ({
+    ...metric,
+    value: metrics[metric.key]
+  }))
+
+const describeMood = (value?: string): string => {
+  switch (value) {
+    case 'calm':
+      return '平静'
+    case 'positive':
+      return '积极'
+    case 'impatient':
+      return '急切'
+    case 'frustrated':
+      return '受挫'
+    case 'uncertain':
+      return '犹疑'
+    default:
+      return '未识别'
+  }
+}
+
+const describeConversationMode = (value?: string): string => {
+  switch (value) {
+    case 'casual':
+      return '闲聊'
+    case 'work':
+      return '工作'
+    case 'companion':
+      return '陪伴'
+    case 'co_creation':
+      return '共创'
+    case 'q_and_a':
+      return '答疑'
+    default:
+      return '未识别'
+  }
+}
+
+const describeInteractionState = (value?: string): string => {
+  switch (value) {
+    case 'catching_up':
+      return '近况同步'
+    case 'listening':
+      return '倾诉聆听'
+    case 'reflecting':
+      return '自我梳理'
+    case 'problem_solving':
+      return '问题求解'
+    case 'brainstorming':
+      return '发散共想'
+    default:
+      return '未识别'
+  }
+}
+
+const moodBadgeClass = (value?: string): string => {
+  switch (value) {
+    case 'positive':
+      return 'bg-emerald-100 text-emerald-700'
+    case 'calm':
+      return 'bg-sky-100 text-sky-700'
+    case 'impatient':
+      return 'bg-amber-100 text-amber-700'
+    case 'frustrated':
+      return 'bg-rose-100 text-rose-700'
+    case 'uncertain':
+      return 'bg-slate-200 text-slate-700'
+    default:
+      return 'bg-slate-100 text-slate-600'
+  }
+}
+
+const describeMemoryStageStatus = (value?: string): string => {
+  switch (value) {
+    case 'completed':
+      return '模型归档'
+    case 'fallback':
+      return '规则回退'
+    default:
+      return '未知'
+  }
+}
+
+const memoryStageStatusClass = (value?: string): string => {
+  switch (value) {
+    case 'completed':
+      return 'bg-emerald-100 text-emerald-700'
+    case 'fallback':
+      return 'bg-amber-100 text-amber-700'
+    default:
+      return 'bg-slate-100 text-slate-600'
+  }
+}
+
+const describeMemoryStageTrigger = (value?: string): string => {
+  switch (value) {
+    case 'window_overflow':
+      return '短期窗口切段'
+    case 'manual':
+      return '手动归档'
+    case 'task_boundary':
+      return '任务边界'
+    default:
+      return '阶段归档'
+  }
+}
+
+const describeArchiveHealth = (value?: string): string => {
+  switch (value) {
+    case 'healthy':
+      return '正常'
+    case 'down':
+      return '已回退'
+    case 'skipped':
+      return '待触发'
+    default:
+      return '未知'
+  }
+}
+
+const archiveHealthClass = (value?: string): string => {
+  switch (value) {
+    case 'healthy':
+      return 'bg-emerald-100 text-emerald-700'
+    case 'down':
+      return 'bg-amber-100 text-amber-700'
+    case 'skipped':
+      return 'bg-slate-200 text-slate-700'
+    default:
+      return 'bg-slate-100 text-slate-600'
+  }
+}
+
+const formatMoodValence = (value?: number): string => {
+  if (!Number.isFinite(value)) return '中性'
+  const normalized = Math.max(-1, Math.min(1, value as number))
+  if (normalized >= 0.2) {
+    return `正向 ${Math.round(normalized * 100)}%`
+  }
+  if (normalized <= -0.2) {
+    return `负向 ${Math.round(Math.abs(normalized) * 100)}%`
+  }
+  return '中性'
+}
+
+const moodValenceWidth = (value?: number): string => {
+  const normalized = Number.isFinite(value) ? Math.max(-1, Math.min(1, value as number)) : 0
+  return `${Math.round(((normalized + 1) / 2) * 100)}%`
+}
+
+const formatSignalLabel = (signal: string): string => {
+  const normalized = signal.replace(/_/g, ' ').trim()
+  switch (signal) {
+    case 'user_message':
+      return '用户输入'
+    case 'user_interrupt':
+      return '用户打断'
+    case 'user_revert':
+      return '用户撤回'
+    case 'task_completed':
+      return '任务完成'
+    case 'task_failed':
+      return '任务失败'
+    case 'task_needs_input':
+      return '任务待输入'
+    case 'task_cancelled':
+      return '任务取消'
+    default:
+      return normalized || '未知信号'
+  }
+}
+
 const requestDeleteFile = (file: UploadedChatFile): void => {
   if (file.status === 'pending') {
-    uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
+    removeUploadedFile(file.id)
     return
   }
   if (!file.resourceUrl) {
-    uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
+    removeUploadedFile(file.id)
     return
   }
   pendingDeleteFile.value = file
@@ -843,7 +1634,7 @@ const confirmDeleteFile = async (): Promise<void> => {
   deleteFileConfirmLoading.value = true
   try {
     await window.api.deleteFile(file.resourceUrl)
-    uploadedFiles.value = uploadedFiles.value.filter((item) => item.id !== file.id)
+    removeUploadedFile(file.id)
     pendingDeleteFile.value = null
     showDeleteFileConfirm.value = false
     await restoreInputFocus()
@@ -927,7 +1718,7 @@ const confirmPurgeAllData = async (): Promise<void> => {
   try {
     await purgeAllData()
     await loadTaskMonitorSnapshot(true)
-    uploadedFiles.value = []
+    clearComposerFiles()
     showPurgeConfirm.value = false
     await restoreInputFocus()
   } finally {

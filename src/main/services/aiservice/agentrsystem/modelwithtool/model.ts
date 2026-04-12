@@ -29,19 +29,11 @@ export async function getConfiguredModelRuntime(): Promise<ConfiguredModelRuntim
 }
 
 export async function getConfiguredQuickModel(): Promise<ModelAdaptor> {
-  const options = await getConfiguredModelOptions()
-  return createChatModel({
-    ...options,
-    temperature: Math.min(options.temperature ?? 0.7, 0.7),
-    streaming: false
-  })
+  const options = await modelConfigService.getQuickModelOptions()
+  return createChatModel(options)
 }
 
 export async function getConfiguredQuickModelRuntime(): Promise<ConfiguredModelRuntime> {
-  const options = await getConfiguredModelOptions()
-  return createChatModelRuntime({
-    ...options,
-    temperature: Math.min(options.temperature ?? 0.7, 0.7),
-    streaming: false
-  })
+  const options = await modelConfigService.getQuickModelOptions()
+  return createChatModelRuntime(options)
 }

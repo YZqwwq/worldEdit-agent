@@ -114,35 +114,11 @@ export const getPersonaStateFallbackPath = (): string =>
     join(getStaticFamilaDailyRoot(), 'role', 'persona_state.json')
   ])
 
-// 历史记录目录
-export const getHistoryDir = (): string => {
-  const dir = join(getDataFamilaDailyRoot(), 'historyprompt', 'recent-history')
-  ensureDir(dir)
-  return dir
-}
+export const getPersonaConfigPath = (): string =>
+  resolveDataFilePath(['persona-config.json'])
 
-// 历史记录状态路径
-export const getHistoryStatePath = (): string =>
-  resolveDataFilePath(['historyprompt', 'recent-history', 'state.json'], [['historyprompt', 'state.json']])
-// 短期记录路径
-export const getShortTermPath = (): string =>
-  resolveDataFilePath(['historyprompt', 'recent-history', 'short_term.json'], [
-    ['historyprompt', 'short_term.json']
-  ])
-// 历史记录原始路径
-export const getHistoryRawPath = (): string =>
-  resolveDataFilePath(['historyprompt', 'recent-history', 'history_raw.md'], [
-    ['historyprompt', 'history_raw.md'],
-    ['historyprompt', 'recent-history.md']
-  ])
-// 历史记录压缩路径
-export const getHistoryCompressedPath = (): string =>
-  resolveDataFilePath(['historyprompt', 'recent-history', 'history_compressed.md'], [
-    ['historyprompt', 'history_compressed.md']
-  ])
-// 历史记录原始路径（旧版）
-export const getLegacyHistoryMarkdownPath = (): string =>
-  resolveDataFilePath(['historyprompt', 'recent-history.md'])
+export const getPersonaConfigFallbackPath = (): string =>
+  join(getStaticPromptResourceRoot(), 'persona-config.json')
 
 export const getRuntimeStaticRoot = (): string => {
   const dir = join(app.getPath('userData'), 'static')

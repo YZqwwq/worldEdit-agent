@@ -20,7 +20,7 @@ export interface PersonaStylePolicy {
 }
 
 export interface PersonaMemoryPolicy {
-  compressThreshold: number
+  archiveThreshold: number
   shortTermLimit: number
 }
 

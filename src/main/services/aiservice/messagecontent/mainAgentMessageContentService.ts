@@ -144,7 +144,12 @@ const toDataUrl = async (file: MainAgentFileContentPart): Promise<string> => {
 
 export const isQwenVisionModel = (model: string): boolean => {
   const normalized = model.trim().toLowerCase()
-  return normalized.includes('vl') || normalized.includes('omni') || normalized.includes('qvq')
+  return (
+    normalized.includes('vl') ||
+    normalized.includes('omni') ||
+    normalized.includes('qvq') ||
+    normalized.startsWith('qwen3.6')
+  )
 }
 
 export const buildQwenInputContent = async (

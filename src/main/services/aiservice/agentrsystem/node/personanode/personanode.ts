@@ -1,7 +1,11 @@
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
+import type { InteractionObservationSnapshot } from '@share/cache/AItype/states/interactionObservation'
+import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
+import type { PersonaConfig, PersonaSignalCategory } from '@share/cache/AItype/states/personaConfig'
 import type {
   PersonaBufferItem,
+  PersonaMetricDelta,
   PersonaMetrics,
   PersonaState
 } from '@share/cache/AItype/states/personalState'
@@ -12,26 +16,30 @@ import type {
 } from '@share/cache/AItype/states/personaPolicy'
 import { contentToText } from '../../../messageoutput/transformRespones'
 import { toErrorMessage } from '../../../../../../share/utils/error/error'
+import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { memoryManager } from '../../manager/memory/MemoryManager'
-import { getQuickModel } from '../../modelwithtool/quick-base-model'
+import { interactionObservationService } from '../../manager/personal/interactionObservationService'
+import { personaConfigService } from '../../manager/personal/personaConfigService'
 import {
-  evolvePersonaState,
+  clamp01,
+  createNeutralPersonaMetrics,
+  createZeroPersonaDelta,
   loadPersonaState,
+  roundTo,
   savePersonaState
 } from '../../manager/personal/personalManager'
+import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import { emitGraphThought } from '../../../../log/graphlog'
 import { MessagesState } from '../../state/messageState'
 
-type SignalCategory = 'autonomy' | 'verbosity' | 'risk' | 'formality'
+type SignalCategory = PersonaSignalCategory
 
-type SignalRule = {
-  readonly category: SignalCategory
-  readonly userSignal: string
-  readonly impact: string
-  readonly patterns: readonly RegExp[]
+type PersonaSignal = {
+  category: SignalCategory
+  user_signal: string
+  impact: string
+  delta: number
 }
-
-type PersonaSignal = Omit<PersonaBufferItem, 'turn'>
 
 const PERSONA_SIGNAL_CATEGORIES = ['autonomy', 'verbosity', 'risk', 'formality'] as const
 
@@ -48,78 +56,9 @@ const personaSignalResponseSchema = z.object({
     .default([])
 })
 
-const signalRules: readonly SignalRule[] = Object.freeze([
-  {
-    category: 'verbosity',
-    userSignal: 'user_requests_more_detail',
-    impact: '+0.08 verbosity',
-    patterns: [/详细/, /细一点/, /展开/, /多说/, /解释/, /步骤/, /细节/, /具体/]
-  },
-  {
-    category: 'verbosity',
-    userSignal: 'user_requests_brief_reply',
-    impact: '-0.08 verbosity',
-    patterns: [/简短/, /精简/, /一句话/, /别废话/, /简洁/, /少说/]
-  },
-  {
-    category: 'autonomy',
-    userSignal: 'user_grants_autonomy',
-    impact: '+0.06 autonomy',
-    patterns: [/你决定/, /你来定/, /你来做/, /直接做/, /自行处理/, /不用问/]
-  },
-  {
-    category: 'autonomy',
-    userSignal: 'user_requests_confirmation',
-    impact: '-0.06 autonomy',
-    patterns: [/先别/, /不要动/, /先问我/, /先确认/, /谨慎/, /保守点/]
-  },
-  {
-    category: 'risk',
-    userSignal: 'user_encourages_risk',
-    impact: '+0.06 risk',
-    patterns: [/大胆/, /激进/, /尝试一下/, /冒险/, /试试看/, /冲/]
-  },
-  {
-    category: 'risk',
-    userSignal: 'user_prefers_safety',
-    impact: '-0.06 risk',
-    patterns: [/稳妥/, /安全优先/, /降低风险/, /别冒险/, /保守/]
-  },
-  {
-    category: 'formality',
-    userSignal: 'user_prefers_formal_tone',
-    impact: '+0.06 formality',
-    patterns: [/正式一点/, /礼貌一点/, /专业一点/, /严谨/]
-  },
-  {
-    category: 'formality',
-    userSignal: 'user_prefers_casual_tone',
-    impact: '-0.06 formality',
-    patterns: [/随意点/, /口语化/, /轻松点/, /别太正式/]
-  }
-])
-
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
 
-const roundTo = (value: number, digits = 3): number =>
-  Number(value.toFixed(digits))
-
-const inferSignalsByRules = (userInput: string): PersonaSignal[] => {
-  const text = userInput.trim().toLowerCase()
-  if (!text) return []
-
-  const selected = new Map<SignalCategory, PersonaSignal>()
-  for (const rule of signalRules) {
-    if (selected.has(rule.category)) continue
-    if (rule.patterns.some((pattern) => pattern.test(text))) {
-      selected.set(rule.category, {
-        user_signal: rule.userSignal,
-        impact: rule.impact
-      })
-    }
-  }
-  return [...selected.values()]
-}
+const cloneMetrics = (input: PersonaMetrics): PersonaMetrics => ({ ...input })
 
 const formatImpact = (delta: number, category: SignalCategory): string =>
   `${delta >= 0 ? '+' : ''}${roundTo(delta, 3)} ${category}`
@@ -138,6 +77,7 @@ const extractJsonObject = (text: string): string | null => {
   if (start === -1 || end === -1 || end <= start) {
     return null
   }
+
   return trimmed.slice(start, end + 1)
 }
 
@@ -147,14 +87,20 @@ const normalizeModelSignals = (
   const selected = new Map<SignalCategory, PersonaSignal>()
 
   for (const signal of input.signals) {
-    if (selected.has(signal.category)) continue
+    if (selected.has(signal.category)) {
+      continue
+    }
 
     const delta = roundTo(signal.delta, 3)
-    if (delta === 0) continue
+    if (delta === 0) {
+      continue
+    }
 
     selected.set(signal.category, {
+      category: signal.category,
       user_signal: signal.user_signal.trim(),
-      impact: formatImpact(delta, signal.category)
+      impact: formatImpact(delta, signal.category),
+      delta
     })
   }
 
@@ -221,7 +167,33 @@ const inferSignalsWithModel = async (
   }
 }
 
-const inferSignals = async (userInput: string, metrics: PersonaMetrics): Promise<PersonaSignal[]> => {
+const inferSignalsByRules = (userInput: string, config: PersonaConfig): PersonaSignal[] => {
+  const text = userInput.trim().toLowerCase()
+  if (!text) return []
+
+  const selected = new Map<SignalCategory, PersonaSignal>()
+  for (const rule of config.signalRules) {
+    if (selected.has(rule.category)) {
+      continue
+    }
+    if (rule.phrases.some((phrase) => text.includes(phrase.trim().toLowerCase()))) {
+      selected.set(rule.category, {
+        category: rule.category,
+        user_signal: rule.userSignal,
+        impact: formatImpact(rule.delta, rule.category),
+        delta: rule.delta
+      })
+    }
+  }
+
+  return [...selected.values()]
+}
+
+const inferSignals = async (
+  userInput: string,
+  metrics: PersonaMetrics,
+  config: PersonaConfig
+): Promise<PersonaSignal[]> => {
   try {
     const result = await inferSignalsWithModel(userInput, metrics)
     emitGraphThought('personaNode', {
@@ -232,23 +204,93 @@ const inferSignals = async (userInput: string, metrics: PersonaMetrics): Promise
     })
     return result.signals
   } catch (error) {
-    const fallbackSignals = inferSignalsByRules(userInput)
-    const reason = toErrorMessage(error)
-    console.warn('Persona model inference failed, falling back to rules:', error)
+    const fallbackSignals = inferSignalsByRules(userInput, config)
     emitGraphThought('personaNode', {
       stage: 'persona_signal_inference',
       source: 'rules_fallback',
-      reason,
+      reason: toErrorMessage(error),
       fallbackSignals
     })
     return fallbackSignals
   }
 }
 
-const nextTurn = (state: PersonaState): number => {
-  const lastTurn = state.recent_interaction_buffer.at(-1)?.turn
-  return typeof lastTurn === 'number' ? lastTurn + 1 : 1
+const addMetricDelta = (
+  delta: PersonaMetricDelta,
+  category: SignalCategory,
+  amount: number
+): PersonaMetricDelta => {
+  if (category === 'autonomy') {
+    delta.autonomy_level = clamp(roundTo(delta.autonomy_level + amount), -1, 1)
+  } else if (category === 'verbosity') {
+    delta.verbosity_index = clamp(roundTo(delta.verbosity_index + amount), -1, 1)
+  } else if (category === 'risk') {
+    delta.risk_tolerance = clamp(roundTo(delta.risk_tolerance + amount), -1, 1)
+  } else if (category === 'formality') {
+    delta.formality_score = clamp(roundTo(delta.formality_score + amount), -1, 1)
+  }
+  return delta
 }
+
+const addStableMetric = (
+  metrics: PersonaMetrics,
+  category: SignalCategory,
+  amount: number
+): PersonaMetrics => {
+  if (category === 'autonomy') {
+    metrics.autonomy_level = clamp01(roundTo(metrics.autonomy_level + amount))
+  } else if (category === 'verbosity') {
+    metrics.verbosity_index = clamp01(roundTo(metrics.verbosity_index + amount))
+  } else if (category === 'risk') {
+    metrics.risk_tolerance = clamp01(roundTo(metrics.risk_tolerance + amount))
+  } else if (category === 'formality') {
+    metrics.formality_score = clamp01(roundTo(metrics.formality_score + amount))
+  }
+  return metrics
+}
+
+const decayDelta = (input: PersonaMetricDelta, factor: number): PersonaMetricDelta => ({
+  autonomy_level: roundTo(input.autonomy_level * factor),
+  verbosity_index: roundTo(input.verbosity_index * factor),
+  risk_tolerance: roundTo(input.risk_tolerance * factor),
+  formality_score: roundTo(input.formality_score * factor)
+})
+
+const synthesizeMetrics = (
+  stable: PersonaMetrics,
+  session: PersonaMetricDelta,
+  transient: PersonaMetricDelta,
+  config: PersonaConfig
+): PersonaMetrics => ({
+  autonomy_level: clamp01(
+    roundTo(
+      stable.autonomy_level +
+        session.autonomy_level * config.layerWeights.session +
+        transient.autonomy_level * config.layerWeights.transient
+    )
+  ),
+  verbosity_index: clamp01(
+    roundTo(
+      stable.verbosity_index +
+        session.verbosity_index * config.layerWeights.session +
+        transient.verbosity_index * config.layerWeights.transient
+    )
+  ),
+  risk_tolerance: clamp01(
+    roundTo(
+      stable.risk_tolerance +
+        session.risk_tolerance * config.layerWeights.session +
+        transient.risk_tolerance * config.layerWeights.transient
+    )
+  ),
+  formality_score: clamp01(
+    roundTo(
+      stable.formality_score +
+        session.formality_score * config.layerWeights.session +
+        transient.formality_score * config.layerWeights.transient
+    )
+  )
+})
 
 const toDetailLevel = (verbosity: number): PersonaDetailLevel => {
   if (verbosity >= 0.65) return 'detailed'
@@ -323,10 +365,17 @@ const buildStyleInstruction = (
   return `${detailInstruction}${toneInstruction}${autonomyInstruction}`
 }
 
-const buildPolicy = (metrics: PersonaMetrics, signals: PersonaSignal[], nowIso: string): PersonaPolicy => {
+const buildPolicy = (
+  metrics: PersonaMetrics,
+  signals: PersonaSignal[],
+  nowIso: string
+): PersonaPolicy => {
   const temperature = roundTo(
     clamp(
-      0.45 + metrics.risk_tolerance * 0.4 + metrics.autonomy_level * 0.12 - metrics.formality_score * 0.1,
+      0.45 +
+        metrics.risk_tolerance * 0.4 +
+        metrics.autonomy_level * 0.12 -
+        metrics.formality_score * 0.1,
       0.2,
       1.2
     )
@@ -355,55 +404,223 @@ const buildPolicy = (metrics: PersonaMetrics, signals: PersonaSignal[], nowIso: 
       instruction: buildStyleInstruction(detailLevel, tone, metrics.autonomy_level)
     },
     memory: {
-      compressThreshold: Math.round(clamp(8 - metrics.verbosity_index * 4, 4, 8)),
+      archiveThreshold: Math.round(clamp(8 - metrics.verbosity_index * 4, 4, 8)),
       shortTermLimit: Math.round(clamp(6 + metrics.verbosity_index * 4, 6, 10))
     },
     signals: signals.map((signal) => signal.user_signal)
   }
 }
 
-export async function personaNode(
-  state: typeof MessagesState.State
-): Promise<Partial<typeof MessagesState.State>> {
-  const latestUserMessage = state.messages
-    .slice()
-    .reverse()
-    .find((message) => message instanceof HumanMessage && !message.additional_kwargs?.isHistory)
+const getObservationText = (observation: InteractionObservationSnapshot): string =>
+  String(
+    observation.payload.text ??
+      observation.payload.message ??
+      observation.payload.summary ??
+      observation.summary ??
+      ''
+  ).trim()
 
-  const personaState = await loadPersonaState()
-  if (!personaState) return {}
-
-  let workingState = personaState
-  let appliedSignals: PersonaSignal[] = []
-
-  if (latestUserMessage) {
-    const userInput =
-      typeof latestUserMessage.content === 'string'
-        ? latestUserMessage.content
-        : contentToText(latestUserMessage.content)
-
-    const signals = await inferSignals(userInput, workingState.metrics)
-    if (signals.length > 0) {
-      appliedSignals = signals
-      let turn = nextTurn(workingState)
-      let evolved = workingState
-      for (const signal of signals) {
-        evolved = evolvePersonaState(evolved, { turn, ...signal })
-        turn += 1
-      }
-      evolved.current_behavioral_narrative = buildBehavioralNarrative(evolved.metrics)
-      await savePersonaState(evolved)
-      workingState = evolved
-    }
+const applyTaskObservationEffect = (
+  state: PersonaState,
+  observation: InteractionObservationSnapshot,
+  config: PersonaConfig
+): void => {
+  const effect = config.taskObservationEffects.find((item) => item.type === observation.type)
+  if (!effect) {
+    return
   }
 
-  const nowIso = new Date().toISOString()
-  const policy = buildPolicy(workingState.metrics, appliedSignals, nowIso)
+  for (const [key, amount] of Object.entries(effect.session ?? {})) {
+    if (typeof amount === 'number') {
+      addMetricDelta(state.session_hormones, key as SignalCategory, amount)
+    }
+  }
+  for (const [key, amount] of Object.entries(effect.transient ?? {})) {
+    if (typeof amount === 'number') {
+      addMetricDelta(state.transient_state, key as SignalCategory, amount)
+    }
+  }
+}
+
+const applyMemoryFeedback = (
+  state: PersonaState,
+  slots: MemorySlotSnapshot,
+  config: PersonaConfig
+): void => {
+  const stateUpdatedAtMs = Date.parse(state.last_updated || '')
+  const moodUpdatedAtMs = Date.parse(slots.user_mood.updatedAt || '')
+
+  if (
+    Number.isFinite(moodUpdatedAtMs) &&
+    (!Number.isFinite(stateUpdatedAtMs) || moodUpdatedAtMs > stateUpdatedAtMs) &&
+    slots.user_mood.current_mood
+  ) {
+    const strength = config.memoryFeedback.moodStrength
+    if (slots.user_mood.current_mood === 'impatient') {
+      addMetricDelta(state.transient_state, 'verbosity', -strength)
+      addMetricDelta(state.transient_state, 'autonomy', -strength * 0.5)
+    } else if (slots.user_mood.current_mood === 'frustrated') {
+      addMetricDelta(state.transient_state, 'risk', -strength)
+      addMetricDelta(state.transient_state, 'verbosity', -strength * 0.4)
+    } else if (slots.user_mood.current_mood === 'uncertain') {
+      addMetricDelta(state.session_hormones, 'verbosity', strength * 0.5)
+      addMetricDelta(state.session_hormones, 'autonomy', -strength * 0.4)
+    } else if (slots.user_mood.current_mood === 'positive') {
+      addMetricDelta(state.session_hormones, 'autonomy', strength * 0.4)
+      addMetricDelta(state.session_hormones, 'risk', strength * 0.25)
+    }
+  }
+}
+
+const reconcilePersonaState = async (input: {
+  state: PersonaState
+  observations: InteractionObservationSnapshot[]
+  slots: MemorySlotSnapshot
+  config: PersonaConfig
+}): Promise<{
+  state: PersonaState
+  appliedSignals: PersonaSignal[]
+}> => {
+  const next: PersonaState = {
+    ...input.state,
+    stable_preferences: cloneMetrics(input.state.stable_preferences || createNeutralPersonaMetrics()),
+    session_hormones: decayDelta(
+      input.state.session_hormones || createZeroPersonaDelta(),
+      input.config.decay.sessionFactor
+    ),
+    transient_state: decayDelta(
+      input.state.transient_state || createZeroPersonaDelta(),
+      input.config.decay.transientFactor
+    ),
+    metrics: cloneMetrics(input.state.metrics || createNeutralPersonaMetrics()),
+    recent_interaction_buffer: [...(input.state.recent_interaction_buffer ?? [])]
+  }
+
+  const appliedSignals: PersonaSignal[] = []
+  let turn = next.evolution_turn || 0
+
+  for (const observation of input.observations) {
+    if (observation.type === 'user_message') {
+      const text = getObservationText(observation)
+      const signals = await inferSignals(text, next.metrics, input.config)
+      for (const signal of signals) {
+        addStableMetric(
+          next.stable_preferences,
+          signal.category,
+          signal.delta * input.config.learningRates.stableFromSignal
+        )
+        addMetricDelta(
+          next.session_hormones,
+          signal.category,
+          signal.delta * input.config.learningRates.sessionFromSignal
+        )
+        turn += 1
+        next.recent_interaction_buffer.push({
+          turn,
+          user_signal: signal.user_signal,
+          impact: signal.impact
+        } satisfies PersonaBufferItem)
+      }
+      appliedSignals.push(...signals)
+    } else if (observation.type === 'user_interrupt') {
+      addMetricDelta(
+        next.transient_state,
+        'verbosity',
+        -input.config.learningRates.transientFromInterrupt
+      )
+      addMetricDelta(
+        next.transient_state,
+        'autonomy',
+        -input.config.learningRates.transientFromInterrupt * 0.5
+      )
+    } else if (observation.type === 'user_revert') {
+      addMetricDelta(
+        next.transient_state,
+        'risk',
+        -input.config.learningRates.transientFromRevert
+      )
+      addMetricDelta(
+        next.transient_state,
+        'verbosity',
+        -input.config.learningRates.transientFromRevert * 0.5
+      )
+    } else {
+      applyTaskObservationEffect(next, observation, input.config)
+    }
+
+    next.last_observation_id = observation.id
+    next.metrics = synthesizeMetrics(
+      next.stable_preferences,
+      next.session_hormones,
+      next.transient_state,
+      input.config
+    )
+  }
+
+  applyMemoryFeedback(next, input.slots, input.config)
+
+  next.metrics = synthesizeMetrics(
+    next.stable_preferences,
+    next.session_hormones,
+    next.transient_state,
+    input.config
+  )
+  next.current_behavioral_narrative = buildBehavioralNarrative(next.metrics)
+  next.recent_interaction_buffer = next.recent_interaction_buffer.slice(-20)
+  next.evolution_turn = turn
+  next.last_updated = new Date().toISOString()
+
+  return {
+    state: next,
+    appliedSignals
+  }
+}
+
+export async function personaNode(
+  _state: typeof MessagesState.State
+): Promise<Partial<typeof MessagesState.State>> {
+  const personaState = await loadPersonaState()
+  if (!personaState) {
+    return {}
+  }
+
+  const config = await personaConfigService.getConfig()
+  const observations = await interactionObservationService.listSince(personaState.last_observation_id)
+  const slots = await memorySlotService.reconcileFromObservations()
+  const reconciled = await reconcilePersonaState({
+    state: personaState,
+    observations,
+    slots,
+    config
+  })
+
+  await savePersonaState(reconciled.state)
+
+  const policy = buildPolicy(reconciled.state.metrics, reconciled.appliedSignals, new Date().toISOString())
 
   await memoryManager.applyAdaptiveConfig({
-    compressThreshold: policy.memory.compressThreshold,
+    archiveThreshold: policy.memory.archiveThreshold,
     shortTermLimit: policy.memory.shortTermLimit
   })
+
+  const debugPayload = JSON.parse(
+    JSON.stringify({
+      stage: 'persona_reconciled',
+      observationCount: observations.length,
+      lastObservationId: reconciled.state.last_observation_id,
+      metrics: reconciled.state.metrics,
+      stablePreferences: reconciled.state.stable_preferences,
+      sessionHormones: reconciled.state.session_hormones,
+      transientState: reconciled.state.transient_state,
+      slots: {
+        userMood: slots.user_mood,
+        conversationMode: slots.conversation_state.conversation_mode,
+        interactionState: slots.conversation_state.interaction_state
+      }
+    })
+  ) as Record<string, unknown>
+
+  emitGraphThought('personaNode', debugPayload as any)
 
   return {
     personaPolicy: policy

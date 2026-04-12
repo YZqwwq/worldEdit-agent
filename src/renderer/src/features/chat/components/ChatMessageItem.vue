@@ -35,8 +35,43 @@
         </time>
         </header>
 
-        <div class="max-w-[min(100%,960px)] rounded-[18px] border px-4 py-2 shadow-sm" :class="cardClass">
-          <MdPreview :modelValue="message.text" class="chat-md-preview" theme="light" />
+        <div class="max-w-[min(100%,960px)] rounded-[18px] border px-4 py-3 shadow-sm" :class="cardClass">
+          <div v-if="message.attachments?.length" class="flex flex-wrap gap-3">
+            <a
+              v-for="attachment in imageAttachments"
+              :key="attachment.fileId"
+              :href="attachment.fileUrl"
+              target="_blank"
+              rel="noreferrer"
+              class="block overflow-hidden rounded-2xl border border-black/5 bg-white/70 shadow-sm transition hover:shadow-md"
+            >
+              <img
+                :src="attachment.fileUrl"
+                :alt="attachment.fileName"
+                class="h-[112px] w-[112px] object-cover"
+              />
+            </a>
+
+            <div
+              v-for="attachment in otherAttachments"
+              :key="attachment.fileId"
+              class="inline-flex max-w-[240px] items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700"
+            >
+              <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 2v6h6" />
+                  <path d="M8 13h8" />
+                  <path d="M8 17h5" />
+                </svg>
+              </span>
+              <span class="truncate">{{ attachment.fileName }}</span>
+            </div>
+          </div>
+
+          <div v-if="message.text.trim()" :class="{ 'mt-3': message.attachments?.length }">
+            <MdPreview :modelValue="message.text" class="chat-md-preview" theme="light" />
+          </div>
         </div>
 
         <button
@@ -157,6 +192,14 @@ const cardClass = computed(() =>
   profile.value.accent === 'user'
     ? 'border-sky-100 bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-800 rounded-tr-sm'
     : 'border-slate-200 bg-white text-slate-800 rounded-tl-sm'
+)
+
+const imageAttachments = computed(() =>
+  (props.message.attachments ?? []).filter((attachment) => attachment.mediaType === 'image')
+)
+
+const otherAttachments = computed(() =>
+  (props.message.attachments ?? []).filter((attachment) => attachment.mediaType !== 'image')
 )
 </script>
 

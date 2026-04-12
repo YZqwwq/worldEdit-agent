@@ -12,7 +12,10 @@ import { z } from 'zod'
 import { bindToolsToModel, normalizeModelResponse } from '../agentrsystem/modelwithtool/modelwithtool'
 import { getConfiguredQuickModelRuntime } from '../agentrsystem/modelwithtool/model'
 import { contentToText } from '../messageoutput/transformRespones'
-import { characterEditorToolRegistry, characterEditorTools } from '../ai-utils/toolkits/characterEditorToolkit'
+import {
+  getCharacterEditorToolRegistry,
+  getCharacterEditorTools
+} from '../ai-utils/toolkits/characterEditorToolkit'
 import { buildToolUsageSystemPrompt } from '../ai-utils/core/toolUsagePrompt'
 import {
   parseAgentToolResultEnvelope,
@@ -359,7 +362,7 @@ const buildDirectionRules = (editingDirection?: CharacterEditorDirection): strin
 const buildPrompt = (payload: CharacterEditorExecutionPayload): string => {
   const effectiveScopes = getEffectiveEditingScopes(payload)
   const availableScopes = effectiveScopes.join(', ') || '未指定'
-  const toolPrompt = buildToolUsageSystemPrompt(characterEditorToolRegistry) || ''
+  const toolPrompt = buildToolUsageSystemPrompt(getCharacterEditorToolRegistry()) || ''
   const directionRules = buildDirectionRules(payload.editingDirection)
 
   return [
@@ -405,6 +408,7 @@ const runCharacterToolLoop = async (
   runtime: CharacterEditorExecutionRuntime
 ): Promise<CharacterEditorHandlerOutput> => {
   const runtimeBundle = await getConfiguredQuickModelRuntime()
+  const characterEditorTools = getCharacterEditorTools()
   const boundModel = bindToolsToModel(runtimeBundle, characterEditorTools)
   const effectiveScopes = getEffectiveEditingScopes(payload)
   const childAgentTimeoutMs = runtime.timeoutMs

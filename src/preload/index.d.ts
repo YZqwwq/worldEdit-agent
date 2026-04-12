@@ -3,7 +3,9 @@ import type { StreamChunk } from '../share/cache/render/aiagent/aiContent'
 import type { MainAgentUserMessageInput } from '../share/cache/AItype/states/mainAgentMessageContent'
 import type {
   ModelConfigInput,
-  ModelConfigPayload
+  ModelConfigPayload,
+  ModelSpeedTestResult,
+  ModelSpeedTestTarget
 } from '../share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '../share/cache/AItype/states/memoryInspection'
 import type { TaskMonitorSnapshot } from '../share/cache/AItype/states/taskLifecycleState'
@@ -58,6 +60,16 @@ declare global {
       size: number
       mimeType?: string
     }>
+    uploadFileData: (input: {
+      fileName: string
+      mimeType?: string
+      data: ArrayBuffer
+    }) => Promise<{
+      resourceUrl: string
+      fileName: string
+      size: number
+      mimeType?: string
+    }>
     deleteFile: (resourceUrl: string) => Promise<boolean>
     pickAndUploadFile: () => Promise<{
       resourceUrl: string
@@ -71,6 +83,10 @@ declare global {
 
     getModelConfig: () => Promise<ModelConfigPayload>
     saveModelConfig: (config: ModelConfigInput) => Promise<ModelConfigPayload>
+    testModelSpeed: (
+      config: ModelConfigInput,
+      target: ModelSpeedTestTarget
+    ) => Promise<ModelSpeedTestResult>
 
     listWorlds: () => Promise<WorldPayload[]>
     createWorld: (input: CreateWorldInput) => Promise<WorldPayload>

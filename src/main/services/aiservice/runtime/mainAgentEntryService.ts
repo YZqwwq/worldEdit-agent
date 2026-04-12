@@ -16,6 +16,7 @@ import { mainAgentTurnService } from './mainAgentTurnService'
 import { taskNotificationService } from '../../task/taskNotificationService'
 import { chatMessageService } from '../chat/chatMessageService'
 import { getMainAgentPersistenceTextFromPersistedMessage } from '../messagecontent/mainAgentMessageContentService'
+import { interactionObservationService } from '../agentrsystem/manager/personal/interactionObservationService'
 
 class MainAgentEntryService {
   constructor() {
@@ -83,11 +84,63 @@ class MainAgentEntryService {
         this.consumeTaskNotificationEvent(taskEvent),
       applyEffects: (result) => mainAgentEffectApplierService.apply(result),
       completeTaskNotificationConsumption: (taskEvent) =>
-        taskNotificationService.completeMainAgentConsumption(
-          taskEvent.payload.taskId,
-          taskEvent.payload.notificationId,
-          taskEvent.id
-        ).then(() => undefined),
+        taskNotificationService
+          .completeMainAgentConsumption(
+            taskEvent.payload.taskId,
+            taskEvent.payload.notificationId,
+            taskEvent.id
+          )
+          .then(async (result) => {
+            if (!result) {
+              return
+            }
+
+            const pendingContext =
+              result.payload.pendingContext &&
+              typeof result.payload.pendingContext === 'object' &&
+              !Array.isArray(result.payload.pendingContext)
+                ? result.payload.pendingContext
+                : {}
+
+            const entityNames = [
+              typeof pendingContext.targetCharacterName === 'string'
+                ? pendingContext.targetCharacterName
+                : null
+            ].filter((item): item is string => Boolean(item))
+
+            const worldNames = [
+              typeof pendingContext.targetWorldName === 'string'
+                ? pendingContext.targetWorldName
+                : null
+            ].filter((item): item is string => Boolean(item))
+
+            const observationType =
+              taskEvent.type === 'task_notification' && result.notification.type === 'subagent_completed'
+                ? 'task_completed'
+                : taskEvent.type === 'task_notification' &&
+                    result.notification.type === 'subagent_needs_input'
+                  ? 'task_needs_input'
+                  : taskEvent.type === 'task_notification' &&
+                      result.notification.type === 'subagent_cancelled'
+                    ? 'task_cancelled'
+                    : 'task_failed'
+
+            await interactionObservationService.record({
+              type: observationType,
+              source: 'task_queue',
+              summary: result.notice.message.slice(0, 160),
+              payload: {
+                taskId: result.activeTask.id,
+                taskTitle: result.activeTask.title,
+                taskStatus: result.activeTask.status,
+                notificationId: result.notification.id,
+                message: result.notice.message,
+                summary: result.payload.summary,
+                entityNames,
+                worldNames
+              }
+            })
+          }),
       logUserMessageError: (error) => logError('Error in stream:', error)
     }, { onChunk })
   }

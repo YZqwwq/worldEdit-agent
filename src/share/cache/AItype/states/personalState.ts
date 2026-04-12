@@ -10,6 +10,13 @@ export interface PersonaMetrics {
   formality_score: number
 }
 
+export interface PersonaMetricDelta {
+  autonomy_level: number
+  verbosity_index: number
+  risk_tolerance: number
+  formality_score: number
+}
+
 // 近期信号：对用户反馈的结构化记录
 export interface PersonaBufferItem {
   // 发生轮次
@@ -26,10 +33,20 @@ export interface PersonaState {
   persona_id: string
   // 最近更新时间（ISO）
   last_updated: string
+  // 稳定偏好层：长期慢变量
+  stable_preferences: PersonaMetrics
+  // 会话激素层：中期波动
+  session_hormones: PersonaMetricDelta
+  // 瞬时状态层：短期快变量
+  transient_state: PersonaMetricDelta
   // 数值引擎层
   metrics: PersonaMetrics
   // 语义表现层：用于直接注入 Prompt
   current_behavioral_narrative: string
   // 近期信号缓冲
   recent_interaction_buffer: PersonaBufferItem[]
+  // 已处理到的 observation 游标
+  last_observation_id: number
+  // 演化轮次
+  evolution_turn: number
 }

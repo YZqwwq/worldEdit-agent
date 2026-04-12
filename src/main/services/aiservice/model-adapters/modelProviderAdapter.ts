@@ -184,6 +184,7 @@ const openAICompatibleFamilyAdapter: ModelProtocolFamilyAdapter = {
       apiKey: options.apiKey,
       streaming: options.streaming,
       useResponsesApi: options.useResponsesApi,
+      modelKwargs: options.modelKwargs,
       configuration: options.baseURL ? { baseURL: options.baseURL } : undefined
     })
   },
@@ -229,7 +230,11 @@ const dashscopeQwenProfile: ModelProviderProfileSpec = {
   applyOptions(options) {
     return {
       ...options,
-      useResponsesApi: false
+      useResponsesApi: false,
+      modelKwargs: {
+        ...(options.modelKwargs ?? {}),
+        enable_thinking: false
+      }
     }
   }
 }

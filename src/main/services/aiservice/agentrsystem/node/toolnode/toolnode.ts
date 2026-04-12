@@ -1,5 +1,5 @@
 import { ToolMessage } from '@langchain/core/messages'
-import { getToolsForMainAgent } from '../../../ai-utils/toolkits/unifiedToolRegistry'
+import { getMainAgentTools } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import { MessagesState } from '../../state/messageState'
 
 const isSensitiveTool = (toolName: string): boolean =>
@@ -30,7 +30,7 @@ export async function toolNode(
 
   const toolMessages: ToolMessage[] = []
   const toolPolicy = state.personaPolicy?.tool
-  const tools = getToolsForMainAgent()
+  const tools = getMainAgentTools()
   // 遍历工具组执行调用
   for (const toolCall of msg.tool_calls) {
     if (

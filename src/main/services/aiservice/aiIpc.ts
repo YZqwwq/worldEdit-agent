@@ -1,7 +1,8 @@
 import { dialog, ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { copyFile, stat, unlink, readdir } from 'node:fs/promises'
+import { copyFile, stat, unlink, readdir, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
+import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import {
   inferMimeTypeFromFileName,
   isSupportedChatImageUpload,
@@ -12,10 +13,15 @@ import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 import { getStaticUploadDir } from '../../config/pathConfig'
 import { buildAppResourceUrl, resolveAppResourcePath } from '../../protocols/resourceProtocol'
 import { modelConfigService } from '../modelconfig/modelConfigService'
-import type { ModelConfigInput } from '@share/cache/AItype/model/modelConfigPayload'
+import type {
+  ModelConfigInput,
+  ModelSpeedTestResult,
+  ModelSpeedTestTarget
+} from '@share/cache/AItype/model/modelConfigPayload'
 import type { MemoryInspectionPayload } from '@share/cache/AItype/states/memoryInspection'
 import type { TaskMonitorSnapshot } from '@share/cache/AItype/states/taskLifecycleState'
 import { memoryManager } from './agentrsystem/manager/memory/MemoryManager'
+import { memorySlotService } from './agentrsystem/manager/memory/memorySlotService'
 import { loadPersonaState } from './agentrsystem/manager/personal/personalManager'
 import { avatarProfileService } from '../avatar/avatarProfileService'
 import type {
@@ -35,6 +41,8 @@ import type {
   WorldbuildingSchemaCatalogPayload
 } from '@share/cache/worldbuilding/worldbuilding'
 import { taskService } from '../task/taskService'
+import { createConfiguredModelRuntime } from './model-adapters/modelProviderAdapter'
+import { contentToText } from './messageoutput/transformRespones'
 
 type UploadResult = {
   resourceUrl: string
@@ -48,6 +56,12 @@ type PickResult = {
   fileName: string
   size: number
   mimeType?: string
+}
+
+type UploadDataInput = {
+  fileName: string
+  mimeType?: string
+  data: ArrayBuffer
 }
 
 const clearUploadFiles = async (): Promise<number> => {
@@ -86,6 +100,85 @@ const copyToUploadDir = async (sourcePath: string): Promise<UploadResult> => {
     fileName,
     size: fileStat.size,
     mimeType
+  }
+}
+
+const inferExtensionFromMimeType = (mimeType?: string): string => {
+  const normalized = String(mimeType || '').trim().toLowerCase()
+  if (normalized === 'image/png') return '.png'
+  if (normalized === 'image/jpeg') return '.jpg'
+  if (normalized === 'image/webp') return '.webp'
+  if (normalized === 'image/gif') return '.gif'
+  if (normalized === 'image/bmp') return '.bmp'
+  if (normalized === 'image/svg+xml') return '.svg'
+  if (normalized === 'image/heic') return '.heic'
+  if (normalized === 'image/heif') return '.heif'
+  return ''
+}
+
+const writeUploadDataToDir = async (input: UploadDataInput): Promise<UploadResult> => {
+  const fileName = String(input.fileName || '').trim() || `pasted-image${inferExtensionFromMimeType(input.mimeType)}`
+  const mimeType = String(input.mimeType || '').trim() || inferMimeTypeFromFileName(fileName)
+  const byteLength = input.data?.byteLength ?? 0
+  const validation = isSupportedChatImageUpload({
+    fileName,
+    mimeType,
+    sizeBytes: byteLength
+  })
+  if (!validation.ok) {
+    throw new Error(validation.reason)
+  }
+
+  const uploadDir = getStaticUploadDir()
+  const ext = extname(fileName) || inferExtensionFromMimeType(mimeType)
+  const destName = `${randomUUID()}${ext}`
+  const destPath = join(uploadDir, destName)
+  const buffer = Buffer.from(new Uint8Array(input.data))
+  await writeFile(destPath, buffer)
+  return {
+    resourceUrl: buildAppResourceUrl('uploads', destPath),
+    fileName,
+    size: buffer.byteLength,
+    mimeType: mimeType || undefined
+  }
+}
+
+const runModelSpeedTest = async (
+  input: ModelConfigInput,
+  target: ModelSpeedTestTarget
+): Promise<ModelSpeedTestResult> => {
+  const runtime = createConfiguredModelRuntime(
+    target === 'quick'
+      ? modelConfigService.buildQuickModelOptionsFromInput(input)
+      : {
+          ...modelConfigService.buildModelOptionsFromInput(input),
+          streaming: false
+        }
+  )
+
+  const startedAt = Date.now()
+  try {
+    const response = await runtime.model.invoke([
+      new SystemMessage('你是一个测速助手。只回复一句极短中文，不超过12个字。'),
+      new HumanMessage('请回复：测速成功')
+    ])
+    return {
+      target,
+      ok: true,
+      elapsedMs: Date.now() - startedAt,
+      model: runtime.effectiveOptions.model || runtime.options.model,
+      profile: runtime.profile,
+      previewText: contentToText(response.content).trim().slice(0, 80)
+    }
+  } catch (error: unknown) {
+    return {
+      target,
+      ok: false,
+      elapsedMs: Date.now() - startedAt,
+      model: runtime.effectiveOptions.model || runtime.options.model,
+      profile: runtime.profile,
+      error: error instanceof Error ? error.message : String(error)
+    }
   }
 }
 
@@ -141,10 +234,13 @@ export function initializeAIEndpoints(): void {
 
   ipcMain.handle('ai:getMemorySnapshot', async (): Promise<MemoryInspectionPayload> => {
     await memoryManager.initialize()
+    await memorySlotService.reconcileFromObservations()
     const memory = await memoryManager.getSnapshot()
+    const slots = await memorySlotService.getSnapshot()
     const persona = await loadPersonaState()
     return {
       memory,
+      slots,
       persona
     }
   })
@@ -160,6 +256,13 @@ export function initializeAIEndpoints(): void {
   ipcMain.handle('config:saveModelConfig', async (_event, input: ModelConfigInput) => {
     return modelConfigService.saveModelConfig(input)
   })
+
+  ipcMain.handle(
+    'config:testModelSpeed',
+    async (_event, input: ModelConfigInput, target: ModelSpeedTestTarget): Promise<ModelSpeedTestResult> => {
+      return runModelSpeedTest(input, target)
+    }
+  )
 
   ipcMain.handle('world:listWorlds', async () => {
     return worldbuildingService.listWorlds()
@@ -246,6 +349,13 @@ export function initializeAIEndpoints(): void {
       throw new Error('Invalid file path')
     }
     return copyToUploadDir(sourcePath)
+  })
+
+  ipcMain.handle('file:uploadData', async (_event, input: UploadDataInput): Promise<UploadResult> => {
+    if (!input || typeof input !== 'object' || !(input.data instanceof ArrayBuffer)) {
+      throw new Error('Invalid file payload')
+    }
+    return writeUploadDataToDir(input)
   })
 
   ipcMain.handle('file:pick', async (): Promise<PickResult> => {

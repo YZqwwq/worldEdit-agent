@@ -7,7 +7,12 @@ import { TaskTraceRecord } from '@share/entity/database/TaskTraceRecord'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { memoryManager } from '../agentrsystem/manager/memory/MemoryManager'
-import { resetPersonaState } from '../agentrsystem/manager/personal/personalManager'
+import { memorySlotService } from '../agentrsystem/manager/memory/memorySlotService'
+import {
+  resetPersonaSessionDynamics,
+  resetPersonaState
+} from '../agentrsystem/manager/personal/personalManager'
+import { interactionObservationService } from '../agentrsystem/manager/personal/interactionObservationService'
 import { chatMessageService } from '../chat/chatMessageService'
 import { mainAgentDispatchService } from '../runtime/queue/mainAgentDispatchQueueService'
 import { mainAgentRunControlService } from '../runtime/mainAgentRunControlService'
@@ -24,6 +29,9 @@ class AiSessionMaintenanceService {
     await AppDataSource.getRepository(MainAgentEventRecord).clear()
     await AppDataSource.getRepository(MainAgentTurnRecord).clear()
     await memoryManager.resetStorage()
+    await memorySlotService.clear()
+    await interactionObservationService.clear()
+    await resetPersonaSessionDynamics()
   }
 
   async purgeAllData(): Promise<void> {
@@ -44,6 +52,8 @@ class AiSessionMaintenanceService {
     mainAgentDispatchService.reset()
     mainAgentRunControlService.reset()
     await memoryManager.resetStorage()
+    await memorySlotService.clear()
+    await interactionObservationService.clear()
     await resetPersonaState()
   }
 
