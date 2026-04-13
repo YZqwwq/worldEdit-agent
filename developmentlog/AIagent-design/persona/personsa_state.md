@@ -1,298 +1,324 @@
-# 人格与记忆系统设计说明（当前实现）
+# 人格状态与装配链说明（当前已落地实现）
 
-## 目标
+## 文档定位
 
-当前系统的定位是：
+这份文档只描述 `worldEdit-agent` 当前已经落地的主人格链。
 
-- 以陪聊为主
-- 干活为辅
-- 人格不是固定 prompt，而是会随互动变化的调节层
-- 记忆不是单段大摘要，而是分层协作
+它回答的是两件事：
 
-当前主张：
+- 用户输入进入主 agent 后，人格系统实际上经过了哪些步骤
+- `character / mood / expression` 目前在代码里是如何被编译并注入主模型的
 
-`人格负责调节行为`
-`记忆负责维持连续性`
-`observation 负责把互动转成可积累信号`
+这不是理想态草图，而是当前代码真相。
+
+---
 
 ## 当前主链
 
-主链仍然保持：
+当前主 graph 仍然是：
 
 `START -> personaNode -> contextNode -> llmCall -> (toolNode 循环 | memoryNode) -> END`
 
-但人格与记忆已经拆成了独立层：
+其中与人格直接相关的关键段只有前三段：
 
-`InteractionObservation -> 短期插槽 / 人格状态 -> 阶段记忆 -> 长期记忆 -> contextNode 注入`
+1. `personaNode`
+   负责更新人格状态，并产出 `PersonaPolicy + MoodAssessment`
+2. `contextNode`
+   负责把人格相关信息编译成统一的 `personaAssemblyPrompt`
+3. `llmCall`
+   消费这份人格装配结果，并结合 `personaPolicy.sampling` 生成回复
 
-## 人格系统
+`memoryNode` 不参与本轮回复风格形成，只负责在回复结束后回写记忆。
 
-### 核心职责
+---
 
-人格系统的职责不是输出一段“角色设定”，而是根据互动动态调整本轮行为。
+## 当前已落地的人格装配链
 
-它当前主要影响：
+```mermaid
+flowchart LR
+    A[HumanMessage / Observation] --> B[personaNode]
+    B --> B1[更新 PersonaState]
+    B1 --> B2[生成 PersonaPolicy]
+    B2 --> B3[生成 MoodAssessment]
+    B3 --> C[contextNode]
+    C --> C1[load characterPrompt]
+    C1 --> C2[读取 MoodAssessment / PersonaPolicy / expressionPrompt]
+    C2 --> C3[编译 personaAssemblyPrompt]
+    C3 --> D[llmCall]
+    D --> E{tool calls?}
+    E -- yes --> F[toolNode]
+    F --> D
+    E -- no --> G[memoryNode]
+    G --> H[END]
+```
 
-- 采样参数
-- 风格表达
-- 工具风险策略
-- 记忆窗口参数
+当前 `personaAssemblyPrompt` 已经不是三段松散 prompt 的简单拼接，而是三段显式编译结构：
 
-### 当前人格结构
+1. `CharacterAnchor`
+2. `MoodAssessment`
+3. `ExpressionProjection`
 
-人格状态仍采用三层：
+---
 
-1. `stable_preferences`
-   长期稳定偏好
-2. `session_hormones`
-   当前会话中的中期波动
-3. `transient_state`
-   最近一两轮的短期波动
+## 一、personaNode 当前真实职责
 
-最后汇总为：
+`personaNode` 当前做的不是“角色扮演”，而是运行时人格调节。
 
-- `metrics`
-- `current_behavioral_narrative`
-- `PersonaPolicy`
+它会：
 
-### 输入来源
+- 读取 `InteractionObservation`
+- 读取当前 `PersonaState`
+- 读取 `memorySlots`
+- 根据 observation 更新：
+  - `stable_preferences`
+  - `session_hormones`
+  - `transient_state`
+- 汇总为新的 `metrics`
+- 生成 `current_behavioral_narrative`
+- 编译结构化 `MoodAssessment`
+- 最终产出 `PersonaPolicy`
 
-人格系统的输入来自 `InteractionObservation`，例如：
-
-- `user_message`
-- `user_interrupt`
-- `user_revert`
-- `task_completed`
-- `task_failed`
-- `task_cancelled`
-
-同时也会消费短期插槽中的：
-
-- 当前对话状态
-- 当前用户情绪
-
-### 当前 PersonaPolicy
-
-当前人格策略输出四个出口：
+当前 `PersonaPolicy` 仍然只包含四个出口：
 
 1. `sampling`
 2. `tool`
 3. `style`
 4. `memory`
 
-其中 `memory` 目前控制：
+这意味着：
 
-- `archiveThreshold`
-- `shortTermLimit`
+- 采样参数由人格影响
+- 工具调用边界由人格影响
+- 风格说明由人格影响
+- 记忆窗口参数由人格影响
 
-## 当前记忆系统
+其中 `MoodAssessment` 当前已经是实际 runtime 中间结果，会进入 graph state。
 
-当前记忆系统已经收敛为四层最小结构。
+但它还不是持久化实体。
 
-### 1. 短期窗口
+---
 
-定义：
+## 二、当前统一人格装配 prompt
 
-`短期窗口 = 最近对话`
+当前在 `contextNode` 中，会统一读取：
 
-职责：
+- `characterPrompt`
+- `MoodAssessment`
+- `PersonaPolicy`
+- `expressionPrompt`
 
-- 保留最近几条原始 `user/ai` 消息
-- 让模型自然接续上下文
+然后编译为一份单独的 `personaAssemblyPrompt`，再作为 `SystemMessage` 注入主模型。
 
-特点：
+这一步的意义是：
 
-- 不做结构化
-- 不负责长期总结
-- 超出窗口后进入阶段归档缓冲
+- 不再把人格拆成三段互相独立的系统提示
+- 把长期人格、当前调制、最终表达收拢为同一份运行时人格视图
+- 让主模型接收到的是“编译后的人格结果”，而不是一堆分散文档
 
-### 2. 短期插槽
+---
 
-定义：
+## 三、三段显式编译结构
 
-`短期插槽 = 当前状态 + 当前情绪`
+### 1. CharacterAnchor
 
-当前只保留两块：
+`CharacterAnchor` 是当前装配结果中的最高优先级稳定锚点。
 
-1. `conversation_state`
-   - `conversation_mode`
-   - `interaction_state`
-2. `user_mood`
-   - `current_mood`
-   - `valence`
-   - `confidence`
+它当前来自：
 
-职责：
+- 已保存的 `characterPrompt` 文本
 
-- 告诉 agent 当前应当如何陪用户交流
-- 提供短时的互动控制状态
+它当前在 prompt 中被当作：
 
-特点：
+- 长期身份定义
+- 与用户关系定义
+- 长期价值倾向定义
+- 默认语气气质定义
 
-- 由 observation 增量更新
-- 不保存大段内容
-- 不承载长期偏好
+当前真实状态：
 
-### 3. 阶段记忆
+- 它已经被作为单独段落显式编译进 prompt
+- 但它还不是数据库里的结构化对象
+- 它目前仍然以“角色文档文本”作为源，再在装配时被包装成 `CharacterAnchor`
 
-定义：
+也就是说，当前已经实现的是：
 
-`阶段记忆 = 阶段摘要 + 阶段氛围`
+`CharacterAnchor 作为运行时编译视图存在`
 
-当前只保留两块：
+而不是：
 
-1. `summary`
-2. `moodLabel`
+`CharacterAnchor 作为独立状态实体存在`
 
-职责：
+### 2. MoodAssessment
 
-- 把一小段聊天阶段压成轻量归档
-- 保住最近几段聊天的连续性
+`MoodAssessment` 当前已经是结构化 runtime 中间结果。
 
-特点：
+它当前由以下来源共同编译：
 
-- 由 `archiveBuffer` 触发生成
-- 优先用 quick model 归档
-- 失败时回退到规则摘要
+- `PersonaState.current_behavioral_narrative`
+- `PersonaState.metrics`
+- `memorySlots.conversation_state`
+- `memorySlots.user_mood`
+- `PersonaPolicy.signals`
 
-### 4. 长期记忆
+它当前表达的是：
 
-定义：
+- 当前阶段情绪标签
+- 当前强度、置信度、正负性、激活度、作用时域
+- 当前对人格参数的偏移摘要
+- 当前更靠近、收束、扩展还是确认的 modulation
+- 近期用户偏好信号
+- 当前对话模式、互动状态、用户情绪提示
 
-`长期记忆 = 总体总结 + 用户画像`
+当前真实状态：
 
-当前只保留两块：
+- 它已经在 `personaNode` 中被编译成结构化对象
+- 它已经进入 `MessagesState`
+- `contextNode` 与 `ExpressionProjection` 现在优先消费这份对象
+- 它仍然没有持久化到数据库 / `PersonaState`
 
-1. `memorySummary`
-2. `userProfile`
+因此当前最准确的说法是：
 
-职责：
+`MoodAssessment 已经成为独立运行时数据结构，但尚未成为持久化状态实体`
 
-- 提供跨阶段仍成立的长期背景
-- 为主 agent 提供稳定的人与关系认知
+### 3. ExpressionProjection
 
-特点：
+`ExpressionProjection` 当前也是显式编译段，而不是单独 node。
 
-- 不再直接吃原始对话
-- 先由阶段记忆生成，再被长期记忆吸收
+它当前由以下来源编译：
 
-## 四层记忆的边界
+- `expressionPrompt`
+- `PersonaPolicy.style`
+- `MoodAssessment`
 
-### 短期窗口
+它当前向主模型传递的是：
+
+- 当前细节密度
+- 当前 tone
+- 当前在场感
+- 当前关系距离
+- 当前收束力
+- 当前想象开放度
+- 当前温度
+- 当前语言节奏
+- 当前结构倾向 / 展开倾向 / 追问倾向
+- 最终输出契约
+
+当前真实状态：
+
+- 它已经在 prompt 中作为独立段存在
+- 它已经承担“把人格变成可见表达”的职责
+- 它现在优先依赖 `MoodAssessment.modulation`
+- 但它还没有被拆成独立 `expressionNode`
+- 它仍然在 `contextNode` 内完成编译
+
+---
+
+## 四、当前三层的真实边界
+
+### CharacterAnchor
 
 回答：
 
-`刚刚具体说了什么`
+`我是谁`
 
-### 短期插槽
+负责：
 
-回答：
+- 稳定身份
+- 关系姿态
+- 长期价值倾向
+- 默认语气气质
 
-`这几轮现在是什么状态`
-
-### 阶段记忆
-
-回答：
-
-`最近这一段聊成了什么`
-
-### 长期记忆
+### MoodAssessment
 
 回答：
 
-`以后隔很久再聊，也仍然成立的认知是什么`
+`我此刻内部如何收缩、靠近、展开、确认`
 
-## 当前注入策略
+负责：
 
-当前由 `memoryPromptPolicy` 统一控制注入。
+- 当前阶段行为调制
+- 当前状态解释
+- 风格偏移提示
 
-大致顺序是：
+### ExpressionProjection
 
-1. 长期记忆
-2. 短期插槽
-3. 视情况注入最近阶段记忆
-4. 短期窗口原始消息
+回答：
 
-设计原则：
+`这些内部状态最终应如何呈现给用户`
 
-- 长期记忆提供稳定背景
-- 短期插槽提供当前调节信息
-- 阶段记忆只作为补充
-- 短期窗口负责自然接话
+负责：
 
-## 当前已经移除的旧方案
+- 最终可见表达方向
+- 输出契约
+- 组织方式
+- 意识投影方式
 
-以下旧方案已经退出主链：
+---
 
-- 单段长期 `summary` 作为主数据源
-- `recent_matters`
-- `persistentOpenLoops`
-- 六段式长期记忆
-- 富结构阶段记忆（`topicTags / keyFacts / carryForwardTopics`）
-- 文件式历史导入作为当前主存储方案
+## 五、当前代码与理想架构之间的差异
 
-当前数据库与运行时主链都以新结构为准。
+下面这些内容已经实现：
 
-## 当前仍保留的兼容层
+1. `personaNode` 负责人格状态更新与 `PersonaPolicy` 生成
+2. `contextNode` 负责统一人格装配
+3. 统一装配 prompt 已经显式拆成三段：
+   - `CharacterAnchor`
+   - `MoodAssessment`
+   - `ExpressionProjection`
 
-为了避免破坏旧数据恢复，目前仍保留少量兼容：
+下面这些内容还没有实现为独立对象或独立节点：
 
-1. 旧 turn checkpoint 中的 `summary` 恢复兼容
-2. `memory_state.summary` 作为旧数据库行的恢复兜底
+1. `CharacterAnchor` 的结构化存储
+2. `MoodAssessment` 的独立结构化输出与持久化
+3. `ExpressionProjection` 的独立 node 化
+4. `MoodAssessment` 的持久化与跨轮衰减独立管理
 
-这些兼容层不再参与主链行为控制，只用于旧数据恢复。
+所以当前系统最准确的描述不是：
 
-## 未来待修复 / 待收敛
+`三层人格已经全部对象化`
 
-### 1. checkpoint 旧 `summary` 兼容下线
+而是：
 
-当前仍保留旧 `memoryCheckpointJson.summary` 的恢复逻辑。
+`CharacterAnchor / ExpressionProjection 仍是编译层对象，MoodAssessment 已是 runtime 中间对象，而 PersonaState / PersonaPolicy 仍是核心持久化控制实体`
 
-后续应在确认旧 turn 数据不再需要恢复后移除。
+---
 
-### 2. memory_state.summary 旧列下线
+## 六、当前记忆在这条链里的位置
 
-当前 `memory_state.summary` 仍作为老数据兜底。
+当前记忆系统仍然重要，但它在这条人格链里扮演的是“辅助人格编译”和“提供连续性”的角色。
 
-后续应在完成数据库迁移后移除。
+当前 `contextNode` 注入顺序可以理解为：
 
-### 3. 阶段切分策略升级
+1. 注入统一人格装配 prompt
+2. 注入 task lifecycle 相关 system prompt
+3. 注入 tool usage 相关 system prompt
+4. 注入 memory anchors / long-term / slot / recent-stage
+5. 注入短期窗口 history
 
-当前阶段切分仍主要基于窗口阈值。
+这里的关键点是：
 
-后续更理想的方案应加入：
+- 人格装配先进入
+- 记忆负责补充背景和连续性
+- 短期 history 负责自然接话
 
-- 话题切换
-- 情绪转折
-- 长时间停顿
-- 明显关系段落变化
+---
 
-使阶段边界更符合陪聊节奏。
+## 七、下一步最自然的演化方向
 
-### 4. 插槽写入时机继续优化
+如果继续往下推进，最自然的顺序应该是：
 
-当前插槽已改为“读时只读”，但写入仍通过 reconcile 流完成。
+1. 先让 `MoodAssessment` 增加持久化或跨轮衰减管理
+2. 再让 `CharacterAnchor` 从原始文档进一步压缩成真正可传递的结构化锚点
+3. 最后再决定是否需要把 `ExpressionProjection` 从 `contextNode` 中拆成独立 node
 
-后续可以继续收敛为更明确的“事件写入时更新”模型。
+在当前阶段，不新增 node 是合理的。
 
-### 5. 长期记忆按需读取方案评估
+因为现在最重要的不是继续拆 graph，而是先让：
 
-当前长期记忆仍默认注入。
+`人格三层的运行时边界清楚`
 
-后续可评估：
+以及：
 
-- 保留极短长期背景默认注入
-- 更详细长期记忆改为工具按需读取
+`主模型接收到的是编译后的人格结果，而不是分散人格文档`
 
-以进一步降低 prompt 体积。
-
-## 一句话总结
-
-当前人格与记忆系统已经收敛为：
-
-`短期窗口 = 最近对话`
-`短期插槽 = 当前状态 + 当前情绪`
-`阶段记忆 = 阶段摘要 + 阶段氛围`
-`长期记忆 = 总体总结 + 用户画像`
-
-并由 observation 驱动人格与记忆共同演化。
+这两件事已经落地。

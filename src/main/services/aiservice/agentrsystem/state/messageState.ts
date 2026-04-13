@@ -1,6 +1,7 @@
 import { Annotation, messagesStateReducer } from '@langchain/langgraph'
 import { BaseMessage } from '@langchain/core/messages'
 import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
+import type { MoodAssessment } from '@share/cache/AItype/states/moodAssessment'
 import type { TaskLifecycleState } from '@share/cache/AItype/states/taskLifecycleState'
 
 export const MessagesState = Annotation.Root({
@@ -14,6 +15,10 @@ export const MessagesState = Annotation.Root({
     default: () => undefined
   }),
   personaPolicy: Annotation<PersonaPolicy | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  moodAssessment: Annotation<MoodAssessment | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),

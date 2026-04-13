@@ -14,6 +14,11 @@ import type {
   PersonaPolicy,
   PersonaTone
 } from '@share/cache/AItype/states/personaPolicy'
+import type {
+  MoodAssessment,
+  MoodHorizon,
+  StageMood
+} from '@share/cache/AItype/states/moodAssessment'
 import { contentToText } from '../../../messageoutput/transformRespones'
 import { toErrorMessage } from '../../../../../../share/utils/error/error'
 import { memorySlotService } from '../../manager/memory/memorySlotService'
@@ -411,6 +416,178 @@ const buildPolicy = (
   }
 }
 
+const maxAbsDelta = (delta: PersonaMetricDelta): number =>
+  Math.max(
+    Math.abs(delta.autonomy_level),
+    Math.abs(delta.verbosity_index),
+    Math.abs(delta.risk_tolerance),
+    Math.abs(delta.formality_score)
+  )
+
+const roundSigned = (value: number): number => roundTo(clamp(value, -1, 1))
+
+const roundUnit = (value: number): number => roundTo(clamp(value, 0, 1))
+
+const inferStageMood = (
+  state: PersonaState,
+  slots: MemorySlotSnapshot
+): {
+  stageMood: StageMood
+  valence: number
+  arousal: number
+} => {
+  const userMood = slots.user_mood.current_mood
+  const { autonomy_level, risk_tolerance, formality_score } = state.metrics
+  const transient = state.transient_state
+
+  if (userMood === 'frustrated') {
+    return { stageMood: 'frustrated', valence: -0.64, arousal: 0.74 }
+  }
+  if (userMood === 'impatient') {
+    return { stageMood: 'tense', valence: -0.32, arousal: 0.81 }
+  }
+  if (userMood === 'uncertain') {
+    return { stageMood: 'fearful', valence: -0.42, arousal: 0.58 }
+  }
+  if (userMood === 'positive') {
+    if (autonomy_level >= 0.68 || risk_tolerance >= 0.66) {
+      return { stageMood: 'excited', valence: 0.74, arousal: 0.79 }
+    }
+    return { stageMood: 'pleased', valence: 0.42, arousal: 0.48 }
+  }
+
+  if (transient.risk_tolerance <= -0.08 && transient.verbosity_index <= -0.05) {
+    return { stageMood: 'frustrated', valence: -0.54, arousal: 0.68 }
+  }
+  if (risk_tolerance >= 0.72 && autonomy_level >= 0.64) {
+    return { stageMood: 'excited', valence: 0.68, arousal: 0.76 }
+  }
+  if (autonomy_level >= 0.58 && risk_tolerance >= 0.54) {
+    return { stageMood: 'pleased', valence: 0.34, arousal: 0.44 }
+  }
+  if (risk_tolerance <= 0.28 && formality_score >= 0.68) {
+    return { stageMood: 'fearful', valence: -0.38, arousal: 0.49 }
+  }
+  if (formality_score >= 0.62 || autonomy_level <= 0.35) {
+    return { stageMood: 'tense', valence: -0.22, arousal: 0.57 }
+  }
+
+  return { stageMood: 'flat', valence: 0, arousal: 0.28 }
+}
+
+const buildMoodAssessment = (input: {
+  state: PersonaState
+  policy: PersonaPolicy
+  slots: MemorySlotSnapshot
+  signals: PersonaSignal[]
+  nowIso: string
+}): MoodAssessment => {
+  const { state, policy, slots, signals, nowIso } = input
+  const transientAmplitude = maxAbsDelta(state.transient_state)
+  const sessionAmplitude = maxAbsDelta(state.session_hormones)
+  const hasUserMood = Boolean(slots.user_mood.current_mood)
+  const { stageMood, valence: baseValence, arousal: baseArousal } = inferStageMood(state, slots)
+
+  const intensity = roundUnit(
+    0.16 +
+      transientAmplitude * 1.85 +
+      sessionAmplitude * 0.9 +
+      (hasUserMood ? 0.12 : 0) +
+      (stageMood === 'flat' ? 0 : 0.06)
+  )
+
+  const confidence = roundUnit(
+    0.5 +
+      (hasUserMood ? 0.18 : 0) +
+      (signals.length > 0 ? 0.08 : 0) +
+      (slots.conversation_state.interaction_state ? 0.05 : 0) +
+      (transientAmplitude >= 0.08 ? 0.04 : 0)
+  )
+
+  const valence = roundSigned(
+    baseValence +
+      (stageMood === 'pleased' ? intensity * 0.12 : 0) +
+      (stageMood === 'excited' ? intensity * 0.18 : 0) -
+      (stageMood === 'tense' ? intensity * 0.08 : 0) -
+      (stageMood === 'frustrated' ? intensity * 0.14 : 0) -
+      (stageMood === 'fearful' ? intensity * 0.12 : 0)
+  )
+
+  const arousal = roundUnit(baseArousal + intensity * 0.18)
+  const horizon: MoodHorizon =
+    hasUserMood || transientAmplitude >= sessionAmplitude ? 'transient' : 'session'
+
+  const relationalCloseness = roundUnit(
+    0.52 +
+      valence * 0.18 +
+      (policy.style.tone === 'casual' ? 0.12 : 0) -
+      (policy.style.tone === 'formal' ? 0.08 : 0) -
+      ((stageMood === 'tense' || stageMood === 'fearful') ? 0.08 : 0)
+  )
+
+  const expressiveWarmth = roundUnit(
+    0.48 +
+      valence * 0.28 +
+      ((slots.user_mood.current_mood === 'frustrated' || slots.user_mood.current_mood === 'uncertain')
+        ? 0.08
+        : 0) -
+      (policy.style.tone === 'formal' ? 0.06 : 0)
+  )
+
+  const containment = roundUnit(
+    0.42 +
+      state.metrics.formality_score * 0.34 +
+      ((stageMood === 'tense' || stageMood === 'fearful' || stageMood === 'frustrated') ? 0.12 : 0) -
+      (stageMood === 'excited' ? 0.1 : 0)
+  )
+
+  const imaginativeOpenness = roundUnit(
+    0.28 +
+      state.metrics.risk_tolerance * 0.48 +
+      (stageMood === 'pleased' ? 0.05 : 0) +
+      (stageMood === 'excited' ? 0.12 : 0) -
+      (stageMood === 'fearful' ? 0.16 : 0) -
+      (stageMood === 'tense' ? 0.08 : 0)
+  )
+
+  const clarificationNeed = roundUnit(
+    0.24 +
+      (1 - state.metrics.autonomy_level) * 0.48 +
+      ((stageMood === 'tense' || stageMood === 'fearful') ? 0.14 : 0) +
+      (stageMood === 'frustrated' ? 0.06 : 0)
+  )
+
+  return {
+    generatedAt: nowIso,
+    stageMood,
+    intensity,
+    confidence,
+    valence,
+    arousal,
+    horizon,
+    behavioralNarrative: state.current_behavioral_narrative,
+    delta: {
+      autonomy: roundSigned(state.transient_state.autonomy_level),
+      verbosity: roundSigned(state.transient_state.verbosity_index),
+      risk: roundSigned(state.transient_state.risk_tolerance),
+      formality: roundSigned(state.transient_state.formality_score)
+    },
+    modulation: {
+      relationalCloseness,
+      expressiveWarmth,
+      containment,
+      imaginativeOpenness,
+      clarificationNeed
+    },
+    sources: {
+      userMood: slots.user_mood.current_mood,
+      conversationMode: slots.conversation_state.conversation_mode,
+      interactionState: slots.conversation_state.interaction_state,
+      signals: signals.map((signal) => signal.user_signal)
+    }
+  }
+}
+
 const getObservationText = (observation: InteractionObservationSnapshot): string =>
   String(
     observation.payload.text ??
@@ -596,7 +773,15 @@ export async function personaNode(
 
   await savePersonaState(reconciled.state)
 
-  const policy = buildPolicy(reconciled.state.metrics, reconciled.appliedSignals, new Date().toISOString())
+  const nowIso = new Date().toISOString()
+  const policy = buildPolicy(reconciled.state.metrics, reconciled.appliedSignals, nowIso)
+  const moodAssessment = buildMoodAssessment({
+    state: reconciled.state,
+    policy,
+    slots,
+    signals: reconciled.appliedSignals,
+    nowIso
+  })
 
   await memoryManager.applyAdaptiveConfig({
     archiveThreshold: policy.memory.archiveThreshold,
@@ -616,13 +801,15 @@ export async function personaNode(
         userMood: slots.user_mood,
         conversationMode: slots.conversation_state.conversation_mode,
         interactionState: slots.conversation_state.interaction_state
-      }
+      },
+      moodAssessment
     })
   ) as Record<string, unknown>
 
   emitGraphThought('personaNode', debugPayload as any)
 
   return {
-    personaPolicy: policy
+    personaPolicy: policy,
+    moodAssessment
   }
 }

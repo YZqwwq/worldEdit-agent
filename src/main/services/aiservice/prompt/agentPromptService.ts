@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
 import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
-import type { PersonaState } from '@share/cache/AItype/states/personalState'
+import type { MoodAssessment } from '@share/cache/AItype/states/moodAssessment'
 import { getCharacterPromptProfilePath } from '../../../config/pathConfig'
 
 const DEFAULT_CHARACTER_PROMPT = `
@@ -36,21 +36,227 @@ const trimOr = (value: string | null | undefined, fallback: string): string => {
   return trimmed ? trimmed : fallback
 }
 
-const formatSignals = (signals: readonly string[] | undefined): string | null => {
-  if (!signals || signals.length === 0) return null
-  return `近期用户偏好信号：${signals.join('、')}`
+const roundMetric = (value: number | null | undefined): string => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'unknown'
+  return value.toFixed(2)
 }
 
-const formatStyle = (policy: PersonaPolicy | null | undefined): string | null => {
-  const instruction = policy?.style?.instruction?.trim()
-  if (!instruction) return null
-  return `当前表达倾向：${instruction}`
+const indentBlock = (text: string | null | undefined): string | null => {
+  const trimmed = text?.trim()
+  if (!trimmed) return null
+  return trimmed
+    .split('\n')
+    .map((line) => `  ${line}`)
+    .join('\n')
 }
 
-const formatBehavioralNarrative = (state: PersonaState | null | undefined): string | null => {
-  const narrative = state?.current_behavioral_narrative?.trim()
-  if (!narrative) return null
-  return `当前人格状态：${narrative}`
+const formatField = (key: string, value: string | null | undefined): string | null => {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
+  return `${key}: ${trimmed}`
+}
+
+const formatListField = (key: string, values: readonly string[] | undefined): string | null => {
+  if (!values || values.length === 0) return null
+  return `${key}: ${values.join(', ')}`
+}
+
+const formatNumericField = (key: string, value: number | null | undefined): string | null => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return null
+  return `${key}: ${roundMetric(value)}`
+}
+
+const classifyScale = (
+  value: number | null | undefined,
+  bands: { low: string; mid: string; high: string }
+): string => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return bands.mid
+  if (value >= 0.7) return bands.high
+  if (value <= 0.38) return bands.low
+  return bands.mid
+}
+
+const toPresenceIntensity = (assessment: MoodAssessment | null | undefined): string => {
+  if (!assessment) return 'steady_present'
+  if (assessment.stageMood === 'excited' && assessment.intensity >= 0.64) return 'active_present'
+  if (assessment.intensity <= 0.28) return 'quiet_still'
+  return 'steady_present'
+}
+
+const toRelationalDistance = (assessment: MoodAssessment | null | undefined): string => {
+  return classifyScale(assessment?.modulation.relationalCloseness, {
+    low: 'slightly_reserved',
+    mid: 'balanced_near',
+    high: 'near_companion'
+  })
+}
+
+const toContainment = (assessment: MoodAssessment | null | undefined): string => {
+  return classifyScale(assessment?.modulation.containment, {
+    low: 'medium_low',
+    mid: 'medium',
+    high: 'high'
+  })
+}
+
+const toImaginativeOpenness = (assessment: MoodAssessment | null | undefined): string => {
+  return classifyScale(assessment?.modulation.imaginativeOpenness, {
+    low: 'guarded',
+    mid: 'measured',
+    high: 'open'
+  })
+}
+
+const toWarmth = (assessment: MoodAssessment | null | undefined): string => {
+  return classifyScale(assessment?.modulation.expressiveWarmth, {
+    low: 'cool_clear',
+    mid: 'calm_warm',
+    high: 'soft_warm'
+  })
+}
+
+const toCadence = (
+  assessment: MoodAssessment | null | undefined,
+  policy: PersonaPolicy | null | undefined
+): string => {
+  if (!assessment) {
+    return policy?.style?.tone === 'formal' ? 'tight_contained' : 'plain_still'
+  }
+  if (
+    assessment.stageMood === 'tense' ||
+    assessment.stageMood === 'fearful' ||
+    assessment.stageMood === 'frustrated' ||
+    assessment.modulation.containment >= 0.72
+  ) {
+    return 'tight_contained'
+  }
+  if (assessment.stageMood === 'excited' && assessment.intensity >= 0.58) {
+    return 'bright_lifted'
+  }
+  if (assessment.stageMood === 'pleased' && assessment.modulation.containment <= 0.45) {
+    return 'soft_flowing'
+  }
+  return 'plain_still'
+}
+
+const toStructureTendency = (
+  policy: PersonaPolicy | null | undefined,
+  assessment: MoodAssessment | null | undefined
+): string => {
+  if ((assessment?.modulation.clarificationNeed ?? 0) >= 0.7) return 'context_first'
+  if (policy?.style?.detailLevel === 'brief') return 'conclusion_first'
+  return 'balanced'
+}
+
+const toExpansionTendency = (
+  policy: PersonaPolicy | null | undefined,
+  assessment: MoodAssessment | null | undefined
+): string => {
+  if (policy?.style?.detailLevel === 'brief' || (assessment?.modulation.containment ?? 0.5) >= 0.76) {
+    return 'reduced_expansion'
+  }
+  if (
+    policy?.style?.detailLevel === 'detailed' &&
+    (assessment?.modulation.imaginativeOpenness ?? 0.5) >= 0.68
+  ) {
+    return 'rich_expansion'
+  }
+  return 'moderate_expansion'
+}
+
+const toClarificationTendency = (assessment: MoodAssessment | null | undefined): string => {
+  if ((assessment?.modulation.clarificationNeed ?? 0.5) >= 0.55) {
+    return 'guided_clarification'
+  }
+  return 'minimal_clarification'
+}
+
+const buildCharacterAnchorPrompt = (characterPrompt: string): string => {
+  const anchorProfile = indentBlock(characterPrompt) ?? '  (empty)'
+
+  return [
+    '【CharacterAnchor】',
+    'priority: highest',
+    'stability: persistent',
+    'purpose: define long-term identity, relationship posture, value bias, and default tone',
+    'override_rule: do not let short-term fluctuation overwrite this anchor',
+    'anchor_profile:',
+    anchorProfile
+  ].join('\n')
+}
+
+const buildMoodAssessmentPrompt = (assessment: MoodAssessment | null | undefined): string => {
+  if (!assessment) {
+    return [
+      '【MoodAssessment】',
+      'priority: runtime_modulation',
+      'visibility_rule: internal_only_do_not_repeat_raw_labels_to_user',
+      'status: unavailable',
+      'usage_rule: keep expression steady, restrained, and non-theatrical when assessment is unavailable'
+    ].join('\n')
+  }
+
+  const lines = [
+    '【MoodAssessment】',
+    'priority: runtime_modulation',
+    'visibility_rule: internal_only_do_not_repeat_raw_labels_to_user',
+    formatField('generated_at', assessment.generatedAt),
+    formatField('stage_mood', assessment.stageMood),
+    formatNumericField('intensity', assessment.intensity),
+    formatNumericField('confidence', assessment.confidence),
+    formatNumericField('valence', assessment.valence),
+    formatNumericField('arousal', assessment.arousal),
+    formatField('horizon', assessment.horizon),
+    formatField('behavioral_narrative', assessment.behavioralNarrative),
+    formatNumericField('delta.autonomy', assessment.delta.autonomy),
+    formatNumericField('delta.verbosity', assessment.delta.verbosity),
+    formatNumericField('delta.risk', assessment.delta.risk),
+    formatNumericField('delta.formality', assessment.delta.formality),
+    formatNumericField('modulation.relational_closeness', assessment.modulation.relationalCloseness),
+    formatNumericField('modulation.expressive_warmth', assessment.modulation.expressiveWarmth),
+    formatNumericField('modulation.containment', assessment.modulation.containment),
+    formatNumericField('modulation.imaginative_openness', assessment.modulation.imaginativeOpenness),
+    formatNumericField('modulation.clarification_need', assessment.modulation.clarificationNeed),
+    formatField('sources.user_mood', assessment.sources.userMood),
+    formatField('sources.conversation_mode', assessment.sources.conversationMode),
+    formatField('sources.interaction_state', assessment.sources.interactionState),
+    formatListField('sources.signals', assessment.sources.signals),
+    'baseline_rules:',
+    indentBlock(BASE_MOOD_PROMPT),
+    'usage_rule: use this section only as an internal modulation result; do not narrate or expose these fields to the user'
+  ].filter(Boolean)
+
+  return lines.join('\n')
+}
+
+const buildExpressionProjectionPrompt = (input: {
+  expressionPrompt: string
+  moodAssessment?: MoodAssessment | null | undefined
+  personaPolicy: PersonaPolicy | null | undefined
+}): string => {
+  const contractPrompt = indentBlock(trimOr(input.expressionPrompt, DEFAULT_EXPRESSION_PROMPT)) ?? '  (empty)'
+
+  const lines = [
+    '【ExpressionProjection】',
+    'priority: user_visible_realization',
+    formatField('detail_level', input.personaPolicy?.style?.detailLevel),
+    formatField('tone', input.personaPolicy?.style?.tone),
+    formatField('presence_intensity', toPresenceIntensity(input.moodAssessment)),
+    formatField('relational_distance', toRelationalDistance(input.moodAssessment)),
+    formatField('containment', toContainment(input.moodAssessment)),
+    formatField('imaginative_openness', toImaginativeOpenness(input.moodAssessment)),
+    formatField('warmth', toWarmth(input.moodAssessment)),
+    formatField('cadence', toCadence(input.moodAssessment, input.personaPolicy)),
+    formatField('structure_tendency', toStructureTendency(input.personaPolicy, input.moodAssessment)),
+    formatField('expansion_tendency', toExpansionTendency(input.personaPolicy, input.moodAssessment)),
+    formatField('clarification_tendency', toClarificationTendency(input.moodAssessment)),
+    'projection_rule: realize CharacterAnchor through MoodAssessment; keep emotional influence subtle, embodied, and non-performative',
+    'suppression_rule: do not directly report stage_mood, intensity, deltas, or internal modulation fields to the user',
+    'output_contract:',
+    contractPrompt
+  ].filter(Boolean)
+
+  return lines.join('\n')
 }
 
 const buildMemorySlotLines = (slots: MemorySlotSnapshot | null | undefined): string[] => {
@@ -92,23 +298,34 @@ export const saveCharacterPrompt = async (content: string): Promise<void> => {
   await writeFile(getCharacterPromptProfilePath(), `${trimOr(content, DEFAULT_CHARACTER_PROMPT)}\n`, 'utf-8')
 }
 
-export const buildMoodPrompt = (
-  personaState: PersonaState | null | undefined,
-  personaPolicy: PersonaPolicy | null | undefined
-): string => {
-  const sections = [
-    BASE_MOOD_PROMPT,
-    formatBehavioralNarrative(personaState),
-    formatStyle(personaPolicy),
-    formatSignals(personaPolicy?.signals)
-  ].filter(Boolean)
-
-  return sections.join('\n\n')
-}
-
 export const buildMemorySlotPrompt = (slots: MemorySlotSnapshot | null | undefined): string => {
   const lines = buildMemorySlotLines(slots)
   return lines.join('\n')
+}
+
+export const buildPersonaAssemblyPrompt = (input: {
+  characterPrompt: string
+  expressionPrompt: string
+  moodAssessment?: MoodAssessment | null | undefined
+  personaPolicy: PersonaPolicy | null | undefined
+}): string => {
+  const characterPrompt = trimOr(input.characterPrompt, DEFAULT_CHARACTER_PROMPT)
+  const expressionPrompt = trimOr(input.expressionPrompt, DEFAULT_EXPRESSION_PROMPT)
+
+  const sections = [
+    '以下内容是你本轮回复前的人格装配结果。',
+    '它是内部编译视图，不是让你照着复述的配置单。',
+    '请遵守优先级：CharacterAnchor > MoodAssessment 调制；ExpressionProjection 负责把前两者落实成最终可见表达。',
+    buildCharacterAnchorPrompt(characterPrompt),
+    buildMoodAssessmentPrompt(input.moodAssessment),
+    buildExpressionProjectionPrompt({
+      expressionPrompt,
+      moodAssessment: input.moodAssessment,
+      personaPolicy: input.personaPolicy
+    })
+  ].filter(Boolean)
+
+  return sections.join('\n\n')
 }
 
 export const loadExpressionPrompt = (): string => DEFAULT_EXPRESSION_PROMPT

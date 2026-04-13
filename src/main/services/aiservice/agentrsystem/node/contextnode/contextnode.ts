@@ -3,11 +3,10 @@ import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
 import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { buildMemoryPromptPlan } from '../../manager/memory/memoryPromptPolicy'
-import { loadPersonaState } from '../../manager/personal/personalManager'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
 import { getMainAgentToolEntries } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import {
-  buildMoodPrompt,
+  buildPersonaAssemblyPrompt,
   loadCharacterPrompt,
   loadExpressionPrompt
 } from '../../../prompt/agentPromptService'
@@ -23,14 +22,16 @@ export async function contextNode(
   const messages: BaseMessage[] = []
 
   const characterPrompt = await loadCharacterPrompt()
-  if (characterPrompt) {
-    messages.push(new SystemMessage(characterPrompt))
-  }
-
-  const personaState = await loadPersonaState()
-  const moodPrompt = buildMoodPrompt(personaState, state.personaPolicy)
-  if (moodPrompt) {
-    messages.push(new SystemMessage(moodPrompt))
+  const slotSnapshot = await memorySlotService.reconcileFromObservations()
+  const expressionPrompt = loadExpressionPrompt()
+  const personaAssemblyPrompt = buildPersonaAssemblyPrompt({
+    characterPrompt,
+    expressionPrompt,
+    moodAssessment: state.moodAssessment,
+    personaPolicy: state.personaPolicy,
+  })
+  if (personaAssemblyPrompt) {
+    messages.push(new SystemMessage(personaAssemblyPrompt))
   }
 
   if (state.taskLifecycle?.activeTask) {
@@ -72,7 +73,6 @@ export async function contextNode(
   }
 
   const snapshot = await memoryManager.getSnapshot()
-  const slotSnapshot = await memorySlotService.reconcileFromObservations()
   if (snapshot.anchors.length > 0) {
     messages.push(new SystemMessage(snapshot.anchors.join('\n')))
   }
@@ -98,11 +98,6 @@ export async function contextNode(
         additional_kwargs: { isHistory: true }
       }))
     }
-  }
-
-  const expressionPrompt = loadExpressionPrompt()
-  if (expressionPrompt) {
-    messages.push(new SystemMessage(expressionPrompt))
   }
 
   // 注意：LangGraph 的 reducer 通常是追加模式。
