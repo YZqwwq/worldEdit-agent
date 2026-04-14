@@ -2,37 +2,37 @@ export type StageMood = 'flat' | 'pleased' | 'excited' | 'tense' | 'frustrated' 
 export type MoodHorizon = 'transient' | 'session'
 
 export interface MoodParameterDelta {
-  autonomy: number
-  verbosity: number
-  risk: number
-  formality: number
+  autonomy: number  // 自主性
+  verbosity: number  // 冗长性
+  risk: number  // 风险性
+  formality: number  // 正式性
 }
 
 export interface MoodModulationProfile {
-  relationalCloseness: number
-  expressiveWarmth: number
-  containment: number
-  imaginativeOpenness: number
-  clarificationNeed: number
+  relationalCloseness: number  // 关系亲近度
+  expressiveWarmth: number  // 表达温暖度
+  containment: number  // 包容度
+  imaginativeOpenness: number  // 想象力开放度
+  clarificationNeed: number  // 清晰度
 }
 
 export interface MoodAssessmentSources {
-  userMood?: string
-  conversationMode?: string
-  interactionState?: string
-  signals: string[]
+  userMood?: string  // 用户情绪
+  conversationMode?: string  // 对话模式
+  interactionState?: string  // 交互性
+  signals: string[]  // 信号
 }
 
 export interface MoodAssessment {
-  generatedAt: string
-  stageMood: StageMood
-  intensity: number
-  confidence: number
-  valence: number
-  arousal: number
-  horizon: MoodHorizon
-  behavioralNarrative: string
-  delta: MoodParameterDelta
-  modulation: MoodModulationProfile
-  sources: MoodAssessmentSources
+  generatedAt: string  // 生成时间
+  stageMood: StageMood  // 阶段情绪
+  intensity: number  // 强度
+  confidence: number  // 信心
+  valence: number  // 积极性
+  arousal: number  // 唤醒度
+  horizon: MoodHorizon  // 时间范围
+  behavioralNarrative: string  // 行为叙事
+  delta: MoodParameterDelta  // 变化量
+  modulation: MoodModulationProfile  // 调节
+  sources: MoodAssessmentSources  // 来源
 }

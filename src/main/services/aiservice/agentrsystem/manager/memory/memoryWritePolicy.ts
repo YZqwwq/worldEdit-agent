@@ -39,23 +39,28 @@ const inferConversationMode = (
   text: string
 ): ConversationMode | undefined => {
   const normalized = text.toLowerCase()
-  if (observation.type.startsWith('task_')) {
-    return 'co_creation'
+
+  if (/(世界观|角色|设定|剧情|名字|人设|扩写|润色|创作|势力|种族|地名|文明|编年史)/.test(normalized)) {
+    return 'worldbuilding'
   }
-  if (/(上班|工作|公司|职场|项目|任务|需求|汇报)/.test(normalized)) {
-    return 'work'
+
+  if (/(暧昧|调情|挑逗|撩我|撩你|亲亲|抱抱|想你|喜欢你|坏蛋|宝贝)/.test(normalized)) {
+    return 'relational_intimacy'
   }
-  if (/(世界观|角色|设定|剧情|名字|人设|扩写|润色|创作)/.test(normalized)) {
-    return 'co_creation'
+
+  if (
+    observation.type.startsWith('task_') ||
+    /(上班|工作|公司|职场|项目|任务|需求|汇报|方案|排期|修改|实现|交付|bug|报错)/.test(normalized)
+  ) {
+    return 'practical_support'
   }
-  if (/(为什么|怎么|是否|能不能|可以吗|\?|？)/.test(normalized)) {
-    return 'q_and_a'
+
+  if (/(为什么|怎么|是否|能不能|可以吗|\?|？|解释一下|是什么意思|区别是什么)/.test(normalized)) {
+    return 'knowledge_query'
   }
-  if (/(聊聊|陪我|心情|难受|累|迷茫|焦虑|失落|想说说)/.test(normalized)) {
-    return 'companion'
-  }
+
   if (normalized) {
-    return 'casual'
+    return 'daily_life'
   }
   return undefined
 }
@@ -65,20 +70,33 @@ const inferInteractionState = (
   text: string
 ): InteractionState | undefined => {
   const normalized = text.toLowerCase()
-  if (/(帮我分析|分析一下|怎么办|该怎么做|建议|方案)/.test(normalized)) {
-    return 'problem_solving'
+
+  if (observation.type.startsWith('task_')) {
+    return 'working'
   }
-  if (/(一起想|脑暴|头脑风暴|发散|构思)/.test(normalized)) {
-    return 'brainstorming'
+
+  if (
+    /(上班|工作|公司|职场|项目|任务|需求|汇报|方案|排期|修改|实现|交付|bug|报错|分析一下|怎么办|该怎么做|建议)/.test(
+      normalized
+    )
+  ) {
+    return 'working'
   }
-  if (/(我想聊聊|想说说|听我说|倾诉|有点难受|有点烦)/.test(normalized)) {
-    return 'listening'
+
+  if (/(倾诉|想说说|听我说|有点难受|有点烦|委屈|崩溃|压力好大|好累|想哭|安慰我|陪陪我)/.test(normalized)) {
+    return 'emotional_sharing'
   }
-  if (/(我觉得|想来|也许|是不是|好像)/.test(normalized)) {
-    return 'reflecting'
+
+  if (/(挑逗|撩我|撩你|调情|暧昧|亲亲|抱抱|想你|坏蛋|逗你玩)/.test(normalized)) {
+    return 'teasing'
   }
-  if (observation.type === 'task_completed' || observation.type === 'task_cancelled') {
-    return 'catching_up'
+
+  if (/(认真聊聊|谈谈|其实我在想|我觉得|是不是|好像|意义|关系|未来|怎么办才好|该不该)/.test(normalized)) {
+    return 'deep_talk'
+  }
+
+  if (normalized) {
+    return 'casual_chat'
   }
   return undefined
 }

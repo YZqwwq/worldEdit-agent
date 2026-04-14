@@ -22,6 +22,20 @@
 
 `给最终主模型直接阅读的情绪 prompt`
 
+这里还必须补清一个边界：
+
+- `slot.user_mood`
+  反映的是**用户近期状态**
+- `MoodAssessment`
+  反映的是**AI 近期阶段状态**
+
+因此：
+
+- 用户情绪不是 AI 情绪
+- `slot` 不等于 `mood`
+- `slot` 应作为 `personaNode / PersonaPolicyNode` 的输入证据
+- `MoodAssessment` 才是系统对 AI 当前状态的编译结果
+
 ---
 
 ## 核心结论
@@ -103,12 +117,18 @@
 
 - `InteractionObservation`
   提供原始触发信号
+- `slot`
+  提供用户侧近期状态信号
 - `mood`
-  将近期信号压缩成阶段性情绪状态
+  将这些输入压缩成 AI 侧阶段性情绪状态
 - `PersonaPolicyNode`
   将阶段性情绪状态编译成参数偏移
 - `PersonaPolicy`
   将偏移后的结果作用到 sampling / tool / style / memory
+
+更准确的链应理解为：
+
+`observation + slot(user_state) -> personaNode -> MoodAssessment(ai_state) -> ExpressionProjection`
 
 因此，`mood` 和当前参数的对应关系建议保持如下：
 
@@ -120,6 +140,16 @@
   更稳妥还是更愿意探索
 - `formality`
   更自然还是更克制
+
+当前主模型侧不应再直接读取：
+
+- `slot.user_mood`
+- 完整 `MoodAssessment` 的内部评估字段
+
+主模型更适合读取的是：
+
+- 经裁剪后的 AI 状态说明
+- `ExpressionProjection`
 
 ---
 

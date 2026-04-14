@@ -9,7 +9,7 @@ import {
   buildPersonaAssemblyPrompt,
   loadCharacterPrompt,
   loadExpressionPrompt
-} from '../../../prompt/agentPromptService'
+} from '../../../prompt/main_agent/agentPromptService'
 
 /**
  * ContextNode: 负责构建全局上下文，包括 Persona、Memory 等。
@@ -24,6 +24,8 @@ export async function contextNode(
   const characterPrompt = await loadCharacterPrompt()
   const slotSnapshot = await memorySlotService.reconcileFromObservations()
   const expressionPrompt = loadExpressionPrompt()
+
+  // 人格组装提示
   const personaAssemblyPrompt = buildPersonaAssemblyPrompt({
     characterPrompt,
     expressionPrompt,
@@ -34,6 +36,7 @@ export async function contextNode(
     messages.push(new SystemMessage(personaAssemblyPrompt))
   }
 
+  // 当前活跃任务
   if (state.taskLifecycle?.activeTask) {
     messages.push(
       new SystemMessage(
@@ -42,6 +45,7 @@ export async function contextNode(
     )
   }
 
+  // 任务注册列表
   if (state.taskLifecycle?.notice?.type === 'task_registration_blocked') {
     messages.push(
       new SystemMessage(
@@ -71,21 +75,30 @@ export async function contextNode(
   if (toolUsagePrompt) {
     messages.push(new SystemMessage(toolUsagePrompt))
   }
-
+  // 短期窗口记忆
   const snapshot = await memoryManager.getSnapshot()
   if (snapshot.anchors.length > 0) {
     messages.push(new SystemMessage(snapshot.anchors.join('\n')))
   }
+
+  // 记忆系统
   const memoryPromptPlan = buildMemoryPromptPlan(snapshot, slotSnapshot)
+
+  // 长期稳定记忆
   if (memoryPromptPlan.longTermPrompt) {
     messages.push(new SystemMessage(`长期稳定记忆:\n${memoryPromptPlan.longTermPrompt}`))
   }
+
+  // 记忆槽位
   if (memoryPromptPlan.slotPrompt) {
     messages.push(new SystemMessage(memoryPromptPlan.slotPrompt))
   }
+
+  // 最近阶段记忆
   if (memoryPromptPlan.recentStagePrompt) {
     messages.push(new SystemMessage(`最近阶段记忆:\n${memoryPromptPlan.recentStagePrompt}`))
   }
+
   for (const msg of snapshot.shortTerm) {
     if (msg.role === 'user') {
       messages.push(new HumanMessage({

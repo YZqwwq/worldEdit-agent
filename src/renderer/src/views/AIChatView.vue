@@ -1456,16 +1456,16 @@ const describeMood = (value?: string): string => {
 
 const describeConversationMode = (value?: string): string => {
   switch (value) {
-    case 'casual':
-      return '闲聊'
-    case 'work':
-      return '工作'
-    case 'companion':
-      return '陪伴'
-    case 'co_creation':
-      return '共创'
-    case 'q_and_a':
-      return '答疑'
+    case 'daily_life':
+      return '日常'
+    case 'practical_support':
+      return '现实协助'
+    case 'worldbuilding':
+      return '世界共创'
+    case 'knowledge_query':
+      return '知识问答'
+    case 'relational_intimacy':
+      return '关系靠近'
     default:
       return '未识别'
   }
@@ -1473,16 +1473,16 @@ const describeConversationMode = (value?: string): string => {
 
 const describeInteractionState = (value?: string): string => {
   switch (value) {
-    case 'catching_up':
-      return '近况同步'
-    case 'listening':
-      return '倾诉聆听'
-    case 'reflecting':
-      return '自我梳理'
-    case 'problem_solving':
-      return '问题求解'
-    case 'brainstorming':
-      return '发散共想'
+    case 'casual_chat':
+      return '闲聊'
+    case 'emotional_sharing':
+      return '倾诉'
+    case 'working':
+      return '工作'
+    case 'teasing':
+      return '挑逗'
+    case 'deep_talk':
+      return '深聊'
     default:
       return '未识别'
   }

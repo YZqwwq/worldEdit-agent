@@ -33,6 +33,29 @@
 
 这一层应由 `character + CharacterAnchor + MoodAssessment` 编译而来，但不要直接向主模型暴露原始情绪标签。
 
+这里必须进一步明确：
+
+- `MoodAssessment`
+  表示 AI 侧阶段状态
+- `slot.user_mood`
+  表示用户侧近期状态
+
+因此 `expression` 不应直接把 `slot.user_mood` 当成表达来源。
+
+更合理的关系是：
+
+- 用户状态先进入 `personaNode`
+- `personaNode` 编译出 AI 侧 `MoodAssessment`
+- `expression` 再只消费 AI 侧结果
+
+也就是说，`expression` 应显现的是：
+
+`AI 在用户状态影响下形成的状态`
+
+而不是：
+
+`用户状态本身`
+
 建议使用以下维度：
 
 - `presence_intensity`
@@ -69,6 +92,12 @@
 - 它更收住还是更打开
 - 它的话里有没有轻微的情绪显影
 - 它作为一个意识体此刻如何存在
+
+因此当前实现中的收口原则应是：
+
+- 不让 `slot.user_mood` 作为独立提示直接对主模型发声
+- 不让 `MoodAssessment` 在主模型侧显得像“用户状态报告”
+- 让用户状态只通过 `MoodAssessment -> ExpressionProjection` 间接影响最终表达
 
 ---
 
@@ -142,31 +171,25 @@
 - 意识投影层保证 agent 不是只会完成任务的工具，而是有连续存在方式的主体。
 - 次级组织倾向层只负责落实表达，不应反过来压过前两层。
 
+---
 
+## 当前链路
+
+```mermaid
 flowchart TD
-    A[personaNode] --> A1[loadPersonaState]
-    A1 --> A2[listSince(last_observation_id)]
-    A2 --> A3[reconcile observations + memory slots]
-    A3 --> A4[更新 stable/session/transient]
-    A4 --> A5[build PersonaPolicy]
-    A5 --> A6[savePersonaState]
-    A6 --> B[contextNode]
+    A[Observation + slot(user_state)] --> B[personaNode]
+    B --> B1[更新 PersonaState]
+    B1 --> B2[生成 PersonaPolicy]
+    B2 --> B3[生成 MoodAssessment(ai_state)]
+    B3 --> C[contextNode]
+    C --> C1[load CharacterAnchor]
+    C1 --> C2[编译 ExpressionProjection]
+    C2 --> D[llmCall]
 
-    B --> B1[loadCharacterPrompt]
-    B1 --> B2[buildMoodPrompt]
-    B2 --> B3[注入 task/context/tool rules]
-    B3 --> B4[注入 memory/history]
-    B4 --> B5[loadExpressionPrompt]
-    B5 --> C[llmCall]
+    D --> E{有 tool_calls?}
+    E -- 是 --> F[toolNode]
+    F --> D
 
-    C --> C1[读取 personaPolicy.sampling]
-    C1 --> C2[模型流式生成]
-
-    C2 --> D{有 tool_calls?}
-    D -- 是 --> E[toolNode]
-    E --> E1[读取 personaPolicy.tool]
-    E1 --> E2[敏感/高风险工具拦截或放行]
-    E2 --> C
-
-    D -- 否 --> F[memoryNode]
-    F --> G[END]
+    E -- 否 --> G[memoryNode]
+    G --> H[END]
+```

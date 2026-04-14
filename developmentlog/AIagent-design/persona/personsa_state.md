@@ -98,7 +98,50 @@ flowchart LR
 
 ---
 
-## 二、当前统一人格装配 prompt
+## 二、slot 与 MoodAssessment 的语义边界
+
+这层边界在当前项目里必须明确分清：
+
+- `slot`
+  反映**用户侧近期状态**
+- `MoodAssessment`
+  反映**AI 侧阶段状态**
+
+也就是说：
+
+- `slot` 不是 AI 的情绪
+- `slot.user_mood` 不是 `MoodAssessment`
+- `slot` 只是 `personaNode` 的输入证据之一
+- `MoodAssessment` 才是系统对 AI 当前内部状态的编译结果
+
+当前 `slot` 主要包含两类信息：
+
+1. `conversation_state`
+   - 当前对话模式
+   - 当前互动状态
+2. `user_mood`
+   - 用户近期情绪标签
+   - 用户情绪正负性与置信度
+
+这些信息当前仍然保留，并继续承担三类职责：
+
+- 作为 `personaNode` 的输入
+- 作为 memory 层当前状态的一部分
+- 作为 UI / 观察状态展示的一部分
+
+但在主模型侧，当前已经开始做语义收口：
+
+- `slot.user_mood` 不再直接对主模型发声
+- 用户侧情绪不再作为一条独立 prompt 提示直接进入主模型
+- 主模型更应通过 `MoodAssessment + ExpressionProjection` 感知 AI 已经形成后的状态结果
+
+因此当前最准确的关系是：
+
+`slot(user_state) -> personaNode -> MoodAssessment(ai_state) -> ExpressionProjection -> 主模型`
+
+---
+
+## 三、当前统一人格装配 prompt
 
 当前在 `contextNode` 中，会统一读取：
 
@@ -115,9 +158,18 @@ flowchart LR
 - 把长期人格、当前调制、最终表达收拢为同一份运行时人格视图
 - 让主模型接收到的是“编译后的人格结果”，而不是一堆分散文档
 
+与此同时，memory slot 仍然会保留：
+
+- `conversation_mode`
+- `interaction_state`
+
+这两项更偏向对话场景与互动动作提示；
+
+但 `user_mood` 当前已不再作为独立 slot prompt 直接提供给主模型。
+
 ---
 
-## 三、三段显式编译结构
+## 四、三段显式编译结构
 
 ### 1. CharacterAnchor
 
@@ -162,18 +214,19 @@ flowchart LR
 
 它当前表达的是：
 
-- 当前阶段情绪标签
-- 当前强度、置信度、正负性、激活度、作用时域
-- 当前对人格参数的偏移摘要
-- 当前更靠近、收束、扩展还是确认的 modulation
-- 近期用户偏好信号
-- 当前对话模式、互动状态、用户情绪提示
+- AI 当前阶段情绪标签
+- AI 当前强度、置信度、正负性、激活度、作用时域
+- AI 当前对人格参数的偏移摘要
+- AI 当前更靠近、收束、扩展还是确认的 modulation
+- 当前对话模式、互动状态、用户近期状态对 AI 的影响结果
 
 当前真实状态：
 
 - 它已经在 `personaNode` 中被编译成结构化对象
 - 它已经进入 `MessagesState`
 - `contextNode` 与 `ExpressionProjection` 现在优先消费这份对象
+- 当前对主模型的直接暴露已经做了第一轮简单裁剪
+- 它在主模型侧不应再显得像“用户状态报告”
 - 它仍然没有持久化到数据库 / `PersonaState`
 
 因此当前最准确的说法是：
@@ -210,10 +263,11 @@ flowchart LR
 - 它现在优先依赖 `MoodAssessment.modulation`
 - 但它还没有被拆成独立 `expressionNode`
 - 它仍然在 `contextNode` 内完成编译
+- `MoodProjection` 映射层尚未独立实现，当前仍采用“内部完整 MoodAssessment + 对主模型简单裁剪暴露”的过渡方案
 
 ---
 
-## 四、当前三层的真实边界
+## 五、当前三层的真实边界
 
 ### CharacterAnchor
 
@@ -255,7 +309,7 @@ flowchart LR
 
 ---
 
-## 五、当前代码与理想架构之间的差异
+## 六、当前代码与理想架构之间的差异
 
 下面这些内容已经实现：
 
@@ -269,9 +323,9 @@ flowchart LR
 下面这些内容还没有实现为独立对象或独立节点：
 
 1. `CharacterAnchor` 的结构化存储
-2. `MoodAssessment` 的独立结构化输出与持久化
-3. `ExpressionProjection` 的独立 node 化
-4. `MoodAssessment` 的持久化与跨轮衰减独立管理
+2. `MoodProjection` 的独立映射层
+3. `MoodAssessment` 的持久化与跨轮衰减独立管理
+4. `ExpressionProjection` 的独立 node 化
 
 所以当前系统最准确的描述不是：
 
@@ -307,9 +361,10 @@ flowchart LR
 
 如果继续往下推进，最自然的顺序应该是：
 
-1. 先让 `MoodAssessment` 增加持久化或跨轮衰减管理
+1. 先继续收口主模型侧可见的人格通道
 2. 再让 `CharacterAnchor` 从原始文档进一步压缩成真正可传递的结构化锚点
-3. 最后再决定是否需要把 `ExpressionProjection` 从 `contextNode` 中拆成独立 node
+3. 然后引入独立的 `MoodProjection`
+4. 最后再决定是否需要把 `ExpressionProjection` 从 `contextNode` 中拆成独立 node
 
 在当前阶段，不新增 node 是合理的。
 

@@ -22,6 +22,19 @@
 - 中层在上游基调上做运行时调制
 - 下游把上游与中层共同投影成最终表达
 
+这里有一个当前项目里必须补清的语义边界：
+
+- `slot`
+  是用户侧近期状态
+- `mood`
+  是 AI 侧阶段状态
+
+也就是说，用户近期情绪不直接等于 AI 当前情绪。
+
+更准确的链应理解为：
+
+`slot(user_state) -> personaNode -> MoodAssessment(ai_state) -> ExpressionProjection`
+
 因此，我们不追求“完全不重叠”，而追求：
 
 - **上游负责定义**
@@ -245,6 +258,15 @@
 - 在不同人格基调下
 - 应产生不同的状态偏移解释
 
+这里的 `slot` 应继续保留，但角色应严格限定为：
+
+- 作为 `personaNode` 输入
+- 作为 memory / UI / 观察状态的一部分
+
+而不是：
+
+- 直接作为主模型侧的 AI 情绪说明
+
 ### 3. 缩减 `mood` 对主模型的直接暴露
 
 当前 `MoodAssessment` 中包含许多内部字段，例如：
@@ -274,6 +296,26 @@
 
 而不是直接看到完整内部评估对象。
 
+当前阶段的实际收口策略建议是：
+
+- 先做简单裁剪
+- 不让主模型直接看到完整 `MoodAssessment` 内部字段
+- `MoodAssessment` 保留在系统内部
+- 主模型当前只看到被裁剪后的极少量 mood 说明 + `ExpressionProjection`
+- 不让 `slot.user_mood` 直接作为独立提示进入主模型
+
+这样做的原因是：
+
+- 改动更小
+- 风险更低
+- 能先减少“内部评估报表感”
+- 不会在当前阶段再次引入过多中间层复杂度
+
+因此这条待改进项在当前项目中应拆成两步：
+
+1. 先裁剪直接暴露
+2. 再在后续版本中引入 `MoodProjection`
+
 ### 4. 让 `expression` 只消费“投影结果”
 
 后续应尽量避免：
@@ -297,6 +339,13 @@
 - 下游做表达投影
 
 而不是多条平行通道同时对主模型发声。
+
+当前阶段的更准确表述应是：
+
+- `expression` 已经优先消费 `MoodAssessment` 的投影结果
+- 但完整的 `MoodProjection` 还没有独立成层
+- 当前先通过“裁剪 + ExpressionProjection 承担显现职责”的方式过渡
+- 同时将 `slot.user_mood` 收回上游输入层，不再让它与 `MoodAssessment` 并行对主模型发声
 
 ### 5. 为 `mood` 增加由 `character` 施加的硬边界
 
@@ -349,11 +398,12 @@
 
 后续实现建议按这个顺序推进：
 
-1. 新增 `CharacterAnchor`
-2. 让 `mood` 显式接入 `CharacterAnchor`
-3. 将 `MoodAssessment` 与 `MoodProjection` 分层
-4. 收掉原始 slot 与编译结果的双通道注入
-5. 再逐步补齐语气 profile 维度
+1. 先裁剪 `MoodAssessment` 对主模型的直接暴露
+2. 收掉原始 slot 与编译结果的双通道注入
+3. 新增结构化 `CharacterAnchor`
+4. 让 `mood` 显式接入 `CharacterAnchor`
+5. 将 `MoodAssessment` 与 `MoodProjection` 分层
+6. 再逐步补齐语气 profile 维度
 
 ---
 

@@ -1,6 +1,6 @@
 import type { MemorySnapshot } from '@share/cache/AItype/states/memoryState'
 import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
-import { buildMemorySlotPrompt } from '../../../prompt/agentPromptService'
+import { buildMemorySlotPrompt } from '../../../prompt/main_agent/agentPromptService'
 import {
   buildLongTermMemoryPrompt,
   buildRecentStagePrompt

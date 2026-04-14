@@ -1,4 +1,8 @@
-import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
+import {
+  isConversationMode,
+  isInteractionState,
+  type MemorySlotSnapshot
+} from '@share/cache/AItype/states/memorySlots'
 import { AppDataSource } from '../../../../../database'
 import { MemorySlotRecord } from '../../../../../../share/entity/database/MemorySlotRecord'
 import { interactionObservationService } from '../personal/interactionObservationService'
@@ -20,13 +24,12 @@ const parseSnapshot = (input: string): MemorySlotSnapshot => {
         conversation_state: {
           ...defaults.conversation_state,
           conversation_mode:
-            typeof parsed.conversation_state?.conversation_mode === 'string'
+            isConversationMode(parsed.conversation_state?.conversation_mode)
               ? parsed.conversation_state.conversation_mode
               : undefined,
-          interaction_state:
-            typeof parsed.conversation_state?.interaction_state === 'string'
-              ? parsed.conversation_state.interaction_state
-              : undefined
+          interaction_state: isInteractionState(parsed.conversation_state?.interaction_state)
+            ? parsed.conversation_state.interaction_state
+            : undefined
         },
         user_mood: {
           ...defaults.user_mood,
