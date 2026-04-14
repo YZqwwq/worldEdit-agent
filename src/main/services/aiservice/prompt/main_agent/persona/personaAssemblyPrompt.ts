@@ -2,6 +2,7 @@ import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
 import type { MoodAssessment } from '@share/cache/AItype/states/moodAssessment'
 import {
   BASE_MOOD_PROMPT,
+  DEFAULT_CHARACTER_ANCHOR_PROMPT,
   DEFAULT_CHARACTER_PROMPT,
   DEFAULT_EXPRESSION_PROMPT
 } from '../shared/promptConstants'
@@ -104,6 +105,7 @@ const toClarificationTendency = (assessment: MoodAssessment | null | undefined):
 
 const buildCharacterAnchorPrompt = (characterPrompt: string): string => {
   const anchorProfile = indentBlock(characterPrompt) ?? '  (empty)'
+  const anchorSummary = indentBlock(DEFAULT_CHARACTER_ANCHOR_PROMPT) ?? '  (empty)'
 
   return [
     '【CharacterAnchor】',
@@ -111,8 +113,10 @@ const buildCharacterAnchorPrompt = (characterPrompt: string): string => {
     'stability: persistent',
     'purpose: define long-term identity, relationship posture, value bias, and default tone',
     'override_rule: do not let short-term fluctuation overwrite this anchor',
-    'anchor_profile:',
-    anchorProfile
+    'source_profile:',
+    anchorProfile,
+    'compressed_anchor_for_policy:',
+    anchorSummary
   ].join('\n')
 }
 
@@ -180,9 +184,9 @@ export const buildPersonaAssemblyPrompt = (input: {
   const expressionPrompt = trimOr(input.expressionPrompt, DEFAULT_EXPRESSION_PROMPT)
 
   const sections = [
-    '以下内容是你本轮回复前的人格装配结果。',
-    '它是内部编译视图，不是让你照着复述的配置单。',
-    '请遵守优先级：CharacterAnchor > MoodAssessment 调制；ExpressionProjection 负责把前两者落实成最终可见表达。',
+    '以下内容是本轮回复前的人格装配结果。',
+    '它是内部编译视图，不是照着复述的配置单。',
+    '遵守优先级：CharacterAnchor > MoodAssessment 调制；ExpressionProjection 负责把前两者落实成最终可见表达。',
     buildCharacterAnchorPrompt(characterPrompt),
     buildMoodAssessmentPrompt(input.moodAssessment),
     buildExpressionProjectionPrompt({
