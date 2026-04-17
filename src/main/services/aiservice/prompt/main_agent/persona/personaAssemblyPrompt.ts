@@ -1,12 +1,13 @@
 import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
 import type { MoodAssessment } from '@share/cache/AItype/states/moodAssessment'
-import {
-  BASE_MOOD_PROMPT,
-  DEFAULT_CHARACTER_ANCHOR_PROMPT,
-  DEFAULT_CHARACTER_PROMPT,
-  DEFAULT_EXPRESSION_PROMPT
-} from '../shared/promptConstants'
+import { DEFAULT_EXPRESSION_PROMPT } from '../shared/promptConstants'
 import { classifyScale, formatField, indentBlock, trimOr } from '../shared/promptTextUtils'
+
+const formatSignedField = (key: string, value: number | null | undefined): string | null => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return null
+  const normalized = value >= 0 ? `+${value.toFixed(3)}` : value.toFixed(3)
+  return `${key}: ${normalized}`
+}
 
 const toPresenceIntensity = (assessment: MoodAssessment | null | undefined): string => {
   if (!assessment) return 'steady_present'
@@ -103,23 +104,6 @@ const toClarificationTendency = (assessment: MoodAssessment | null | undefined):
   return 'minimal_clarification'
 }
 
-const buildCharacterAnchorPrompt = (characterPrompt: string): string => {
-  const anchorProfile = indentBlock(characterPrompt) ?? '  (empty)'
-  const anchorSummary = indentBlock(DEFAULT_CHARACTER_ANCHOR_PROMPT) ?? '  (empty)'
-
-  return [
-    '【CharacterAnchor】',
-    'priority: highest',
-    'stability: persistent',
-    'purpose: define long-term identity, relationship posture, value bias, and default tone',
-    'override_rule: do not let short-term fluctuation overwrite this anchor',
-    'source_profile:',
-    anchorProfile,
-    'compressed_anchor_for_policy:',
-    anchorSummary
-  ].join('\n')
-}
-
 const buildMoodAssessmentPrompt = (assessment: MoodAssessment | null | undefined): string => {
   if (!assessment) {
     return [
@@ -136,9 +120,7 @@ const buildMoodAssessmentPrompt = (assessment: MoodAssessment | null | undefined
     'priority: runtime_modulation',
     'visibility_rule: internal_only_do_not_repeat_raw_labels_to_user',
     formatField('behavioral_narrative', assessment.behavioralNarrative),
-    'baseline_rules:',
-    indentBlock(BASE_MOOD_PROMPT),
-    'usage_rule: treat the full MoodAssessment as hidden control state; only absorb its modulation effect, do not narrate its labels, scores, deltas, sources, or internal fields to the user'
+    'usage_rule: MoodAssessment is compiled upstream inside personaNode; use only its projected behavioral effect, do not narrate internal labels, scores, deltas, sources, or hidden control structure to the user'
   ].filter(Boolean)
 
   return lines.join('\n')
@@ -156,6 +138,10 @@ const buildExpressionProjectionPrompt = (input: {
     'priority: user_visible_realization',
     formatField('detail_level', input.personaPolicy?.style?.detailLevel),
     formatField('tone', input.personaPolicy?.style?.tone),
+    formatSignedField('autonomy_shift', input.moodAssessment?.delta.autonomy),
+    formatSignedField('verbosity_shift', input.moodAssessment?.delta.verbosity),
+    formatSignedField('risk_shift', input.moodAssessment?.delta.risk),
+    formatSignedField('formality_shift', input.moodAssessment?.delta.formality),
     formatField('presence_intensity', toPresenceIntensity(input.moodAssessment)),
     formatField('relational_distance', toRelationalDistance(input.moodAssessment)),
     formatField('containment', toContainment(input.moodAssessment)),
@@ -175,19 +161,16 @@ const buildExpressionProjectionPrompt = (input: {
 }
 
 export const buildPersonaAssemblyPrompt = (input: {
-  characterPrompt: string
   expressionPrompt: string
   moodAssessment?: MoodAssessment | null | undefined
   personaPolicy: PersonaPolicy | null | undefined
 }): string => {
-  const characterPrompt = trimOr(input.characterPrompt, DEFAULT_CHARACTER_PROMPT)
   const expressionPrompt = trimOr(input.expressionPrompt, DEFAULT_EXPRESSION_PROMPT)
 
   const sections = [
     '以下内容是本轮回复前的人格装配结果。',
     '它是内部编译视图，不是照着复述的配置单。',
-    '遵守优先级：CharacterAnchor > MoodAssessment 调制；ExpressionProjection 负责把前两者落实成最终可见表达。',
-    buildCharacterAnchorPrompt(characterPrompt),
+    '遵守优先级：MoodAssessment 调制；ExpressionProjection 负责把已稳定的人格表达规则落实成最终可见表达。',
     buildMoodAssessmentPrompt(input.moodAssessment),
     buildExpressionProjectionPrompt({
       expressionPrompt,

@@ -103,6 +103,12 @@ export const getAiServicePromptDir = (): string => {
 export const getCharacterPromptProfilePath = (): string =>
   join(getAiServicePromptDir(), 'character.md')
 
+export const getExpressionPromptProfilePath = (): string =>
+  join(getAiServicePromptDir(), 'expression.md')
+
+export const getMoodPromptProfilePath = (): string =>
+  join(getAiServicePromptDir(), 'mood.md')
+
 // 角色状态路径
 export const getPersonaStatePath = (): string =>
   resolveDataFilePath(['role', 'personal_state.json'], [['role', 'persona_state.json']])

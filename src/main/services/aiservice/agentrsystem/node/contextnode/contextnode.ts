@@ -7,7 +7,6 @@ import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsageProm
 import { getMainAgentToolEntries } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import {
   buildPersonaAssemblyPrompt,
-  loadCharacterPrompt,
   loadExpressionPrompt
 } from '../../../prompt/main_agent/agentPromptService'
 
@@ -21,13 +20,11 @@ export async function contextNode(
   
   const messages: BaseMessage[] = []
 
-  const characterPrompt = await loadCharacterPrompt()
   const slotSnapshot = await memorySlotService.reconcileFromObservations()
-  const expressionPrompt = loadExpressionPrompt()
+  const expressionPrompt = await loadExpressionPrompt()
 
   // 人格组装提示
   const personaAssemblyPrompt = buildPersonaAssemblyPrompt({
-    characterPrompt,
     expressionPrompt,
     moodAssessment: state.moodAssessment,
     personaPolicy: state.personaPolicy,

@@ -1,31 +1,87 @@
+import { app } from 'electron'
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
-import { getCharacterPromptProfilePath } from '../../../../../config/pathConfig'
-import { DEFAULT_CHARACTER_PROMPT, DEFAULT_EXPRESSION_PROMPT } from '../shared/promptConstants'
+import {
+  getCharacterPromptProfilePath,
+  getExpressionPromptProfilePath,
+  getMoodPromptProfilePath
+} from '../../../../../config/pathConfig'
+import {
+  DEFAULT_CHARACTER_PROMPT,
+  BASE_MOOD_PROMPT,
+  DEFAULT_EXPRESSION_PROMPT
+} from '../shared/promptConstants'
 import { trimOr } from '../shared/promptTextUtils'
 
+let promptStorageInitialized = false
+
+const PROMPT_DEFAULTS = {
+  character: {
+    path: getCharacterPromptProfilePath,
+    defaultContent: DEFAULT_CHARACTER_PROMPT
+  },
+  expression: {
+    path: getExpressionPromptProfilePath,
+    defaultContent: DEFAULT_EXPRESSION_PROMPT
+  },
+  mood: {
+    path: getMoodPromptProfilePath,
+    defaultContent: BASE_MOOD_PROMPT
+  }
+} as const
+
+const writePromptFile = async (targetPath: string, content: string): Promise<void> => {
+  await writeFile(targetPath, `${trimOr(content, content)}\n`, 'utf-8')
+}
+
+const initializePromptFile = async (targetPath: string, defaultContent: string): Promise<void> => {
+  if (!app.isPackaged) {
+    await writePromptFile(targetPath, defaultContent)
+    return
+  }
+
+  if (!existsSync(targetPath)) {
+    await writePromptFile(targetPath, defaultContent)
+  }
+}
+
+const readPromptFile = async (targetPath: string, fallback: string): Promise<string> => {
+  try {
+    const text = await readFile(targetPath, 'utf-8')
+    return trimOr(text, fallback)
+  } catch {
+    return fallback
+  }
+}
+
 export const initializeAgentPromptStorage = async (): Promise<void> => {
-  const targetPath = getCharacterPromptProfilePath()
-  if (existsSync(targetPath)) return
-  await writeFile(targetPath, `${DEFAULT_CHARACTER_PROMPT}\n`, 'utf-8')
+  if (promptStorageInitialized) return
+
+  for (const prompt of Object.values(PROMPT_DEFAULTS)) {
+    await initializePromptFile(prompt.path(), prompt.defaultContent)
+  }
+
+  promptStorageInitialized = true
 }
 
 export const loadCharacterPrompt = async (): Promise<string> => {
   await initializeAgentPromptStorage()
-  try {
-    const text = await readFile(getCharacterPromptProfilePath(), 'utf-8')
-    return trimOr(text, DEFAULT_CHARACTER_PROMPT)
-  } catch {
-    return DEFAULT_CHARACTER_PROMPT
-  }
+  return readPromptFile(getCharacterPromptProfilePath(), DEFAULT_CHARACTER_PROMPT)
 }
 
 export const saveCharacterPrompt = async (content: string): Promise<void> => {
   await initializeAgentPromptStorage()
-  const targetPath = getCharacterPromptProfilePath()
-  await writeFile(targetPath, `${trimOr(content, DEFAULT_CHARACTER_PROMPT)}\n`, 'utf-8')
+  await writePromptFile(getCharacterPromptProfilePath(), trimOr(content, DEFAULT_CHARACTER_PROMPT))
 }
 
-export const loadExpressionPrompt = (): string => DEFAULT_EXPRESSION_PROMPT
+export const loadExpressionPrompt = async (): Promise<string> => {
+  await initializeAgentPromptStorage()
+  return readPromptFile(getExpressionPromptProfilePath(), DEFAULT_EXPRESSION_PROMPT)
+}
+
+export const loadMoodPrompt = async (): Promise<string> => {
+  await initializeAgentPromptStorage()
+  return readPromptFile(getMoodPromptProfilePath(), BASE_MOOD_PROMPT)
+}
 
 export const getDefaultCharacterPrompt = (): string => DEFAULT_CHARACTER_PROMPT

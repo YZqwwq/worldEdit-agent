@@ -212,18 +212,47 @@
 
 ---
 
+## 当前落地状态补充
+
+当前实现已经进一步收口为：
+
+- `character.md`
+  保留为完整人格草案与长期设定来源
+- `mood.md / BASE_MOOD_PROMPT`
+  统一承担角色锚点与情绪编译边界，直接供 `personaNode / PersonaPolicyNode` 使用
+- `expression.md / DEFAULT_EXPRESSION_PROMPT`
+  负责主模型可见表达
+
+对应地：
+
+- `character-anchor.md`
+  已不再参与运行时装配
+- 开发期外部 prompt 目录中的同名文件应视为**废弃占位文件**
+- 若仍看到该文件，其作用仅应是提示“该入口已停用”，而不是继续承载有效人格规则
+
+也就是说，当前真实链路不再是：
+
+`character-anchor -> personaNode`
+
+而是：
+
+`mood(内含角色锚点) -> personaNode`
+
+---
+
 ## 当前待改进项
 
 为了让 `mood` 真正成为“受 `character` 约束的中层偏移器”，当前实现层仍需要继续收口。
 
-### 1. 将 `character` 编译成稳定锚点
+### 1. 将 `character` 压缩进稳定的 `mood` 编译边界
 
 当前 `character` 仍主要以原始长文本 prompt 的方式存在。
 
 后续更合适的方向是：
 
-- 从 `character` 提炼出一份稳定的 `CharacterAnchor`
-- 只保留高价值、低噪声的人格锚点
+- 从 `character` 提炼出一份稳定、低噪声的人格锚点语义
+- 将这份锚点语义继续压缩进统一的 `mood.md / BASE_MOOD_PROMPT`
+- 避免再恢复成独立运行时 `CharacterAnchor` 文件入口
 
 建议至少包含：
 
@@ -232,9 +261,9 @@
 - `default_tone`
 - `hard_principles`
 
-这样 `mood` 才不是直接读取一大段角色设定，而是读取一份稳定、可解释的人格基底。
+这样 `mood` 才不是直接读取一大段角色设定，而是读取一份稳定、可解释、可统一调整的人格基底。
 
-### 2. 让 `mood` 的输入显式包含 `CharacterAnchor`
+### 2. 让 `mood` 成为唯一的人格影响编译入口
 
 当前 `mood` 的判断仍主要依赖：
 
@@ -244,7 +273,7 @@
 
 后续应改成：
 
-- `CharacterAnchor`
+- `moodPrompt(内含角色锚点)`
 - `recentObservations`
 - `slotSnapshot`
 - `currentPersonaMetrics`
@@ -257,6 +286,8 @@
 - 同样的用户情绪或同样的 observation
 - 在不同人格基调下
 - 应产生不同的状态偏移解释
+- 人格影响入口收敛为一处，用户可以通过 `mood` 文案直接感知和调整这层影响
+- 避免外部目录里出现多个看起来都像“正在生效”的人格入口文件
 
 这里的 `slot` 应继续保留，但角色应严格限定为：
 

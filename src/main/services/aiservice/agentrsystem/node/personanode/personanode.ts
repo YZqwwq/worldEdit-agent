@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { InteractionObservationSnapshot } from '@share/cache/AItype/states/interactionObservation'
 import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
 import type { PersonaConfig, PersonaSignalCategory } from '@share/cache/AItype/states/personaConfig'
+import type { CharacterMoodBoundary } from '@share/cache/AItype/states/characterMoodBoundary'
 import type {
   PersonaBufferItem,
   PersonaMetricDelta,
@@ -15,9 +16,7 @@ import type {
   PersonaTone
 } from '@share/cache/AItype/states/personaPolicy'
 import type {
-  MoodAssessment,
-  MoodHorizon,
-  StageMood
+  MoodAssessment
 } from '@share/cache/AItype/states/moodAssessment'
 import { contentToText } from '../../../messageoutput/transformRespones'
 import { toErrorMessage } from '../../../../../../share/utils/error/error'
@@ -36,6 +35,7 @@ import {
 import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import { emitGraphThought } from '../../../../log/graphlog'
 import { MessagesState } from '../../state/messageState'
+import { loadMoodPrompt } from '../../../prompt/main_agent/agentPromptService'
 
 type SignalCategory = PersonaSignalCategory
 
@@ -61,7 +61,88 @@ const personaSignalResponseSchema = z.object({
     .default([])
 })
 
+const MOOD_STAGE_VALUES = ['flat', 'pleased', 'excited', 'tense', 'frustrated', 'fearful'] as const
+const MOOD_HORIZON_VALUES = ['transient', 'session'] as const
+
+const moodAssessmentResponseSchema = z.object({
+  stageMood: z.enum(MOOD_STAGE_VALUES),
+  intensity: z.number().finite().min(0).max(1),
+  confidence: z.number().finite().min(0).max(1),
+  valence: z.number().finite().min(-1).max(1),
+  arousal: z.number().finite().min(0).max(1),
+  horizon: z.enum(MOOD_HORIZON_VALUES),
+  behavioralNarrative: z.string().trim().min(1).max(240),
+  delta: z.object({
+    autonomy: z.number().finite().min(-0.18).max(0.18),
+    verbosity: z.number().finite().min(-0.18).max(0.18),
+    risk: z.number().finite().min(-0.18).max(0.18),
+    formality: z.number().finite().min(-0.18).max(0.18)
+  }),
+  modulation: z.object({
+    relationalCloseness: z.number().finite().min(0).max(1),
+    expressiveWarmth: z.number().finite().min(0).max(1),
+    containment: z.number().finite().min(0).max(1),
+    imaginativeOpenness: z.number().finite().min(0).max(1),
+    clarificationNeed: z.number().finite().min(0).max(1)
+  })
+})
+
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
+
+// 法弥拉的情绪硬边界：
+// 这一层不负责“生成情绪”，只负责对原始 MoodAssessment 做人格边界裁剪，
+// 防止情绪波动把法弥拉推成过热、过刺、失控或失去边界感的状态。
+const FAMILA_CHARACTER_MOOD_BOUNDARY: CharacterMoodBoundary = {
+  baseline: {
+    // 自然静息态：默认回到平淡、稳定的基线
+    restingStageMood: 'flat',
+    // 正向主带宽：优先落在轻度愉悦，而不是高强度兴奋
+    preferredPositiveBand: 'pleased',
+    // 默认存在感：克制、稳定在场，而不是高热外放
+    defaultPresence: 'restrained_stable'
+  },
+  stageCaps: {
+    // 各阶段情绪的强度上下界
+    flat: { min: 0.18, max: 0.62 },
+    pleased: { min: 0.22, max: 0.64 },
+    excited: { min: 0.24, max: 0.58 },
+    tense: { min: 0.2, max: 0.56 },
+    frustrated: { min: 0.18, max: 0.44 },
+    fearful: { min: 0.16, max: 0.34 }
+  },
+  modulationBounds: {
+    // 最终可见表达的调制边界
+    // relationalCloseness: 关系亲近度
+    relationalCloseness: { min: 0.42, max: 0.74 },
+    // expressiveWarmth: 表达温度
+    expressiveWarmth: { min: 0.4, max: 0.72 },
+    // containment: 收束力 / 克制程度
+    containment: { min: 0.58, max: 0.92 },
+    // imaginativeOpenness: 想象开放度 / 发散程度
+    imaginativeOpenness: { min: 0.3, max: 0.72 },
+    // clarificationNeed: 澄清需求 / 确认边界倾向
+    clarificationNeed: { min: 0.2, max: 0.82 }
+  },
+  deltaBounds: {
+    // 情绪对四个行为参数的阶段性偏移边界
+    // autonomy: 主动推进 vs 先确认
+    autonomy: { min: -0.12, max: 0.1 },
+    // verbosity: 简洁 vs 展开
+    verbosity: { min: -0.1, max: 0.12 },
+    // risk: 保守稳妥 vs 探索尝试
+    risk: { min: -0.14, max: 0.08 },
+    // formality: 自然随意 vs 正式克制
+    formality: { min: -0.06, max: 0.1 }
+  },
+  hardRules: [
+    'no_aggressive_projection', // 不允许负向状态投影成攻击性、刻薄、阴阳怪气
+    'no_theatrical_overexpression', // 不允许正向状态滑向夸张、戏剧化、明显表演
+    'no_overeager_intimacy', // 不允许因为短时信号迅速失去关系边界
+    'retain_calm_containment_under_stress', // 在紧张、返工、受责备时仍保留平稳与收束
+    'negative_mood_may_shorten_but_not_sharpen_response', // 负向状态可以更短、更收，但不能更刺
+    'positive_mood_may_lighten_but_not_destabilize_tone' // 正向状态可以更松、更暖，但不能失稳
+  ]
+}
 
 const cloneMetrics = (input: PersonaMetrics): PersonaMetrics => ({ ...input })
 
@@ -220,6 +301,374 @@ const inferSignals = async (
   }
 }
 
+const buildObservationDigest = (observations: InteractionObservationSnapshot[]): string => {
+  const recent = observations.slice(-6)
+  if (!recent.length) return '(none)'
+
+  return recent
+    .map((observation) => {
+      const text = getObservationText(observation).replace(/\s+/g, ' ').slice(0, 120) || '(no text)'
+      return `- [${observation.type}] ${text}`
+    })
+    .join('\n')
+}
+
+const buildPreviousMoodDigest = (mood: MoodAssessment | null | undefined): string => {
+  if (!mood) return '(none)'
+
+  return JSON.stringify(
+    {
+      stageMood: mood.stageMood,
+      intensity: mood.intensity,
+      horizon: mood.horizon,
+      behavioralNarrative: mood.behavioralNarrative
+    },
+    null,
+    2
+  )
+}
+
+const buildMoodInferencePrompt = (input: {
+  moodPrompt: string
+  observations: InteractionObservationSnapshot[]
+  slots: MemorySlotSnapshot
+  state: PersonaState
+  signals: PersonaSignal[]
+  previousMood?: MoodAssessment | null | undefined
+}): string => {
+  const observationDigest = buildObservationDigest(input.observations)
+  const userState = JSON.stringify(
+    {
+      userMood: input.slots.user_mood.current_mood ?? null,
+      conversationMode: input.slots.conversation_state.conversation_mode ?? null,
+      interactionState: input.slots.conversation_state.interaction_state ?? null
+    },
+    null,
+    2
+  )
+  const metricsDigest = JSON.stringify(input.state.metrics, null, 2)
+  const transientDigest = JSON.stringify(input.state.transient_state, null, 2)
+  const sessionDigest = JSON.stringify(input.state.session_hormones, null, 2)
+  const signalDigest = input.signals.length
+    ? input.signals.map((signal) => `- ${signal.user_signal}: ${signal.impact}`).join('\n')
+    : '(none)'
+
+  return `你是一个 MoodAssessment 编译器。
+
+任务：
+根据统一的 Mood 规则、近期 observation、用户侧 slot 状态、当前 persona metrics 与上一阶段 mood，
+输出一份结构化的 AI 侧阶段情绪结果。
+
+重要边界：
+1. 你输出的是 AI 侧阶段状态，不是用户状态报告。
+2. 你必须严格遵守 Mood 规则中的角色锚点与情绪边界。
+3. delta 表示本轮阶段性偏移建议，只影响当前阶段选择与表达，不重写长期人格。
+4. modulation 反映最终可见表达的内部调制方向。
+5. 不要输出解释，不要输出 Markdown，只输出 JSON。
+
+Mood rules:
+${input.moodPrompt.trim() || '(empty)'}
+
+Recent observations:
+${observationDigest}
+
+User-side state:
+${userState}
+
+Current persona metrics:
+${metricsDigest}
+
+Current transient_state:
+${transientDigest}
+
+Current session_hormones:
+${sessionDigest}
+
+Current behavioral narrative:
+${input.state.current_behavioral_narrative || '(empty)'}
+
+Applied persona signals:
+${signalDigest}
+
+Previous mood:
+${buildPreviousMoodDigest(input.previousMood)}
+
+输出 JSON 格式：
+{
+  "stageMood": "flat|pleased|excited|tense|frustrated|fearful",
+  "intensity": 0.0,
+  "confidence": 0.0,
+  "valence": 0.0,
+  "arousal": 0.0,
+  "horizon": "transient|session",
+  "behavioralNarrative": "不超过120字，描述这一阶段会如何影响当前表达与承接",
+  "delta": {
+    "autonomy": 0.0,
+    "verbosity": 0.0,
+    "risk": 0.0,
+    "formality": 0.0
+  },
+  "modulation": {
+    "relationalCloseness": 0.0,
+    "expressiveWarmth": 0.0,
+    "containment": 0.0,
+    "imaginativeOpenness": 0.0,
+    "clarificationNeed": 0.0
+  }
+}`
+}
+
+const normalizeMoodAssessment = (
+  parsed: z.infer<typeof moodAssessmentResponseSchema>,
+  input: {
+    nowIso: string
+    slots: MemorySlotSnapshot
+    signals: PersonaSignal[]
+  }
+): MoodAssessment => ({
+  generatedAt: input.nowIso,
+  stageMood: parsed.stageMood,
+  intensity: roundUnit(parsed.intensity),
+  confidence: roundUnit(parsed.confidence),
+  valence: roundSigned(parsed.valence),
+  arousal: roundUnit(parsed.arousal),
+  horizon: parsed.horizon,
+  behavioralNarrative: parsed.behavioralNarrative.trim(),
+  delta: {
+    autonomy: roundSigned(parsed.delta.autonomy),
+    verbosity: roundSigned(parsed.delta.verbosity),
+    risk: roundSigned(parsed.delta.risk),
+    formality: roundSigned(parsed.delta.formality)
+  },
+  modulation: {
+    relationalCloseness: roundUnit(parsed.modulation.relationalCloseness),
+    expressiveWarmth: roundUnit(parsed.modulation.expressiveWarmth),
+    containment: roundUnit(parsed.modulation.containment),
+    imaginativeOpenness: roundUnit(parsed.modulation.imaginativeOpenness),
+    clarificationNeed: roundUnit(parsed.modulation.clarificationNeed)
+  },
+  sources: {
+    userMood: input.slots.user_mood.current_mood,
+    conversationMode: input.slots.conversation_state.conversation_mode,
+    interactionState: input.slots.conversation_state.interaction_state,
+    signals: input.signals.map((signal) => signal.user_signal)
+  }
+})
+
+const clampWithRange = (value: number, range: { min: number; max: number }): number =>
+  roundTo(clamp(value, range.min, range.max))
+
+const applyCharacterMoodBoundary = (
+  assessment: MoodAssessment,
+  boundary: CharacterMoodBoundary,
+  slots: MemorySlotSnapshot
+): MoodAssessment => {
+  const next: MoodAssessment = {
+    ...assessment,
+    intensity: clampWithRange(assessment.intensity, boundary.stageCaps[assessment.stageMood]),
+    modulation: {
+      relationalCloseness: clampWithRange(
+        assessment.modulation.relationalCloseness,
+        boundary.modulationBounds.relationalCloseness
+      ),
+      expressiveWarmth: clampWithRange(
+        assessment.modulation.expressiveWarmth,
+        boundary.modulationBounds.expressiveWarmth
+      ),
+      containment: clampWithRange(assessment.modulation.containment, boundary.modulationBounds.containment),
+      imaginativeOpenness: clampWithRange(
+        assessment.modulation.imaginativeOpenness,
+        boundary.modulationBounds.imaginativeOpenness
+      ),
+      clarificationNeed: clampWithRange(
+        assessment.modulation.clarificationNeed,
+        boundary.modulationBounds.clarificationNeed
+      )
+    },
+    delta: {
+      autonomy: clampWithRange(assessment.delta.autonomy, boundary.deltaBounds.autonomy),
+      verbosity: clampWithRange(assessment.delta.verbosity, boundary.deltaBounds.verbosity),
+      risk: clampWithRange(assessment.delta.risk, boundary.deltaBounds.risk),
+      formality: clampWithRange(assessment.delta.formality, boundary.deltaBounds.formality)
+    }
+  }
+
+  if (next.stageMood === 'frustrated') {
+    next.modulation.containment = Math.max(next.modulation.containment, 0.76)
+    next.modulation.expressiveWarmth = Math.max(next.modulation.expressiveWarmth, 0.46)
+    next.delta.autonomy = Math.min(next.delta.autonomy, 0)
+    next.delta.verbosity = Math.min(next.delta.verbosity, 0)
+    next.delta.risk = Math.min(next.delta.risk, 0)
+    next.delta.formality = Math.max(next.delta.formality, 0.02)
+  }
+
+  if (next.stageMood === 'tense' || next.stageMood === 'fearful') {
+    next.modulation.containment = Math.max(next.modulation.containment, 0.72)
+    next.delta.risk = Math.min(next.delta.risk, 0)
+    next.delta.formality = Math.max(next.delta.formality, 0)
+  }
+
+  if (next.stageMood === 'excited') {
+    next.modulation.containment = Math.max(next.modulation.containment, 0.62)
+    next.modulation.relationalCloseness = Math.min(next.modulation.relationalCloseness, 0.68)
+    next.modulation.imaginativeOpenness = Math.min(next.modulation.imaginativeOpenness, 0.68)
+    next.delta.autonomy = Math.min(next.delta.autonomy, 0.08)
+    next.delta.verbosity = Math.min(next.delta.verbosity, 0.08)
+    next.delta.risk = Math.min(next.delta.risk, 0.06)
+  }
+
+  if (next.stageMood === boundary.baseline.preferredPositiveBand) {
+    next.modulation.containment = Math.max(next.modulation.containment, 0.64)
+    next.modulation.relationalCloseness = Math.min(next.modulation.relationalCloseness, 0.7)
+  }
+
+  if (slots.conversation_state.interaction_state === 'teasing') {
+    next.modulation.relationalCloseness = Math.min(next.modulation.relationalCloseness, 0.64)
+    next.modulation.expressiveWarmth = Math.min(next.modulation.expressiveWarmth, 0.68)
+  }
+
+  next.delta = {
+    autonomy: clampWithRange(next.delta.autonomy, boundary.deltaBounds.autonomy),
+    verbosity: clampWithRange(next.delta.verbosity, boundary.deltaBounds.verbosity),
+    risk: clampWithRange(next.delta.risk, boundary.deltaBounds.risk),
+    formality: clampWithRange(next.delta.formality, boundary.deltaBounds.formality)
+  }
+
+  next.modulation = {
+    relationalCloseness: clampWithRange(
+      next.modulation.relationalCloseness,
+      boundary.modulationBounds.relationalCloseness
+    ),
+    expressiveWarmth: clampWithRange(next.modulation.expressiveWarmth, boundary.modulationBounds.expressiveWarmth),
+    containment: clampWithRange(next.modulation.containment, boundary.modulationBounds.containment),
+    imaginativeOpenness: clampWithRange(
+      next.modulation.imaginativeOpenness,
+      boundary.modulationBounds.imaginativeOpenness
+    ),
+    clarificationNeed: clampWithRange(next.modulation.clarificationNeed, boundary.modulationBounds.clarificationNeed)
+  }
+
+  return next
+}
+
+const buildFallbackMoodAssessment = (input: {
+  nowIso: string
+  slots: MemorySlotSnapshot
+  signals: PersonaSignal[]
+}): MoodAssessment => ({
+  generatedAt: input.nowIso,
+  stageMood: 'flat',
+  intensity: 0.18,
+  confidence: 0.24,
+  valence: 0,
+  arousal: 0.28,
+  horizon: 'transient',
+  behavioralNarrative: '当前信息不足，保持平稳、克制、可信的在场方式。',
+  delta: {
+    autonomy: 0,
+    verbosity: 0,
+    risk: 0,
+    formality: 0
+  },
+  modulation: {
+    relationalCloseness: 0.56,
+    expressiveWarmth: 0.52,
+    containment: 0.72,
+    imaginativeOpenness: 0.42,
+    clarificationNeed: 0.34
+  },
+  sources: {
+    userMood: input.slots.user_mood.current_mood,
+    conversationMode: input.slots.conversation_state.conversation_mode,
+    interactionState: input.slots.conversation_state.interaction_state,
+    signals: input.signals.map((signal) => signal.user_signal)
+  }
+})
+
+const inferMoodAssessmentWithModel = async (input: {
+  moodPrompt: string
+  observations: InteractionObservationSnapshot[]
+  slots: MemorySlotSnapshot
+  state: PersonaState
+  signals: PersonaSignal[]
+  previousMood?: MoodAssessment | null | undefined
+  nowIso: string
+}): Promise<MoodAssessment> => {
+  const quickModel = await getQuickModel()
+  const response = await quickModel.invoke(
+    [
+      new SystemMessage('你只负责返回合法 JSON。'),
+      new HumanMessage(
+        buildMoodInferencePrompt({
+          moodPrompt: input.moodPrompt,
+          observations: input.observations,
+          slots: input.slots,
+          state: input.state,
+          signals: input.signals,
+          previousMood: input.previousMood
+        })
+      )
+    ],
+    { signal: AbortSignal.timeout(12000) } as Record<string, unknown>
+  )
+
+  const text = contentToText(response.content).trim()
+  const jsonText = extractJsonObject(text)
+  if (!jsonText) {
+    throw new Error('Mood model did not return valid JSON content')
+  }
+
+  const parsed = moodAssessmentResponseSchema.parse(JSON.parse(jsonText))
+  return normalizeMoodAssessment(parsed, {
+    nowIso: input.nowIso,
+    slots: input.slots,
+    signals: input.signals
+  })
+}
+
+const inferMoodAssessment = async (input: {
+  moodPrompt: string
+  observations: InteractionObservationSnapshot[]
+  slots: MemorySlotSnapshot
+  state: PersonaState
+  signals: PersonaSignal[]
+  previousMood?: MoodAssessment | null | undefined
+  nowIso: string
+}): Promise<MoodAssessment> => {
+  try {
+    const moodAssessment = await inferMoodAssessmentWithModel(input)
+    emitGraphThought(
+      'personaNode',
+      JSON.parse(
+        JSON.stringify({
+          stage: 'mood_assessment_inference',
+          source: 'quick_model',
+          moodAssessment
+        })
+      ) as any
+    )
+    return moodAssessment
+  } catch (error) {
+    const fallbackMoodAssessment = buildFallbackMoodAssessment({
+      nowIso: input.nowIso,
+      slots: input.slots,
+      signals: input.signals
+    })
+    emitGraphThought(
+      'personaNode',
+      JSON.parse(
+        JSON.stringify({
+          stage: 'mood_assessment_inference',
+          source: 'neutral_fallback',
+          reason: toErrorMessage(error),
+          moodAssessment: fallbackMoodAssessment
+        })
+      ) as any
+    )
+    return fallbackMoodAssessment
+  }
+}
+
 const addMetricDelta = (
   delta: PersonaMetricDelta,
   category: SignalCategory,
@@ -253,6 +702,16 @@ const addStableMetric = (
   }
   return metrics
 }
+
+const applyMoodDeltaToMetrics = (
+  metrics: PersonaMetrics,
+  delta: MoodAssessment['delta']
+): PersonaMetrics => ({
+  autonomy_level: clamp01(roundTo(metrics.autonomy_level + delta.autonomy)),
+  verbosity_index: clamp01(roundTo(metrics.verbosity_index + delta.verbosity)),
+  risk_tolerance: clamp01(roundTo(metrics.risk_tolerance + delta.risk)),
+  formality_score: clamp01(roundTo(metrics.formality_score + delta.formality))
+})
 
 const decayDelta = (input: PersonaMetricDelta, factor: number): PersonaMetricDelta => ({
   autonomy_level: roundTo(input.autonomy_level * factor),
@@ -416,177 +875,9 @@ const buildPolicy = (
   }
 }
 
-const maxAbsDelta = (delta: PersonaMetricDelta): number =>
-  Math.max(
-    Math.abs(delta.autonomy_level),
-    Math.abs(delta.verbosity_index),
-    Math.abs(delta.risk_tolerance),
-    Math.abs(delta.formality_score)
-  )
-
 const roundSigned = (value: number): number => roundTo(clamp(value, -1, 1))
 
 const roundUnit = (value: number): number => roundTo(clamp(value, 0, 1))
-
-const inferStageMood = (
-  state: PersonaState,
-  slots: MemorySlotSnapshot
-): {
-  stageMood: StageMood
-  valence: number
-  arousal: number
-} => {
-  const userMood = slots.user_mood.current_mood
-  const { autonomy_level, risk_tolerance, formality_score } = state.metrics
-  const transient = state.transient_state
-
-  if (userMood === 'frustrated') {
-    return { stageMood: 'frustrated', valence: -0.64, arousal: 0.74 }
-  }
-  if (userMood === 'impatient') {
-    return { stageMood: 'tense', valence: -0.32, arousal: 0.81 }
-  }
-  if (userMood === 'uncertain') {
-    return { stageMood: 'fearful', valence: -0.42, arousal: 0.58 }
-  }
-  if (userMood === 'positive') {
-    if (autonomy_level >= 0.68 || risk_tolerance >= 0.66) {
-      return { stageMood: 'excited', valence: 0.74, arousal: 0.79 }
-    }
-    return { stageMood: 'pleased', valence: 0.42, arousal: 0.48 }
-  }
-
-  if (transient.risk_tolerance <= -0.08 && transient.verbosity_index <= -0.05) {
-    return { stageMood: 'frustrated', valence: -0.54, arousal: 0.68 }
-  }
-  if (risk_tolerance >= 0.72 && autonomy_level >= 0.64) {
-    return { stageMood: 'excited', valence: 0.68, arousal: 0.76 }
-  }
-  if (autonomy_level >= 0.58 && risk_tolerance >= 0.54) {
-    return { stageMood: 'pleased', valence: 0.34, arousal: 0.44 }
-  }
-  if (risk_tolerance <= 0.28 && formality_score >= 0.68) {
-    return { stageMood: 'fearful', valence: -0.38, arousal: 0.49 }
-  }
-  if (formality_score >= 0.62 || autonomy_level <= 0.35) {
-    return { stageMood: 'tense', valence: -0.22, arousal: 0.57 }
-  }
-
-  return { stageMood: 'flat', valence: 0, arousal: 0.28 }
-}
-
-const buildMoodAssessment = (input: {
-  state: PersonaState
-  policy: PersonaPolicy
-  slots: MemorySlotSnapshot
-  signals: PersonaSignal[]
-  nowIso: string
-}): MoodAssessment => {
-  const { state, policy, slots, signals, nowIso } = input
-  const transientAmplitude = maxAbsDelta(state.transient_state)
-  const sessionAmplitude = maxAbsDelta(state.session_hormones)
-  const hasUserMood = Boolean(slots.user_mood.current_mood)
-  const { stageMood, valence: baseValence, arousal: baseArousal } = inferStageMood(state, slots)
-
-  const intensity = roundUnit(
-    0.16 +
-      transientAmplitude * 1.85 +
-      sessionAmplitude * 0.9 +
-      (hasUserMood ? 0.12 : 0) +
-      (stageMood === 'flat' ? 0 : 0.06)
-  )
-
-  const confidence = roundUnit(
-    0.5 +
-      (hasUserMood ? 0.18 : 0) +
-      (signals.length > 0 ? 0.08 : 0) +
-      (slots.conversation_state.interaction_state ? 0.05 : 0) +
-      (transientAmplitude >= 0.08 ? 0.04 : 0)
-  )
-
-  const valence = roundSigned(
-    baseValence +
-      (stageMood === 'pleased' ? intensity * 0.12 : 0) +
-      (stageMood === 'excited' ? intensity * 0.18 : 0) -
-      (stageMood === 'tense' ? intensity * 0.08 : 0) -
-      (stageMood === 'frustrated' ? intensity * 0.14 : 0) -
-      (stageMood === 'fearful' ? intensity * 0.12 : 0)
-  )
-
-  const arousal = roundUnit(baseArousal + intensity * 0.18)
-  const horizon: MoodHorizon =
-    hasUserMood || transientAmplitude >= sessionAmplitude ? 'transient' : 'session'
-
-  const relationalCloseness = roundUnit(
-    0.52 +
-      valence * 0.18 +
-      (policy.style.tone === 'casual' ? 0.12 : 0) -
-      (policy.style.tone === 'formal' ? 0.08 : 0) -
-      ((stageMood === 'tense' || stageMood === 'fearful') ? 0.08 : 0)
-  )
-
-  const expressiveWarmth = roundUnit(
-    0.48 +
-      valence * 0.28 +
-      ((slots.user_mood.current_mood === 'frustrated' || slots.user_mood.current_mood === 'uncertain')
-        ? 0.08
-        : 0) -
-      (policy.style.tone === 'formal' ? 0.06 : 0)
-  )
-
-  const containment = roundUnit(
-    0.42 +
-      state.metrics.formality_score * 0.34 +
-      ((stageMood === 'tense' || stageMood === 'fearful' || stageMood === 'frustrated') ? 0.12 : 0) -
-      (stageMood === 'excited' ? 0.1 : 0)
-  )
-
-  const imaginativeOpenness = roundUnit(
-    0.28 +
-      state.metrics.risk_tolerance * 0.48 +
-      (stageMood === 'pleased' ? 0.05 : 0) +
-      (stageMood === 'excited' ? 0.12 : 0) -
-      (stageMood === 'fearful' ? 0.16 : 0) -
-      (stageMood === 'tense' ? 0.08 : 0)
-  )
-
-  const clarificationNeed = roundUnit(
-    0.24 +
-      (1 - state.metrics.autonomy_level) * 0.48 +
-      ((stageMood === 'tense' || stageMood === 'fearful') ? 0.14 : 0) +
-      (stageMood === 'frustrated' ? 0.06 : 0)
-  )
-
-  return {
-    generatedAt: nowIso,
-    stageMood,
-    intensity,
-    confidence,
-    valence,
-    arousal,
-    horizon,
-    behavioralNarrative: state.current_behavioral_narrative,
-    delta: {
-      autonomy: roundSigned(state.transient_state.autonomy_level),
-      verbosity: roundSigned(state.transient_state.verbosity_index),
-      risk: roundSigned(state.transient_state.risk_tolerance),
-      formality: roundSigned(state.transient_state.formality_score)
-    },
-    modulation: {
-      relationalCloseness,
-      expressiveWarmth,
-      containment,
-      imaginativeOpenness,
-      clarificationNeed
-    },
-    sources: {
-      userMood: slots.user_mood.current_mood,
-      conversationMode: slots.conversation_state.conversation_mode,
-      interactionState: slots.conversation_state.interaction_state,
-      signals: signals.map((signal) => signal.user_signal)
-    }
-  }
-}
 
 const getObservationText = (observation: InteractionObservationSnapshot): string =>
   String(
@@ -754,7 +1045,7 @@ const reconcilePersonaState = async (input: {
 }
 
 export async function personaNode(
-  _state: typeof MessagesState.State
+  state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
   const personaState = await loadPersonaState()
   if (!personaState) {
@@ -762,6 +1053,7 @@ export async function personaNode(
   }
 
   const config = await personaConfigService.getConfig()
+  const moodPrompt = await loadMoodPrompt()
   const observations = await interactionObservationService.listSince(personaState.last_observation_id)
   const slots = await memorySlotService.reconcileFromObservations()
   const reconciled = await reconcilePersonaState({
@@ -774,14 +1066,22 @@ export async function personaNode(
   await savePersonaState(reconciled.state)
 
   const nowIso = new Date().toISOString()
-  const policy = buildPolicy(reconciled.state.metrics, reconciled.appliedSignals, nowIso)
-  const moodAssessment = buildMoodAssessment({
+  const rawMoodAssessment = await inferMoodAssessment({
+    moodPrompt,
+    observations,
+    previousMood: state.moodAssessment,
     state: reconciled.state,
-    policy,
     slots,
     signals: reconciled.appliedSignals,
     nowIso
   })
+  const moodAssessment = applyCharacterMoodBoundary(
+    rawMoodAssessment,
+    FAMILA_CHARACTER_MOOD_BOUNDARY,
+    slots
+  )
+  const effectiveMetrics = applyMoodDeltaToMetrics(reconciled.state.metrics, moodAssessment.delta)
+  const policy = buildPolicy(effectiveMetrics, reconciled.appliedSignals, nowIso)
 
   await memoryManager.applyAdaptiveConfig({
     archiveThreshold: policy.memory.archiveThreshold,
@@ -794,14 +1094,17 @@ export async function personaNode(
       observationCount: observations.length,
       lastObservationId: reconciled.state.last_observation_id,
       metrics: reconciled.state.metrics,
+      effectiveMetrics,
       stablePreferences: reconciled.state.stable_preferences,
       sessionHormones: reconciled.state.session_hormones,
       transientState: reconciled.state.transient_state,
+      characterMoodBoundary: FAMILA_CHARACTER_MOOD_BOUNDARY,
       slots: {
         userMood: slots.user_mood,
         conversationMode: slots.conversation_state.conversation_mode,
         interactionState: slots.conversation_state.interaction_state
       },
+      rawMoodAssessment,
       moodAssessment
     })
   ) as Record<string, unknown>
