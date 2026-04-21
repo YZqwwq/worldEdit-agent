@@ -287,16 +287,13 @@
               <button
                 type="button"
                 class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                :disabled="memorySnapshotLoading || personaResetLoading"
-                @click="openPersonaResetConfirm"
+                :disabled="memorySnapshotLoading || agentStateResetLoading"
+                @click="openAgentStateResetConfirm"
               >
-                {{ personaResetLoading ? '重置中...' : '重置人格' }}
+                {{ agentStateResetLoading ? '重置中...' : '重置 AI 状态' }}
               </button>
             </div>
             <template v-if="memorySnapshotData.persona">
-              <div class="mb-3 text-sm text-gray-700 whitespace-pre-wrap break-words">
-                {{ memorySnapshotData.persona.current_behavioral_narrative }}
-              </div>
               <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <div
                   v-for="metric in personaMetricEntries(memorySnapshotData.persona.metrics)"
@@ -675,17 +672,17 @@
     />
 
     <ConfirmDialog
-      v-model="showPersonaResetConfirm"
-      title="确认重置人格状态？"
-      message="这将把人格指标恢复到默认初始值，不会删除对话历史、记忆和上传文件。"
-      confirm-text="重置人格"
+      v-model="showAgentStateResetConfirm"
+      title="确认重置 AI 状态？"
+      message="这将清空对话历史、长期记忆、短期记忆、阶段记忆、短期插槽、情绪偏移和人格基底，并恢复到初始状态。不会删除上传文件和头像资料。"
+      confirm-text="重置 AI 状态"
       cancel-text="取消"
       loading-text="重置中..."
       size="sm"
       icon="warning"
       :danger="true"
-      :loading="personaResetLoading"
-      @confirm="confirmResetPersonaState"
+      :loading="agentStateResetLoading"
+      @confirm="confirmResetAgentState"
       @cancel="restoreInputFocus"
     />
 
@@ -749,7 +746,7 @@ const {
   loadHistory,
   refreshHistory,
   purgeAllData,
-  resetPersonaState,
+  resetAgentState,
   agentLogs
 } =
   useAIChatService()
@@ -769,8 +766,8 @@ const showMemorySnapshot = ref(false)
 const memorySnapshotLoading = ref(false)
 const memorySnapshotError = ref('')
 const memorySnapshotData = ref<MemoryInspectionPayload | null>(null)
-const showPersonaResetConfirm = ref(false)
-const personaResetLoading = ref(false)
+const showAgentStateResetConfirm = ref(false)
+const agentStateResetLoading = ref(false)
 const showPurgeConfirm = ref(false)
 const purgeConfirmLoading = ref(false)
 type DialogIcon = 'none' | 'info' | 'warning' | 'danger' | 'success'
@@ -1043,8 +1040,8 @@ const openMemorySnapshot = async (): Promise<void> => {
   await loadMemorySnapshot()
 }
 
-const openPersonaResetConfirm = (): void => {
-  showPersonaResetConfirm.value = true
+const openAgentStateResetConfirm = (): void => {
+  showAgentStateResetConfirm.value = true
 }
 
 const openModelConfig = async (): Promise<void> => {
@@ -1654,7 +1651,7 @@ const restoreInputFocus = async (): Promise<void> => {
     !showModelConfig.value &&
     !showMemorySnapshot.value &&
     !showPurgeConfirm.value &&
-    !showPersonaResetConfirm.value &&
+    !showAgentStateResetConfirm.value &&
     !showDeleteFileConfirm.value &&
     !showNoticeDialog.value
   ) {
@@ -1726,19 +1723,19 @@ const confirmPurgeAllData = async (): Promise<void> => {
   }
 }
 
-const confirmResetPersonaState = async (): Promise<void> => {
-  if (personaResetLoading.value) return
-  personaResetLoading.value = true
+const confirmResetAgentState = async (): Promise<void> => {
+  if (agentStateResetLoading.value) return
+  agentStateResetLoading.value = true
   try {
-    await resetPersonaState()
+    await resetAgentState()
     await loadMemorySnapshot()
-    showPersonaResetConfirm.value = false
-    showNotice('人格已重置', '人格状态已恢复到默认初始值。', 'success')
+    showAgentStateResetConfirm.value = false
+    showNotice('AI 状态已重置', '长期/短期记忆、情绪链路和人格基底都已恢复到默认初始值。', 'success')
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
-    showNotice('重置人格失败', message, 'warning')
+    showNotice('重置 AI 状态失败', message, 'warning')
   } finally {
-    personaResetLoading.value = false
+    agentStateResetLoading.value = false
   }
 }
 

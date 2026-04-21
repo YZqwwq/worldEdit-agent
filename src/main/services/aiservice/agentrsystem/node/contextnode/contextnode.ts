@@ -7,8 +7,13 @@ import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsageProm
 import { getMainAgentToolEntries } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import {
   buildPersonaAssemblyPrompt,
-  loadExpressionPrompt
+  loadCharacterPrompt,
+  loadExpressionPromptProfile
 } from '../../../prompt/main_agent/agentPromptService'
+import {
+  traceArtifact,
+  traceDecision
+} from '../../../../log/trace/agentTraceEmitter'
 
 /**
  * ContextNode: 负责构建全局上下文，包括 Persona、Memory 等。
@@ -21,13 +26,15 @@ export async function contextNode(
   const messages: BaseMessage[] = []
 
   const slotSnapshot = await memorySlotService.reconcileFromObservations()
-  const expressionPrompt = await loadExpressionPrompt()
+  const characterPrompt = await loadCharacterPrompt()
+  const expressionProfile =
+    state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
 
   // 人格组装提示
   const personaAssemblyPrompt = buildPersonaAssemblyPrompt({
-    expressionPrompt,
-    moodAssessment: state.moodAssessment,
-    personaPolicy: state.personaPolicy,
+    characterPrompt,
+    expressionPrompt: expressionProfile.prompt,
+    moodAssessment: state.moodAssessment
   })
   if (personaAssemblyPrompt) {
     messages.push(new SystemMessage(personaAssemblyPrompt))
@@ -80,19 +87,23 @@ export async function contextNode(
 
   // 记忆系统
   const memoryPromptPlan = buildMemoryPromptPlan(snapshot, slotSnapshot)
+  const injectedSections: string[] = ['personaAssemblyPrompt']
 
   // 长期稳定记忆
   if (memoryPromptPlan.longTermPrompt) {
+    injectedSections.push('longTermMemory')
     messages.push(new SystemMessage(`长期稳定记忆:\n${memoryPromptPlan.longTermPrompt}`))
   }
 
   // 记忆槽位
   if (memoryPromptPlan.slotPrompt) {
+    injectedSections.push('slotPrompt')
     messages.push(new SystemMessage(memoryPromptPlan.slotPrompt))
   }
 
   // 最近阶段记忆
   if (memoryPromptPlan.recentStagePrompt) {
+    injectedSections.push('recentStageMemory')
     messages.push(new SystemMessage(`最近阶段记忆:\n${memoryPromptPlan.recentStagePrompt}`))
   }
 
@@ -109,6 +120,45 @@ export async function contextNode(
       }))
     }
   }
+
+  if (state.taskLifecycle?.activeTask) injectedSections.push('activeTask')
+  if (toolUsagePrompt) injectedSections.push('toolUsage')
+  if (snapshot.anchors.length > 0) injectedSections.push('anchors')
+  if (snapshot.shortTerm.length > 0) injectedSections.push('shortTermHistory')
+
+  traceDecision('contextNode', {
+    title: '决策: contextNode 注入计划',
+    summary:
+      `注入 ${injectedSections.length} 个上下文段，` +
+      `expression=${expressionProfile.id}，短期窗口 ${snapshot.shortTerm.length} 条`,
+    data: {
+      expressionProfile: {
+        id: expressionProfile.id,
+        title: expressionProfile.title,
+        summary: expressionProfile.summary
+      },
+      injectedSections,
+      shortTermCount: snapshot.shortTerm.length,
+      anchorCount: snapshot.anchors.length,
+      hasActiveTask: Boolean(state.taskLifecycle?.activeTask),
+      hasLongTermMemory: Boolean(memoryPromptPlan.longTermPrompt),
+      hasSlotPrompt: Boolean(memoryPromptPlan.slotPrompt),
+      hasRecentStagePrompt: Boolean(memoryPromptPlan.recentStagePrompt)
+    }
+  })
+
+  traceArtifact('contextNode', {
+    title: '产物: contextNode 消息装配',
+    summary: `system=${messages.filter((message) => message instanceof SystemMessage).length}，history=${snapshot.shortTerm.length}`,
+    data: {
+      systemMessageCount: messages.filter((message) => message instanceof SystemMessage).length,
+      historyMessageCount: snapshot.shortTerm.length,
+      estimatedPromptChars: messages.reduce((total, message) => {
+        const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+        return total + content.length
+      }, 0)
+    }
+  })
 
   // 注意：LangGraph 的 reducer 通常是追加模式。
   // 最终顺序由 llmCall 节点负责调整 (System -> History -> User Input)。

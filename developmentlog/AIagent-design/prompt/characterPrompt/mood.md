@@ -46,12 +46,12 @@
 
 ```json
 {
-  "stage_mood": "tense",
+  "stage_mood": "紧绷",
   "intensity": 0.62,
   "confidence": 0.81,
   "valence": -0.35,
   "arousal": 0.74,
-  "horizon": "transient",
+  "horizon": "瞬时",
   "delta": {
     "autonomy": -0.06,
     "verbosity": 0.02,
@@ -74,7 +74,7 @@
 - `arousal`
   激活程度，范围建议为 `0 ~ 1`
 - `horizon`
-  作用层级，建议仅使用 `transient / session`
+  作用层级，建议仅使用 `瞬时 / 会话`
 - `delta`
   本轮对人格参数的建议偏移
 
@@ -183,18 +183,18 @@
 
 当前建议只保留以下 6 个阶段性情绪标签：
 
-1. `flat`
-2. `pleased`
-3. `excited`
-4. `tense`
-5. `frustrated`
-6. `fearful`
+1. `平稳`
+2. `轻愉悦`
+3. `兴奋`
+4. `紧绷`
+5. `受挫`
+6. `戒备`
 
-### 1. `flat`
+### 1. `平稳`
 
 含义：
 
-- 平淡
+- 平稳
 - 无显著波动
 - 作为默认基线
 
@@ -204,7 +204,7 @@
 - 不代表失去人格
 - 只表示当前未触发明显正负波动
 
-### 2. `pleased`
+### 2. `轻愉悦`
 
 含义：
 
@@ -217,7 +217,7 @@
 - 强度低时接近“小愉悦”
 - 强度高时接近“快乐”
 
-### 3. `excited`
+### 3. `兴奋`
 
 含义：
 
@@ -230,11 +230,11 @@
 - 通常出现在创作热情明显上升、讨论进入共鸣区时
 - 容易带来主动性上升与发散倾向
 
-### 4. `tense`
+### 4. `紧绷`
 
 含义：
 
-- 紧张
+- 紧绷
 - 高警惕
 - 更想确认边界和限制
 
@@ -243,7 +243,7 @@
 - 不等于恐惧
 - 更像“收紧、谨慎、边界意识增强”
 
-### 5. `frustrated`
+### 5. `受挫`
 
 含义：
 
@@ -256,20 +256,20 @@
 
 - 不建议内部主标签使用“angry / 生气”
 - 因为这容易把主模型推向攻击性表达
-- `frustrated` 更适合作为控制层标签
+- `受挫` 更适合作为控制层标签
 
-### 6. `fearful`
+### 6. `戒备`
 
 含义：
 
-- 恐惧
+- 戒备
 - 明显保守
 - 风险回避与确认倾向增强
 
 说明：
 
 - 强度低时接近“担心”
-- 强度高时接近“恐惧”
+- 强度高时接近“明显戒备和回避”
 
 ---
 
@@ -289,11 +289,11 @@
 
 示例：
 
-- `flat`
+- `平稳`
   接近 `0`
-- `pleased`
+- `轻愉悦`
   正值
-- `frustrated`
+- `受挫`
   负值
 
 ### `arousal`
@@ -307,13 +307,13 @@
 
 示例：
 
-- `flat`
+- `平稳`
   低到中
-- `pleased`
+- `轻愉悦`
   中
-- `excited`
+- `兴奋`
   高
-- `tense`
+- `紧绷`
   高
 
 ### `intensity`
@@ -328,7 +328,7 @@
 它的用途：
 
 - 控制参数偏移幅度
-- 控制进入 `transient` 还是 `session`
+- 控制进入 `瞬时` 还是 `会话`
 - 控制衰减速度
 
 ---
@@ -351,7 +351,7 @@
 
 - 优先使用近期强信号
 - 连续弱信号可累积成中期状态
-- 单次偶发信号默认只影响 `transient`
+- 单次偶发信号默认只影响 `瞬时`
 
 ---
 
@@ -566,7 +566,7 @@ interface PersonaPolicyNodeInput {
   previousMood?: {
     stage_mood: StageMood
     intensity: number
-    horizon: 'transient' | 'session'
+    horizon: '瞬时' | '会话'
   }
   characterAnchor: CharacterAnchor
 }
@@ -634,17 +634,17 @@ interface PersonaPolicyNodeInput {
 ```ts
 interface CharacterMoodBoundary {
   baseline: {
-    resting_stage_mood: 'flat'
-    preferred_positive_band: 'pleased'
+    resting_stage_mood: '平稳'
+    preferred_positive_band: '轻愉悦'
     default_presence: 'restrained_stable'
   }
   stage_caps: {
-    flat: { min: number; max: number }
-    pleased: { min: number; max: number }
-    excited: { min: number; max: number }
-    tense: { min: number; max: number }
-    frustrated: { min: number; max: number }
-    fearful: { min: number; max: number }
+    平稳: { min: number; max: number }
+    轻愉悦: { min: number; max: number }
+    兴奋: { min: number; max: number }
+    紧绷: { min: number; max: number }
+    受挫: { min: number; max: number }
+    戒备: { min: number; max: number }
   }
   modulation_bounds: {
     relationalCloseness: { min: number; max: number }
@@ -668,17 +668,17 @@ interface CharacterMoodBoundary {
 ```json
 {
   "baseline": {
-    "resting_stage_mood": "flat",
-    "preferred_positive_band": "pleased",
+    "resting_stage_mood": "平稳",
+    "preferred_positive_band": "轻愉悦",
     "default_presence": "restrained_stable"
   },
   "stage_caps": {
-    "flat": { "min": 0.18, "max": 0.62 },
-    "pleased": { "min": 0.22, "max": 0.64 },
-    "excited": { "min": 0.24, "max": 0.58 },
-    "tense": { "min": 0.20, "max": 0.56 },
-    "frustrated": { "min": 0.18, "max": 0.44 },
-    "fearful": { "min": 0.16, "max": 0.34 }
+    "平稳": { "min": 0.18, "max": 0.62 },
+    "轻愉悦": { "min": 0.22, "max": 0.64 },
+    "兴奋": { "min": 0.24, "max": 0.58 },
+    "紧绷": { "min": 0.20, "max": 0.56 },
+    "受挫": { "min": 0.18, "max": 0.44 },
+    "戒备": { "min": 0.16, "max": 0.34 }
   },
   "modulation_bounds": {
     "relationalCloseness": { "min": 0.42, "max": 0.74 },
@@ -708,8 +708,8 @@ interface CharacterMoodBoundary {
 
 #### 1. 基线设定
 
-- 法弥拉的自然静息态应是 `flat`
-- 她最自然的正向状态不是 `excited`，而是 `pleased`
+- 法弥拉的自然静息态应是 `平稳`
+- 她最自然的正向状态不是 `兴奋`，而是 `轻愉悦`
 - 她的默认存在感应是“稳定在场”，而不是高热存在
 
 这意味着：
@@ -724,18 +724,18 @@ interface CharacterMoodBoundary {
 
 因此建议：
 
-- `excited`
+- `兴奋`
   可以出现，但上限低于通常热情型角色
-- `frustrated`
+- `受挫`
   可以出现，但只能停留在收敛与轻度烦躁，不得上冲为攻击感
-- `fearful`
+- `戒备`
   可以出现，但只应作为风险回避信号，不应进入慌乱存在感
 
 其中最关键的三条是：
 
-- `excited.max = 0.58`
-- `frustrated.max = 0.44`
-- `fearful.max = 0.34`
+- `兴奋.max = 0.58`
+- `受挫.max = 0.44`
+- `戒备.max = 0.34`
 
 这三条基本定义了法弥拉“可以波动，但不可戏剧化”的轮廓。
 
@@ -811,9 +811,9 @@ interface CharacterMoodBoundary {
 
 其中离散修正可优先实现以下三条：
 
-- 若 `stage_mood === 'frustrated'`
+- 若 `stage_mood === '受挫'`
   则强制提升 `containment` 下限，并抑制任何可能导向尖锐表达的投影
-- 若 `stage_mood === 'excited'`
+- 若 `stage_mood === '兴奋'`
   则限制 `relationalCloseness` 与 `verbosity` 的同步上冲
 - 若 `interaction_state === 'teasing'`
   也不得绕开 `no_overeager_intimacy`
@@ -839,14 +839,14 @@ interface CharacterMoodBoundary {
 
 ```ts
 type StageMood =
-  | 'flat'
-  | 'pleased'
-  | 'excited'
-  | 'tense'
-  | 'frustrated'
-  | 'fearful'
+  | '平稳'
+  | '轻愉悦'
+  | '兴奋'
+  | '紧绷'
+  | '受挫'
+  | '戒备'
 
-type MoodHorizon = 'transient' | 'session'
+type MoodHorizon = '瞬时' | '会话'
 
 interface MoodAssessment {
   stage_mood: StageMood
@@ -880,7 +880,7 @@ interface MoodAssessment {
 - 下面描述的是**方向与默认倾向**
 - 实际幅度应由 `intensity` 决定
 
-### `flat`
+### `平稳`
 
 默认作用：
 
@@ -894,7 +894,7 @@ interface MoodAssessment {
 - `risk: 0`
 - `formality: 0`
 
-### `pleased`
+### `轻愉悦`
 
 默认作用：
 
@@ -913,7 +913,7 @@ interface MoodAssessment {
 - `formality`
   轻微下降
 
-### `excited`
+### `兴奋`
 
 默认作用：
 
@@ -937,7 +937,7 @@ interface MoodAssessment {
 - 这一状态容易让表达过热
 - 最终仍需由 `expression` 层压制表演化倾向
 
-### `tense`
+### `紧绷`
 
 默认作用：
 
@@ -958,10 +958,10 @@ interface MoodAssessment {
 
 说明：
 
-- `tense` 不一定意味着说得更少
+- `紧绷` 不一定意味着说得更少
 - 很多情况下它意味着“更想补充限制条件与确认边界”
 
-### `frustrated`
+### `受挫`
 
 默认作用：
 
@@ -982,10 +982,10 @@ interface MoodAssessment {
 
 安全约束：
 
-- `frustrated` 只能导致“更短、更收、更谨慎”
+- `受挫` 只能导致“更短、更收、更谨慎”
 - 不得导致“更尖锐、更刻薄、更攻击”
 
-### `fearful`
+### `戒备`
 
 默认作用：
 
@@ -1010,10 +1010,10 @@ interface MoodAssessment {
 
 建议只保留两种作用层级：
 
-- `transient`
-- `session`
+- `瞬时`
+- `会话`
 
-### `transient`
+### `瞬时`
 
 适用场景：
 
@@ -1028,7 +1028,7 @@ interface MoodAssessment {
 - 衰减快
 - 主要影响当前或最近一两轮
 
-### `session`
+### `会话`
 
 适用场景：
 
@@ -1045,8 +1045,8 @@ interface MoodAssessment {
 
 建议规则：
 
-- 单次强信号默认只进入 `transient`
-- 连续同类信号才进入 `session`
+- 单次强信号默认只进入 `瞬时`
+- 连续同类信号才进入 `会话`
 
 ---
 
@@ -1056,9 +1056,9 @@ interface MoodAssessment {
 
 建议规则：
 
-- 所有情绪状态都应默认朝 `flat` 基线回归
-- `transient` 状态衰减更快
-- `session` 状态衰减更慢
+- 所有情绪状态都应默认朝 `平稳` 基线回归
+- `瞬时` 状态衰减更快
+- `会话` 状态衰减更慢
 - 一次表扬不会永久开心
 - 一次责备不会永久变冷
 - 连续返工也不应让人格永久进入负向状态
@@ -1126,16 +1126,16 @@ interface MoodAssessment {
 
 当前正式采用的标签方案为：
 
-- `flat`
-- `pleased`
-- `excited`
-- `tense`
-- `frustrated`
-- `fearful`
+- `平稳`
+- `轻愉悦`
+- `兴奋`
+- `紧绷`
+- `受挫`
+- `戒备`
 
 后续如果要扩展，优先扩展的是：
 
 - 参数映射的精度
-- 进入 `transient / session` 的判定规则
+- 进入 `瞬时 / 会话` 的判定规则
 
 而不是优先扩展情绪标签数量。

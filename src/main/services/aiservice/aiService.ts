@@ -49,6 +49,10 @@ class AIService {
     await aiSessionMaintenanceService.resetPersonaStateOnly()
   }
 
+  async resetAgentState(): Promise<void> {
+    await aiSessionMaintenanceService.resetAgentState()
+  }
+
   /**
    * 流式发送消息：逐 chunk 通过回调返回，并汇总最终文本。
    */

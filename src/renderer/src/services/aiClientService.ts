@@ -9,13 +9,9 @@ import {
 import type { ChatMessage, ChatMessageAttachment } from '../../../share/cache/render/aiagent/chatMessage'
 import { partsToMarkdown } from '../utils/aiToMarkdown'
 import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
+import type { AgentTraceRecord } from '../../../share/cache/render/aiagent/agentTrace'
 
-export interface AgentLog {
-  subType: 'node_enter' | 'node_exit' | 'tool_start' | 'tool_end' | 'thought'
-  nodeName?: string
-  data?: any
-  timestamp: number
-}
+export type AgentLog = AgentTraceRecord
 
 // A reactive reference to hold the list of chat messages
 const messages = ref<ChatMessage[]>([])
@@ -102,13 +98,8 @@ function handleStreamChunk(chunk: StreamChunk): void {
       msg.text = currentStreamingText
       break
     
-    case 'agent_log':
-      agentLogs.value.push({
-        subType: chunk.subType,
-        nodeName: chunk.nodeName,
-        data: chunk.data,
-        timestamp: chunk.timestamp
-      })
+    case 'agent_trace':
+      agentLogs.value.push(chunk.record)
       break
 
     case 'stream_error':
@@ -241,19 +232,21 @@ async function purgeAllData(): Promise<void> {
 }
 
 /**
- * 重置人格状态（不清理历史与记忆）
+ * 重置 AI 状态（历史、记忆、人格、情绪链路）
  */
-async function resetPersonaState(): Promise<void> {
+async function resetAgentState(): Promise<void> {
   try {
-    if (!window.api?.resetPersonaState) {
+    if (!window.api?.resetAgentState) {
       const msg = '检测到 API 更新未生效，请重启 Electron 应用 (npm run dev) 以加载最新代码。'
       console.error(msg)
       alert(msg)
       return
     }
-    await window.api.resetPersonaState()
+    await window.api.resetAgentState()
+    messages.value = []
+    agentLogs.value = []
   } catch (error) {
-    console.error('Failed to reset persona state:', error)
+    console.error('Failed to reset agent state:', error)
   }
 }
 
@@ -341,7 +334,7 @@ export function useAIChatService(): {
   refreshHistory: () => Promise<void>
   clearHistory: () => Promise<void>
   purgeAllData: () => Promise<void>
-  resetPersonaState: () => Promise<void>
+  resetAgentState: () => Promise<void>
 } {
   return {
     messages,
@@ -354,6 +347,6 @@ export function useAIChatService(): {
     refreshHistory,
     clearHistory,
     purgeAllData,
-    resetPersonaState
+    resetAgentState
   }
 }

@@ -1,18 +1,12 @@
 import { BaseMessage, SystemMessage, AIMessage, AIMessageChunk } from '@langchain/core/messages'
 import { getModelWithTool, normalizeModelResponse } from '../../modelwithtool/modelwithtool'
 import { MessagesState } from '../../state/messageState'
-import { appendFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { ConfiguredModelRuntime } from '../../../model-adapters/modelProviderAdapter'
-
-function debugLog(msg: string) {
-  try {
-    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
-    appendFileSync(logPath, `[${new Date().toISOString()}] modelnode: ${msg}\n`)
-  } catch (e) {
-    // ignore
-  }
-}
+import {
+  traceArtifact,
+  traceDecision,
+  traceState
+} from '../../../../log/trace/agentTraceEmitter'
 
 function combineSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
   const validSignals = signals.filter((signal): signal is AbortSignal => Boolean(signal))
@@ -48,7 +42,6 @@ export async function llmCall(
   state: typeof MessagesState.State,
   config?: { signal?: AbortSignal }
 ): Promise<Partial<typeof MessagesState.State>> {
-  debugLog(`llmCall: start`)
   // 动态调整消息顺序：确保 SystemMessage 位于首位，历史消息位于中间，当前用户输入位于最后
   // ContextNode 可能将 SystemMessage 和历史消息追加到了末尾，这里进行一次重排序
   const messages = [...state.messages]
@@ -76,6 +69,8 @@ export async function llmCall(
   let runtime: ConfiguredModelRuntime | undefined
   let finalChunk: AIMessageChunk | undefined
   let timedOut = false
+  let firstChunkAt: number | undefined
+  const startedAt = Date.now()
   const timeoutController = new AbortController()
   let timeout: ReturnType<typeof setTimeout> | undefined
 
@@ -90,7 +85,6 @@ export async function llmCall(
     timeout = setTimeout(() => {
       timedOut = true
       timeoutController.abort()
-      debugLog(`llmCall: Timeout reached (${timeoutMs}ms)`)
     }, timeoutMs)
     const combinedSignal = combineSignals([config?.signal, timeoutController.signal])
     const callOptions: Record<string, unknown> = {
@@ -100,13 +94,30 @@ export async function llmCall(
       callOptions.temperature = state.personaPolicy.sampling.temperature
       callOptions.topP = state.personaPolicy.sampling.topP
       callOptions.maxTokens = state.personaPolicy.sampling.maxTokens
-      debugLog(
-        `llmCall: persona sampling temp=${callOptions.temperature}, topP=${callOptions.topP}, maxTokens=${callOptions.maxTokens}`
-      )
     }
+    traceState('llmCall', {
+      title: '状态: llmCall 调用参数',
+      summary: `system=${systemMsgs.length}，history=${historyMsgs.length}，current=${currentMsgs.length}`,
+      data: {
+        sampling: {
+          temperature: callOptions.temperature,
+          topP: callOptions.topP,
+          maxTokens: callOptions.maxTokens
+        },
+        messageCounts: {
+          system: systemMsgs.length,
+          history: historyMsgs.length,
+          current: currentMsgs.length
+        },
+        timeoutMs
+      }
+    })
     const preparedMessages = await runtime.familyAdapter.prepareMessages(sortedMessages, runtime)
     const stream = await modelWithTool.stream(preparedMessages, callOptions as any)
     for await (const chunk of stream) {
+      if (!firstChunkAt) {
+        firstChunkAt = Date.now()
+      }
       if (!finalChunk) {
         finalChunk = chunk as AIMessageChunk
       } else {
@@ -115,9 +126,7 @@ export async function llmCall(
     }
   } catch (error: any) {
     if (error.name === 'AbortError' || timeoutController.signal.aborted || config?.signal?.aborted) {
-      debugLog(`llmCall: Aborted due to timeout, returning partial content`)
       if (timedOut && !finalChunk) {
-        debugLog('llmCall: Timeout produced no chunks, throwing explicit timeout error')
         throw new Error('模型超时，未收到回复。')
       }
     } else {
@@ -142,15 +151,36 @@ export async function llmCall(
         response_metadata: rawResponse.response_metadata,
         id: rawResponse.id
       })
-  debugLog(`llmCall: invoked model (streamed)`)
 
   if (runtime) {
     const normalizedResponse = normalizeModelResponse(runtime, response)
     if (normalizedResponse !== response) {
-      debugLog(`llmCall: normalized provider response`)
+      traceDecision('llmCall', {
+        title: '决策: llmCall 响应归一化',
+        summary: 'provider 响应经过 family adapter 归一化',
+        data: {
+          normalized: true
+        }
+      })
     }
     response = normalizedResponse
   }
+
+  const responseContent =
+    typeof response.content === 'string' ? response.content : JSON.stringify(response.content)
+  traceArtifact('llmCall', {
+    title: '产物: llmCall 响应',
+    summary: (response as AIMessage).tool_calls?.length
+      ? `生成 ${((response as AIMessage).tool_calls?.length) || 0} 个工具调用`
+      : `生成文本 ${responseContent.slice(0, 60) || '(empty)'}`,
+    data: {
+      firstTokenMs: firstChunkAt ? firstChunkAt - startedAt : undefined,
+      totalMs: Date.now() - startedAt,
+      toolCallCount: (response as AIMessage).tool_calls?.length || 0,
+      responsePreview: responseContent.slice(0, 240),
+      timedOut
+    }
+  })
 
   return {
     messages: [response] as BaseMessage[], // ✅ 显式转换

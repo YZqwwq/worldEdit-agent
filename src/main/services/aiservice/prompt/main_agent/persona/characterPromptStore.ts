@@ -8,9 +8,17 @@ import {
 } from '../../../../../config/pathConfig'
 import {
   DEFAULT_CHARACTER_PROMPT,
-  BASE_MOOD_PROMPT,
-  DEFAULT_EXPRESSION_PROMPT
+  BASE_MOOD_PROMPT
 } from '../shared/promptConstants'
+import {
+  getDefaultExpressionPrompt,
+  getExpressionPromptProfileById,
+  toExpressionPromptProfileState
+} from './expressionPromptProfiles'
+import type {
+  ExpressionPromptProfileId,
+  ExpressionPromptProfileState
+} from '@share/cache/AItype/states/expressionPromptProfile'
 import { trimOr } from '../shared/promptTextUtils'
 
 let promptStorageInitialized = false
@@ -22,7 +30,7 @@ const PROMPT_DEFAULTS = {
   },
   expression: {
     path: getExpressionPromptProfilePath,
-    defaultContent: DEFAULT_EXPRESSION_PROMPT
+    defaultContent: getDefaultExpressionPrompt()
   },
   mood: {
     path: getMoodPromptProfilePath,
@@ -76,7 +84,18 @@ export const saveCharacterPrompt = async (content: string): Promise<void> => {
 
 export const loadExpressionPrompt = async (): Promise<string> => {
   await initializeAgentPromptStorage()
-  return readPromptFile(getExpressionPromptProfilePath(), DEFAULT_EXPRESSION_PROMPT)
+  return readPromptFile(getExpressionPromptProfilePath(), getDefaultExpressionPrompt())
+}
+
+export const loadExpressionPromptProfile = async (
+  id: ExpressionPromptProfileId
+): Promise<ExpressionPromptProfileState> => {
+  if (id === 'default') {
+    const prompt = await loadExpressionPrompt()
+    return toExpressionPromptProfileState(getExpressionPromptProfileById(id), prompt)
+  }
+
+  return toExpressionPromptProfileState(getExpressionPromptProfileById(id))
 }
 
 export const loadMoodPrompt = async (): Promise<string> => {

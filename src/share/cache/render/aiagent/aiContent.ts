@@ -1,4 +1,6 @@
 
+import type { AgentTraceRecord } from './agentTrace'
+
 // 统一 AI 富结构内容类型定义（供主/渲染进程共享）
 
 export interface TextPart {
@@ -57,14 +59,6 @@ export type AIStructuredResponse = AIContentPart[]
 
 export type StreamChunk =
   | { type: 'text_delta'; content: string } // 文本增量
-  | { type: 'tool_start'; tool: string } // 工具开始调用（预留）
-  | { type: 'tool_end'; result: string } // 工具调用结果（预留）
   | { type: 'stream_error'; message: string } // 传输层错误信息（与内容层 ErrorPart 区分）
-  | {
-      type: 'agent_log'
-      subType: 'node_enter' | 'node_exit' | 'tool_start' | 'tool_end' | 'thought'
-      nodeName?: string
-      data?: any
-      timestamp: number
-    } // 监控日志
+  | { type: 'agent_trace'; record: AgentTraceRecord } // 结构化节点日志
   | { type: 'done'; fullContent: AIContentPart[] } // 结束信号，携带完整结构化结果

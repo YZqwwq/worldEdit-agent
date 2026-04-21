@@ -49,7 +49,7 @@ declare global {
     }>
     clearHistory: () => Promise<void>
     purgeAllData: () => Promise<number>
-    resetPersonaState: () => Promise<void>
+    resetAgentState: () => Promise<void>
     getMemorySnapshot: () => Promise<MemoryInspectionPayload>
     getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
 

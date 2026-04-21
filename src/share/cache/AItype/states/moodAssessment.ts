@@ -1,38 +1,57 @@
-export type StageMood = 'flat' | 'pleased' | 'excited' | 'tense' | 'frustrated' | 'fearful'
-export type MoodHorizon = 'transient' | 'session'
+export type 情绪标签 =
+  | '平淡'
+  | '轻愉悦'
+  | '高兴'
+  | '轻兴奋'
+  | '兴奋'
+  | '惊讶'
+  | '轻度伤感'
+  | '悲伤'
+  | '受挫'
+  | '愤怒'
+  | '焦虑'
+  | '紧张'
 
-export interface MoodParameterDelta {
-  autonomy: number  // 自主性
-  verbosity: number  // 冗长性
-  risk: number  // 风险性
-  formality: number  // 正式性
+export interface 情绪向量 {
+  愉悦度: number
+  激活度: number
+  紧张度: number
+  受挫度: number
+  亲近度: number
+  专注度: number
 }
 
-export interface MoodModulationProfile {
-  relationalCloseness: number  // 关系亲近度
-  expressiveWarmth: number  // 表达温暖度
-  containment: number  // 包容度
-  imaginativeOpenness: number  // 想象力开放度
-  clarificationNeed: number  // 清晰度
+export interface 情绪参数偏移 {
+  自主性: number
+  详略度: number
+  探索性: number
+  正式度: number
 }
 
-export interface MoodAssessmentSources {
-  userMood?: string  // 用户情绪
-  conversationMode?: string  // 对话模式
-  interactionState?: string  // 交互性
-  signals: string[]  // 信号
+export interface 情绪表达调制 {
+  关系靠近度: number
+  表达温度: number
+  收束度: number
+  想象开放度: number
+  澄清需求: number
+}
+
+export interface 情绪来源 {
+  用户情绪?: string
+  对话模式?: string
+  交互状态?: string
+  信号: string[]
 }
 
 export interface MoodAssessment {
-  generatedAt: string  // 生成时间
-  stageMood: StageMood  // 阶段情绪
-  intensity: number  // 强度
-  confidence: number  // 信心
-  valence: number  // 积极性
-  arousal: number  // 唤醒度
-  horizon: MoodHorizon  // 时间范围
-  behavioralNarrative: string  // 行为叙事
-  delta: MoodParameterDelta  // 变化量
-  modulation: MoodModulationProfile  // 调节
-  sources: MoodAssessmentSources  // 来源
+  生成时间: string
+  主情绪: 情绪标签
+  副情绪?: 情绪标签
+  情绪向量: 情绪向量
+  强度: number
+  置信度: number
+  行为叙事: string
+  参数偏移: 情绪参数偏移
+  表达调制: 情绪表达调制
+  来源: 情绪来源
 }

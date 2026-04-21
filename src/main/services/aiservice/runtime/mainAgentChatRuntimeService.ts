@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { appendFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { HumanMessage } from '@langchain/core/messages'
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
@@ -12,22 +10,13 @@ import {
   parseMainAgentContentForPersistence
 } from '../messagecontent/mainAgentMessageContentService'
 import { contentToText } from '../messageoutput/transformRespones'
-import { handleGraphLogEvent, runWithGraphLogContext } from '../../log/graphlog'
+import { runWithTraceContext } from '../../log/trace/agentTraceRuntime'
 import { mainAgentRunControlService } from './mainAgentRunControlService'
 import { chatMessageService } from '../chat/chatMessageService'
 
 export type MainAgentChatRuntimeResult = {
   fullText: string
   interrupted: boolean
-}
-
-function debugLog(message: string) {
-  try {
-    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
-    appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`)
-  } catch {
-    // ignore debug log failures
-  }
 }
 
 class MainAgentChatRuntimeService {
@@ -46,14 +35,9 @@ class MainAgentChatRuntimeService {
     const originalContent = getMainAgentContentPartsFromPersistedMessage(persistedMessage)
     const effectiveContent = originalContent.length > 0 ? originalContent : content
     const message = parseMainAgentContentForPersistence(effectiveContent)
-    debugLog(`sendStreamMessage called with: ${message}`)
-    debugLog(`RunID generated: ${runId}`)
 
     try {
-      return await runWithGraphLogContext(runId, async () => {
-        debugLog('Entered runWithGraphLogContext')
-        debugLog('Calling agent.streamEvents')
-
+      return await runWithTraceContext(runId, { turnId, emitChunk: onChunk }, async () => {
         const stream = await agent.streamEvents(
           {
             messages: [
@@ -69,12 +53,8 @@ class MainAgentChatRuntimeService {
             signal: AbortSignal
           }
         )
-        debugLog('streamEvents returned stream iterator')
 
         for await (const event of stream) {
-          const logChunk = handleGraphLogEvent(event)
-          if (logChunk && onChunk) onChunk(logChunk)
-
           if (event.event === 'on_chat_model_stream') {
             const chunk = event.data.chunk
             if (chunk && chunk.content) {
@@ -89,10 +69,8 @@ class MainAgentChatRuntimeService {
             }
           }
         }
-
-        debugLog('Stream loop finished')
         return { fullText, interrupted: false }
-      }, onChunk)
+      })
     } catch (error) {
       const interrupted =
         controller.signal.aborted ||
@@ -100,8 +78,6 @@ class MainAgentChatRuntimeService {
       if (!interrupted) {
         throw error
       }
-
-      debugLog('User interrupted active main-agent run')
       return {
         fullText,
         interrupted: true

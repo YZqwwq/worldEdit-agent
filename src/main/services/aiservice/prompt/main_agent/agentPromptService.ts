@@ -9,8 +9,10 @@ export {
   initializeAgentPromptStorage,
   loadCharacterPrompt,
   loadExpressionPrompt,
+  loadExpressionPromptProfile,
   loadMoodPrompt,
   saveCharacterPrompt
 } from './persona/characterPromptStore'
+export { resolveExpressionPromptProfile } from './persona/expressionPromptProfiles'
 export { buildMemorySlotPrompt } from './memory/memorySlotPrompt'
 export { buildPersonaAssemblyPrompt } from './persona/personaAssemblyPrompt'

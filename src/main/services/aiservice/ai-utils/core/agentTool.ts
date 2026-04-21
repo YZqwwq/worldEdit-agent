@@ -1,6 +1,4 @@
 import { DynamicStructuredTool, tool } from '@langchain/core/tools'
-import { appendFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { z } from 'zod'
 
 export type AgentToolRiskLevel = 'low' | 'medium' | 'high'
@@ -94,18 +92,7 @@ const logAgentToolTrace = (input: {
   message: string
   data?: Record<string, unknown>
 }): void => {
-  const line =
-    `[agent_tool tool=${input.toolName} stage=${input.stage}] ${input.message}` +
-    (input.data ? ` ${JSON.stringify(input.data)}` : '')
-
-  try {
-    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
-    appendFileSync(logPath, `[${new Date().toISOString()}] ${line}\n`)
-  } catch {
-    // ignore local debug log failures
-  }
-
-  console.error(line)
+  void input
 }
 
 const normalizeMetadata = (metadata: AgentToolMetadata): AgentTool['agentMetadata'] => ({

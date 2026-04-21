@@ -1,7 +1,7 @@
 import type { InteractionObservationType } from './interactionObservation'
 import type { UserMoodState } from './memorySlots'
 
-export type PersonaSignalCategory = 'autonomy' | 'verbosity' | 'risk' | 'formality'
+export type PersonaSignalCategory = '自主性' | '详略度' | '探索性' | '正式度'
 
 export interface PersonaSignalRuleConfig {
   category: PersonaSignalCategory
@@ -41,11 +41,6 @@ export interface MemorySlotConfig {
   preferencePromotionThreshold: number
 }
 
-export interface PersonaMemoryFeedbackConfig {
-  preferenceStrength: number
-  moodStrength: number
-}
-
 export interface PersonaTaskObservationEffectConfig {
   type: InteractionObservationType
   session?: Partial<Record<PersonaSignalCategory, number>>
@@ -56,7 +51,6 @@ export interface PersonaConfig {
   decay: PersonaDecayConfig
   layerWeights: PersonaLayerWeightConfig
   learningRates: PersonaLearningRateConfig
-  memoryFeedback: PersonaMemoryFeedbackConfig
   slot: MemorySlotConfig
   signalRules: PersonaSignalRuleConfig[]
   moodRules: PersonaMoodRuleConfig[]

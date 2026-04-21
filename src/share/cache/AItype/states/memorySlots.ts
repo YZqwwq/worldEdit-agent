@@ -45,3 +45,54 @@ export interface MemorySlotSnapshot {
   user_mood: UserMoodSlot // 用户情绪
   lastObservationId: number // 最后一次观察ID
 }
+
+export const describeConversationMode = (value?: ConversationMode): string => {
+  switch (value) {
+    case 'daily_life':
+      return '日常交流'
+    case 'practical_support':
+      return '现实协助'
+    case 'worldbuilding':
+      return '世界共创'
+    case 'knowledge_query':
+      return '知识探讨'
+    case 'relational_intimacy':
+      return '关系靠近'
+    default:
+      return '未识别'
+  }
+}
+
+export const describeInteractionState = (value?: InteractionState): string => {
+  switch (value) {
+    case 'casual_chat':
+      return '闲聊'
+    case 'emotional_sharing':
+      return '情绪倾诉'
+    case 'working':
+      return '任务推进'
+    case 'teasing':
+      return '打趣调侃'
+    case 'deep_talk':
+      return '深度谈话'
+    default:
+      return '未识别'
+  }
+}
+
+export const describeUserMoodState = (value?: UserMoodState): string => {
+  switch (value) {
+    case 'calm':
+      return '平静'
+    case 'positive':
+      return '积极'
+    case 'impatient':
+      return '急切'
+    case 'frustrated':
+      return '受挫'
+    case 'uncertain':
+      return '犹疑'
+    default:
+      return '未识别'
+  }
+}

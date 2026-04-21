@@ -4,26 +4,13 @@ import {
   upsertCharacterDescriptionInputSchema,
   upsertCharacterDescriptionOutputSchema
 } from './shared'
-import { appendFileSync } from 'node:fs'
-import { join } from 'node:path'
 
 const logUpsertCharacterDescriptionTrace = (input: {
   stage: string
   message: string
   data?: Record<string, unknown>
 }): void => {
-  const line =
-    `[upsert_character_description stage=${input.stage}] ${input.message}` +
-    (input.data ? ` ${JSON.stringify(input.data)}` : '')
-
-  try {
-    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
-    appendFileSync(logPath, `[${new Date().toISOString()}] ${line}\n`)
-  } catch {
-    // ignore local debug log failures
-  }
-
-  console.error(line)
+  void input
 }
 
 export const upsertCharacterDescriptionTool = defineAgentTool({

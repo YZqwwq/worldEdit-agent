@@ -20,10 +20,6 @@ const defaultPersonaConfig = (): PersonaConfig => ({
     transientFromInterrupt: 0.12,
     transientFromRevert: 0.1
   },
-  memoryFeedback: {
-    preferenceStrength: 0.08,
-    moodStrength: 0.06
-  },
   slot: {
     userMoodRetentionObservations: 6,
     currentFocusLimit: 5,

@@ -4,7 +4,12 @@ import type {
   MemoryStageSnapshot,
   MessageData
 } from '@share/cache/AItype/states/memoryState'
-import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
+import {
+  describeConversationMode,
+  describeInteractionState,
+  describeUserMoodState,
+  type MemorySlotSnapshot
+} from '@share/cache/AItype/states/memorySlots'
 import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import { contentToText } from '../../../messageoutput/transformRespones'
 
@@ -65,9 +70,9 @@ const buildStagePrompt = (messages: MessageData[], slots: MemorySlotSnapshot): s
 3. 忽略寒暄，优先保留对下一阶段仍有价值的内容。
 
 短期插槽参考：
-- 当前对话模式：${slots.conversation_state.conversation_mode || '无'}
-- 当前互动状态：${slots.conversation_state.interaction_state || '无'}
-- 用户情绪：${slots.user_mood.current_mood || '未识别'}
+- 当前对话模式：${slots.conversation_state.conversation_mode ? describeConversationMode(slots.conversation_state.conversation_mode) : '无'}
+- 当前互动状态：${slots.conversation_state.interaction_state ? describeInteractionState(slots.conversation_state.interaction_state) : '无'}
+- 用户情绪：${slots.user_mood.current_mood ? describeUserMoodState(slots.user_mood.current_mood) : '未识别'}
 
 阶段对话：
 ${transcript}`

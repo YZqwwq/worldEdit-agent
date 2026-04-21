@@ -60,6 +60,23 @@ class AiSessionMaintenanceService {
   async resetPersonaStateOnly(): Promise<void> {
     await resetPersonaState()
   }
+
+  async resetAgentState(): Promise<void> {
+    const idle = await mainAgentRunControlService.abortAndWaitForIdle()
+    if (!idle) {
+      throw new Error('Main agent is still running; resetAgentState was refused to avoid inconsistent cleanup.')
+    }
+
+    mainAgentDispatchService.reset()
+    mainAgentRunControlService.reset()
+    await chatMessageService.clearAll()
+    await AppDataSource.getRepository(MainAgentEventRecord).clear()
+    await AppDataSource.getRepository(MainAgentTurnRecord).clear()
+    await memoryManager.resetStorage()
+    await memorySlotService.clear()
+    await interactionObservationService.clear()
+    await resetPersonaState()
+  }
 }
 
 export const aiSessionMaintenanceService = new AiSessionMaintenanceService()

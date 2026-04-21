@@ -4,7 +4,7 @@ import type { ActiveTaskSnapshot } from '@share/cache/AItype/states/taskLifecycl
 import { contentToText } from '../../../messageoutput/transformRespones'
 import { toErrorMessage } from '../../../../../../share/utils/error/error'
 import { getQuickModel } from '../../../agentrsystem/modelwithtool/quick-base-model'
-import { emitGraphThought } from '../../../../log/graphlog'
+import { traceDecision } from '../../../../log/trace/agentTraceEmitter'
 import { characterEditorPendingContextSchema } from '../../../ai-utils/tools/character/shared'
 
 const OBVIOUS_TASK_CANCEL_PATTERNS = [
@@ -314,10 +314,13 @@ class AwaitingUserInputNode {
   }): Promise<AwaitingUserInputDecision> {
     const ruleDecision = inferByRule(input.userInput)
     if (ruleDecision) {
-      emitGraphThought('awaitingUserInputNode', {
-        stage: 'awaiting_user_input_decision',
-        source: ruleDecision.source,
-        decision: ruleDecision
+      traceDecision('awaitingUserInputNode', {
+        summary: `规则识别为 ${ruleDecision.type}`,
+        data: {
+          stage: 'awaiting_user_input_decision',
+          source: ruleDecision.source,
+          decision: ruleDecision
+        }
       })
       return ruleDecision
     }
@@ -329,19 +332,25 @@ class AwaitingUserInputNode {
         ...input,
         need
       })
-      emitGraphThought('awaitingUserInputNode', {
-        stage: 'awaiting_user_input_decision',
-        source: inferred.source,
-        decision: inferred
+      traceDecision('awaitingUserInputNode', {
+        summary: `quick model 识别为 ${inferred.type}`,
+        data: {
+          stage: 'awaiting_user_input_decision',
+          source: inferred.source,
+          decision: inferred
+        }
       })
       return inferred
     } catch (error) {
       const fallback = inferFallback()
-      emitGraphThought('awaitingUserInputNode', {
-        stage: 'awaiting_user_input_decision',
-        source: fallback.source,
-        reason: toErrorMessage(error),
-        decision: fallback
+      traceDecision('awaitingUserInputNode', {
+        summary: `quick model 失败，回退为 ${fallback.type}`,
+        data: {
+          stage: 'awaiting_user_input_decision',
+          source: fallback.source,
+          reason: toErrorMessage(error),
+          decision: fallback
+        }
       })
       return fallback
     }

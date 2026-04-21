@@ -30,10 +30,6 @@ export class PersonaStateRecord {
   @Column({ type: 'real', default: 0.5 })
   formalityScore!: number
 
-  // 当前行为叙事文本（直接参与提示词构造）
-  @Column({ type: 'text', default: '默认人格状态' })
-  currentBehavioralNarrative!: string
-
   // 最近交互缓冲区（JSON 字符串）
   @Column({ type: 'text', default: '[]' })
   recentInteractionBufferJson!: string

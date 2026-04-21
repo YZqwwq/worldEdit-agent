@@ -6,15 +6,15 @@ import { contextNode } from './node/contextnode/contextnode' // 导入 ContextNo
 import { memoryNode } from './node/memorynode/memorynode' // 导入 MemoryNode
 import { personaNode } from './node/personanode/personanode'
 import { shouldContinue } from './endlogic/shouldContinue'
-import { withGraphLog } from '../../log/graphlog'
+import { withNodeTrace } from '../../log/trace/withNodeTrace'
 
 // 注入状态维持实例
 export const agent = new StateGraph(MessagesState)
-  .addNode('personaNode', withGraphLog('personaNode', personaNode))
-  .addNode('contextNode', withGraphLog('contextNode', contextNode)) // 添加 context 节点
-  .addNode('llmCall', withGraphLog('llmCall', llmCall))
-  .addNode('toolNode', withGraphLog('toolNode', toolNode))
-  .addNode('memoryNode', withGraphLog('memoryNode', memoryNode)) // 添加 memory 节点
+  .addNode('personaNode', withNodeTrace('personaNode', personaNode))
+  .addNode('contextNode', withNodeTrace('contextNode', contextNode)) // 添加 context 节点
+  .addNode('llmCall', withNodeTrace('llmCall', llmCall))
+  .addNode('toolNode', withNodeTrace('toolNode', toolNode))
+  .addNode('memoryNode', withNodeTrace('memoryNode', memoryNode)) // 添加 memory 节点
   .addEdge(START, 'personaNode')
   .addEdge('personaNode', 'contextNode')
   .addEdge('contextNode', 'llmCall') // 从 contextNode -> llmCall

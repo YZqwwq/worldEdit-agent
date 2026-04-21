@@ -447,18 +447,7 @@ export class MemoryManager {
       this.longTerm = createDefaultLongTermMemory()
       this.lastStageIndex = 0
       this.lastArchivedAt = ''
-      this.state = {
-        session_id: 'sess_default',
-        created_at: '',
-        counters: { total_turns: 0, window_turns: 0, since_last_archive: 0 },
-        last_archive_time: '',
-        archive_strategy: 'stage_based',
-        api_status: 'healthy',
-        anchors: [],
-        archive_threshold: 6,
-        archive_min_interval_ms: 0,
-        short_term_limit: 6
-      }
+      this.state = defaultState()
       await this.persistMemoryState({ deleteStagesAfterIndex: 0 })
     })
   }

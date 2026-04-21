@@ -3,6 +3,7 @@ import { BaseMessage } from '@langchain/core/messages'
 import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
 import type { MoodAssessment } from '@share/cache/AItype/states/moodAssessment'
 import type { TaskLifecycleState } from '@share/cache/AItype/states/taskLifecycleState'
+import type { ExpressionPromptProfileState } from '@share/cache/AItype/states/expressionPromptProfile'
 
 export const MessagesState = Annotation.Root({
   // 消息状态
@@ -19,6 +20,10 @@ export const MessagesState = Annotation.Root({
     default: () => undefined
   }),
   moodAssessment: Annotation<MoodAssessment | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  expressionProfile: Annotation<ExpressionPromptProfileState | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),

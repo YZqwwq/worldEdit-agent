@@ -41,8 +41,6 @@ export interface PersonaState {
   transient_state: PersonaMetricDelta
   // 数值引擎层
   metrics: PersonaMetrics
-  // 语义表现层：用于直接注入 Prompt
-  current_behavioral_narrative: string
   // 近期信号缓冲
   recent_interaction_buffer: PersonaBufferItem[]
   // 已处理到的 observation 游标

@@ -9,7 +9,7 @@ import type {
 import { contentToText } from '../../../messageoutput/transformRespones'
 import { toErrorMessage } from '../../../../../../share/utils/error/error'
 import { getQuickModel } from '../../../agentrsystem/modelwithtool/quick-base-model'
-import { emitGraphThought } from '../../../../log/graphlog'
+import { traceDecision } from '../../../../log/trace/agentTraceEmitter'
 
 const taskDecisionSchema = z.object({
   decision: z.object({
@@ -132,30 +132,39 @@ class TaskLifecycleIntentNode {
   ): Promise<TaskDecisionResult> {
     if (!userInput.trim()) {
       const inferred = inferDecisionFallback()
-      emitGraphThought('taskLifecycleIntentNode', {
-        stage: 'task_decision',
-        source: 'fallback',
-        reason: 'empty_input',
-        modelResponse: inferred
+      traceDecision('taskLifecycleIntentNode', {
+        summary: `空输入，回退为 ${inferred.decision.type}`,
+        data: {
+          stage: 'task_decision',
+          source: 'fallback',
+          reason: 'empty_input',
+          modelResponse: inferred
+        }
       })
       return inferred
     }
 
     try {
       const inferred = await inferDecisionWithModel(userInput, activeTask)
-      emitGraphThought('taskLifecycleIntentNode', {
-        stage: 'task_decision',
-        source: 'quick_model',
-        modelResponse: inferred
+      traceDecision('taskLifecycleIntentNode', {
+        summary: `quick model 识别为 ${inferred.decision.type}`,
+        data: {
+          stage: 'task_decision',
+          source: 'quick_model',
+          modelResponse: inferred
+        }
       })
       return inferred
     } catch (error) {
       const inferred = inferDecisionFallback()
-      emitGraphThought('taskLifecycleIntentNode', {
-        stage: 'task_decision',
-        source: 'fallback',
-        reason: toErrorMessage(error),
-        modelResponse: inferred
+      traceDecision('taskLifecycleIntentNode', {
+        summary: `quick model 失败，回退为 ${inferred.decision.type}`,
+        data: {
+          stage: 'task_decision',
+          source: 'fallback',
+          reason: toErrorMessage(error),
+          modelResponse: inferred
+        }
       })
       return inferred
     }

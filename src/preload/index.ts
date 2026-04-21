@@ -51,7 +51,7 @@ type Api = {
   }>
   clearHistory: () => Promise<void>
   purgeAllData: () => Promise<number>
-  resetPersonaState: () => Promise<void>
+  resetAgentState: () => Promise<void>
   getMemorySnapshot: () => Promise<MemoryInspectionPayload>
   getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
 
@@ -137,7 +137,7 @@ const api: Api = {
   revertLastChatTurn: () => ipcRenderer.invoke('ai:revertLastChatTurn'),
   clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
   purgeAllData: () => ipcRenderer.invoke('ai:purgeAllData'),
-  resetPersonaState: () => ipcRenderer.invoke('ai:resetPersonaState'),
+  resetAgentState: () => ipcRenderer.invoke('ai:resetAgentState'),
   getMemorySnapshot: () => ipcRenderer.invoke('ai:getMemorySnapshot'),
   getTaskMonitorSnapshot: () => ipcRenderer.invoke('ai:getTaskMonitorSnapshot'),
   pickFile: () => ipcRenderer.invoke('file:pick'),

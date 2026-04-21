@@ -1,144 +1,297 @@
-# AI Agent 日志系统开发手册
+# AI 日志设计约束
 
-本文档旨在为开发者提供关于 WorldEdit-Agent 中 AI 日志系统的架构说明、使用指南及后续开发方向。
+这份文档只定义一件事：
 
-## 1. 系统概述
+**什么样的日志，才允许进入 Agent 思维链主时间线。**
 
-AI 日志系统旨在提供全链路的可观测性，覆盖从 Agent 决策循环（Graph）到 LLM 生成过程（Stream）的各个环节。它服务于两个主要目的：
-1.  **调试与排查**：通过本地持久化日志，回溯 Agent 的状态变化与决策逻辑。
-2.  **用户反馈**：通过实时流式日志，向用户展示 AI 的思考过程（Thinking Process）和工具调用状态。
+它不是实现说明，不讨论 LangGraph 事件，不讨论 provider 原始回调。
+它只约束我们自己的节点日志应该长什么样。
 
-## 2. 日志架构
+---
 
-日志系统采用双层架构，分别处理**节点状态**和**实时事件**。
+## 1. 总原则
 
-### 2.1 核心模块
+主时间线只展示：
 
-*   **`src/main/services/log/graphlog.ts`**: 日志系统的核心实现，包含：
-    *   **上下文管理**：使用 `AsyncLocalStorage` 追踪当前请求的 `runId`。
-    *   **节点装饰器**：`withGraphLog` 高阶函数，自动记录 LangGraph 节点的输入（Enter）和输出（Exit）到调试日志。
-    *   **事件转换器**：`handleGraphLogEvent` 将 LangChain 的底层事件转换为前端可消费的 `StreamChunk`。
-    *   **调试日志**：关键节点状态写入 `src/main/services/log/logs/debug.log`。
+- 节点在做什么
+- 节点做出了什么判断
+- 节点产出了什么结果
+- 节点为什么进入下一步
 
-*   **`src/main/services/aiservice/agentrsystem/agentReactSystem.ts`**:
-    *   集成 `withGraphLog` 装饰器，构建带监控的 StateGraph。
+主时间线不展示：
 
-*   **`src/main/services/aiservice/aiService.ts`**:
-    *   负责启动日志上下文 (`runWithGraphLogContext`)。
-    *   消费 `streamEvents` 流，分发日志 Chunk 到前端。
+- 原始 provider 事件
+- 原始 prompt 全文
+- 原始大 JSON
+- 无语义的调试字段
+- 节点内部过细的中间态
 
-### 2.2 数据流向图
+一句话：
 
-```mermaid
-graph TD
-    A[用户请求] --> B(aiService.sendStreamMessage)
-    B --> C{runWithGraphLogContext}
-    C --> D[agent.streamEvents]
-    
-    subgraph "Graph Execution (Node Level)"
-        D --> E[ContextNode]
-        E -- withGraphLog --> F[debug.log]
-        D --> G[LLMNode]
-        G -- withGraphLog --> F
-        D --> H[ToolNode]
-        H -- withGraphLog --> F
-    end
-    
-    subgraph "Stream Events (Event Level)"
-        D -- on_chat_model_start --> I[handleGraphLogEvent]
-        D -- on_chat_model_stream --> J[前端文本流]
-        D -- on_tool_start --> I
-        I --> K[StreamChunk (agent_log)]
-        K --> L[前端渲染进程]
-    end
-```
+**主时间线展示结论，不展示原料。**
 
-## 3. 日志层级与结构
+---
 
-### 3.1 节点级日志 (Node Level)
+## 2. 统一日志结构
 
-用于记录 LangGraph 中每个节点的执行状态。
-*   **触发方式**：通过 `withGraphLog` 装饰器自动触发。
-*   **存储位置**：`src/main/services/log/logs/debug.log`
-*   **结构示例**：
-    ```text
-    [2023-11-15T10:00:00.000Z] logNodeEnter: contextNode
-    [2023-11-15T10:00:01.000Z] logNodeExit: contextNode
-    ```
-    *(注：为节省空间，已移除详细的 JSONL 快照存储，仅保留轻量级调试追踪)*
+所有进入主时间线的日志，必须统一为 `AgentTraceRecord`。
 
-### 3.2 事件级日志 (Event Level)
+核心字段：
 
-用于实时捕获 LLM 的细粒度行为，直接推送到前端。
-*   **触发方式**：监听 `streamEvents` 中的 `on_chat_model_start`, `on_chat_model_end`, `on_tool_start`, `on_tool_end`。
-*   **数据结构** (`StreamChunk`):
-    ```typescript
-    {
-      type: 'agent_log',
-      subType: 'node_enter' | 'node_exit' | 'tool_start' | 'tool_end',
-      nodeName: string,
-      data: any, // 包含 prompt, result, tool_calls 等
-      timestamp: number
-    }
-    ```
+- `node`
+  只能是我们自己的节点名，例如 `personaNode`、`contextNode`、`llmCall`
+- `phase`
+  只能表示节点语义阶段，不表示 provider 事件名
+- `title`
+  给 UI 直接展示的短标题
+- `summary`
+  给用户一眼看懂的摘要
+- `data`
+  详细结构化数据，只在展开时看
 
-## 4. 使用案例
+一句话：
 
-### 4.1 为新节点添加日志监控
+**UI 看 title 和 summary，data 只做下钻。**
 
-当你向 Graph 中添加新节点时，只需使用 `withGraphLog` 包裹节点函数即可自动获得日志能力。
+---
 
-**修改前：**
-```typescript
-.addNode('myNewNode', myNewNodeFunction)
-```
+## 3. 允许的阶段
 
-**修改后：**
-```typescript
-import { withGraphLog } from '../../log/graphlog'
+主时间线只允许这 6 类阶段：
 
-.addNode('myNewNode', withGraphLog('myNewNode', myNewNodeFunction))
-```
+- `enter`
+- `state`
+- `decision`
+- `artifact`
+- `exit`
+- `error`
 
-### 4.2 查看调试日志
+含义：
 
-*   **实时日志**：在开发环境控制台查看 `debug.log` 或终端输出。
-*   **完整回溯**：找到 `src/main/services/log/logs/` 目录下对应 `runId` 的 `.jsonl` 文件。每行是一个 JSON 对象，按时间顺序记录了所有节点的状态变更。
+- `enter`
+  节点开始执行
+- `state`
+  节点输入状态快照
+- `decision`
+  节点内部做出的判断
+- `artifact`
+  节点产出的可观察结果
+- `exit`
+  节点结束
+- `error`
+  节点失败
 
-### 4.3 前端消费日志
+不允许再定义：
 
-前端通过监听 `onStreamChunk` 接口接收日志：
+- `thought`
+- `tool_start`
+- `tool_end`
+- `node_enter`
+- `node_exit`
 
-```typescript
-window.api.onStreamChunk((chunk) => {
-  if (chunk.type === 'agent_log') {
-    console.log(`[${chunk.subType}] ${chunk.nodeName}`, chunk.data)
-    // 更新 UI 显示 AI 思考状态
-  }
-})
-```
+这些旧格式都不再作为主时间线语义。
 
-## 5. 后续可开发方向
+---
 
-为了进一步提升日志系统的价值，建议从以下方向进行迭代：
+## 4. 每个节点最多展示几条
 
-1.  **日志可视化面板 (Log Viewer)**
-    *   **目标**：开发一个内置的开发者工具页面，用于加载 `.jsonl` 文件并可视化展示 Graph 的执行路径和状态变化。
-    *   **实现**：读取本地日志目录 -> 解析 JSONL -> 使用类似 Mermaid 或 React Flow 的库渲染节点执行流程图。
+每个节点在一次运行里，主时间线最多只应出现 `2~4` 条日志。
 
-2.  **性能分析 (Profiling)**
-    *   **目标**：统计每个节点的耗时和 Token 消耗。
-    *   **实现**：在 `withGraphLog` 中记录 `startTime` 和 `endTime`，计算 `duration` 并写入日志。集成 Token 计算库统计输入输出 Token。
+推荐上限：
 
-3.  **日志轮转与清理**
-    *   **目标**：防止本地日志文件无限增长占用磁盘。
-    *   **实现**：在应用启动时或定时任务中，清理超过一定时间（如 7 天）的旧日志文件。
+- `enter`：0 或 1 条
+- `state`：0 或 1 条
+- `decision`：最多 1 条
+- `artifact`：最多 1 条
+- `exit`：0 或 1 条
+- `error`：异常时 1 条
 
-4.  **结构化思维链展示**
-    *   **目标**：在前端更优雅地展示 "Thought Process"。
-    *   **实现**：解析 `agent_log` 中的 `tool_calls` 和 `tool_outputs`，在聊天气泡下方生成折叠式的“思考过程”组件，而非简单的文本追加。
+如果一个节点需要展示更多内容：
 
-## 6. 维护注意事项
+- 说明摘要设计不够收束
+- 或者说明细节应该进入 `data`
 
-*   **敏感信息**：日志中可能包含用户输入的敏感信息，请确保在生产环境构建中配置适当的脱敏策略或关闭详细日志记录。
-*   **序列化安全**：`snapshotMessage` 函数已处理循环引用和非序列化对象，但在引入新的复杂状态对象时仍需留意 `JSON.stringify` 的兼容性。
+一句话：
+
+**一个节点不能刷屏。**
+
+---
+
+## 5. summary 规则
+
+每条主时间线日志必须有 `summary`。
+
+`summary` 的要求：
+
+- 一句话
+- 人能直接看懂
+- 不依赖展开 JSON
+- 优先说明“结论”而不是“过程”
+
+好的 summary：
+
+- `quick model 编译 mood=轻愉悦 intensity=0.42`
+- `注入 6 个上下文段，短期窗口 4 条`
+- `生成 1 个工具调用`
+- `写入 user/ai 记忆并触发阶段归档`
+
+差的 summary：
+
+- `stage=persona_signal_inference`
+- `source=quick_model`
+- `modelResponse={...}`
+
+一句话：
+
+**没有清晰 summary 的日志，不应该进入主时间线。**
+
+---
+
+## 6. data 规则
+
+`data` 只做展开详情，不承担主展示职责。
+
+`data` 允许放：
+
+- 结构化字段
+- 精简后的输入摘要
+- 精简后的输出摘要
+- 关键计数
+- 关键参数
+
+`data` 不应该放：
+
+- 全量 prompt 原文
+- 大段模型原始返回
+- 无筛选的大对象
+- 临时调试垃圾字段
+
+一句话：
+
+**data 是证据，不是正文。**
+
+---
+
+## 7. 各节点日志职责
+
+### `personaNode`
+
+应该展示：
+
+- 本轮读到了什么状态
+- 识别到了哪些信号
+- 编译出了什么阶段 mood
+- 最终产出了什么 policy / 调制结果
+
+不应该展示：
+
+- observation 全文堆砌
+- 全量 persona state dump
+
+### `contextNode`
+
+应该展示：
+
+- 注入了哪些上下文段
+- system / history 规模
+- 本轮 prompt 的结构概览
+
+不应该展示：
+
+- 完整 system prompt 原文
+
+### `llmCall`
+
+应该展示：
+
+- 模型与采样参数
+- 消息规模
+- 首 token 时间 / 总耗时
+- 是否生成 tool call
+- 响应摘要
+
+不应该展示：
+
+- provider 原始 event
+- 嵌套 message 原始结构
+
+### `toolNode`
+
+应该展示：
+
+- 调了哪个工具
+- 是否被策略拦截
+- 输入摘要
+- 输出摘要
+
+### `memoryNode`
+
+应该展示：
+
+- 写入了什么短期记忆
+- 是否触发阶段归档
+- 是否更新长期记忆
+
+### `shouldContinue`
+
+应该展示：
+
+- 为什么去 `toolNode`
+- 为什么去 `memoryNode`
+- 为什么直接结束
+
+---
+
+## 8. 禁止事项
+
+以下内容禁止重新回到主时间线：
+
+- LangGraph / LangChain 原始事件名作为主节点名
+- `ChatOpenAI` 作为主步骤标题
+- 旧 `agent_log` 格式
+- 旧 `thought` 格式
+- 旧 `node_enter / node_exit` 格式
+- provider 原始 payload 直接上屏
+- “仅供调试”的大 JSON 默认展开
+
+一句话：
+
+**原始事件只能做附属调试数据，不能做主时间线。**
+
+---
+
+## 9. 边界说明
+
+- 前端 `Agent 思维链` 面板只展示 `AgentTraceRecord` 这一套主 agent 节点日志。
+- `TaskTrace` 属于任务 / 子 agent 执行记录，用于任务域追踪，不属于前端思维链日志，也不应混入主 agent 时间线。
+
+---
+
+## 9. 验收标准
+
+一个节点的日志只有同时满足下面条件，才算合格：
+
+1. 使用统一 `AgentTraceRecord`
+2. 节点名是业务节点名，不是 provider 名
+3. 主时间线条数控制在 `2~4`
+4. 每条都有明确 `summary`
+5. `data` 只做展开详情
+6. 不依赖旧 `agent_log` 格式
+
+---
+
+## 10. 当前系统的执行约束
+
+后续所有新节点接入日志时，必须遵守这份文档。
+
+如果一个节点的日志做不到：
+
+- 可读
+- 收束
+- 节点语义明确
+
+那么应先删减日志内容，再考虑增加字段。
+
+一句话：
+
+**日志的目标不是“记录得更多”，而是“让人更快看懂”。**

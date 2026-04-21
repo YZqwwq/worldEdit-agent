@@ -107,7 +107,6 @@ const buildDefaultPersonaState = (): PersonaState => {
     session_hormones: createZeroPersonaDelta(),
     transient_state: createZeroPersonaDelta(),
     metrics,
-    current_behavioral_narrative: '默认人格状态',
     recent_interaction_buffer: [],
     last_observation_id: 0,
     evolution_turn: 0
@@ -129,8 +128,7 @@ export const parsePersonaStateText = (text: string): PersonaState | null => {
   const defaults = buildDefaultPersonaState()
   if (
     !isString(raw.persona_id) ||
-    !isString(raw.last_updated) ||
-    !isString(raw.current_behavioral_narrative)
+    !isString(raw.last_updated)
   ) {
     return null
   }
@@ -148,7 +146,6 @@ export const parsePersonaStateText = (text: string): PersonaState | null => {
     session_hormones: session,
     transient_state: transient,
     metrics,
-    current_behavioral_narrative: raw.current_behavioral_narrative,
     recent_interaction_buffer: buffer,
     last_observation_id: isNumber(raw.last_observation_id) ? raw.last_observation_id : 0,
     evolution_turn: isNumber(raw.evolution_turn) ? raw.evolution_turn : 0
@@ -180,8 +177,6 @@ const toState = (row: PersonaStateRecord): PersonaState => {
       defaults.transient_state
     ),
     metrics: parseMetrics(metrics, defaults.metrics),
-    current_behavioral_narrative:
-      row.currentBehavioralNarrative || defaults.current_behavioral_narrative,
     recent_interaction_buffer: parseBuffer(parseJson<unknown[]>(row.recentInteractionBufferJson || '[]', [])),
     last_observation_id: row.lastObservationId ?? 0,
     evolution_turn: row.evolutionTurn ?? 0
@@ -195,7 +190,6 @@ const applyStateToRow = (row: PersonaStateRecord, state: PersonaState): PersonaS
   row.verbosityIndex = state.metrics.verbosity_index
   row.riskTolerance = state.metrics.risk_tolerance
   row.formalityScore = state.metrics.formality_score
-  row.currentBehavioralNarrative = state.current_behavioral_narrative
   row.recentInteractionBufferJson = JSON.stringify(state.recent_interaction_buffer ?? [])
   row.stablePreferencesJson = JSON.stringify(state.stable_preferences ?? createNeutralPersonaMetrics())
   row.sessionHormonesJson = JSON.stringify(state.session_hormones ?? createZeroPersonaDelta())
@@ -268,7 +262,6 @@ export const resetPersonaSessionDynamics = async (): Promise<void> => {
   state.session_hormones = createZeroPersonaDelta()
   state.transient_state = createZeroPersonaDelta()
   state.metrics = { ...state.stable_preferences }
-  state.current_behavioral_narrative = '默认人格状态'
   state.recent_interaction_buffer = []
   state.last_observation_id = 0
   state.evolution_turn = 0
@@ -277,27 +270,27 @@ export const resetPersonaSessionDynamics = async (): Promise<void> => {
 }
 
 export const applyImpact = (metrics: PersonaMetrics, impact: string): PersonaMetrics => {
-  const match = impact.match(/([+-]?\d*\.?\d+)\s*(autonomy|verbosity|risk|formality)/i)
+  const match = impact.match(/([+-]?\d*\.?\d+)\s*(自主性|详略度|探索性|正式度)/)
   if (!match) {
     return metrics
   }
 
   const delta = Number(match[1])
-  const key = match[2].toLowerCase()
+  const key = match[2]
   if (!Number.isFinite(delta)) {
     return metrics
   }
 
-  if (key === 'autonomy') {
+  if (key === '自主性') {
     return { ...metrics, autonomy_level: clamp01(metrics.autonomy_level + delta) }
   }
-  if (key === 'verbosity') {
+  if (key === '详略度') {
     return { ...metrics, verbosity_index: clamp01(metrics.verbosity_index + delta) }
   }
-  if (key === 'risk') {
+  if (key === '探索性') {
     return { ...metrics, risk_tolerance: clamp01(metrics.risk_tolerance + delta) }
   }
-  if (key === 'formality') {
+  if (key === '正式度') {
     return { ...metrics, formality_score: clamp01(metrics.formality_score + delta) }
   }
 

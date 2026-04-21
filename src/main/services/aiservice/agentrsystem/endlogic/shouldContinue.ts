@@ -1,38 +1,12 @@
 import { AIMessage } from '@langchain/core/messages'
 import { END } from '@langchain/langgraph'
 import { MessagesState } from '../state/messageState'
-import { appendFileSync } from 'node:fs'
-import { join } from 'node:path'
-
-function debugLog(msg: string) {
-  try {
-    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
-    appendFileSync(logPath, `[${new Date().toISOString()}] shouldContinue: ${msg}\n`)
-  } catch (e) {
-    // ignore
-  }
-}
+import { traceDecision } from '../../../log/trace/agentTraceEmitter'
 
 export async function shouldContinue(
   state: typeof MessagesState.State
 ): Promise<string | typeof END> {
   const lastMessage = state.messages.at(-1)
-  
-  if (lastMessage) {
-    debugLog(`Last message type: ${lastMessage.constructor.name}`)
-    debugLog(`Last message content: ${typeof lastMessage.content === 'string' ? lastMessage.content.slice(0, 50) : 'complex'}`)
-    
-    if (lastMessage instanceof AIMessage) {
-      debugLog(`Tool calls length: ${lastMessage.tool_calls?.length ?? 0}`)
-      if (lastMessage.tool_calls?.length) {
-        debugLog(`Tool calls: ${JSON.stringify(lastMessage.tool_calls)}`)
-      }
-    } else {
-      debugLog(`Not an AIMessage`)
-    }
-  } else {
-    debugLog(`No last message`)
-  }
 
   if (lastMessage == null) return END // 这里可能需要改为 memoryNode？如果没消息也需要归档吗？通常不会发生。
 
@@ -41,7 +15,6 @@ export async function shouldContinue(
   const isAIMessage = lastMessage instanceof AIMessage || lastMessage.constructor.name === 'AIMessageChunk' || lastMessage._getType() === 'ai'
   
   if (!isAIMessage) {
-    debugLog(`Not an AIMessage (strict check failed, loose check also failed?)`)
     return END
   }
 
@@ -51,11 +24,27 @@ export async function shouldContinue(
   // If the LLM makes a tool call, then perform an action
   // 检查最后一条消息是否包含工具调用，如果不包含则结束。
   if (msg.tool_calls?.length) {
-    debugLog(`Routing to toolNode with ${msg.tool_calls.length} calls`)
+    traceDecision('shouldContinue', {
+      title: '决策: shouldContinue 路由',
+      summary: `route=toolNode，toolCalls=${msg.tool_calls.length}`,
+      data: {
+        lastMessageType: lastMessage.constructor.name,
+        toolCallCount: msg.tool_calls.length,
+        route: 'toolNode'
+      }
+    })
     return 'toolNode'
   }
 
-  debugLog(`Routing to memoryNode`)
+  traceDecision('shouldContinue', {
+    title: '决策: shouldContinue 路由',
+    summary: 'route=memoryNode',
+    data: {
+      lastMessageType: lastMessage.constructor.name,
+      toolCallCount: 0,
+      route: 'memoryNode'
+    }
+  })
   // Otherwise, we stop (reply to the user)
   // 改为跳转到 memoryNode 进行记忆管理
   return 'memoryNode'

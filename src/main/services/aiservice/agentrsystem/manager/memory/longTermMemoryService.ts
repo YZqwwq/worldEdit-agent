@@ -2,7 +2,12 @@ import type {
   MemoryLongTermSnapshot,
   MemoryStageSnapshot
 } from '@share/cache/AItype/states/memoryState'
-import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
+import {
+  describeConversationMode,
+  describeInteractionState,
+  describeUserMoodState,
+  type MemorySlotSnapshot
+} from '@share/cache/AItype/states/memorySlots'
 
 const uniqueRecent = (items: string[], limit = 8): string[] => {
   const normalized = items
@@ -38,13 +43,13 @@ const describeUserProfile = (
   const parts: string[] = []
 
   if (slots.conversation_state.conversation_mode) {
-    parts.push(`当前更常处于${slots.conversation_state.conversation_mode}型交流`)
+    parts.push(`当前更常处于${describeConversationMode(slots.conversation_state.conversation_mode)}场景`)
   }
   if (slots.conversation_state.interaction_state) {
-    parts.push(`互动状态偏向${slots.conversation_state.interaction_state}`)
+    parts.push(`互动状态偏向${describeInteractionState(slots.conversation_state.interaction_state)}`)
   }
   if (slots.user_mood.current_mood) {
-    parts.push(`近期情绪表现为${slots.user_mood.current_mood}`)
+    parts.push(`近期情绪表现为${describeUserMoodState(slots.user_mood.current_mood)}`)
   }
 
   const built = combineLines(parts, 240)

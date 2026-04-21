@@ -6,8 +6,6 @@ import {
   ToolMessage
 } from '@langchain/core/messages'
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph'
-import { appendFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { z } from 'zod'
 import { bindToolsToModel, normalizeModelResponse } from '../agentrsystem/modelwithtool/modelwithtool'
 import { getConfiguredQuickModelRuntime } from '../agentrsystem/modelwithtool/model'
@@ -91,21 +89,7 @@ const logCharacterEditorTrace = (input: {
   message: string
   data?: Record<string, unknown>
 }): void => {
-  const taskId = input.payload?.taskId ?? 'unknown'
-  const executionId = input.payload?.executionId ?? 'unknown'
-  const prefix = `[character_editor task=${taskId} execution=${executionId} stage=${input.stage}]`
-  const line =
-    `${prefix} ${input.message}` +
-    (input.data ? ` ${JSON.stringify(input.data)}` : '')
-
-  try {
-    const logPath = join(process.cwd(), 'src/main/services/log/logs/debug.log')
-    appendFileSync(logPath, `[${new Date().toISOString()}] ${line}\n`)
-  } catch {
-    // ignore local debug log failures
-  }
-
-  console.error(line)
+  void input
 }
 
 const logAbortTrace = (input: {

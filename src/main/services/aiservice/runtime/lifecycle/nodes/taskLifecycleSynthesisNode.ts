@@ -1,7 +1,7 @@
 import type { TaskLifecycleState } from '@share/cache/AItype/states/taskLifecycleState'
 import { subAgentCapabilityService } from '../../../../task/subAgentCapabilityService'
 import { taskService } from '../../../../task/taskService'
-import { emitGraphThought } from '../../../../log/graphlog'
+import { traceArtifact } from '../../../../log/trace/agentTraceEmitter'
 import {
   getSuggestedExecutor,
   toTaskLifecycleDecision,
@@ -38,13 +38,16 @@ class TaskLifecycleSynthesisNode {
         getSuggestedExecutor(input.inferred.task.executorKind)
       )
 
-      emitGraphThought('taskLifecycleSynthesisNode', {
-        stage: 'task_capability_check',
-        capability: {
-          executorKind: capability.executorKind,
-          requiredToolName: capability.requiredToolName,
-          available: capability.available,
-          message: capability.message
+      traceArtifact('taskLifecycleSynthesisNode', {
+        summary: `能力检查 ${capability.available ? '可用' : '不可用'}：${capability.executorKind}`,
+        data: {
+          stage: 'task_capability_check',
+          capability: {
+            executorKind: capability.executorKind,
+            requiredToolName: capability.requiredToolName,
+            available: capability.available,
+            message: capability.message
+          }
         }
       })
 

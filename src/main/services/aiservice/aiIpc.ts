@@ -228,8 +228,8 @@ export function initializeAIEndpoints(): void {
     return clearUploadFiles()
   })
 
-  ipcMain.handle('ai:resetPersonaState', async (_event) => {
-    await aiService.resetPersonaStateOnly()
+  ipcMain.handle('ai:resetAgentState', async (_event) => {
+    await aiService.resetAgentState()
   })
 
   ipcMain.handle('ai:getMemorySnapshot', async (): Promise<MemoryInspectionPayload> => {
