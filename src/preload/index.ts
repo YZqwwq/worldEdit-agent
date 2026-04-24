@@ -56,11 +56,27 @@ type Api = {
   getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
 
   pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number; mimeType?: string }>
+  pickImageAsset: () => Promise<{
+    sourcePath: string
+    fileName: string
+    size: number
+    mimeType?: string
+    width?: number
+    height?: number
+  }>
   uploadFile: (sourcePath: string) => Promise<{
     resourceUrl: string
     fileName: string
     size: number
     mimeType?: string
+  }>
+  uploadImageAsset: (sourcePath: string) => Promise<{
+    resourceUrl: string
+    fileName: string
+    size: number
+    mimeType?: string
+    width?: number
+    height?: number
   }>
   uploadFileData: (input: {
     fileName: string
@@ -141,7 +157,9 @@ const api: Api = {
   getMemorySnapshot: () => ipcRenderer.invoke('ai:getMemorySnapshot'),
   getTaskMonitorSnapshot: () => ipcRenderer.invoke('ai:getTaskMonitorSnapshot'),
   pickFile: () => ipcRenderer.invoke('file:pick'),
+  pickImageAsset: () => ipcRenderer.invoke('imageAsset:pick'),
   uploadFile: (sourcePath) => ipcRenderer.invoke('file:upload', sourcePath),
+  uploadImageAsset: (sourcePath) => ipcRenderer.invoke('imageAsset:upload', sourcePath),
   uploadFileData: (input) => ipcRenderer.invoke('file:uploadData', input),
   deleteFile: (resourceUrl) => ipcRenderer.invoke('file:delete', resourceUrl),
   pickAndUploadFile: () => ipcRenderer.invoke('file:pickAndUpload'),

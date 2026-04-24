@@ -54,11 +54,27 @@ declare global {
     getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
 
     pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number; mimeType?: string }>
+    pickImageAsset: () => Promise<{
+      sourcePath: string
+      fileName: string
+      size: number
+      mimeType?: string
+      width?: number
+      height?: number
+    }>
     uploadFile: (sourcePath: string) => Promise<{
       resourceUrl: string
       fileName: string
       size: number
       mimeType?: string
+    }>
+    uploadImageAsset: (sourcePath: string) => Promise<{
+      resourceUrl: string
+      fileName: string
+      size: number
+      mimeType?: string
+      width?: number
+      height?: number
     }>
     uploadFileData: (input: {
       fileName: string

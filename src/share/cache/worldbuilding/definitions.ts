@@ -37,6 +37,54 @@ const portraitTransformSchema = z.object({
   scale: z.number().min(0.45).max(2.5).default(1)
 })
 
+const portraitVisualLayerSchema = z.object({
+  imageUrl: z.string().trim().max(2000).default(''),
+  resourceUrl: z.string().trim().max(2000).default(''),
+  x: z.number().min(0).max(1).default(0.5),
+  y: z.number().min(0).max(1).default(0.5),
+  scale: z.number().min(0.4).max(2.4).default(1),
+  width: z.number().int().min(1).max(50000).optional(),
+  height: z.number().int().min(1).max(50000).optional()
+})
+
+const portraitTextBlockSchema = z.object({
+  id: z.string().trim().max(120),
+  fieldKey: z
+    .enum(['name', 'title', 'summary', 'age', 'gender', 'race', 'faction', 'nation', 'birthplace', 'height'])
+    .default('name'),
+  rect: z.object({
+    x: z.number().min(0).max(1).default(0.16),
+    y: z.number().min(0).max(1).default(0.14),
+    w: z.number().min(0.12).max(0.72).default(0.32),
+    h: z.number().min(0.08).max(0.42).default(0.14)
+  }),
+  fontFamily: z.string().trim().max(240).default('"Noto Serif SC", "Source Han Serif SC", serif'),
+  fontWeight: z.enum(['400', '500', '600', '700']).default('600'),
+  fontStyle: z.enum(['normal', 'italic']).default('normal'),
+  textAlign: z.enum(['left', 'center', 'right']).default('left'),
+  textColor: z.string().trim().max(32).default('#111111'),
+  boxStyle: z.enum(['none', 'frosted', 'fill']).default('frosted')
+})
+
+const portraitStudioSchema = z.object({
+  mode: z.enum(['portrait', 'landscape']).default('portrait'),
+  background: portraitVisualLayerSchema.default({
+    imageUrl: '',
+    resourceUrl: '',
+    x: 0.5,
+    y: 0.5,
+    scale: 1.08
+  }),
+  character: portraitVisualLayerSchema.default({
+    imageUrl: '',
+    resourceUrl: '',
+    x: 0.5,
+    y: 0.56,
+    scale: 1
+  }),
+  textBlocks: z.array(portraitTextBlockSchema).max(20).default([])
+})
+
 const field = (
   key: string,
   displayName: string,
@@ -57,7 +105,9 @@ const characterProfileSchema = z.object({
   description: richLongText,
   descriptionFormat: z.enum(['markdown', 'html']).default('markdown'),
   portraitResourceUrl: z.string().trim().max(2000).default(''),
+  portraitDocumentResourceUrl: z.string().trim().max(2000).default(''),
   portraitTransform: portraitTransformSchema.default(portraitTransformSchema.parse({})),
+  portraitStudio: portraitStudioSchema.default(portraitStudioSchema.parse({})),
   layoutVariant: z.enum(['v1', 'v2', 'v3']).default('v1'),
   editorAppearance: editorAppearanceSchema.default(editorAppearanceSchema.parse({})),
   personalityTraits: stringList,
@@ -231,7 +281,9 @@ const componentDefinitions: Record<RegisteredComponentType, WorldbuildingCompone
       field('summary', '摘要', '一句话概括角色定位。', 'text'),
       field('description', '详细描述', '角色的完整描述文案。', 'text', { multiline: true }),
       field('portraitResourceUrl', '立绘资源', '角色立绘的静态资源地址。', 'string'),
+      field('portraitDocumentResourceUrl', '立绘工程文件', '完整保留图层信息的立绘工程资源地址。', 'string'),
       field('portraitTransform', '立绘变换', '角色立绘的位置偏移与缩放。', 'text'),
+      field('portraitStudio', '立绘编辑状态', '立绘编辑器保存的轻量图层状态。', 'text'),
       field('layoutVariant', '排版方案', '角色卡面使用的布局版本。', 'string'),
       field('personalityTraits', '性格特征', '角色稳定的性格关键词。', 'string_list'),
       field('abilities', '能力', '角色拥有的能力、技能或专长。', 'string_list'),

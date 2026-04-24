@@ -15,6 +15,16 @@ import {
   traceDecision
 } from '../../../../log/trace/agentTraceEmitter'
 
+const formatCurrentContextTime = (): string => {
+  const now = new Date()
+  const weekday = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][now.getDay()]
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  const timezone =
+    Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
+
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())} ${weekday}（时区：${timezone}）`
+}
+
 /**
  * ContextNode: 负责构建全局上下文，包括 Persona、Memory 等。
  * 它作为图的入口节点，确保 LLM 在处理用户输入前拥有完整的背景信息。
@@ -29,6 +39,7 @@ export async function contextNode(
   const characterPrompt = await loadCharacterPrompt()
   const expressionProfile =
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
+  const currentTimeContext = formatCurrentContextTime()
 
   // 人格组装提示
   const personaAssemblyPrompt = buildPersonaAssemblyPrompt({
@@ -39,6 +50,12 @@ export async function contextNode(
   if (personaAssemblyPrompt) {
     messages.push(new SystemMessage(personaAssemblyPrompt))
   }
+
+  messages.push(
+    new SystemMessage(
+      `当前时间锚点：${currentTimeContext}\n默认以此作为“现在/今天/最近”之类相对时间表达的解释基准；除非用户明确提供其他时间背景，否则不要自行假设年份或日期。`
+    )
+  )
 
   // 当前活跃任务
   if (state.taskLifecycle?.activeTask) {
@@ -87,7 +104,7 @@ export async function contextNode(
 
   // 记忆系统
   const memoryPromptPlan = buildMemoryPromptPlan(snapshot, slotSnapshot)
-  const injectedSections: string[] = ['personaAssemblyPrompt']
+  const injectedSections: string[] = ['personaAssemblyPrompt', 'currentTimeContext']
 
   // 长期稳定记忆
   if (memoryPromptPlan.longTermPrompt) {

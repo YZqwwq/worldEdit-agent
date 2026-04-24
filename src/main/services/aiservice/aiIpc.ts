@@ -1,4 +1,4 @@
-import { dialog, ipcMain } from 'electron'
+import { dialog, ipcMain, nativeImage } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { copyFile, stat, unlink, readdir, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
@@ -51,11 +51,21 @@ type UploadResult = {
   mimeType?: string
 }
 
+type ImageAssetResult = UploadResult & {
+  width?: number
+  height?: number
+}
+
 type PickResult = {
   sourcePath: string
   fileName: string
   size: number
   mimeType?: string
+}
+
+type PickImageAssetResult = PickResult & {
+  width?: number
+  height?: number
 }
 
 type UploadDataInput = {
@@ -76,6 +86,40 @@ const clearUploadFiles = async (): Promise<number> => {
     }
   }
   return removed
+}
+
+const readImageDimensions = (sourcePath: string): { width?: number; height?: number } => {
+  try {
+    const image = nativeImage.createFromPath(sourcePath)
+    if (image.isEmpty()) return {}
+    const size = image.getSize()
+    if (!size.width || !size.height) return {}
+    return {
+      width: size.width,
+      height: size.height
+    }
+  } catch {
+    return {}
+  }
+}
+
+const ensureSupportedImageAsset = (fileName: string, mimeType?: string): void => {
+  const normalizedMime = String(mimeType || '').trim().toLowerCase()
+  const normalizedExt = extname(fileName).trim().toLowerCase()
+  const allowedExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.svg', '.heic', '.heif'])
+  const allowedMimes = new Set([
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif',
+    'image/bmp',
+    'image/svg+xml',
+    'image/heic',
+    'image/heif'
+  ])
+  if (!allowedExts.has(normalizedExt) && !allowedMimes.has(normalizedMime)) {
+    throw new Error('当前仅支持导入常见图片格式。')
+  }
 }
 
 const copyToUploadDir = async (sourcePath: string): Promise<UploadResult> => {
@@ -100,6 +144,25 @@ const copyToUploadDir = async (sourcePath: string): Promise<UploadResult> => {
     fileName,
     size: fileStat.size,
     mimeType
+  }
+}
+
+const copyImageAssetToUploadDir = async (sourcePath: string): Promise<ImageAssetResult> => {
+  const fileStat = await stat(sourcePath)
+  const fileName = basename(sourcePath)
+  const mimeType = inferMimeTypeFromFileName(fileName)
+  ensureSupportedImageAsset(fileName, mimeType)
+  const uploadDir = getStaticUploadDir()
+  const ext = extname(sourcePath)
+  const destName = `${randomUUID()}${ext}`
+  const destPath = join(uploadDir, destName)
+  await copyFile(sourcePath, destPath)
+  return {
+    resourceUrl: buildAppResourceUrl('uploads', destPath),
+    fileName,
+    size: fileStat.size,
+    mimeType,
+    ...readImageDimensions(destPath)
   }
 }
 
@@ -391,6 +454,33 @@ export function initializeAIEndpoints(): void {
     }
   })
 
+  ipcMain.handle('imageAsset:pick', async (): Promise<PickImageAssetResult> => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        {
+          name: 'Images',
+          extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg', 'heic', 'heif']
+        }
+      ]
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      throw new Error('No file selected')
+    }
+    const sourcePath = result.filePaths[0]
+    const fileStat = await stat(sourcePath)
+    const fileName = basename(sourcePath)
+    const mimeType = inferMimeTypeFromFileName(fileName)
+    ensureSupportedImageAsset(fileName, mimeType)
+    return {
+      sourcePath,
+      fileName,
+      size: fileStat.size,
+      mimeType,
+      ...readImageDimensions(sourcePath)
+    }
+  })
+
   ipcMain.handle('file:pickAndUpload', async (): Promise<UploadResult> => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -406,6 +496,13 @@ export function initializeAIEndpoints(): void {
     }
     const sourcePath = result.filePaths[0]
     return copyToUploadDir(sourcePath)
+  })
+
+  ipcMain.handle('imageAsset:upload', async (_event, sourcePath: string): Promise<ImageAssetResult> => {
+    if (!sourcePath || typeof sourcePath !== 'string') {
+      throw new Error('Invalid file path')
+    }
+    return copyImageAssetToUploadDir(sourcePath)
   })
 
   ipcMain.handle('file:delete', async (_event, resourceUrl: string): Promise<boolean> => {

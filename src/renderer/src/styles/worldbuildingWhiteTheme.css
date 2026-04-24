@@ -1,0 +1,18 @@
+.worldbuilding-white-theme {
+  --wb-page-bg: #ffffff;
+  --wb-panel-bg: rgba(255, 255, 255, 0.94);
+  --wb-panel-strong: #ffffff;
+  --wb-panel-muted: #f7f7f7;
+  --wb-panel-line: rgba(15, 23, 42, 0.08);
+  --wb-panel-line-strong: rgba(15, 23, 42, 0.14);
+  --wb-text-primary: #111827;
+  --wb-text-secondary: #4b5563;
+  --wb-text-tertiary: #6b7280;
+  --wb-accent: #111111;
+  --wb-accent-soft: rgba(17, 17, 17, 0.06);
+  --wb-shadow-soft: 0 18px 60px rgba(15, 23, 42, 0.08);
+  --wb-shadow-card: 0 10px 30px rgba(15, 23, 42, 0.06);
+  --wb-radius-panel: 24px;
+  --wb-radius-card: 10px;
+  --wb-radius-pill: 999px;
+}
