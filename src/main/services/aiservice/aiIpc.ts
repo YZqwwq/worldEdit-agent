@@ -1,7 +1,7 @@
 import { dialog, ipcMain, nativeImage } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { copyFile, stat, unlink, readdir, writeFile } from 'node:fs/promises'
-import { basename, extname, join } from 'node:path'
+import { copyFile, mkdir, readFile, stat, unlink, readdir, writeFile } from 'node:fs/promises'
+import { basename, extname, join, normalize, sep } from 'node:path'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import {
   inferMimeTypeFromFileName,
@@ -70,6 +70,14 @@ type PickImageAssetResult = PickResult & {
 
 type UploadDataInput = {
   fileName: string
+  mimeType?: string
+  data: ArrayBuffer
+  relativeDir?: string
+}
+
+type ReadBinaryResult = {
+  fileName: string
+  size: number
   mimeType?: string
   data: ArrayBuffer
 }
@@ -179,6 +187,17 @@ const inferExtensionFromMimeType = (mimeType?: string): string => {
   return ''
 }
 
+const sanitizeRelativeDir = (value: string | undefined): string => {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  return normalize(raw)
+    .split(/[\\/]+/u)
+    .filter(Boolean)
+    .map((segment) => segment.replace(/[^a-zA-Z0-9._-]/g, '_'))
+    .filter((segment) => segment !== '.' && segment !== '..')
+    .join(sep)
+}
+
 const writeUploadDataToDir = async (input: UploadDataInput): Promise<UploadResult> => {
   const fileName = String(input.fileName || '').trim() || `pasted-image${inferExtensionFromMimeType(input.mimeType)}`
   const mimeType = String(input.mimeType || '').trim() || inferMimeTypeFromFileName(fileName)
@@ -203,6 +222,40 @@ const writeUploadDataToDir = async (input: UploadDataInput): Promise<UploadResul
     fileName,
     size: buffer.byteLength,
     mimeType: mimeType || undefined
+  }
+}
+
+const writeResourceDataToDir = async (input: UploadDataInput): Promise<UploadResult> => {
+  const fileName = String(input.fileName || '').trim() || 'resource.bin'
+  const mimeType = String(input.mimeType || '').trim() || inferMimeTypeFromFileName(fileName)
+  const uploadDir = getStaticUploadDir()
+  const relativeDir = sanitizeRelativeDir(input.relativeDir)
+  const targetDir = relativeDir ? join(uploadDir, relativeDir) : uploadDir
+  await mkdir(targetDir, { recursive: true })
+  const ext = extname(fileName) || inferExtensionFromMimeType(mimeType)
+  const normalizedFileName = extname(fileName) ? fileName : `${fileName}${ext}`
+  const destPath = join(targetDir, normalizedFileName)
+  const buffer = Buffer.from(new Uint8Array(input.data))
+  await writeFile(destPath, buffer)
+  return {
+    resourceUrl: buildAppResourceUrl('uploads', destPath),
+    fileName,
+    size: buffer.byteLength,
+    mimeType: mimeType || undefined
+  }
+}
+
+const readResourceBinary = async (resourceUrl: string): Promise<ReadBinaryResult> => {
+  const targetPath = resolveAppResourcePath(resourceUrl, 'uploads')
+  const buffer = await readFile(targetPath)
+  const fileName = basename(targetPath)
+  const mimeType = inferMimeTypeFromFileName(fileName)
+  const data = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+  return {
+    fileName,
+    size: buffer.byteLength,
+    mimeType,
+    data
   }
 }
 
@@ -419,6 +472,20 @@ export function initializeAIEndpoints(): void {
       throw new Error('Invalid file payload')
     }
     return writeUploadDataToDir(input)
+  })
+
+  ipcMain.handle('resource:uploadData', async (_event, input: UploadDataInput): Promise<UploadResult> => {
+    if (!input || typeof input !== 'object' || !(input.data instanceof ArrayBuffer)) {
+      throw new Error('Invalid resource payload')
+    }
+    return writeResourceDataToDir(input)
+  })
+
+  ipcMain.handle('resource:readBinary', async (_event, resourceUrl: string): Promise<ReadBinaryResult> => {
+    if (!resourceUrl || typeof resourceUrl !== 'string') {
+      throw new Error('Invalid resource url')
+    }
+    return readResourceBinary(resourceUrl)
   })
 
   ipcMain.handle('file:pick', async (): Promise<PickResult> => {

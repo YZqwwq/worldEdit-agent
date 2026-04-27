@@ -5,7 +5,12 @@ export const PORTRAIT_DOCUMENT_FILE_EXTENSION = 'fmlrp' as const
 export type PortraitDocumentFormat = typeof PORTRAIT_DOCUMENT_FORMAT
 export type PortraitDocumentVersion = typeof PORTRAIT_DOCUMENT_VERSION
 export type PortraitDocumentMode = 'portrait' | 'landscape'
-export type PortraitDocumentAssetId = 'background' | 'character'
+export type PortraitDocumentLayerKind = 'background' | 'character'
+export type PortraitDocumentAssetId =
+  | 'portrait_background'
+  | 'portrait_character'
+  | 'landscape_background'
+  | 'landscape_character'
 export type PortraitDocumentBoxStyle = 'none' | 'frosted' | 'fill'
 export type PortraitDocumentTextAlign = 'left' | 'center' | 'right'
 export type PortraitDocumentFontStyle = 'normal' | 'italic'
@@ -50,6 +55,14 @@ export interface PortraitDocumentImageAsset {
   resourceUrl?: string
 }
 
+export interface PortraitDocumentCanvasState {
+  mode: PortraitDocumentMode
+  ratio: '9:16' | '16:9'
+  background: PortraitDocumentLayerState
+  character: PortraitDocumentLayerState
+  textBlocks: PortraitDocumentTextBlock[]
+}
+
 export interface PortraitDocument {
   format: PortraitDocumentFormat
   version: PortraitDocumentVersion
@@ -59,14 +72,10 @@ export interface PortraitDocument {
     entityId?: string
     name: string
   }
-  canvas: {
-    mode: PortraitDocumentMode
-    ratio: '9:16' | '16:9'
-  }
+  activeMode: PortraitDocumentMode
   assets: Partial<Record<PortraitDocumentAssetId, PortraitDocumentImageAsset>>
-  layers: {
-    background: PortraitDocumentLayerState
-    character: PortraitDocumentLayerState
-    textBlocks: PortraitDocumentTextBlock[]
+  canvases: {
+    portrait: PortraitDocumentCanvasState
+    landscape: PortraitDocumentCanvasState
   }
 }

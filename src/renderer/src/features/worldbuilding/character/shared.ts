@@ -17,6 +17,9 @@ export type CharacterProfileData = {
   descriptionFormat?: 'markdown' | 'html'
   portraitResourceUrl?: string
   portraitDocumentResourceUrl?: string
+  portraitDocumentResourceUrls?: Partial<Record<'portrait' | 'landscape', string>>
+  portraitStudiosByMode?: Partial<Record<'portrait' | 'landscape', Record<string, unknown>>>
+  portraitActiveMode?: 'portrait' | 'landscape'
   portraitTransform?: Partial<PortraitTransform>
   layoutVariant?: 'v1' | 'v2' | 'v3'
   editorAppearance?: Partial<WorldRichTextAppearance>

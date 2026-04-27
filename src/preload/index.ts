@@ -88,6 +88,23 @@ type Api = {
     size: number
     mimeType?: string
   }>
+  uploadResourceData: (input: {
+    fileName: string
+    mimeType?: string
+    data: ArrayBuffer
+    relativeDir?: string
+  }) => Promise<{
+    resourceUrl: string
+    fileName: string
+    size: number
+    mimeType?: string
+  }>
+  readResourceBinary: (resourceUrl: string) => Promise<{
+    fileName: string
+    size: number
+    mimeType?: string
+    data: ArrayBuffer
+  }>
   deleteFile: (resourceUrl: string) => Promise<boolean>
   pickAndUploadFile: () => Promise<{
     resourceUrl: string
@@ -161,6 +178,8 @@ const api: Api = {
   uploadFile: (sourcePath) => ipcRenderer.invoke('file:upload', sourcePath),
   uploadImageAsset: (sourcePath) => ipcRenderer.invoke('imageAsset:upload', sourcePath),
   uploadFileData: (input) => ipcRenderer.invoke('file:uploadData', input),
+  uploadResourceData: (input) => ipcRenderer.invoke('resource:uploadData', input),
+  readResourceBinary: (resourceUrl) => ipcRenderer.invoke('resource:readBinary', resourceUrl),
   deleteFile: (resourceUrl) => ipcRenderer.invoke('file:delete', resourceUrl),
   pickAndUploadFile: () => ipcRenderer.invoke('file:pickAndUpload'),
   clearUploads: () => ipcRenderer.invoke('file:clearUploads'),

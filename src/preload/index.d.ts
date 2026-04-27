@@ -86,6 +86,23 @@ declare global {
       size: number
       mimeType?: string
     }>
+    uploadResourceData: (input: {
+      fileName: string
+      mimeType?: string
+      data: ArrayBuffer
+      relativeDir?: string
+    }) => Promise<{
+      resourceUrl: string
+      fileName: string
+      size: number
+      mimeType?: string
+    }>
+    readResourceBinary: (resourceUrl: string) => Promise<{
+      fileName: string
+      size: number
+      mimeType?: string
+      data: ArrayBuffer
+    }>
     deleteFile: (resourceUrl: string) => Promise<boolean>
     pickAndUploadFile: () => Promise<{
       resourceUrl: string

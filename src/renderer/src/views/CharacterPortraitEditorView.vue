@@ -204,16 +204,16 @@
               <button
                 type="button"
                 class="mode-switch-btn"
-                :class="{ active: studio.mode === 'portrait' }"
-                @click="studio.mode = 'portrait'"
+                :class="{ active: activeStudioMode === 'portrait' }"
+                @click="switchStudioMode('portrait')"
               >
                 竖屏
               </button>
               <button
                 type="button"
                 class="mode-switch-btn"
-                :class="{ active: studio.mode === 'landscape' }"
-                @click="studio.mode = 'landscape'"
+                :class="{ active: activeStudioMode === 'landscape' }"
+                @click="switchStudioMode('landscape')"
               >
                 横屏
               </button>
@@ -445,8 +445,11 @@ type PortraitStudioState = {
   textBlocks: PortraitTextBlock[]
 }
 
+type PortraitStudiosByMode = Record<StageMode, PortraitStudioState>
+
 type CharacterPortraitStudioProfileData = CharacterProfileData & {
   portraitStudio?: Partial<PortraitStudioState>
+  portraitStudiosByMode?: Partial<Record<StageMode, Partial<PortraitStudioState>>>
 }
 
 type AvailableField = {
@@ -529,6 +532,30 @@ const DEFAULT_STUDIO_STATE = (): PortraitStudioState => ({
   textBlocks: []
 })
 
+const DEFAULT_STUDIOS_BY_MODE = (): PortraitStudiosByMode => ({
+  portrait: DEFAULT_STUDIO_STATE(),
+  landscape: {
+    ...DEFAULT_STUDIO_STATE(),
+    mode: 'landscape',
+    character: {
+      ...DEFAULT_STUDIO_STATE().character,
+      y: 0.54,
+      scale: 1
+    }
+  }
+})
+
+const DOCUMENT_ASSET_IDS: Record<StageMode, Record<VisualLayerKey, PortraitDocumentAssetId>> = {
+  portrait: {
+    background: 'portrait_background',
+    character: 'portrait_character'
+  },
+  landscape: {
+    background: 'landscape_background',
+    character: 'landscape_character'
+  }
+}
+
 const route = useRoute()
 const router = useRouter()
 
@@ -551,7 +578,9 @@ const characterFactionIdInput = ref('')
 const characterNationIdInput = ref('')
 const characterBirthplaceInput = ref('')
 
-const studio = ref<PortraitStudioState>(DEFAULT_STUDIO_STATE())
+const studio = ref<PortraitStudioState>(DEFAULT_STUDIOS_BY_MODE().portrait)
+const studiosByMode = ref<PortraitStudiosByMode>(DEFAULT_STUDIOS_BY_MODE())
+const activeStudioMode = ref<StageMode>('portrait')
 const selectedFieldKey = ref<PortraitFieldKey | null>('name')
 const selectedBlockId = ref<string | null>(null)
 const selectedVisualLayer = ref<VisualLayerKey>('character')
@@ -690,7 +719,8 @@ const portraitAutosaveSignature = computed(() =>
     factionEntityId: characterFactionIdInput.value,
     nationEntityId: characterNationIdInput.value,
     birthplaceEntityId: characterBirthplaceInput.value,
-    studio: toPlainIpcPayload(toPersistedStudioSnapshot(studio.value))
+    activeMode: activeStudioMode.value,
+    studiosByMode: toPlainIpcPayload(getPersistedStudiosByModeSnapshot())
   })
 )
 
@@ -728,35 +758,97 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
   return btoa(binary)
 }
 
-const guessAssetFileName = (layerKey: PortraitDocumentAssetId, sourceUrl: string, mimeType: string): string => {
+const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes.buffer
+}
+
+const parseDataUrl = (
+  value: string
+): {
+  mimeType: string
+  buffer: ArrayBuffer
+  fileName: string
+} | null => {
+  const match = /^data:([^;]+);base64,(.+)$/u.exec(value)
+  if (!match) return null
+  const mimeType = match[1] || 'application/octet-stream'
+  const extension =
+    mimeType === 'image/png'
+      ? 'png'
+      : mimeType === 'image/jpeg'
+        ? 'jpg'
+        : mimeType === 'image/webp'
+          ? 'webp'
+          : mimeType === 'image/svg+xml'
+            ? 'svg'
+            : 'bin'
+  return {
+    mimeType,
+    buffer: base64ToArrayBuffer(match[2]),
+    fileName: `embedded.${extension}`
+  }
+}
+
+const readBinaryFromSourceUrl = async (
+  sourceUrl: string
+): Promise<{
+  fileName: string
+  mimeType?: string
+  data: ArrayBuffer
+}> => {
+  const dataUrl = parseDataUrl(sourceUrl)
+  if (dataUrl) {
+    return {
+      fileName: dataUrl.fileName,
+      mimeType: dataUrl.mimeType,
+      data: dataUrl.buffer
+    }
+  }
+  if (isAppResourceUrl(sourceUrl)) {
+    return window.api.readResourceBinary(sourceUrl)
+  }
+  const response = await fetch(sourceUrl)
+  if (!response.ok) {
+    throw new Error('无法读取图层资源')
+  }
+  const blob = await response.blob()
+  return {
+    fileName: sourceUrl.split('/').pop() || 'resource.bin',
+    mimeType: blob.type || undefined,
+    data: await blob.arrayBuffer()
+  }
+}
+
+const guessAssetFileName = (assetId: PortraitDocumentAssetId, sourceUrl: string, mimeType: string): string => {
   if (isAppResourceUrl(sourceUrl)) {
     const pathPart = sourceUrl.split('/').pop()
     if (pathPart) return decodeURIComponent(pathPart)
   }
-  if (mimeType === 'image/png') return `${layerKey}.png`
-  if (mimeType === 'image/webp') return `${layerKey}.webp`
-  if (mimeType === 'image/jpeg') return `${layerKey}.jpg`
-  if (mimeType === 'image/svg+xml') return `${layerKey}.svg`
-  return `${layerKey}.bin`
+  if (mimeType === 'image/png') return `${assetId}.png`
+  if (mimeType === 'image/webp') return `${assetId}.webp`
+  if (mimeType === 'image/jpeg') return `${assetId}.jpg`
+  if (mimeType === 'image/svg+xml') return `${assetId}.svg`
+  return `${assetId}.bin`
 }
 
 const buildPortraitDocumentAsset = async (
-  layerKey: PortraitDocumentAssetId,
+  assetId: PortraitDocumentAssetId,
   layer: VisualLayerState
 ): Promise<PortraitDocumentImageAsset | null> => {
   const sourceUrl = layer.resourceUrl || layer.imageUrl
   if (!sourceUrl) return null
-  const response = await fetch(sourceUrl)
-  if (!response.ok) {
-    throw new Error(`无法读取${layerKey === 'background' ? '背景' : '人物'}图层资源`)
-  }
-  const blob = await response.blob()
-  const buffer = await blob.arrayBuffer()
-  const mimeType = blob.type || 'application/octet-stream'
+  const binary = await readBinaryFromSourceUrl(sourceUrl)
+  const buffer = binary.data
+  const mimeType = binary.mimeType || 'application/octet-stream'
   return {
-    assetId: layerKey,
+    assetId,
     kind: 'image',
-    fileName: guessAssetFileName(layerKey, sourceUrl, mimeType),
+    fileName: guessAssetFileName(assetId, binary.fileName || sourceUrl, mimeType),
     mimeType,
     width: layer.width,
     height: layer.height,
@@ -766,17 +858,20 @@ const buildPortraitDocumentAsset = async (
   }
 }
 
-const createPortraitDocument = async (): Promise<PortraitDocument> => {
+const createPortraitDocument = async (
+  studiosSnapshot: PortraitStudiosByMode,
+  activeMode: StageMode
+): Promise<PortraitDocument> => {
   const assetsEntries = await Promise.all([
-    buildPortraitDocumentAsset('background', studio.value.background),
-    buildPortraitDocumentAsset('character', studio.value.character)
+    buildPortraitDocumentAsset(DOCUMENT_ASSET_IDS.portrait.background, studiosSnapshot.portrait.background),
+    buildPortraitDocumentAsset(DOCUMENT_ASSET_IDS.portrait.character, studiosSnapshot.portrait.character),
+    buildPortraitDocumentAsset(DOCUMENT_ASSET_IDS.landscape.background, studiosSnapshot.landscape.background),
+    buildPortraitDocumentAsset(DOCUMENT_ASSET_IDS.landscape.character, studiosSnapshot.landscape.character)
   ])
   const assets: PortraitDocument['assets'] = {}
   for (const asset of assetsEntries) {
     if (asset) assets[asset.assetId] = asset
   }
-
-  const persistedStudio = toPersistedStudioSnapshot(studio.value)
 
   return {
     format: PORTRAIT_DOCUMENT_FORMAT,
@@ -787,31 +882,55 @@ const createPortraitDocument = async (): Promise<PortraitDocument> => {
       entityId: entityId.value || undefined,
       name: characterNameInput.value || entityDetail.value?.entity.name || ''
     },
-    canvas: {
-      mode: studio.value.mode,
-      ratio: studio.value.mode === 'portrait' ? '9:16' : '16:9'
-    },
+    activeMode,
     assets,
-    layers: {
-      background: {
-        assetId: assets.background ? 'background' : null,
-        x: persistedStudio.background.x,
-        y: persistedStudio.background.y,
-        scale: persistedStudio.background.scale,
-        width: persistedStudio.background.width,
-        height: persistedStudio.background.height,
-        resourceUrl: persistedStudio.background.resourceUrl
+    canvases: {
+      portrait: {
+        mode: 'portrait',
+        ratio: '9:16',
+        background: {
+          assetId: assets.portrait_background ? 'portrait_background' : null,
+          x: studiosSnapshot.portrait.background.x,
+          y: studiosSnapshot.portrait.background.y,
+          scale: studiosSnapshot.portrait.background.scale,
+          width: studiosSnapshot.portrait.background.width,
+          height: studiosSnapshot.portrait.background.height,
+          resourceUrl: studiosSnapshot.portrait.background.resourceUrl
+        },
+        character: {
+          assetId: assets.portrait_character ? 'portrait_character' : null,
+          x: studiosSnapshot.portrait.character.x,
+          y: studiosSnapshot.portrait.character.y,
+          scale: studiosSnapshot.portrait.character.scale,
+          width: studiosSnapshot.portrait.character.width,
+          height: studiosSnapshot.portrait.character.height,
+          resourceUrl: studiosSnapshot.portrait.character.resourceUrl
+        },
+        textBlocks: studiosSnapshot.portrait.textBlocks
       },
-      character: {
-        assetId: assets.character ? 'character' : null,
-        x: persistedStudio.character.x,
-        y: persistedStudio.character.y,
-        scale: persistedStudio.character.scale,
-        width: persistedStudio.character.width,
-        height: persistedStudio.character.height,
-        resourceUrl: persistedStudio.character.resourceUrl
+      landscape: {
+        mode: 'landscape',
+        ratio: '16:9',
+        background: {
+          assetId: assets.landscape_background ? 'landscape_background' : null,
+          x: studiosSnapshot.landscape.background.x,
+          y: studiosSnapshot.landscape.background.y,
+          scale: studiosSnapshot.landscape.background.scale,
+          width: studiosSnapshot.landscape.background.width,
+          height: studiosSnapshot.landscape.background.height,
+          resourceUrl: studiosSnapshot.landscape.background.resourceUrl
+        },
+        character: {
+          assetId: assets.landscape_character ? 'landscape_character' : null,
+          x: studiosSnapshot.landscape.character.x,
+          y: studiosSnapshot.landscape.character.y,
+          scale: studiosSnapshot.landscape.character.scale,
+          width: studiosSnapshot.landscape.character.width,
+          height: studiosSnapshot.landscape.character.height,
+          resourceUrl: studiosSnapshot.landscape.character.resourceUrl
+        },
+        textBlocks: studiosSnapshot.landscape.textBlocks
       },
-      textBlocks: persistedStudio.textBlocks
     }
   }
 }
@@ -839,49 +958,114 @@ const isPortraitDocument = (value: unknown): value is PortraitDocument => {
       typeof value === 'object' &&
       (value as PortraitDocument).format === PORTRAIT_DOCUMENT_FORMAT &&
       (value as PortraitDocument).version === PORTRAIT_DOCUMENT_VERSION &&
-      (value as PortraitDocument).layers
+      (value as PortraitDocument).canvases?.portrait &&
+      (value as PortraitDocument).canvases?.landscape
   )
 }
 
 const loadPortraitDocumentFromResource = async (
   resourceUrl: string
-): Promise<Partial<PortraitStudioState> | null> => {
-  const response = await fetch(resourceUrl)
-  if (!response.ok) return null
-  const encoded = await response.arrayBuffer()
+): Promise<{ studiosByMode: PortraitStudiosByMode; activeMode: StageMode } | null> => {
+  const encoded = isAppResourceUrl(resourceUrl)
+    ? (await window.api.readResourceBinary(resourceUrl)).data
+    : await fetch(resourceUrl).then(async (response) => {
+        if (!response.ok) throw new Error('读取立绘工程失败')
+        return response.arrayBuffer()
+      })
   const documentText = await decodePortraitDocumentBuffer(encoded)
   const documentData = JSON.parse(documentText) as unknown
   if (!isPortraitDocument(documentData)) return null
 
-  const backgroundAsset = documentData.assets.background
-  const characterAsset = documentData.assets.character
-
   return {
-    mode: documentData.canvas.mode,
-    background: {
-      imageUrl: backgroundAsset ? dataUrlFromAsset(backgroundAsset) : '',
-      resourceUrl: backgroundAsset?.resourceUrl || '',
-      x: documentData.layers.background.x,
-      y: documentData.layers.background.y,
-      scale: documentData.layers.background.scale,
-      width: backgroundAsset?.width ?? documentData.layers.background.width,
-      height: backgroundAsset?.height ?? documentData.layers.background.height
-    },
-    character: {
-      imageUrl: characterAsset ? dataUrlFromAsset(characterAsset) : '',
-      resourceUrl: characterAsset?.resourceUrl || '',
-      x: documentData.layers.character.x,
-      y: documentData.layers.character.y,
-      scale: documentData.layers.character.scale,
-      width: characterAsset?.width ?? documentData.layers.character.width,
-      height: characterAsset?.height ?? documentData.layers.character.height
-    },
-    textBlocks: documentData.layers.textBlocks.map((block) => ({
-      ...block,
-      fieldKey: AVAILABLE_FIELD_ORDER.includes(block.fieldKey as PortraitFieldKey)
-        ? (block.fieldKey as PortraitFieldKey)
-        : 'name'
-    }))
+    activeMode: documentData.activeMode === 'landscape' ? 'landscape' : 'portrait',
+    studiosByMode: {
+      portrait: normalizeStudio({
+        mode: 'portrait',
+        background: {
+          imageUrl: documentData.canvases.portrait.background.assetId
+            ? dataUrlFromAsset(documentData.assets[documentData.canvases.portrait.background.assetId]!)
+            : '',
+          resourceUrl:
+            documentData.assets[documentData.canvases.portrait.background.assetId || 'portrait_background']
+              ?.resourceUrl || '',
+          x: documentData.canvases.portrait.background.x,
+          y: documentData.canvases.portrait.background.y,
+          scale: documentData.canvases.portrait.background.scale,
+          width:
+            documentData.assets[documentData.canvases.portrait.background.assetId || 'portrait_background']
+              ?.width ?? documentData.canvases.portrait.background.width,
+          height:
+            documentData.assets[documentData.canvases.portrait.background.assetId || 'portrait_background']
+              ?.height ?? documentData.canvases.portrait.background.height
+        },
+        character: {
+          imageUrl: documentData.canvases.portrait.character.assetId
+            ? dataUrlFromAsset(documentData.assets[documentData.canvases.portrait.character.assetId]!)
+            : '',
+          resourceUrl:
+            documentData.assets[documentData.canvases.portrait.character.assetId || 'portrait_character']
+              ?.resourceUrl || '',
+          x: documentData.canvases.portrait.character.x,
+          y: documentData.canvases.portrait.character.y,
+          scale: documentData.canvases.portrait.character.scale,
+          width:
+            documentData.assets[documentData.canvases.portrait.character.assetId || 'portrait_character']
+              ?.width ?? documentData.canvases.portrait.character.width,
+          height:
+            documentData.assets[documentData.canvases.portrait.character.assetId || 'portrait_character']
+              ?.height ?? documentData.canvases.portrait.character.height
+        },
+        textBlocks: documentData.canvases.portrait.textBlocks.map((block) => ({
+          ...block,
+          fieldKey: AVAILABLE_FIELD_ORDER.includes(block.fieldKey as PortraitFieldKey)
+            ? (block.fieldKey as PortraitFieldKey)
+            : 'name'
+        }))
+      }),
+      landscape: normalizeStudio({
+        mode: 'landscape',
+        background: {
+          imageUrl: documentData.canvases.landscape.background.assetId
+            ? dataUrlFromAsset(documentData.assets[documentData.canvases.landscape.background.assetId]!)
+            : '',
+          resourceUrl:
+            documentData.assets[documentData.canvases.landscape.background.assetId || 'landscape_background']
+              ?.resourceUrl || '',
+          x: documentData.canvases.landscape.background.x,
+          y: documentData.canvases.landscape.background.y,
+          scale: documentData.canvases.landscape.background.scale,
+          width:
+            documentData.assets[documentData.canvases.landscape.background.assetId || 'landscape_background']
+              ?.width ?? documentData.canvases.landscape.background.width,
+          height:
+            documentData.assets[documentData.canvases.landscape.background.assetId || 'landscape_background']
+              ?.height ?? documentData.canvases.landscape.background.height
+        },
+        character: {
+          imageUrl: documentData.canvases.landscape.character.assetId
+            ? dataUrlFromAsset(documentData.assets[documentData.canvases.landscape.character.assetId]!)
+            : '',
+          resourceUrl:
+            documentData.assets[documentData.canvases.landscape.character.assetId || 'landscape_character']
+              ?.resourceUrl || '',
+          x: documentData.canvases.landscape.character.x,
+          y: documentData.canvases.landscape.character.y,
+          scale: documentData.canvases.landscape.character.scale,
+          width:
+            documentData.assets[documentData.canvases.landscape.character.assetId || 'landscape_character']
+              ?.width ?? documentData.canvases.landscape.character.width,
+          height:
+            documentData.assets[documentData.canvases.landscape.character.assetId || 'landscape_character']
+              ?.height ?? documentData.canvases.landscape.character.height
+        },
+        textBlocks: documentData.canvases.landscape.textBlocks.map((block) => ({
+          ...block,
+          fieldKey: AVAILABLE_FIELD_ORDER.includes(block.fieldKey as PortraitFieldKey)
+            ? (block.fieldKey as PortraitFieldKey)
+            : 'name'
+        }))
+      })
+    }
   }
 }
 
@@ -932,30 +1116,74 @@ const normalizeStudio = (value: Partial<PortraitStudioState> | undefined): Portr
   }
 }
 
+const cloneStudio = (value: PortraitStudioState): PortraitStudioState => ({
+  mode: value.mode,
+  background: { ...value.background },
+  character: { ...value.character },
+  textBlocks: value.textBlocks.map((block) => ({
+    ...block,
+    rect: { ...block.rect }
+  }))
+})
+
+const syncCurrentStudioIntoModeStore = (): void => {
+  studiosByMode.value[activeStudioMode.value] = cloneStudio(studio.value)
+}
+
+const getPersistedStudiosByModeSnapshot = (): PortraitStudiosByMode => {
+  const drafts = {
+    portrait: cloneStudio(studiosByMode.value.portrait),
+    landscape: cloneStudio(studiosByMode.value.landscape)
+  }
+  drafts[activeStudioMode.value] = cloneStudio(studio.value)
+  drafts.portrait.mode = 'portrait'
+  drafts.landscape.mode = 'landscape'
+  return {
+    portrait: toPersistedStudioSnapshot(drafts.portrait),
+    landscape: toPersistedStudioSnapshot(drafts.landscape)
+  }
+}
+
+const switchStudioMode = (nextMode: StageMode): void => {
+  if (activeStudioMode.value === nextMode) return
+  syncCurrentStudioIntoModeStore()
+  activeStudioMode.value = nextMode
+  studio.value = cloneStudio(studiosByMode.value[nextMode])
+  transformEditingLayer.value = null
+  selectedBlockId.value = studio.value.textBlocks[0]?.id ?? null
+}
+
 const syncPortraitFromDetail = async (): Promise<void> => {
   const profile = getCharacterComponentByType<CharacterPortraitStudioProfileData>(entityDetail.value, 'character_profile')
   const demographic = getCharacterComponentByType<CharacterDemographicData>(entityDetail.value, 'character_demographic')
-  const portraitDocumentStudio =
+  const combinedPortraitDocument =
     profile?.data?.portraitDocumentResourceUrl
       ? await loadPortraitDocumentFromResource(profile.data.portraitDocumentResourceUrl).catch(() => null)
       : null
-  const normalizedStudio = normalizeStudio(portraitDocumentStudio ?? profile?.data?.portraitStudio)
-  if (!normalizedStudio.character.imageUrl && profile?.data?.portraitResourceUrl) {
-    normalizedStudio.character.imageUrl = String(profile.data.portraitResourceUrl)
-    normalizedStudio.character.resourceUrl = String(profile.data.portraitResourceUrl)
+  const storedStudiosByMode = profile?.data?.portraitStudiosByMode
+  const normalizedStudiosByMode: PortraitStudiosByMode = {
+    portrait: normalizeStudio(
+      combinedPortraitDocument?.studiosByMode.portrait ?? storedStudiosByMode?.portrait ?? profile?.data?.portraitStudio
+    ),
+    landscape: normalizeStudio(combinedPortraitDocument?.studiosByMode.landscape ?? storedStudiosByMode?.landscape)
+  }
+
+  if (!normalizedStudiosByMode.portrait.character.imageUrl && profile?.data?.portraitResourceUrl) {
+    normalizedStudiosByMode.portrait.character.imageUrl = String(profile.data.portraitResourceUrl)
+    normalizedStudiosByMode.portrait.character.resourceUrl = String(profile.data.portraitResourceUrl)
   }
   if (profile?.data?.portraitTransform) {
-    normalizedStudio.character.scale = clamp(
-      Number(profile.data.portraitTransform.scale ?? normalizedStudio.character.scale),
+    normalizedStudiosByMode.portrait.character.scale = clamp(
+      Number(profile.data.portraitTransform.scale ?? normalizedStudiosByMode.portrait.character.scale),
       0.4,
       2.4
     )
-    normalizedStudio.character.x = clamp(
+    normalizedStudiosByMode.portrait.character.x = clamp(
       0.5 + Number(profile.data.portraitTransform.offsetX ?? 0) / 100,
       0,
       1
     )
-    normalizedStudio.character.y = clamp(
+    normalizedStudiosByMode.portrait.character.y = clamp(
       0.56 + Number(profile.data.portraitTransform.offsetY ?? 0) / 100,
       0,
       1
@@ -973,9 +1201,17 @@ const syncPortraitFromDetail = async (): Promise<void> => {
   characterFactionIdInput.value = String(demographic?.data?.factionEntityId || '')
   characterNationIdInput.value = String(demographic?.data?.nationEntityId || '')
   characterBirthplaceInput.value = String(demographic?.data?.birthplaceEntityId || '')
-  studio.value = normalizedStudio
+  studiosByMode.value = {
+    portrait: cloneStudio(normalizedStudiosByMode.portrait),
+    landscape: cloneStudio(normalizedStudiosByMode.landscape)
+  }
+  activeStudioMode.value =
+    combinedPortraitDocument?.activeMode === 'landscape' || profile?.data?.portraitActiveMode === 'landscape'
+      ? 'landscape'
+      : 'portrait'
+  studio.value = cloneStudio(studiosByMode.value[activeStudioMode.value])
   selectedFieldKey.value = 'name'
-  selectedBlockId.value = normalizedStudio.textBlocks[0]?.id ?? null
+  selectedBlockId.value = studio.value.textBlocks[0]?.id ?? null
   fieldFormValue.value = characterNameInput.value
   lastSavedPortraitSignature = portraitAutosaveSignature.value
   portraitSaveState.value = 'saved'
@@ -1017,28 +1253,30 @@ const savePortrait = async (force = false): Promise<void> => {
 
   const profile = getCharacterComponentByType<CharacterPortraitStudioProfileData>(entityDetail.value, 'character_profile')
   const demographic = getCharacterComponentByType<CharacterDemographicData>(entityDetail.value, 'character_demographic')
+  const persistedStudios = getPersistedStudiosByModeSnapshot()
   const previousPortraitDocumentUrl = String(profile?.data?.portraitDocumentResourceUrl || '')
-  const persistedStudio = toPersistedStudioSnapshot(studio.value)
-
   let portraitDocumentResourceUrl = previousPortraitDocumentUrl
-  const hasPortraitContent = Boolean(
-    persistedStudio.background.imageUrl || persistedStudio.character.imageUrl || persistedStudio.textBlocks.length
-  )
 
-  if (hasPortraitContent) {
-    const portraitDocument = await createPortraitDocument()
+  const portraitDir = `portrait-documents/${entityId.value || 'draft'}`
+  const hasPortraitContent = (mode: StageMode): boolean =>
+    Boolean(
+      persistedStudios[mode].background.imageUrl ||
+        persistedStudios[mode].character.imageUrl ||
+        persistedStudios[mode].textBlocks.length
+    )
+
+  if (hasPortraitContent('portrait') || hasPortraitContent('landscape')) {
+    const portraitDocument = await createPortraitDocument(persistedStudios, activeStudioMode.value)
     const payload = await compressPortraitDocumentText(JSON.stringify(portraitDocument, null, 2))
-    const uploadedPortraitDocument = await window.api.uploadFileData({
-      fileName: `portrait-${entityId.value || 'draft'}-${Date.now()}.${PORTRAIT_DOCUMENT_FILE_EXTENSION}`,
+    const uploadedPortraitDocument = await window.api.uploadResourceData({
+      fileName: `portrait.${PORTRAIT_DOCUMENT_FILE_EXTENSION}`,
       mimeType: 'application/x-fmlrp',
+      relativeDir: portraitDir,
       data: payload
     })
     portraitDocumentResourceUrl = uploadedPortraitDocument.resourceUrl
-    if (previousPortraitDocumentUrl && previousPortraitDocumentUrl !== portraitDocumentResourceUrl) {
-      await window.api.deleteFile(previousPortraitDocumentUrl).catch(() => undefined)
-    }
-  } else if (previousPortraitDocumentUrl) {
-    await window.api.deleteFile(previousPortraitDocumentUrl).catch(() => undefined)
+  } else if (portraitDocumentResourceUrl) {
+    await window.api.deleteFile(portraitDocumentResourceUrl).catch(() => undefined)
     portraitDocumentResourceUrl = ''
   }
 
@@ -1057,14 +1295,20 @@ const savePortrait = async (force = false): Promise<void> => {
       ...toPlainIpcPayload(profile?.data ?? {}),
       title: characterTitleInput.value,
       summary: characterSummaryInput.value,
-      portraitResourceUrl: persistedStudio.character.imageUrl,
+      portraitResourceUrl: persistedStudios.portrait.character.imageUrl,
       portraitDocumentResourceUrl,
-      portraitTransform: {
-        offsetX: Number(((persistedStudio.character.x - 0.5) * 100).toFixed(3)),
-        offsetY: Number(((persistedStudio.character.y - 0.56) * 100).toFixed(3)),
-        scale: Number(persistedStudio.character.scale.toFixed(3))
+      portraitDocumentResourceUrls: {
+        portrait: '',
+        landscape: ''
       },
-      portraitStudio: toPlainIpcPayload(persistedStudio)
+      portraitTransform: {
+        offsetX: Number(((persistedStudios.portrait.character.x - 0.5) * 100).toFixed(3)),
+        offsetY: Number(((persistedStudios.portrait.character.y - 0.56) * 100).toFixed(3)),
+        scale: Number(persistedStudios.portrait.character.scale.toFixed(3))
+      },
+      portraitStudio: toPlainIpcPayload(persistedStudios[activeStudioMode.value]),
+      portraitStudiosByMode: toPlainIpcPayload(persistedStudios),
+      portraitActiveMode: activeStudioMode.value
     }
   }
 

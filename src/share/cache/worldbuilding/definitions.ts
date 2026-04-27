@@ -85,6 +85,24 @@ const portraitStudioSchema = z.object({
   textBlocks: z.array(portraitTextBlockSchema).max(20).default([])
 })
 
+const portraitStudiosByModeSchema = z.object({
+  portrait: portraitStudioSchema.default(
+    portraitStudioSchema.parse({
+      mode: 'portrait'
+    })
+  ),
+  landscape: portraitStudioSchema.default(
+    portraitStudioSchema.parse({
+      mode: 'landscape'
+    })
+  )
+})
+
+const portraitDocumentResourceUrlsSchema = z.object({
+  portrait: z.string().trim().max(2000).default(''),
+  landscape: z.string().trim().max(2000).default('')
+})
+
 const field = (
   key: string,
   displayName: string,
@@ -106,8 +124,13 @@ const characterProfileSchema = z.object({
   descriptionFormat: z.enum(['markdown', 'html']).default('markdown'),
   portraitResourceUrl: z.string().trim().max(2000).default(''),
   portraitDocumentResourceUrl: z.string().trim().max(2000).default(''),
+  portraitDocumentResourceUrls: portraitDocumentResourceUrlsSchema.default(
+    portraitDocumentResourceUrlsSchema.parse({})
+  ),
   portraitTransform: portraitTransformSchema.default(portraitTransformSchema.parse({})),
   portraitStudio: portraitStudioSchema.default(portraitStudioSchema.parse({})),
+  portraitStudiosByMode: portraitStudiosByModeSchema.default(portraitStudiosByModeSchema.parse({})),
+  portraitActiveMode: z.enum(['portrait', 'landscape']).default('portrait'),
   layoutVariant: z.enum(['v1', 'v2', 'v3']).default('v1'),
   editorAppearance: editorAppearanceSchema.default(editorAppearanceSchema.parse({})),
   personalityTraits: stringList,
@@ -282,8 +305,11 @@ const componentDefinitions: Record<RegisteredComponentType, WorldbuildingCompone
       field('description', '详细描述', '角色的完整描述文案。', 'text', { multiline: true }),
       field('portraitResourceUrl', '立绘资源', '角色立绘的静态资源地址。', 'string'),
       field('portraitDocumentResourceUrl', '立绘工程文件', '完整保留图层信息的立绘工程资源地址。', 'string'),
+      field('portraitDocumentResourceUrls', '多画幅立绘工程文件', '按竖屏与横屏分别保存的立绘工程资源地址。', 'text'),
       field('portraitTransform', '立绘变换', '角色立绘的位置偏移与缩放。', 'text'),
       field('portraitStudio', '立绘编辑状态', '立绘编辑器保存的轻量图层状态。', 'text'),
+      field('portraitStudiosByMode', '多画幅立绘状态', '按竖屏与横屏分别保存的立绘编辑状态。', 'text'),
+      field('portraitActiveMode', '当前编辑画幅', '立绘编辑器最近一次使用的画幅模式。', 'string'),
       field('layoutVariant', '排版方案', '角色卡面使用的布局版本。', 'string'),
       field('personalityTraits', '性格特征', '角色稳定的性格关键词。', 'string_list'),
       field('abilities', '能力', '角色拥有的能力、技能或专长。', 'string_list'),

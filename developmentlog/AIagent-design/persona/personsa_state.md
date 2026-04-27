@@ -377,3 +377,56 @@ flowchart LR
 `主模型接收到的是编译后的人格结果，而不是分散人格文档`
 
 这两件事已经落地。
+
+```mermaid
+flowchart TD
+    A[用户行为 / 事件输入<br/>user_message / interrupt / revert / task事件] --> B[上游行为分析]
+    A --> C[Memory Slot 更新]
+
+    B --> B1[人格信号 Persona Signals<br/>4维<br/>自主性 / 详略度 / 探索性 / 正式度]
+    C --> C1[用户状态槽位<br/>user_mood / conversation_mode / interaction_state]
+
+    B1 --> D[Persona State 更新<br/>stable_preferences<br/>session_hormones<br/>transient_state]
+    C1 --> E[情绪评估 MoodAssessment]
+    D --> E
+    F[近期 observations] --> E
+    G[上一轮 moodAssessment] --> E
+    H[mood.md 情绪规则 + 角色边界] --> E
+
+    E --> E1[内部情绪表示]
+    E1 --> E11[情绪向量 6维<br/>愉悦度 / 激活度 / 紧张度 / 受挫度 / 亲近度 / 专注度]
+    E1 --> E12[强度]
+    E1 --> E13[置信度]
+    E1 --> E14[行为叙事]
+    E1 --> E15[参数偏移 4维<br/>自主性 / 详略度 / 探索性 / 正式度]
+    E1 --> E16[表达调制 5维<br/>关系靠近度 / 表达温度 / 收束度 / 想象开放度 / 澄清需求]
+
+    E11 --> J[主/副情绪标签投影<br/>平淡 / 轻愉悦 / 高兴 / 轻兴奋 / 兴奋 / 惊讶 / 轻度伤感 / 悲伤 / 受挫 / 愤怒 / 焦虑 / 紧张]
+    E --> K[Character Mood Boundary<br/>角色硬边界裁剪]
+
+    K --> L[传给主 LLM 的人格装配 PersonaAssemblyPrompt]
+
+    J --> L
+    E14 --> L
+    E12 --> L
+    E15 --> L
+    E16 --> L
+
+    L --> M[进一步派生的表达控制]
+    M --> M1[cadence]
+    M --> M2[structure_tendency]
+    M --> M3[expansion_tendency]
+
+    L --> N[主 LLM 最终受影响的行为参数]
+    N --> N1[回复主动性]
+    N --> N2[回复详略程度]
+    N --> N3[探索/发散倾向]
+    N --> N4[正式程度]
+    N --> N5[关系距离]
+    N --> N6[语气温度]
+    N --> N7[表达收束度]
+    N --> N8[想象开放度]
+    N --> N9[澄清/追问倾向]
+    N --> N10[整体节奏与结构]
+
+```
