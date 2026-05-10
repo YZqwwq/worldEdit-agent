@@ -19,6 +19,7 @@ import { WorldRecord } from '../../share/entity/database/WorldRecord'
 import { WorldEntityRecord } from '../../share/entity/database/WorldEntityRecord'
 import { WorldEntityComponentRecord } from '../../share/entity/database/WorldEntityComponentRecord'
 import { WorldEntityRelationRecord } from '../../share/entity/database/WorldEntityRelationRecord'
+import { ToolUsageStatsRecord } from '../../share/entity/database/ToolUsageStatsRecord'
 
 // 数据库文件路径：UserData/database.sqlite
 const dbPath = join(app.getPath('userData'), 'database.sqlite')
@@ -46,7 +47,8 @@ export const AppDataSource = new DataSource({
     WorldRecord,
     WorldEntityRecord,
     WorldEntityComponentRecord,
-    WorldEntityRelationRecord
+    WorldEntityRelationRecord,
+    ToolUsageStatsRecord
   ],
   subscribers: [],
   migrations: []

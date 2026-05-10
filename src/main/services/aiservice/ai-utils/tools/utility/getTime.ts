@@ -1,24 +1,12 @@
 import * as z from 'zod'
 import { defineAgentTool } from '../../core/agentTool'
+import { getDetailTime } from '../../../../../utils/getDetailTime'
 
 const getTimeInputSchema = z.object({})
 
 const getTimeOutputSchema = z.object({
   currentTime: z.string()
 })
-
-const padTwoDigits = (value: number): string => String(value).padStart(2, '0')
-
-const formatCurrentLocalTime = (date: Date): string => {
-  const year = date.getFullYear()
-  const month = date.getMonth() + 1
-  const day = date.getDate()
-  const hours = padTwoDigits(date.getHours())
-  const minutes = padTwoDigits(date.getMinutes())
-  const seconds = padTwoDigits(date.getSeconds())
-
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-}
 
 export const getTimeTool = defineAgentTool({
   name: 'get_time',
@@ -37,7 +25,10 @@ export const getTimeTool = defineAgentTool({
   },
   execute() {
     return {
-      currentTime: formatCurrentLocalTime(new Date())
+      currentTime: getDetailTime(new Date(), {
+        includeWeekday: false,
+        includeTimezone: false
+      })
     }
   },
   successMessage(data) {

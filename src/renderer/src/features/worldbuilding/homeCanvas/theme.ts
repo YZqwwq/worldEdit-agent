@@ -12,8 +12,7 @@ export const HOME_CANVAS_THEMES: Record<HomeCanvasTheme, HomeCanvasPalette> = {
     panel: 'rgba(216, 216, 214, 0.64)',
     panelHover: 'rgba(235, 235, 232, 0.94)',
     panelShadow: 'rgba(20, 24, 28, 0.12)',
-    fragment: 'rgba(205, 205, 202, 0.58)',
-    fragmentHover: 'rgba(226, 226, 223, 0.96)',
+    fragmentRgba: 'rgba(205, 205, 202, 0.58)',
     dot: 'rgba(18, 20, 24, 0.46)',
     accent: '#111318',
     danger: '#a6362e'
@@ -29,8 +28,7 @@ export const HOME_CANVAS_THEMES: Record<HomeCanvasTheme, HomeCanvasPalette> = {
     panel: 'rgba(52, 54, 56, 0.66)',
     panelHover: 'rgba(74, 76, 78, 0.92)',
     panelShadow: 'rgba(0, 0, 0, 0.38)',
-    fragment: 'rgba(62, 64, 66, 0.68)',
-    fragmentHover: 'rgba(86, 88, 90, 0.94)',
+    fragmentRgba: 'rgba(62, 64, 66, 0.68)',
     dot: 'rgba(238, 240, 242, 0.48)',
     accent: '#f2f2f0',
     danger: '#ff7b70'

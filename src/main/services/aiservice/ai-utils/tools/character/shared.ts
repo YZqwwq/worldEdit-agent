@@ -82,14 +82,39 @@ export const upsertCharacterDescriptionOutputSchema = z.object({
 
 export const characterDemographicPatchSchema = z
   .object({
-    age: z.number().int().min(0).max(100000).nullable().optional(),
-    ageLabel: z.string().trim().max(120).optional(),
-    heightLabel: z.string().trim().max(120).optional(),
-    gender: z.string().trim().max(60).optional(),
-    raceEntityId: z.string().trim().max(120).optional(),
-    factionEntityId: z.string().trim().max(120).optional(),
-    nationEntityId: z.string().trim().max(120).optional(),
-    birthplaceEntityId: z.string().trim().max(120).optional()
+    basicInfo: z
+      .object({
+        order: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+        fields: z
+          .record(
+            z.string().trim().min(1).max(120),
+            z.object({
+              label: z.string().trim().min(1).max(120),
+              kind: z.enum(['entity_name', 'text', 'number', 'option', 'entity_ref']),
+              value: z.union([z.string().trim().max(2000), z.number(), z.null()]).optional(),
+              entityType: z
+                .enum([
+                  'character',
+                  'race',
+                  'faction',
+                  'nation',
+                  'city',
+                  'region',
+                  'map',
+                  'map_location',
+                  'event',
+                  'item',
+                  'rule',
+                  'custom'
+                ])
+                .optional(),
+              custom: z.boolean().optional(),
+              locked: z.boolean().optional()
+            })
+          )
+          .optional()
+      })
+      .optional()
   })
   .refine((input) => Object.keys(input).length > 0, {
     message: 'At least one character demographic field must be provided.'

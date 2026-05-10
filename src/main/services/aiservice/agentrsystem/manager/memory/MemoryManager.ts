@@ -19,6 +19,7 @@ import {
 } from './longTermMemoryService'
 
 const MEMORY_STATE_ROW_ID = 1
+const SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT = 4
 
 const defaultState = (): StateData => ({
   session_id: 'default',
@@ -30,7 +31,7 @@ const defaultState = (): StateData => ({
   anchors: [],
   archive_threshold: 6,
   archive_min_interval_ms: 0,
-  short_term_limit: 6
+  short_term_limit: SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
 })
 
 export type MemoryCheckpoint = {
@@ -78,7 +79,7 @@ export class MemoryManager {
     row.anchorsJson = JSON.stringify(this.state.anchors ?? [])
     row.archiveThreshold = this.state.archive_threshold ?? 6
     row.archiveMinIntervalMs = this.state.archive_min_interval_ms ?? 0
-    row.shortTermLimit = this.state.short_term_limit ?? 6
+    row.shortTermLimit = this.state.short_term_limit ?? SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
     row.longTermJson = JSON.stringify(this.longTerm)
     row.archiveBufferJson = JSON.stringify(this.archiveBuffer)
     row.lastStageIndex = this.lastStageIndex
@@ -150,7 +151,9 @@ export class MemoryManager {
   private normalizeState(): void {
     if (this.state.archive_threshold == null) this.state.archive_threshold = 6
     if (this.state.archive_min_interval_ms == null) this.state.archive_min_interval_ms = 0
-    if (this.state.short_term_limit == null) this.state.short_term_limit = 6
+    if (this.state.short_term_limit == null) {
+      this.state.short_term_limit = SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
+    }
     if (!Array.isArray(this.state.anchors)) this.state.anchors = []
   }
 
@@ -178,7 +181,7 @@ export class MemoryManager {
       anchors: this.parseAnchors(row.anchorsJson || '[]'),
       archive_threshold: row.archiveThreshold ?? 6,
       archive_min_interval_ms: row.archiveMinIntervalMs ?? 0,
-      short_term_limit: row.shortTermLimit ?? 6
+      short_term_limit: row.shortTermLimit ?? SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
     }
   }
 
@@ -415,7 +418,7 @@ export class MemoryManager {
       this.state.counters.total_turns = nextSequence
       this.state.counters.since_last_archive++
 
-      const limit = this.state.short_term_limit ?? 6
+      const limit = this.state.short_term_limit ?? SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
       if (this.shortTerm.length > limit) {
         const overflowCount = this.shortTerm.length - limit
         const overflow = this.shortTerm.splice(0, overflowCount)
@@ -471,9 +474,24 @@ export class MemoryManager {
       }
 
       if (Number.isFinite(shortTermLimit)) {
-        const normalized = Math.max(3, Math.min(30, Math.round(Number(shortTermLimit))))
+        const normalized = SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
         if (this.state.short_term_limit !== normalized) {
           this.state.short_term_limit = normalized
+          changed = true
+        }
+        if (this.shortTerm.length > normalized) {
+          const overflowCount = this.shortTerm.length - normalized
+          const overflow = this.shortTerm.splice(0, overflowCount)
+          this.archiveBuffer.push(
+            ...overflow.map((item) => ({
+              role: item.role,
+              content: item.content,
+              timestamp: item.timestamp,
+              sequence: item.sequence,
+              compressed: false
+            }))
+          )
+          this.state.counters.window_turns = this.shortTerm.length
           changed = true
         }
       }

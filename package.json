@@ -28,6 +28,7 @@
     "@langchain/core": "^1.1.8",
     "@langchain/langgraph": "^1.0.2",
     "@langchain/openai": "^1.1.2",
+    "@node-rs/jieba": "^2.0.1",
     "@tiptap/core": "^3.20.4",
     "@tiptap/extension-character-count": "^3.20.4",
     "@tiptap/extension-placeholder": "^3.20.4",
@@ -49,6 +50,7 @@
     "pnpm": "^10.20.0",
     "typeorm": "^0.3.27",
     "vue-router": "^4.6.3",
+    "wink-bm25-text-search": "^3.1.2",
     "zod": "^4.1.13"
   },
   "devDependencies": {

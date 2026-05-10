@@ -13,6 +13,9 @@ export const childAgentToolRegistry: ChildAgentToolRegistry = {
       key: getCharacterDetailTool.name,
       tool: getCharacterDetailTool,
       category: 'character_read',
+      capabilityLayer: 'domain',
+      capabilityGroup: '领域读取',
+      capabilitySummary: '读取人物详情供人物编辑子 agent 使用。',
       audience: 'child_agent',
       access: 'read',
       enabled: true
@@ -21,6 +24,9 @@ export const childAgentToolRegistry: ChildAgentToolRegistry = {
       key: upsertCharacterDescriptionTool.name,
       tool: upsertCharacterDescriptionTool,
       category: 'character_write',
+      capabilityLayer: 'domain',
+      capabilityGroup: '领域写入',
+      capabilitySummary: '写入人物 description 字段供人物编辑子 agent 使用。',
       audience: 'child_agent',
       access: 'write',
       enabled: true

@@ -138,15 +138,58 @@ const characterProfileSchema = z.object({
   tags: stringList
 })
 
+const characterBasicInfoFieldSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  kind: z.enum(['entity_name', 'text', 'number', 'option', 'entity_ref']),
+  value: z.union([z.string().trim().max(2000), z.number(), z.null()]).default(''),
+  entityType: z
+    .enum([
+      'character',
+      'race',
+      'faction',
+      'nation',
+      'city',
+      'region',
+      'map',
+      'map_location',
+      'event',
+      'item',
+      'rule',
+      'custom'
+    ])
+    .optional(),
+  custom: z.boolean().default(false),
+  locked: z.boolean().default(false)
+})
+
+type CharacterBasicInfoFieldData = z.infer<typeof characterBasicInfoFieldSchema>
+
+const defaultCharacterBasicInfo: {
+  order: string[]
+  fields: Record<string, CharacterBasicInfoFieldData>
+} = {
+  order: ['name', 'gender', 'age', 'race', 'faction', 'nation', 'birthplace', 'height'],
+  fields: {
+    name: { label: '人物', kind: 'entity_name', value: '', custom: false, locked: true },
+    gender: { label: '性别', kind: 'option', value: '', custom: false, locked: false },
+    age: { label: '年龄', kind: 'text', value: '', custom: false, locked: false },
+    race: { label: '种族', kind: 'entity_ref', entityType: 'race', value: '', custom: false, locked: false },
+    faction: { label: '所属势力', kind: 'entity_ref', entityType: 'faction', value: '', custom: false, locked: false },
+    nation: { label: '所属国家', kind: 'entity_ref', entityType: 'nation', value: '', custom: false, locked: false },
+    birthplace: { label: '出生地', kind: 'entity_ref', entityType: 'city', value: '', custom: false, locked: false },
+    height: { label: '身高', kind: 'text', value: '', custom: false, locked: false }
+  }
+}
+
+const characterBasicInfoSchema = z.object({
+  order: z.array(z.string().trim().min(1).max(120)).max(100).default([...defaultCharacterBasicInfo.order]),
+  fields: z
+    .record(z.string().trim().min(1).max(120), characterBasicInfoFieldSchema)
+    .default(defaultCharacterBasicInfo.fields)
+})
+
 const characterDemographicSchema = z.object({
-  age: z.number().int().min(0).max(100000).nullable().default(null),
-  ageLabel: z.string().trim().max(120).default(''),
-  heightLabel: z.string().trim().max(120).default(''),
-  gender: z.string().trim().max(60).default(''),
-  raceEntityId: entityRef,
-  factionEntityId: entityRef,
-  nationEntityId: entityRef,
-  birthplaceEntityId: entityRef
+  basicInfo: characterBasicInfoSchema.default(defaultCharacterBasicInfo)
 })
 
 const raceProfileSchema = z.object({
@@ -319,27 +362,12 @@ const componentDefinitions: Record<RegisteredComponentType, WorldbuildingCompone
   character_demographic: {
     componentType: 'character_demographic',
     displayName: '人物基础属性',
-    description: '年龄、性别、所属种族与势力等基础归属信息。',
+    description: '人物基础信息的可扩展键值集合，默认包含性别、年龄、种族、势力与国家等关联字段。',
     entityTypes: ['character'],
-    schemaVersion: 1,
+    schemaVersion: 2,
     starterData: characterDemographicSchema.parse({}),
     fields: [
-      field('age', '年龄', '角色的数字年龄，可为空。', 'number'),
-      field('ageLabel', '年龄标签', '例如幼年、青年、永生体等。', 'string'),
-      field('heightLabel', '身高', '身高描述，例如 172cm。', 'string'),
-      field('gender', '性别', '角色的性别或性别认同。', 'string'),
-      field('raceEntityId', '所属种族', '引用一个种族实体。', 'entity_ref', {
-        entityTypes: ['race']
-      }),
-      field('factionEntityId', '所属势力', '引用一个势力实体。', 'entity_ref', {
-        entityTypes: ['faction']
-      }),
-      field('nationEntityId', '所属国家', '引用一个国家实体。', 'entity_ref', {
-        entityTypes: ['nation']
-      }),
-      field('birthplaceEntityId', '出生地', '引用一个城市或区域实体。', 'entity_ref', {
-        entityTypes: ['city', 'region']
-      })
+      field('basicInfo', '基础信息', '可增减的基础信息 JSON 对象，默认字段使用选项或实体引用。', 'text')
     ]
   },
   race_profile: {

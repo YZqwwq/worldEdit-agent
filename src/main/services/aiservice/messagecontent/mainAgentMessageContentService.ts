@@ -13,9 +13,11 @@ import {
 import type { Message as PersistedMessage } from '@share/entity/database/Message'
 
 export const MAIN_AGENT_CONTENT_PARTS_KEY = '__main_agent_content_parts'
+export const MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY = '__main_agent_user_message_created_at'
 
 type MessageAdditionalKwargs = Record<string, unknown> & {
   [MAIN_AGENT_CONTENT_PARTS_KEY]?: unknown
+  [MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY]?: unknown
 }
 
 const MIME_TYPE_BY_EXTENSION: Record<string, string> = {

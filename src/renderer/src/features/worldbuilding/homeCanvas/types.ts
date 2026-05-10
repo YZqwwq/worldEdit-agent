@@ -1,6 +1,6 @@
 export type HomeCanvasTheme = 'light' | 'dark'
 
-export type HomeCanvasTargetKind = 'world' | 'create' | 'assistant'
+export type HomeCanvasTargetKind = 'world' | 'create' | 'assistant' | 'topBars'
 
 export type HomeCanvasTarget = {
   kind: HomeCanvasTargetKind
@@ -24,8 +24,7 @@ export type HomeCanvasPalette = {
   panel: string
   panelHover: string
   panelShadow: string
-  fragment: string
-  fragmentHover: string
+  fragmentRgba: string
   dot: string
   accent: string
   danger: string

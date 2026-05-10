@@ -1,17 +1,17 @@
 <template>
   <GenericWorldEntityEditorView v-if="entityResolved && !isCharacter" />
 
-  <div v-else class="feature-shell">
+  <div v-else class="worldbuilding-white-theme feature-shell">
     <header class="feature-topbar">
       <div class="topbar-links">
         <router-link
           v-if="worldId"
           :to="{ name: 'WorldEditor', params: { worldId } }"
-          class="back-link"
+          class="nav-link"
         >
           返回世界实例
         </router-link>
-        <router-link to="/chat" class="assistant-link">AI 助手</router-link>
+        <router-link to="/chat" class="nav-link subtle-link">AI 助手</router-link>
       </div>
     </header>
 
@@ -20,16 +20,27 @@
         <div class="eyebrow">Character Workspace</div>
         <h1>{{ entityDetail?.entity.name || '人物功能选择' }}</h1>
         <p>
-          人物实例现在改为先选择功能，再进入对应工作区。立绘展示与文本编辑已经拆成两个独立页面，方便分别迭代。
+          人物实例按功能拆分为独立工作区。你可以分别维护人物简介、立绘展示和叙事文本，减少不同编辑任务之间的干扰。
         </p>
       </section>
 
-      <section class="feature-grid" v-if="entityResolved && isCharacter">
+      <section v-if="entityResolved && isCharacter" class="feature-grid">
+        <router-link
+          :to="{ name: 'CharacterProfileEditor', params: { worldId, entityId } }"
+          class="feature-card"
+        >
+          <div class="feature-icon">简</div>
+          <div class="feature-eyebrow">Profile Workspace</div>
+          <h2>人物简介</h2>
+          <p>维护人物名、称谓与一句话简介，快速整理角色对外展示信息。</p>
+          <span class="feature-action">进入功能页</span>
+        </router-link>
+
         <router-link
           :to="{ name: 'CharacterPortraitEditor', params: { worldId, entityId } }"
           class="feature-card"
         >
-          <div class="feature-icon">◫</div>
+          <div class="feature-icon">像</div>
           <div class="feature-eyebrow">Visual Workspace</div>
           <h2>人物立绘展示</h2>
           <p>进入人物立绘、版式和展示型基础信息编辑页。</p>
@@ -40,7 +51,7 @@
           :to="{ name: 'CharacterNarrativeEditor', params: { worldId, entityId } }"
           class="feature-card"
         >
-          <div class="feature-icon">✎</div>
+          <div class="feature-icon">文</div>
           <div class="feature-eyebrow">Narrative Workspace</div>
           <h2>文本编辑</h2>
           <p>进入人物介绍、经历、秘密与叙事文案的专属编辑页。</p>
@@ -67,6 +78,7 @@ import { useRoute } from 'vue-router'
 import type { WorldEntityDetailPayload } from '@share/cache/worldbuilding/worldbuilding'
 import GenericWorldEntityEditorView from './GenericWorldEntityEditorView.vue'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
+import '../styles/worldbuildingWhiteTheme.css'
 
 const route = useRoute()
 
@@ -96,20 +108,16 @@ onMounted(async () => {
 <style scoped>
 .feature-shell {
   min-height: 100vh;
-  padding: 20px;
+  padding: 24px;
   box-sizing: border-box;
   background:
-    radial-gradient(circle at top left, rgba(43, 55, 75, 0.32), transparent 24%),
-    linear-gradient(180deg, #0d1118 0%, #141a24 100%);
-  color: #edf2f7;
+    radial-gradient(circle at top left, rgba(17, 17, 17, 0.06), transparent 26%),
+    linear-gradient(180deg, #fbfbfb 0%, #f3f4f6 100%);
+  color: var(--wb-text-primary);
 }
 
 .feature-topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 20px;
-  margin-bottom: 14px;
+  margin-bottom: 20px;
 }
 
 .topbar-links {
@@ -119,37 +127,49 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 
-.back-link,
-.assistant-link {
+.nav-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 42px;
-  padding: 7px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(185, 150, 93, 0.22);
-  background: rgba(13, 17, 24, 0.94);
-  color: #e7d2ad;
-  line-height: 1;
+  padding: 0 16px;
+  border-radius: var(--wb-radius-pill);
+  border: 1px solid var(--wb-panel-line-strong);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--wb-text-primary);
+  box-shadow: var(--wb-shadow-card);
   text-decoration: none;
   font: inherit;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.nav-link:hover {
+  transform: translateY(-1px);
+  border-color: rgba(17, 17, 17, 0.18);
+}
+
+.subtle-link {
+  color: var(--wb-text-secondary);
 }
 
 .feature-main {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
 .feature-hero,
 .fallback-card {
-  border-radius: 28px;
-  border: 1px solid rgba(205, 161, 92, 0.16);
+  padding: 30px 32px;
+  border-radius: var(--wb-radius-panel);
+  border: 1px solid var(--wb-panel-line);
   background:
-    radial-gradient(circle at top right, rgba(205, 161, 92, 0.1), transparent 28%),
-    linear-gradient(180deg, rgba(19, 24, 34, 0.98), rgba(11, 15, 22, 0.98));
-  box-shadow: 0 24px 60px rgba(2, 4, 8, 0.34);
-  padding: 26px;
+    radial-gradient(circle at top right, rgba(17, 17, 17, 0.05), transparent 24%),
+    var(--wb-panel-bg);
+  box-shadow: var(--wb-shadow-soft);
 }
 
 .eyebrow,
@@ -157,36 +177,42 @@ onMounted(async () => {
   font-size: 11px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #cda15c;
+  color: var(--wb-text-tertiary);
 }
 
 .feature-hero h1,
 .fallback-card h2,
 .feature-card h2 {
   margin: 10px 0 0;
+  font-size: 30px;
+  line-height: 1.2;
+  color: var(--wb-text-primary);
 }
 
 .feature-hero p,
 .fallback-card p,
 .feature-card p {
-  margin: 12px 0 0;
-  color: #9aa6b8;
+  margin: 14px 0 0;
+  color: var(--wb-text-secondary);
   line-height: 1.75;
 }
 
 .feature-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
 }
 
 .feature-card {
-  border-radius: 28px;
-  border: 1px solid rgba(205, 161, 92, 0.16);
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+  padding: 26px;
+  border-radius: var(--wb-radius-panel);
+  border: 1px solid var(--wb-panel-line);
   background:
-    linear-gradient(180deg, rgba(22, 28, 38, 0.96), rgba(12, 17, 24, 0.98));
-  box-shadow: 0 26px 60px rgba(2, 4, 8, 0.34);
-  padding: 24px;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 247, 247, 0.98));
+  box-shadow: var(--wb-shadow-soft);
   color: inherit;
   text-decoration: none;
   transition:
@@ -197,38 +223,58 @@ onMounted(async () => {
 
 .feature-card:hover {
   transform: translateY(-3px);
-  border-color: rgba(205, 161, 92, 0.28);
-  box-shadow: 0 30px 70px rgba(2, 4, 8, 0.42);
+  border-color: rgba(17, 17, 17, 0.14);
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.1);
 }
 
 .feature-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(205, 161, 92, 0.12);
-  color: #e7d2ad;
-  font-size: 24px;
+  margin-bottom: 18px;
+  background: var(--wb-accent-soft);
+  color: var(--wb-accent);
+  font-size: 22px;
+  font-weight: 700;
 }
 
 .feature-action {
   display: inline-flex;
   align-items: center;
-  margin-top: 18px;
-  color: #e7d2ad;
+  margin-top: auto;
+  padding-top: 20px;
   font-weight: 700;
+  color: var(--wb-accent);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1120px) {
+  .feature-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .feature-shell {
+    padding: 18px;
+  }
+
+  .feature-hero,
+  .fallback-card,
+  .feature-card {
+    padding: 22px;
+  }
+
   .feature-grid {
     grid-template-columns: 1fr;
   }
 
-  .feature-topbar {
-    flex-direction: column;
-    align-items: stretch;
+  .feature-hero h1,
+  .fallback-card h2,
+  .feature-card h2 {
+    font-size: 24px;
   }
 }
 </style>

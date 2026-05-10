@@ -4,6 +4,30 @@ import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
 import type { MoodAssessment } from '@share/cache/AItype/states/moodAssessment'
 import type { TaskLifecycleState } from '@share/cache/AItype/states/taskLifecycleState'
 import type { ExpressionPromptProfileState } from '@share/cache/AItype/states/expressionPromptProfile'
+import type { AgentToolContextRetention } from '../../ai-utils/core/agentTool'
+
+export type ToolContextSourceRef = {
+  type: 'message' | 'url' | 'entity' | 'task' | 'tool' | 'unknown'
+  id?: string | number
+  title?: string
+  url?: string
+}
+
+export type ToolContextItem = {
+  id: string
+  toolName: string
+  retention: AgentToolContextRetention
+  ok: boolean | null
+  argsSummary: string
+  resultSummary: string
+  createdAtLoop: number
+  sourceRefs?: ToolContextSourceRef[]
+}
+
+export type PendingToolContextItem = ToolContextItem & {
+  toolCallId: string
+  transcriptMessageIds: string[]
+}
 
 export const MessagesState = Annotation.Root({
   // 消息状态
@@ -30,5 +54,37 @@ export const MessagesState = Annotation.Root({
   taskLifecycle: Annotation<TaskLifecycleState | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
+  }),
+  toolEvidenceContext: Annotation<ToolContextItem[]>({
+    reducer: (_x, y) => y ?? [],
+    default: () => []
+  }),
+  ephemeralToolContext: Annotation<ToolContextItem[]>({
+    reducer: (_x, y) => y ?? [],
+    default: () => []
+  }),
+  pendingToolContext: Annotation<PendingToolContextItem[]>({
+    reducer: (_x, y) => y ?? [],
+    default: () => []
+  }),
+  retainedToolTranscriptIds: Annotation<string[]>({
+    reducer: (_x, y) => y ?? [],
+    default: () => []
+  }),
+  activeToolTranscriptIds: Annotation<string[]>({
+    reducer: (_x, y) => y ?? [],
+    default: () => []
+  }),
+  enabledExtensionTools: Annotation<string[]>({
+    reducer: (x, y) => {
+      const merged = new Set<string>(x ?? [])
+      for (const item of y ?? []) {
+        if (typeof item === 'string' && item.trim()) {
+          merged.add(item.trim())
+        }
+      }
+      return [...merged]
+    },
+    default: () => []
   })
 })

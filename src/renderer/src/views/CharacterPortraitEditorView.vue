@@ -382,7 +382,9 @@ import { toPlainIpcPayload } from '../utils/ipcPayload'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 import {
   DEFAULT_PORTRAIT_TRANSFORM,
+  getCharacterBasicInfoValue,
   getCharacterComponentByType,
+  updateCharacterBasicInfoValues,
   type CharacterDemographicData,
   type CharacterProfileData
 } from '../features/worldbuilding/character/shared'
@@ -711,14 +713,15 @@ const portraitAutosaveSignature = computed(() =>
     entityName: characterNameInput.value,
     entitySummary: characterSummaryInput.value,
     title: characterTitleInput.value,
-    age: characterAgeInput.value,
-    ageLabel: characterAgeLabelInput.value,
-    heightLabel: characterHeightInput.value,
-    gender: characterGenderInput.value,
-    raceEntityId: characterRaceIdInput.value,
-    factionEntityId: characterFactionIdInput.value,
-    nationEntityId: characterNationIdInput.value,
-    birthplaceEntityId: characterBirthplaceInput.value,
+    basicInfo: {
+      age: characterAgeLabelInput.value || characterAgeInput.value,
+      height: characterHeightInput.value,
+      gender: characterGenderInput.value,
+      race: characterRaceIdInput.value,
+      faction: characterFactionIdInput.value,
+      nation: characterNationIdInput.value,
+      birthplace: characterBirthplaceInput.value
+    },
     activeMode: activeStudioMode.value,
     studiosByMode: toPlainIpcPayload(getPersistedStudiosByModeSnapshot())
   })
@@ -1193,14 +1196,14 @@ const syncPortraitFromDetail = async (): Promise<void> => {
   characterNameInput.value = String(entityDetail.value?.entity.name || '')
   characterTitleInput.value = String(profile?.data?.title || entityDetail.value?.entity.title || '')
   characterSummaryInput.value = String(profile?.data?.summary || entityDetail.value?.entity.summary || '')
-  characterAgeInput.value = demographic?.data?.age ?? null
-  characterAgeLabelInput.value = String(demographic?.data?.ageLabel || '')
-  characterHeightInput.value = String(demographic?.data?.heightLabel || '')
-  characterGenderInput.value = String(demographic?.data?.gender || '')
-  characterRaceIdInput.value = String(demographic?.data?.raceEntityId || '')
-  characterFactionIdInput.value = String(demographic?.data?.factionEntityId || '')
-  characterNationIdInput.value = String(demographic?.data?.nationEntityId || '')
-  characterBirthplaceInput.value = String(demographic?.data?.birthplaceEntityId || '')
+  characterAgeInput.value = null
+  characterAgeLabelInput.value = getCharacterBasicInfoValue(demographic?.data, 'age')
+  characterHeightInput.value = getCharacterBasicInfoValue(demographic?.data, 'height')
+  characterGenderInput.value = getCharacterBasicInfoValue(demographic?.data, 'gender')
+  characterRaceIdInput.value = getCharacterBasicInfoValue(demographic?.data, 'race')
+  characterFactionIdInput.value = getCharacterBasicInfoValue(demographic?.data, 'faction')
+  characterNationIdInput.value = getCharacterBasicInfoValue(demographic?.data, 'nation')
+  characterBirthplaceInput.value = getCharacterBasicInfoValue(demographic?.data, 'birthplace')
   studiosByMode.value = {
     portrait: cloneStudio(normalizedStudiosByMode.portrait),
     landscape: cloneStudio(normalizedStudiosByMode.landscape)
@@ -1315,17 +1318,18 @@ const savePortrait = async (force = false): Promise<void> => {
   const demographicInput: UpsertWorldEntityComponentInput<CharacterDemographicData> = {
     entityId: entityDetail.value.entity.id,
     componentType: 'character_demographic',
-    schemaVersion: demographic?.schemaVersion ?? 1,
+    schemaVersion: 2,
     data: {
-      ...toPlainIpcPayload(demographic?.data ?? {}),
-      age: characterAgeInput.value,
-      ageLabel: characterAgeLabelInput.value,
-      heightLabel: characterHeightInput.value,
-      gender: characterGenderInput.value,
-      raceEntityId: characterRaceIdInput.value,
-      factionEntityId: characterFactionIdInput.value,
-      nationEntityId: characterNationIdInput.value,
-      birthplaceEntityId: characterBirthplaceInput.value
+      basicInfo: updateCharacterBasicInfoValues(demographic?.data?.basicInfo, {
+        name: characterNameInput.value,
+        age: characterAgeLabelInput.value || characterAgeInput.value,
+        height: characterHeightInput.value,
+        gender: characterGenderInput.value,
+        race: characterRaceIdInput.value,
+        faction: characterFactionIdInput.value,
+        nation: characterNationIdInput.value,
+        birthplace: characterBirthplaceInput.value
+      })
     }
   }
 

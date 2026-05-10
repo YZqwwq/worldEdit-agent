@@ -92,6 +92,7 @@
 import { computed } from 'vue'
 import { MdPreview } from 'md-editor-v3'
 import type { ChatMessage, ChatSender } from '../../../../../share/cache/render/aiagent/chatMessage'
+import { getFrontendMessageTime } from '../../../../../main/utils/getDetailTime'
 import ChatAvatar from './ChatAvatar.vue'
 import type { ChatParticipantProfile } from '../types'
 
@@ -162,12 +163,7 @@ const showRevertAction = computed(() => Boolean(props.canRevert) && isUser.value
 
 const formattedTime = computed(() => {
   if (!props.message.timestamp) return ''
-  const date = new Date(props.message.timestamp)
-  const month = (date.getMonth() + 1).toString().padStart(2, '0')
-  const day = date.getDate().toString().padStart(2, '0')
-  const hours = date.getHours().toString().padStart(2, '0')
-  const minutes = date.getMinutes().toString().padStart(2, '0')
-  return `${month}/${day} ${hours}:${minutes}`
+  return getFrontendMessageTime(props.message.timestamp)
 })
 
 const rowClass = computed(() => (isUser.value ? 'flex justify-end' : 'flex justify-start'))

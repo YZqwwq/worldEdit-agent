@@ -103,9 +103,9 @@
 这个目录解释工具系统设计，包括：
 
 - [howtousetool.md](/Users/admin/Documents/trae_projects/worldEdit-agent/developmentlog/AIagent-design/tool/howtousetool.md)
-  说明当前工具系统怎么接入、怎么使用、怎么维护
+  说明当前工具系统怎么接入、怎么使用、怎么维护，包括工具能力层级、拓展工具发现、历史常用拓展工具和工具结果上下文重装
 - [unified-tool-registry-design.md](/Users/admin/Documents/trae_projects/worldEdit-agent/developmentlog/AIagent-design/tool/unified-tool-registry-design.md)
-  说明当前统一注册架构、resolver、facade 和 runner 的边界
+  说明当前主 agent / 子 agent 注册真源、动态可见性、拓展工具按需激活和 runner 边界
 
 什么时候读：
 

@@ -1,6 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import { ToolMessage } from '@langchain/core/messages'
 import { parseAgentToolResultEnvelope } from '../../../ai-utils/core/agentTool'
-import { getMainAgentTools } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
+import {
+  getMainAgentTools,
+  getVisibleMainAgentToolEntryMap
+} from '../../../ai-utils/toolkits/mainAgentToolRegistry'
+import { toolUsageStatsService } from '../../../ai-utils/toolkits/toolUsageStatsService'
 import {
   traceArtifact,
   traceDecision,
@@ -8,6 +13,10 @@ import {
   traceState
 } from '../../../../log/trace/agentTraceEmitter'
 import { MessagesState } from '../../state/messageState'
+import type {
+  PendingToolContextItem,
+  ToolContextSourceRef
+} from '../../state/messageState'
 
 const isSensitiveTool = (toolName: string): boolean =>
   /(delete|remove|edit|write|exec|shell|run|modify|replace|purge)/i.test(toolName)
@@ -21,36 +30,15 @@ const buildToolMessageContent = (
   fallbackResult: unknown
 ): string => {
   if (!envelope) {
-    return String(fallbackResult)
-  }
-
-  const data =
-    envelope.data && typeof envelope.data === 'object' ? (envelope.data as Record<string, unknown>) : null
-
-  if (toolName === 'official_web_search' && data) {
-    const compact = {
-      ok: envelope.ok,
-      toolName,
-      message: envelope.message,
-      data: {
-        summary: typeof data.summary === 'string' ? data.summary : '',
-        usedSearch: data.usedSearch === true,
-        searchMode: data.searchMode === 'forced' ? 'forced' : null,
-        hasStructuredSources: data.hasStructuredSources === true,
-        resultCount:
-          typeof data.resultCount === 'number' && Number.isFinite(data.resultCount)
-            ? data.resultCount
-            : 0,
-        sources: Array.isArray(data.sources)
-          ? (data.sources as Array<Record<string, unknown>>).map((item) => ({
-              title: typeof item.title === 'string' ? item.title : '',
-              url: typeof item.url === 'string' ? item.url : ''
-            }))
-          : []
-      }
-    }
-
-    return JSON.stringify(compact, null, 2)
+    return JSON.stringify(
+      {
+        toolName,
+        message: 'Tool returned a non-standard result. A compact fallback is available.',
+        fallbackPreview: stringifyCompact(fallbackResult, 300)
+      },
+      null,
+      2
+    )
   }
 
   const genericCompact = {
@@ -58,15 +46,167 @@ const buildToolMessageContent = (
     toolName,
     message: envelope.message,
     error: envelope.error,
-    data: data ?? envelope.data ?? null
+    contextRetention: envelope.meta.contextRetention,
+    contextReloaded:
+      envelope.meta.contextRetention === 'evidence'
+        ? 'toolEvidenceContext'
+        : envelope.meta.contextRetention === 'ephemeral'
+          ? 'ephemeralToolContext'
+          : 'none'
   }
 
   return JSON.stringify(genericCompact, null, 2)
 }
 
+const compact = (value: string, max = 900): string => {
+  const normalized = String(value || '').trim().replace(/\s+/g, ' ')
+  if (normalized.length <= max) return normalized
+  return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`
+}
+
+const stringifyCompact = (value: unknown, max = 900): string => {
+  if (typeof value === 'string') return compact(value, max)
+  try {
+    return compact(JSON.stringify(value), max)
+  } catch {
+    return compact(String(value), max)
+  }
+}
+
+const buildSourceRefs = (toolName: string, data: Record<string, unknown> | undefined): ToolContextSourceRef[] => {
+  if (!data) return []
+
+  if (toolName === 'search_recent_chinese_conversation' && Array.isArray(data.matches)) {
+    return (data.matches as Array<Record<string, unknown>>).slice(0, 5).map((match) => ({
+      type: 'message' as const,
+      id: typeof match.messageId === 'number' ? match.messageId : undefined,
+      title:
+        typeof match.role === 'string'
+          ? `${match.role}${typeof match.turnId === 'number' ? ` turn:${match.turnId}` : ''}`
+          : undefined
+    }))
+  }
+
+  if (toolName === 'official_web_search' && Array.isArray(data.sources)) {
+    return (data.sources as Array<Record<string, unknown>>).slice(0, 5).map((source) => ({
+      type: 'url' as const,
+      title: typeof source.title === 'string' ? source.title : undefined,
+      url: typeof source.url === 'string' ? source.url : undefined
+    }))
+  }
+
+  return []
+}
+
+const buildResultSummary = (
+  toolName: string,
+  envelope: ReturnType<typeof parseAgentToolResultEnvelope>,
+  fallbackResult: unknown
+): string => {
+  if (!envelope) {
+    return stringifyCompact(fallbackResult)
+  }
+
+  const data =
+    envelope.data && typeof envelope.data === 'object' ? (envelope.data as Record<string, unknown>) : undefined
+
+  if (toolName === 'search_recent_chinese_conversation' && data) {
+    const matches = Array.isArray(data.matches) ? (data.matches as Array<Record<string, unknown>>) : []
+    const query = typeof data.query === 'string' ? data.query : ''
+    const searchedTurnCount = typeof data.searchedTurnCount === 'number' ? data.searchedTurnCount : 0
+    const searchedMessageCount = typeof data.searchedMessageCount === 'number' ? data.searchedMessageCount : 0
+    const topMatches = matches
+      .slice(0, 4)
+      .map((match, index) => {
+        const role = typeof match.role === 'string' ? match.role : 'unknown'
+        const messageId = typeof match.messageId === 'number' ? `messageId=${match.messageId}` : ''
+        const turnId = typeof match.turnId === 'number' ? `turnId=${match.turnId}` : ''
+        const score = typeof match.score === 'number' ? `score=${match.score.toFixed(3)}` : ''
+        const content = typeof match.content === 'string' ? compact(match.content, 220) : ''
+        return `${index + 1}) ${[role, messageId, turnId, score].filter(Boolean).join(' ')}：${content}`
+      })
+      .join('\n')
+    return compact(
+      `中文对话回溯 query="${query}"，搜索 ${searchedTurnCount} 轮/${searchedMessageCount} 条消息，命中 ${matches.length} 条。\n${topMatches}`,
+      1200
+    )
+  }
+
+  if (toolName === 'official_web_search' && data) {
+    const summary = typeof data.summary === 'string' ? data.summary : envelope.message
+    const resultCount = typeof data.resultCount === 'number' ? data.resultCount : 0
+    const sources = Array.isArray(data.sources)
+      ? (data.sources as Array<Record<string, unknown>>)
+          .slice(0, 4)
+          .map((source) =>
+            [source.title, source.url].filter((item) => typeof item === 'string' && item).join(' ')
+          )
+          .filter(Boolean)
+      : []
+    return compact(
+      `联网搜索返回 ${resultCount} 条来源。结论：${summary}\n来源：${sources.join('；')}`,
+      1200
+    )
+  }
+
+  if (toolName === 'get_extend_tools' && data) {
+    const activatedToolNames = Array.isArray(data.activatedToolNames)
+      ? data.activatedToolNames.filter((item): item is string => typeof item === 'string')
+      : []
+    const frequentTools = Array.isArray(data.frequentTools)
+      ? (data.frequentTools as Array<Record<string, unknown>>)
+          .slice(0, 3)
+          .map((tool) => {
+            const name = typeof tool.name === 'string' ? tool.name : 'unknown_tool'
+            const summary = typeof tool.summary === 'string' ? tool.summary : ''
+            const usageCount = typeof tool.usageCount === 'number' ? tool.usageCount : 0
+            return `${name}(${usageCount}次)：${summary}`
+          })
+      : []
+    return compact(
+      [
+        `拓展工具目录已返回，已激活：${activatedToolNames.join(', ') || '无'}。`,
+        frequentTools.length > 0
+          ? `历史常用拓展工具 top3：${frequentTools.join('；')}`
+          : '暂无历史常用拓展工具统计。'
+      ].join('\n'),
+      1200
+    )
+  }
+
+  if (envelope.ok === false) {
+    return compact(envelope.error?.message || envelope.message || '工具返回失败。')
+  }
+
+  return compact(
+    [
+      envelope.receipt?.summary,
+      envelope.message,
+      envelope.data != null ? stringifyCompact(envelope.data, 700) : ''
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    1200
+  )
+}
+
+const createToolMessage = (input: {
+  content: string
+  toolCallId: string
+  name?: string
+  status?: 'success' | 'error'
+}): ToolMessage =>
+  new ToolMessage({
+    id: randomUUID(),
+    content: input.content,
+    tool_call_id: input.toolCallId,
+    name: input.name,
+    status: input.status
+  })
+
 export async function toolNode(
   state: typeof MessagesState.State
-): Promise<{ messages: ToolMessage[] }> {
+): Promise<Partial<typeof MessagesState.State>> {
   const lastMessage = state.messages[state.messages.length - 1]
 
   // Check if message has tool_calls - relax instanceof check to handle AIMessageChunk or version mismatches
@@ -85,9 +225,15 @@ export async function toolNode(
   }
 
   const toolMessages: ToolMessage[] = []
+  const pendingToolContext: PendingToolContextItem[] = []
+  const activeToolTranscriptIds = [
+    typeof lastMessage.id === 'string' && lastMessage.id ? lastMessage.id : ''
+  ].filter(Boolean)
   const toolPolicy = state.personaPolicy?.tool
-  const tools = getMainAgentTools()
+  const tools = getMainAgentTools(state)
+  const toolEntries = getVisibleMainAgentToolEntryMap(state)
   const executedTools: Array<Record<string, unknown>> = []
+  const activatedExtensionTools: string[] = []
   // 遍历工具组执行调用
   for (const toolCall of msg.tool_calls) {
     traceState('toolNode', {
@@ -105,15 +251,30 @@ export async function toolNode(
       isSensitiveTool(toolCall.name)
     ) {
       if (toolCall.id) {
-        toolMessages.push(
-          new ToolMessage({
-            content:
-              `Tool "${toolCall.name}" requires user confirmation under current persona policy. ` +
-              'Ask user to confirm before executing this sensitive action.',
-            tool_call_id: toolCall.id,
-            status: 'error'
-          })
-        )
+        const content =
+          `Tool "${toolCall.name}" requires user confirmation under current persona policy. ` +
+          'Ask user to confirm before executing this sensitive action.'
+        const toolMessage = createToolMessage({
+          content,
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          status: 'error'
+        })
+        toolMessages.push(toolMessage)
+        if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
+        pendingToolContext.push({
+          id: randomUUID(),
+          toolCallId: toolCall.id,
+          transcriptMessageIds: [lastMessage.id, toolMessage.id].filter(
+            (id): id is string => typeof id === 'string' && id.length > 0
+          ),
+          toolName: toolCall.name,
+          retention: 'ephemeral',
+          ok: false,
+          argsSummary: stringifyCompact(toolCall.args ?? {}),
+          resultSummary: content,
+          createdAtLoop: state.llmCalls ?? 0
+        })
       }
       traceDecision('toolNode', {
         title: `决策: toolNode 拦截 ${toolCall.name}`,
@@ -130,15 +291,30 @@ export async function toolNode(
 
     if (toolPolicy && !toolPolicy.allowRiskyTools && isRiskyTool(toolCall.name)) {
       if (toolCall.id) {
-        toolMessages.push(
-          new ToolMessage({
-            content:
-              `Tool "${toolCall.name}" is blocked by current risk policy. ` +
-              'Please provide a safer alternative or ask user for explicit override.',
-            tool_call_id: toolCall.id,
-            status: 'error'
-          })
-        )
+        const content =
+          `Tool "${toolCall.name}" is blocked by current risk policy. ` +
+          'Please provide a safer alternative or ask user for explicit override.'
+        const toolMessage = createToolMessage({
+          content,
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          status: 'error'
+        })
+        toolMessages.push(toolMessage)
+        if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
+        pendingToolContext.push({
+          id: randomUUID(),
+          toolCallId: toolCall.id,
+          transcriptMessageIds: [lastMessage.id, toolMessage.id].filter(
+            (id): id is string => typeof id === 'string' && id.length > 0
+          ),
+          toolName: toolCall.name,
+          retention: 'ephemeral',
+          ok: false,
+          argsSummary: stringifyCompact(toolCall.args ?? {}),
+          resultSummary: content,
+          createdAtLoop: state.llmCalls ?? 0
+        })
       }
       traceDecision('toolNode', {
         title: `决策: toolNode 拦截 ${toolCall.name}`,
@@ -157,13 +333,28 @@ export async function toolNode(
     const tool = tools[toolCall.name]
     if (!tool) {
       if (toolCall.id) {
-        toolMessages.push(
-          new ToolMessage({
-            content: `Tool "${toolCall.name}" not found. Available tools: ${Object.keys(tools).join(', ')}`,
-            tool_call_id: toolCall.id,
-            status: 'error'
-          })
-        )
+        const content = `Tool "${toolCall.name}" not found. Available tools: ${Object.keys(tools).join(', ')}`
+        const toolMessage = createToolMessage({
+          content,
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          status: 'error'
+        })
+        toolMessages.push(toolMessage)
+        if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
+        pendingToolContext.push({
+          id: randomUUID(),
+          toolCallId: toolCall.id,
+          transcriptMessageIds: [lastMessage.id, toolMessage.id].filter(
+            (id): id is string => typeof id === 'string' && id.length > 0
+          ),
+          toolName: toolCall.name,
+          retention: 'ephemeral',
+          ok: false,
+          argsSummary: stringifyCompact(toolCall.args ?? {}),
+          resultSummary: content,
+          createdAtLoop: state.llmCalls ?? 0
+        })
       }
       traceError('toolNode', new Error(`Tool "${toolCall.name}" not found.`), {
         title: `异常: toolNode ${toolCall.name}`,
@@ -188,6 +379,30 @@ export async function toolNode(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (tool as any).invoke(toolCall.args)
       const envelope = parseAgentToolResultEnvelope(result)
+      const toolEntry = toolEntries[toolCall.name]
+      if (toolEntry?.capabilityLayer === 'extension') {
+        try {
+          await toolUsageStatsService.recordToolUse({
+            toolName: toolCall.name,
+            capabilityLayer: toolEntry.capabilityLayer
+          })
+        } catch (statsError) {
+          console.warn(
+            `Failed to record tool usage stats for "${toolCall.name}":`,
+            statsError
+          )
+        }
+      }
+      const activatedFromEnvelope =
+        toolCall.name === 'get_extend_tools' &&
+        envelope?.data &&
+        typeof envelope.data === 'object' &&
+        Array.isArray((envelope.data as Record<string, unknown>).activatedToolNames)
+          ? ((envelope.data as Record<string, unknown>).activatedToolNames as unknown[])
+              .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+              .map((item) => item.trim())
+          : []
+      activatedExtensionTools.push(...activatedFromEnvelope)
       const envelopeData =
         envelope?.data && typeof envelope.data === 'object' ? envelope.data : undefined
       executedTools.push({
@@ -214,12 +429,14 @@ export async function toolNode(
           Number.isFinite((envelope.data as any).resultCount)
             ? (envelope.data as any).resultCount
             : undefined,
-        usedSearch:
+          usedSearch:
           typeof envelope?.data === 'object' &&
           envelope?.data &&
           'usedSearch' in envelope.data
             ? Boolean((envelope.data as any).usedSearch)
-            : undefined
+            : undefined,
+        activatedExtensionTools:
+          activatedFromEnvelope.length > 0 ? activatedFromEnvelope : undefined
       })
       traceArtifact('toolNode', {
         title: `产物: toolNode ${toolCall.name} 返回`,
@@ -241,11 +458,37 @@ export async function toolNode(
         }
       })
       toolMessages.push(
-        new ToolMessage({
-          content: buildToolMessageContent(toolCall.name, envelope, result),
-          tool_call_id: toolCall.id,
-          name: toolCall.name
-        })
+        (() => {
+          const toolMessage = createToolMessage({
+            content: buildToolMessageContent(toolCall.name, envelope, result),
+            toolCallId: toolCall.id,
+            name: toolCall.name
+          })
+          if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
+          const retention =
+            envelope?.ok === false ? 'ephemeral' : (tool.agentMetadata.contextRetention ?? 'ephemeral')
+          if (retention !== 'none') {
+            const data =
+              envelope?.data && typeof envelope.data === 'object'
+                ? (envelope.data as Record<string, unknown>)
+                : undefined
+            pendingToolContext.push({
+              id: randomUUID(),
+              toolCallId: toolCall.id,
+              transcriptMessageIds: [lastMessage.id, toolMessage.id].filter(
+                (id): id is string => typeof id === 'string' && id.length > 0
+              ),
+              toolName: toolCall.name,
+              retention,
+              ok: envelope?.ok ?? null,
+              argsSummary: stringifyCompact(toolCall.args ?? {}),
+              resultSummary: buildResultSummary(toolCall.name, envelope, result),
+              createdAtLoop: state.llmCalls ?? 0,
+              sourceRefs: buildSourceRefs(toolCall.name, data)
+            })
+          }
+          return toolMessage
+        })()
       )
     } catch (error) {
       // ✅ 错误信息返回给 LLM，而不是静默失败
@@ -258,13 +501,28 @@ export async function toolNode(
           args: toolCall.args ?? {}
         }
       })
-      toolMessages.push(
-        new ToolMessage({
-          content: `Error executing tool "${toolCall.name}": ${error instanceof Error ? error.message : String(error)}`,
-          tool_call_id: toolCall.id,
-          status: 'error'
-        })
-      )
+      const content = `Error executing tool "${toolCall.name}": ${error instanceof Error ? error.message : String(error)}`
+      const toolMessage = createToolMessage({
+        content,
+        toolCallId: toolCall.id,
+        name: toolCall.name,
+        status: 'error'
+      })
+      toolMessages.push(toolMessage)
+      if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
+      pendingToolContext.push({
+        id: randomUUID(),
+        toolCallId: toolCall.id,
+        transcriptMessageIds: [lastMessage.id, toolMessage.id].filter(
+          (id): id is string => typeof id === 'string' && id.length > 0
+        ),
+        toolName: toolCall.name,
+        retention: 'ephemeral',
+        ok: false,
+        argsSummary: stringifyCompact(toolCall.args ?? {}),
+        resultSummary: content,
+        createdAtLoop: state.llmCalls ?? 0
+      })
     }
   }
 
@@ -304,5 +562,10 @@ export async function toolNode(
     })
   }
 
-  return { messages: toolMessages }
+  return {
+    messages: toolMessages,
+    pendingToolContext,
+    activeToolTranscriptIds: [...new Set(activeToolTranscriptIds)],
+    enabledExtensionTools: [...new Set(activatedExtensionTools)]
+  }
 }

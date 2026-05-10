@@ -12,6 +12,34 @@
       @contextmenu.prevent="handleCanvasContextMenu"
     ></canvas>
 
+    <section
+      class="world-index-layer"
+      :class="{ 'is-open': worldIndexCardsVisible }"
+      :style="{ '--world-index-card-progress': String(worldIndexCardProgress) }"
+    >
+      <article
+        v-for="world in sortedWorlds"
+        :key="world.id"
+        class="world-index-card"
+        role="button"
+        tabindex="0"
+        @click="openWorld(world.id)"
+        @keydown.enter.prevent="openWorld(world.id)"
+      >
+        <div class="card-dots" aria-hidden="true"></div>
+        <button class="card-close" type="button" aria-label="删除世界观" @click.stop="openDeleteConfirm(world)">×</button>
+        <div class="world-index-card-body">
+          <h3>{{ world.name }}</h3>
+          <p>{{ world.summary || DEFAULT_WORLD_SUMMARY }}</p>
+          <div class="world-index-card-actions">
+            <button type="button" class="card-link" @click.stop="openWorld(world.id)">Enter</button>
+            <button type="button" class="card-icon" @click.stop="openEditDialog(world)">E</button>
+            <button type="button" class="card-icon danger" @click.stop="openDeleteConfirm(world)">D</button>
+          </div>
+        </div>
+      </article>
+    </section>
+
     <teleport to="body">
       <div v-if="showWorldDialog" class="dialog-backdrop" @click.self="closeWorldDialog">
         <div class="dialog-card">
@@ -82,6 +110,14 @@ import type { WorldPayload } from '@share/cache/worldbuilding/worldbuilding'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import {
+  drawHomeAssistantButton,
+  HOME_ASSISTANT_BUTTON
+} from '../features/worldbuilding/homeCanvas/assistantButton'
+import {
+  drawHomeCreateButton,
+  HOME_CREATE_BUTTON
+} from '../features/worldbuilding/homeCanvas/createButton'
+import {
   clamp,
   getClampedTextLine,
   drawRoundRectPath,
@@ -91,13 +127,24 @@ import {
 import { getHomeCanvasStageRegion } from '../features/worldbuilding/homeCanvas/layout'
 import { HOME_CANVAS_THEMES } from '../features/worldbuilding/homeCanvas/theme'
 import {
+  drawHomeTopBars,
+  HOME_TOP_BARS
+} from '../features/worldbuilding/homeCanvas/topBars'
+import {
   getWorldInstanceEnterStageProgress,
-  getWorldInstanceExitStageProgress,
+  getWorldInstanceExitStageElapsedProgress,
   hasWorldInstanceEnterStageStarted,
+  WORLD_INSTANCE_ENTER_ANIMATION_MS,
   WORLD_INSTANCE_ENTER_TOTAL_MS,
   WORLD_INSTANCE_EXIT_TOTAL_MS
 } from '../features/worldbuilding/homeCanvas/worldInstanceAnimation'
 import { getWorldFragmentPieces } from '../features/worldbuilding/homeCanvas/worldInstanceFragments'
+import {
+  drawWorldInstanceDotDecor,
+  drawWorldInstanceLineDecor,
+  getWorldInstanceSecondLayerContent,
+  WORLD_INSTANCE_SECOND_LAYER
+} from '../features/worldbuilding/homeCanvas/worldInstanceSecondLayer'
 import type {
   HomeCanvasPalette,
   HomeCanvasStageRegion,
@@ -122,6 +169,9 @@ const newWorldName = ref('')
 const newWorldSummary = ref('')
 const createError = ref('')
 const resolvedTheme = ref<HomeCanvasTheme>('light')
+const worldIndexModeOpen = ref(false)
+const worldIndexCardProgress = ref(0)
+const worldIndexCardsVisible = computed(() => worldIndexCardProgress.value > 0.02)
 
 let sceneWidth = 0
 let sceneHeight = 0
@@ -133,7 +183,21 @@ let hoverTarget: HomeCanvasTarget | null = null
 let previousFrameTime = performance.now()
 let resizeObserver: ResizeObserver | null = null
 let themeMediaQuery: MediaQueryList | null = null
-const worldMorphProgress = new Map<string, number>()
+let assistantHoverProgress = 0
+let createHoverProgress = 0
+let topBarsHoverProgress = 0
+let topBarsWaveStartTime: number | null = null
+const worldIndexModeProgress = ref(0)
+const worldIndexScatterProgress = ref(1)
+let worldIndexOpenDelayMs = 0
+let worldIndexCloseDelayMs = 0
+interface WorldMorphState {
+  progress: number
+  phase: 'enter' | 'exit'
+  exitElapsedMs: number
+}
+
+const worldMorphStates = new Map<string, WorldMorphState>()
 const clampedTextCache = new Map<
   string,
   {
@@ -144,8 +208,99 @@ const clampedTextCache = new Map<
   }
 >()
 const WORLD_ENTRY_ANIMATION_SECONDS = WORLD_INSTANCE_ENTER_TOTAL_MS / 1000
-const WORLD_EXIT_ANIMATION_SECONDS = WORLD_INSTANCE_EXIT_TOTAL_MS / 1000
+const WORLD_INDEX_LINE_ANIMATION_MS = 650
+const WORLD_INDEX_CONTENT_DELAY_MS = 100 // 切换卡片延时
+const WORLD_INDEX_CONTENT_FADE_MS = 1000
 const DEFAULT_WORLD_SUMMARY = '进入世界实例继续编辑。'
+const loggedWorldFragmentStages = new Map<string, string>()
+
+const inverseEaseOutCubic = (value: number): number =>
+  1 - Math.cbrt(1 - clamp(value, 0, 1))
+
+const getWorldReentryProgressFromExit = (exitElapsedMs: number): number => {
+  const contentFadeProgress = getWorldInstanceExitStageElapsedProgress(exitElapsedMs, 'contentFade')
+  if (contentFadeProgress < 1) return 1
+
+  const fragmentGatherProgress = getWorldInstanceExitStageElapsedProgress(exitElapsedMs, 'fragmentGather')
+  if (fragmentGatherProgress > 0) {
+    const currentMovementProgress = 1 - easeOutCubic(fragmentGatherProgress)
+    const enterFragmentProgress = inverseEaseOutCubic(currentMovementProgress)
+    return clamp(
+      (WORLD_INSTANCE_ENTER_ANIMATION_MS.fragmentGather * enterFragmentProgress) /
+        WORLD_INSTANCE_ENTER_TOTAL_MS,
+      0,
+      1
+    )
+  }
+
+  const cornerCutProgress = getWorldInstanceExitStageElapsedProgress(exitElapsedMs, 'cornerCut')
+  if (cornerCutProgress > 0) {
+    const currentCutProgress = 1 - easeOutCubic(cornerCutProgress)
+    const enterCornerProgress = inverseEaseOutCubic(currentCutProgress)
+    return clamp(
+      (WORLD_INSTANCE_ENTER_ANIMATION_MS.fragmentGather +
+        WORLD_INSTANCE_ENTER_ANIMATION_MS.cornerCut * enterCornerProgress) /
+        WORLD_INSTANCE_ENTER_TOTAL_MS,
+      0,
+      1
+    )
+  }
+
+  return 1
+}
+
+const updateWorldIndexModeAnimation = (deltaMs: number): void => {
+  if (worldIndexModeOpen.value) {
+    worldIndexCloseDelayMs = 0
+    worldIndexModeProgress.value = clamp(
+      worldIndexModeProgress.value + deltaMs / WORLD_INDEX_LINE_ANIMATION_MS,
+      0,
+      1
+    )
+    worldIndexScatterProgress.value = 1 - easeOutCubic(worldIndexModeProgress.value)
+
+    if (worldIndexModeProgress.value >= 1) {
+      worldIndexOpenDelayMs += deltaMs
+      if (worldIndexOpenDelayMs >= WORLD_INDEX_CONTENT_DELAY_MS) {
+        worldIndexCardProgress.value = clamp(
+          worldIndexCardProgress.value + deltaMs / WORLD_INDEX_CONTENT_FADE_MS,
+          0,
+          1
+        )
+      }
+    } else {
+      worldIndexOpenDelayMs = 0
+      worldIndexCardProgress.value = 0
+    }
+    return
+  }
+
+  worldIndexOpenDelayMs = 0
+  worldIndexCardProgress.value = clamp(
+    worldIndexCardProgress.value - deltaMs / WORLD_INDEX_CONTENT_FADE_MS,
+    0,
+    1
+  )
+  worldIndexModeProgress.value = clamp(
+    worldIndexModeProgress.value - deltaMs / WORLD_INDEX_LINE_ANIMATION_MS,
+    0,
+    1
+  )
+
+  if (worldIndexModeProgress.value <= 0) {
+    worldIndexCloseDelayMs += deltaMs
+    if (worldIndexCloseDelayMs >= WORLD_INDEX_CONTENT_DELAY_MS) {
+      worldIndexScatterProgress.value = clamp(
+        worldIndexScatterProgress.value + deltaMs / WORLD_INDEX_CONTENT_FADE_MS,
+        0,
+        1
+      )
+    }
+  } else {
+    worldIndexCloseDelayMs = 0
+    worldIndexScatterProgress.value = 0
+  }
+}
 
 const isEditingWorld = computed(() => editingWorldId.value !== '')
 const deleteConfirmMessage = computed(() =>
@@ -156,7 +311,7 @@ const deleteConfirmMessage = computed(() =>
 
 const activePalette = computed(() => HOME_CANVAS_THEMES[resolvedTheme.value])
 const worldLookup = computed(() => new Map(worlds.value.map((world) => [world.id, world] as const)))
-const recentWorlds = computed(() =>
+const sortedWorlds = computed(() =>
   worlds.value
     .slice()
     .sort((a, b) => {
@@ -164,6 +319,9 @@ const recentWorlds = computed(() =>
       const right = Date.parse(String((a as { updatedAt?: string; createdAt?: string }).updatedAt || (a as { createdAt?: string }).createdAt || ''))
       return (Number.isFinite(left) ? left : 0) - (Number.isFinite(right) ? right : 0)
     })
+)
+const recentWorlds = computed(() =>
+  sortedWorlds.value
     .slice(0, 3)
 )
 
@@ -415,6 +573,11 @@ const handleCanvasClick = async (event: MouseEvent): Promise<void> => {
     await router.push({ name: 'AIChat' })
     return
   }
+  if (target.kind === 'topBars') {
+    worldIndexModeOpen.value = !worldIndexModeOpen.value
+    topBarsWaveStartTime = performance.now() - sceneStartTime
+    return
+  }
   if (target.kind === 'world' && target.id) {
     await openWorld(target.id)
   }
@@ -438,8 +601,16 @@ const handleCanvasContextMenu = (event: MouseEvent): void => {
 
 const getStageRegion = (): HomeCanvasStageRegion => getHomeCanvasStageRegion(sceneWidth, sceneHeight)
 
-const drawBackground = (ctx: CanvasRenderingContext2D, palette: HomeCanvasPalette): void => {
+const drawBackground = (
+  ctx: CanvasRenderingContext2D,
+  palette: HomeCanvasPalette,
+  indexModeProgress: number
+): void => {
   const stage = getStageRegion()
+  const indexEase = easeOutCubic(indexModeProgress)
+  const guideY = stage.guideY + (sceneHeight * 0.105 - stage.guideY) * indexEase
+  const diagonalStartX = sceneWidth * (0.41 + 0.28 * indexEase)
+  const diagonalEndX = sceneWidth * (0.92 + 0.05 * indexEase)
   ctx.fillStyle = palette.base
   ctx.fillRect(0, 0, sceneWidth, sceneHeight)
 
@@ -462,10 +633,10 @@ const drawBackground = (ctx: CanvasRenderingContext2D, palette: HomeCanvasPalett
   ctx.beginPath()
   ctx.moveTo(stage.left, 0)
   ctx.lineTo(stage.left, sceneHeight)
-  ctx.moveTo(stage.left, stage.guideY)
-  ctx.lineTo(sceneWidth, stage.guideY)
-  ctx.moveTo(sceneWidth * 0.41, sceneHeight * 0.67)
-  ctx.lineTo(sceneWidth * 0.92, sceneHeight * 0.18)
+  ctx.moveTo(stage.left, guideY)
+  ctx.lineTo(sceneWidth, guideY)
+  ctx.moveTo(diagonalStartX, sceneHeight * 0.67)
+  ctx.lineTo(diagonalEndX, sceneHeight * 0.18)
   ctx.stroke()
   ctx.restore()
 }
@@ -510,17 +681,6 @@ const drawTechnicalDecor = (
     ctx.fill()
   }
 
-  const cornerX = sceneWidth - 38
-  ctx.beginPath()
-  ctx.arc(cornerX, 42, 12, 0, Math.PI * 2)
-  ctx.arc(cornerX, 42, 8, 0, Math.PI * 2)
-  ctx.stroke()
-
-  for (let index = 0; index < 11; index += 1) {
-    ctx.globalAlpha = index % 2 ? 0.22 : 0.5
-    ctx.fillRect(sceneWidth * 0.815 + index * 8, 34, 1, 8)
-  }
-
   ctx.globalAlpha = 0.62
   for (let index = 0; index < 3; index += 1) {
     ctx.beginPath()
@@ -541,19 +701,21 @@ const getWorldLayout = (): HomeCanvasTarget[] => {
   const cardWidthBoost = 1.18
   const centerWidthBoost = 1.16
   const centerScale = 1.18 * 1.2
+  const centerWidthExtraScale = 1.05  // 高度倍率
+  const centerHeightExtraScale = 1.03 // 宽度倍率
   const sideScale = 0.95 * 1.1
   const sizeForIndex = (index: number): { w: number; h: number } => {
     if (visibleWorlds.length >= 3 && index === 1) {
       return {
-        w: baseW * centerScale * cardWidthBoost * centerWidthBoost,
-        h: baseH * centerScale
+        w: baseW * centerScale * cardWidthBoost * centerWidthBoost * centerWidthExtraScale,
+        h: baseH * centerScale * centerHeightExtraScale
       }
     }
     return { w: baseW * sideScale * cardWidthBoost, h: baseH * sideScale }
   }
   const sizes = visibleWorlds.map((_, index) => sizeForIndex(index))
   const centerY = stage.guideY
-  const gap = clamp(stage.width * 0.105, 96, 164)
+  const gap = clamp(stage.width * 0.08, 91, 156)
   const groupWidth = sizes.reduce((sum, size) => sum + size.w, 0) + Math.max(0, count - 1) * gap
   const startX = stage.centerX - groupWidth / 2
   let cursorX = startX
@@ -571,6 +733,67 @@ const getWorldLayout = (): HomeCanvasTarget[] => {
   })
 }
 
+const applyWorldFragmentFill = (
+  ctx: CanvasRenderingContext2D,
+  palette: HomeCanvasPalette,
+  alpha = 1
+): void => {
+  ctx.fillStyle = palette.fragmentRgba
+  ctx.globalAlpha = 0.64 * alpha
+}
+
+const getWorldFragmentDebugStage = (
+  progress: number,
+  isExiting: boolean,
+  exitElapsedMs = 0
+): string | null => {
+  if (progress <= 0) return null
+
+  if (isExiting) {
+    if (getWorldInstanceExitStageElapsedProgress(exitElapsedMs, 'fragmentGather') > 0) return 'exit:fragmentGather'
+    if (getWorldInstanceExitStageElapsedProgress(exitElapsedMs, 'cornerCut') > 0) return 'exit:cornerCut'
+    if (getWorldInstanceExitStageElapsedProgress(exitElapsedMs, 'contentFade') > 0) return 'exit:contentFade'
+    return 'exit:pending'
+  }
+
+  if (hasWorldInstanceEnterStageStarted(progress, 'enterFade')) return 'enter:enterFade'
+  if (hasWorldInstanceEnterStageStarted(progress, 'textFade')) return 'enter:textFade'
+  if (hasWorldInstanceEnterStageStarted(progress, 'lineFade')) return 'enter:lineFade'
+  if (hasWorldInstanceEnterStageStarted(progress, 'dotFade')) return 'enter:dotFade'
+  if (hasWorldInstanceEnterStageStarted(progress, 'brighten')) return 'enter:brighten'
+  if (hasWorldInstanceEnterStageStarted(progress, 'cornerCut')) return 'enter:cornerCut'
+  return 'enter:fragmentGather'
+}
+
+const logWorldFragmentRgbaStage = (
+  target: HomeCanvasTarget,
+  palette: HomeCanvasPalette,
+  progress: number,
+  movementProgress: number,
+  index: number,
+  isExiting: boolean,
+  exitElapsedMs = 0
+): void => {
+  const logId = `${target.id}:${index}`
+  const stage = getWorldFragmentDebugStage(progress, isExiting, exitElapsedMs)
+
+  if (!stage) {
+    loggedWorldFragmentStages.delete(logId)
+    return
+  }
+
+  if (loggedWorldFragmentStages.get(logId) === stage) return
+  loggedWorldFragmentStages.set(logId, stage)
+  console.info('[homeCanvas] fragmentRgba stage', {
+    worldId: target.id,
+    index,
+    stage,
+    fragmentRgba: palette.fragmentRgba,
+    progress,
+    movementProgress
+  })
+}
+
 const drawFragmentedWorld = (
   ctx: CanvasRenderingContext2D,
   palette: HomeCanvasPalette,
@@ -579,15 +802,31 @@ const drawFragmentedWorld = (
   hoverProgress: number,
   time: number,
   index: number,
-  isExiting: boolean
+  isExiting: boolean,
+  exitElapsedMs: number,
+  layerAlpha = 1
 ): void => {
   const { x, y, w, h } = target.rect
   const pieces = getWorldFragmentPieces(index)
-  const exitFragmentProgress = getWorldInstanceExitStageProgress(hoverProgress, 'fragmentGather')
-  const movementProgress = easeOutCubic(getWorldInstanceEnterStageProgress(hoverProgress, 'fragmentGather'))
-  const panelStarted = isExiting || hasWorldInstanceEnterStageStarted(hoverProgress, 'cornerCut')
-  const pieceFade = isExiting ? easeOutCubic(exitFragmentProgress) : panelStarted ? 0 : 1
-  const pieceShadowFade = 1 - movementProgress
+  const exitFragmentProgress = isExiting
+    ? getWorldInstanceExitStageElapsedProgress(exitElapsedMs, 'fragmentGather')
+    : 0
+  const movementProgress = isExiting
+    ? 1 - easeOutCubic(exitFragmentProgress)
+    : easeOutCubic(getWorldInstanceEnterStageProgress(hoverProgress, 'fragmentGather'))
+  const panelStarted = isExiting
+    ? exitFragmentProgress <= 0
+    : hasWorldInstanceEnterStageStarted(hoverProgress, 'cornerCut')
+  logWorldFragmentRgbaStage(
+    target,
+    palette,
+    hoverProgress,
+    movementProgress,
+    index,
+    isExiting,
+    exitElapsedMs
+  )
+  const pieceFade = (isExiting ? (exitFragmentProgress > 0 ? 1 : 0) : panelStarted ? 0 : 1) * layerAlpha
   const seamOverlapFadeStart = 0.82
   const seamOverlapFadeOut = 1 - easeOutCubic(
     clamp((movementProgress - seamOverlapFadeStart) / (1 - seamOverlapFadeStart), 0, 1)
@@ -616,11 +855,7 @@ const drawFragmentedWorld = (
       const pw = piece.w * w + seamOverlap
       const ph = piece.h * h + seamOverlap
       drawRoundRectPath(ctx, px, py, pw, ph, pieceRadius)
-      ctx.fillStyle = hoverProgress > 0.2 ? palette.fragmentHover : palette.fragment
-      ctx.globalAlpha = 0.64 * passAlpha
-      ctx.shadowColor = palette.panelShadow
-      ctx.shadowBlur = (4 + 18 * movementProgress) * pieceShadowFade * passAlpha
-      ctx.shadowOffsetY = (4 + 12 * movementProgress) * pieceShadowFade * passAlpha
+      applyWorldFragmentFill(ctx, palette, passAlpha)
       ctx.fill()
     }
 
@@ -630,11 +865,11 @@ const drawFragmentedWorld = (
   ctx.save()
   drawPieces(pieceFade)
 
-  ctx.globalAlpha = 0.16 + movementProgress * 0.5
+  ctx.globalAlpha = (0.16 + movementProgress * 0.5) * layerAlpha
   ctx.strokeStyle = palette.line
 
   if (panelStarted) {
-    drawMergedWorldCard(ctx, palette, target, world, hoverProgress, isExiting)
+    drawMergedWorldCard(ctx, palette, target, world, hoverProgress, isExiting, exitElapsedMs, layerAlpha)
   }
   ctx.restore()
 }
@@ -647,21 +882,22 @@ const drawMergedWorldCardShapePath = (
   h: number,
   cutProgress = 1
 ): void => {
-  const cut = clamp(Math.min(w, h) * 0.08, 10, 28) * cutProgress
+  const cutX = clamp(Math.min(w, h) * 0.12, 16, 42) * cutProgress
+  const cutY = clamp(Math.min(w, h) * 0.075, 10, 28) * cutProgress
   const radius = clamp(Math.min(w, h) * 0.035, 4, 10)
   ctx.beginPath()
   ctx.moveTo(x + radius, y)
-  ctx.lineTo(x + w - cut, y)
-  if (cut > 0) {
-    ctx.lineTo(x + w, y + cut)
+  ctx.lineTo(x + w - cutX, y)
+  if (cutX > 0 || cutY > 0) {
+    ctx.lineTo(x + w, y + cutY)
   } else {
     ctx.quadraticCurveTo(x + w, y, x + w, y + radius)
   }
   ctx.lineTo(x + w, y + h - radius)
   ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h)
-  ctx.lineTo(x + cut, y + h)
-  if (cut > 0) {
-    ctx.lineTo(x, y + h - cut)
+  ctx.lineTo(x + cutX, y + h)
+  if (cutX > 0 || cutY > 0) {
+    ctx.lineTo(x, y + h - cutY)
   } else {
     ctx.quadraticCurveTo(x, y + h, x, y + h - radius)
   }
@@ -670,81 +906,21 @@ const drawMergedWorldCardShapePath = (
   ctx.closePath()
 }
 
-const drawMergedWorldLineDecor = (
+const strokeMergedWorldCardShapeProgress = (
   ctx: CanvasRenderingContext2D,
-  palette: HomeCanvasPalette,
   x: number,
   y: number,
   w: number,
   h: number,
-  opacity: number
+  cutProgress: number,
+  drawProgress: number
 ): void => {
-  const decorW = w * 0.42
-  const orbX = x + decorW * 0.55
-  const orbY = y + h * 0.45
-  const orbRadius = clamp(Math.min(w, h) * 0.13, 18, 44)
-
+  const estimatedLength = (w + h) * 2.15
   ctx.save()
-
-  ctx.strokeStyle = palette.line
-  ctx.lineWidth = 1
-  ctx.globalAlpha = 0.42 * opacity
-  ctx.beginPath()
-  ctx.arc(x + decorW * 0.05, y + h * 0.66, decorW * 0.68, Math.PI * 1.05, Math.PI * 1.9)
+  ctx.setLineDash([estimatedLength * clamp(drawProgress, 0, 1), estimatedLength])
+  ctx.lineDashOffset = 0
+  drawMergedWorldCardShapePath(ctx, x, y, w, h, cutProgress)
   ctx.stroke()
-  ctx.beginPath()
-  ctx.arc(x + decorW * 0.1, y + h * 0.48, decorW * 0.42, Math.PI * 1.08, Math.PI * 2.02)
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.moveTo(x + decorW * 0.08, y + h * 0.7)
-  ctx.lineTo(x + decorW * 0.86, y + h * 0.18)
-  ctx.stroke()
-
-  ctx.globalAlpha = 0.18 * opacity
-  ctx.fillStyle = resolvedTheme.value === 'dark' ? 'rgba(255,255,255,0.22)' : 'rgba(40,44,48,0.18)'
-  ctx.beginPath()
-  ctx.arc(orbX, orbY, orbRadius, 0, Math.PI * 2)
-  ctx.fill()
-
-  ctx.globalAlpha = 0.5 * opacity
-  ctx.fillRect(x + decorW * 0.16, y + h * 0.22, clamp(w * 0.012, 2, 4), clamp(w * 0.012, 2, 4))
-  ctx.fillRect(x + decorW * 0.64, y + h * 0.28, clamp(w * 0.01, 2, 3), clamp(w * 0.01, 2, 3))
-  ctx.fillRect(x + decorW * 0.78, y + h * 0.72, clamp(w * 0.008, 1.5, 2.5), clamp(w * 0.008, 1.5, 2.5))
-
-  ctx.strokeStyle = palette.hairline
-  ctx.globalAlpha = 0.78 * opacity
-  ctx.beginPath()
-  ctx.moveTo(x + decorW, y)
-  ctx.lineTo(x + decorW, y + h)
-  ctx.stroke()
-  ctx.restore()
-}
-
-const drawMergedWorldDotDecor = (
-  ctx: CanvasRenderingContext2D,
-  palette: HomeCanvasPalette,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  opacity: number
-): void => {
-  const decorW = w * 0.42
-  const dotGap = clamp(w * 0.022, 5, 8)
-  const dotSize = clamp(w * 0.006, 0.8, 1.4)
-  const gridX = x + decorW * 0.2
-  const gridY = y + h * 0.12
-
-  ctx.save()
-  ctx.fillStyle = palette.dot
-  ctx.globalAlpha = 0.38 * opacity
-  for (let row = 0; row < 6; row += 1) {
-    for (let col = 0; col < 6; col += 1) {
-      ctx.beginPath()
-      ctx.arc(gridX + col * dotGap, gridY + row * dotGap, dotSize, 0, Math.PI * 2)
-      ctx.fill()
-    }
-  }
   ctx.restore()
 }
 
@@ -754,55 +930,54 @@ const drawMergedWorldCard = (
   target: HomeCanvasTarget,
   world: WorldPayload,
   revealProgress: number,
-  isExiting: boolean
+  isExiting: boolean,
+  exitElapsedMs: number,
+  layerAlpha = 1
 ): void => {
   if (revealProgress <= 0) return
 
   const { x, y, w, h } = target.rect
-  const contentX = x + w * 0.52
-  const contentW = w * 0.38
-  const enterY = y + h * 0.78
-  const exitContentProgress = getWorldInstanceExitStageProgress(revealProgress, 'contentFade')
-  const exitFragmentProgress = getWorldInstanceExitStageProgress(revealProgress, 'fragmentGather')
-  const contentExitAlpha = 1 - easeOutCubic(exitContentProgress)
-  const panelAlpha = isExiting ? 1 - easeOutCubic(exitFragmentProgress) : 1
+  const { contentX, contentW, titleY, summaryY, enterY } = getWorldInstanceSecondLayerContent(x, y, w, h)
+  const exitContentProgress = isExiting
+    ? getWorldInstanceExitStageElapsedProgress(exitElapsedMs, 'contentFade')
+    : 0
+  const exitCornerProgress = isExiting
+    ? getWorldInstanceExitStageElapsedProgress(exitElapsedMs, 'cornerCut')
+    : 0
+  const contentExitAlpha = (isExiting
+    ? 1 - easeOutCubic(exitContentProgress)
+    : 1) * layerAlpha
+  const panelAlpha = layerAlpha
   const cutProgress = isExiting
-    ? 1 - easeOutCubic(getWorldInstanceExitStageProgress(revealProgress, 'cornerCut'))
+    ? 1 - easeOutCubic(exitCornerProgress)
     : easeOutCubic(getWorldInstanceEnterStageProgress(revealProgress, 'cornerCut'))
-  const brightnessProgress = isExiting
-    ? contentExitAlpha
-    : easeOutCubic(getWorldInstanceEnterStageProgress(revealProgress, 'brighten'))
-  const dotAlpha = isExiting
-    ? contentExitAlpha
-    : easeOutCubic(getWorldInstanceEnterStageProgress(revealProgress, 'dotFade'))
-  const lineAlpha = isExiting
-    ? contentExitAlpha
-    : easeOutCubic(getWorldInstanceEnterStageProgress(revealProgress, 'lineFade'))
-  const infoAlpha = isExiting
-    ? contentExitAlpha
-    : easeOutCubic(getWorldInstanceEnterStageProgress(revealProgress, 'textFade'))
-  const enterAlpha = isExiting
-    ? contentExitAlpha
-    : easeOutCubic(getWorldInstanceEnterStageProgress(revealProgress, 'enterFade'))
-  const shadowAlpha = isExiting
-    ? contentExitAlpha
-    : easeOutCubic(getWorldInstanceEnterStageProgress(revealProgress, 'shadowFade'))
-  const fragmentEffectiveAlpha = resolvedTheme.value === 'dark' ? 0.64 * 0.94 : 0.64 * 0.96
-  const lightPanelColor =
-    resolvedTheme.value === 'dark'
-      ? `rgba(${86 + brightnessProgress * 6}, ${88 + brightnessProgress * 6}, ${90 + brightnessProgress * 6}, ${fragmentEffectiveAlpha + brightnessProgress * (0.96 - fragmentEffectiveAlpha)})`
-      : `rgba(${226 + brightnessProgress * 22}, ${226 + brightnessProgress * 22}, ${223 + brightnessProgress * 23}, ${fragmentEffectiveAlpha + brightnessProgress * (0.98 - fragmentEffectiveAlpha)})`
+  const enterBrightnessProgress = easeOutCubic(
+    getWorldInstanceEnterStageProgress(revealProgress, 'brighten')
+  )
+  const secondLayerProgress = easeOutCubic(getWorldInstanceEnterStageProgress(revealProgress, 'dotFade'))
+  const secondLayerAlpha = secondLayerProgress * contentExitAlpha
+  const brightnessProgress = enterBrightnessProgress * contentExitAlpha
+  const dotProgress = secondLayerProgress
+  const lineProgress = secondLayerProgress
+  const dotAlpha = secondLayerAlpha
+  const lineAlpha = secondLayerAlpha
+  const infoAlpha = secondLayerAlpha
+  const enterAlpha = secondLayerAlpha
+  const shadowAlpha =
+    easeOutCubic(getWorldInstanceEnterStageProgress(revealProgress, 'shadowFade')) *
+    contentExitAlpha
+  const finalPanelColor = resolvedTheme.value === 'dark' ? 'rgb(72, 74, 76)' : 'rgb(246, 246, 246)'
 
   ctx.save()
 
   if (shadowAlpha > 0) {
     drawMergedWorldCardShapePath(ctx, x, y, w, h, cutProgress)
-    ctx.globalAlpha = shadowAlpha * 0.5
+    ctx.globalAlpha = shadowAlpha * 0.9
     ctx.fillStyle = resolvedTheme.value === 'dark' ? 'rgba(92, 94, 96, 0.18)' : 'rgba(248, 248, 246, 0.38)'
-    ctx.shadowColor = resolvedTheme.value === 'dark' ? 'rgba(0,0,0,0.52)' : 'rgba(28,32,36,0.24)'
-    ctx.shadowBlur = 22
+    ctx.shadowColor = resolvedTheme.value === 'dark' ? 'rgba(0,0,0,0.66)' : 'rgba(28,32,36,0.42)'
+    ctx.shadowBlur = 44
     ctx.shadowOffsetX = 0
-    ctx.shadowOffsetY = 18
+    ctx.shadowOffsetY = 30
     ctx.fill()
     ctx.shadowBlur = 0
     ctx.shadowOffsetX = 0
@@ -810,19 +985,26 @@ const drawMergedWorldCard = (
   }
 
   drawMergedWorldCardShapePath(ctx, x, y, w, h, cutProgress)
-  ctx.globalAlpha = panelAlpha
-  ctx.fillStyle = lightPanelColor
+  applyWorldFragmentFill(ctx, palette, panelAlpha)
   ctx.fill()
+  if (brightnessProgress > 0) {
+    drawMergedWorldCardShapePath(ctx, x, y, w, h, cutProgress)
+    ctx.fillStyle = finalPanelColor
+    ctx.globalAlpha = panelAlpha * brightnessProgress
+    ctx.fill()
+  }
   ctx.strokeStyle = palette.hairline
-  ctx.globalAlpha = panelAlpha * brightnessProgress * 0.8
-  ctx.stroke()
+  ctx.globalAlpha = panelAlpha * contentExitAlpha * 0.8
+  strokeMergedWorldCardShapeProgress(ctx, x, y, w, h, cutProgress, secondLayerProgress)
 
   if (dotAlpha > 0 || lineAlpha > 0) {
     ctx.save()
     drawMergedWorldCardShapePath(ctx, x, y, w, h, 1)
     ctx.clip()
-    if (dotAlpha > 0) drawMergedWorldDotDecor(ctx, palette, x, y, w, h, dotAlpha)
-    if (lineAlpha > 0) drawMergedWorldLineDecor(ctx, palette, x, y, w, h, lineAlpha)
+    if (dotAlpha > 0) drawWorldInstanceDotDecor(ctx, palette, x, y, w, h, dotAlpha, dotProgress)
+    if (lineAlpha > 0) {
+      drawWorldInstanceLineDecor(ctx, palette, resolvedTheme.value, x, y, w, h, lineAlpha, lineProgress)
+    }
     ctx.restore()
   }
 
@@ -833,7 +1015,7 @@ const drawMergedWorldCard = (
     ctx.fillText(
       getCachedClampedText(ctx, `${world.id}:name`, world.name, contentW),
       contentX,
-      y + h * 0.36
+      titleY
     )
 
     setCanvasFont(ctx, clamp(w * 0.032, 11, 14), 500)
@@ -846,49 +1028,54 @@ const drawMergedWorldCard = (
         contentW
       ),
       contentX,
-      y + h * 0.48
+      summaryY
     )
   }
 
   if (enterAlpha > 0) {
+    const underlineEndX = contentX + contentW * WORLD_INSTANCE_SECOND_LAYER.enter.underlineWidth
+    const enterClipWidth = contentW * WORLD_INSTANCE_SECOND_LAYER.enter.clipWidth * enterAlpha
+    const enterUnderlineY = enterY + WORLD_INSTANCE_SECOND_LAYER.enter.underlineYOffset
+    const arrowY = enterY + WORLD_INSTANCE_SECOND_LAYER.enter.arrowYOffset
+    const arrowEndX = underlineEndX
+    const arrowStartX = arrowEndX - contentW * WORLD_INSTANCE_SECOND_LAYER.enter.arrowLength
     ctx.strokeStyle = palette.ink
     ctx.lineWidth = 1
     ctx.globalAlpha = enterAlpha * 0.72
     ctx.beginPath()
-    ctx.moveTo(contentX, enterY + 14)
-    ctx.lineTo(contentX + contentW * 0.45, enterY + 14)
+    ctx.moveTo(contentX, enterUnderlineY)
+    ctx.lineTo(contentX + (underlineEndX - contentX) * enterAlpha, enterUnderlineY)
     ctx.stroke()
 
-    setCanvasFont(ctx, clamp(w * 0.03, 11, 13), 600)
+    setCanvasFont(ctx, clamp(w * 0.038, 13, 16), 650)
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(contentX, enterY - 22, enterClipWidth, 40)
+    ctx.clip()
     ctx.globalAlpha = enterAlpha
     ctx.fillStyle = palette.ink
-    ctx.fillText('进入', contentX, enterY)
-    ctx.fillText('→', contentX + contentW * 0.42, enterY)
-  }
-
-  if (infoAlpha > 0) {
-    ctx.strokeStyle = palette.muted
-    ctx.globalAlpha = infoAlpha * 0.72
+    ctx.fillText('Enter', contentX, enterY)
+    ctx.strokeStyle = palette.ink
     ctx.lineWidth = 1
-    const closeX = x + w - clamp(w * 0.085, 24, 42)
-    const closeY = y + clamp(h * 0.14, 22, 42)
-    const closeSize = clamp(w * 0.025, 8, 12)
     ctx.beginPath()
-    ctx.moveTo(closeX - closeSize / 2, closeY - closeSize / 2)
-    ctx.lineTo(closeX + closeSize / 2, closeY + closeSize / 2)
-    ctx.moveTo(closeX + closeSize / 2, closeY - closeSize / 2)
-    ctx.lineTo(closeX - closeSize / 2, closeY + closeSize / 2)
+    ctx.moveTo(arrowStartX, arrowY)
+    ctx.lineTo(arrowEndX, arrowY)
+    ctx.lineTo(arrowEndX - 4, arrowY - 4)
+    ctx.moveTo(arrowEndX, arrowY)
+    ctx.lineTo(arrowEndX - 4, arrowY + 4)
     ctx.stroke()
+    ctx.restore()
   }
 
   if (dotAlpha > 0) {
+    const sideDots = WORLD_INSTANCE_SECOND_LAYER.sideDots
     ctx.fillStyle = palette.dot
-    ctx.globalAlpha = dotAlpha * 0.62
-    const dotX = x + w - clamp(w * 0.06, 16, 32)
-    const dotY = y + h * 0.46
-    for (let index = 0; index < 4; index += 1) {
+    ctx.globalAlpha = dotAlpha * sideDots.alpha
+    const dotX = x + w - clamp(w * sideDots.xFromRight, 16, 32)
+    const dotY = y + h * sideDots.y
+    for (let index = 0; index < sideDots.count; index += 1) {
       ctx.beginPath()
-      ctx.arc(dotX, dotY + index * 9, index === 0 ? 1.7 : 1.2, 0, Math.PI * 2)
+      ctx.arc(dotX, dotY + index * sideDots.gap, index === 0 ? 1.7 : 1.2, 0, Math.PI * 2)
       ctx.fill()
     }
   }
@@ -896,16 +1083,21 @@ const drawMergedWorldCard = (
   ctx.restore()
 }
 
-const drawEmptyWorldPreview = (ctx: CanvasRenderingContext2D, palette: HomeCanvasPalette, time: number): void => {
+const drawEmptyWorldPreview = (
+  ctx: CanvasRenderingContext2D,
+  palette: HomeCanvasPalette,
+  time: number,
+  layerAlpha = 1
+): void => {
   const stage = getStageRegion()
   const w = clamp(sceneWidth * 0.28, 260, 420)
   const h = clamp(sceneHeight * 0.24, 150, 220)
   const x = stage.centerX - w / 2
   const y = sceneHeight * 0.41 - h / 2
   ctx.save()
-  ctx.globalAlpha = 0.54 + Math.sin(time * 0.002) * 0.08
+  ctx.globalAlpha = (0.54 + Math.sin(time * 0.002) * 0.08) * layerAlpha
   drawRoundRectPath(ctx, x, y, w, h, 4)
-  ctx.fillStyle = palette.fragment
+  ctx.fillStyle = palette.fragmentRgba
   ctx.fill()
   ctx.strokeStyle = palette.hairline
   ctx.stroke()
@@ -920,72 +1112,31 @@ const drawEmptyWorldPreview = (ctx: CanvasRenderingContext2D, palette: HomeCanva
 const drawCreateButton = (
   ctx: CanvasRenderingContext2D,
   palette: HomeCanvasPalette,
-  time: number
+  time: number,
+  deltaSeconds: number
 ): HomeCanvasTarget => {
   const stage = getStageRegion()
   const radius = clamp(Math.min(sceneWidth, sceneHeight) * 0.09, 54, 96)
   const x = stage.centerX
   const y = sceneHeight * 0.83
-  const target = {
-    kind: 'create' as const,
-    rect: {
-      x: x - radius,
-      y: y - radius,
-      w: radius * 2,
-      h: radius * 2
-    }
-  }
   const isHover = hoverTarget?.kind === 'create'
-  const pulse = isHover ? 0 : (Math.sin(time * 0.004) + 1) / 2
-
-  ctx.save()
-  ctx.strokeStyle = palette.line
-  ctx.fillStyle = palette.ink
-  ctx.lineWidth = 1
-  ctx.translate(x, y)
-  for (let ring = 1; ring <= 5; ring += 1) {
-    ctx.globalAlpha = isHover ? 0.48 : 0.14 + ring * 0.06 + pulse * 0.12
-    ctx.beginPath()
-    ctx.arc(0, 0, (radius * ring) / 5, 0, Math.PI * 2)
-    ctx.stroke()
-  }
-
-  ctx.globalAlpha = isHover ? 0.2 : 0.1
-  ctx.beginPath()
-  ctx.moveTo(-radius * 0.95, 0)
-  ctx.lineTo(radius * 0.95, 0)
-  ctx.moveTo(0, -radius * 0.95)
-  ctx.lineTo(0, radius * 0.95)
-  ctx.stroke()
-
-  if (isHover) {
-    ctx.shadowColor = palette.panelShadow
-    ctx.shadowBlur = 30
-    ctx.shadowOffsetY = 10
-    ctx.beginPath()
-    ctx.arc(0, 0, radius * 0.28, 0, Math.PI * 2)
-    ctx.fillStyle = resolvedTheme.value === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.92)'
-    ctx.fill()
-  }
-
-  ctx.globalAlpha = 1
-  ctx.strokeStyle = palette.ink
-  ctx.beginPath()
-  ctx.moveTo(-9, 0)
-  ctx.lineTo(9, 0)
-  ctx.moveTo(0, -9)
-  ctx.lineTo(0, 9)
-  ctx.stroke()
-
-  if (isHover) {
-    setCanvasFont(ctx, 14, 700)
-    ctx.fillStyle = palette.ink
-    ctx.textAlign = 'center'
-    ctx.fillText('创建世界观', 0, radius + 30)
-  }
-  ctx.restore()
-  ctx.textAlign = 'left'
-  return target
+  createHoverProgress = clamp(
+    createHoverProgress +
+      (isHover ? 1 : -1) * deltaSeconds * HOME_CREATE_BUTTON.hover.progressSpeed,
+    0,
+    1
+  )
+  setCanvasFont(ctx, 14, 700)
+  return drawHomeCreateButton(
+    ctx,
+    palette,
+    resolvedTheme.value,
+    x,
+    y,
+    radius,
+    time,
+    createHoverProgress
+  )
 }
 
 const drawScene = (): void => {
@@ -994,27 +1145,54 @@ const drawScene = (): void => {
   if (!canvas || !ctx) return
 
   const now = performance.now()
-  const deltaSeconds = Math.min(0.05, (now - previousFrameTime) / 1000)
+  const deltaMs = Math.min(50, now - previousFrameTime)
+  const deltaSeconds = deltaMs / 1000
   previousFrameTime = now
   const time = now - sceneStartTime
   const palette = activePalette.value
+  updateWorldIndexModeAnimation(deltaMs)
+  const scatteredWorldAlpha = easeOutCubic(worldIndexScatterProgress.value)
   ctx.setTransform(sceneDpr, 0, 0, sceneDpr, 0, 0)
   ctx.clearRect(0, 0, sceneWidth, sceneHeight)
   sceneTargets = []
 
-  drawBackground(ctx, palette)
+  drawBackground(ctx, palette, worldIndexModeProgress.value)
   drawTechnicalDecor(ctx, palette, time)
 
   setCanvasFont(ctx, 12, 500)
   ctx.fillStyle = palette.muted
-  ctx.fillText('WORLD INDEX', getStageRegion().left + sceneWidth * 0.012, sceneHeight * 0.18)
+  ctx.fillText('WORLD INDEX', getStageRegion().left + sceneWidth * 0.025, sceneHeight * 0.05)
+
+  const topBarsIsHover = hoverTarget?.kind === 'topBars'
+  topBarsHoverProgress = clamp(
+    topBarsHoverProgress + (topBarsIsHover ? 1 : -1) * deltaSeconds * 5.5,
+    0,
+    1
+  )
+  const topBarsWaveProgress =
+    topBarsWaveStartTime === null
+      ? 0
+      : clamp((time - topBarsWaveStartTime) / HOME_TOP_BARS.waveDuration, 0, 1)
+  if (topBarsWaveStartTime !== null && topBarsWaveProgress >= 1) {
+    topBarsWaveStartTime = null
+  }
+  const topBarsTarget = drawHomeTopBars(
+    ctx,
+    palette,
+    sceneWidth,
+    time,
+    topBarsHoverProgress,
+    topBarsWaveProgress
+  )
+  sceneTargets.push(topBarsTarget)
 
   const worldTargets = getWorldLayout()
   sceneTargets.push(...worldTargets)
+  ctx.save()
   if (worldTargets.length) {
     const activeIds = new Set(worldTargets.map((target) => target.id).filter(Boolean) as string[])
-    for (const key of Array.from(worldMorphProgress.keys())) {
-      if (!activeIds.has(key)) worldMorphProgress.delete(key)
+    for (const key of Array.from(worldMorphStates.keys())) {
+      if (!activeIds.has(key)) worldMorphStates.delete(key)
     }
     worldTargets.forEach((target, index) => {
       const world = findWorldById(target.id)
@@ -1024,48 +1202,108 @@ const drawScene = (): void => {
         currentHover !== null &&
         currentHover.id === target.id &&
         currentHover.kind === 'world'
-      const previous = worldMorphProgress.get(world.id) ?? 0
-      const targetValue = hovered ? 1 : 0
-      const direction = targetValue > previous ? 1 : -1
-      const animationSeconds =
-        direction > 0 ? WORLD_ENTRY_ANIMATION_SECONDS : WORLD_EXIT_ANIMATION_SECONDS
-      const next =
-        targetValue === previous
-          ? previous
-          : clamp(previous + (direction * deltaSeconds) / animationSeconds, 0, 1)
-      worldMorphProgress.set(world.id, next)
-      drawFragmentedWorld(ctx, palette, target, world, next, time, index, direction < 0)
+      const previous = worldMorphStates.get(world.id)
+
+      if (hovered) {
+        const previousProgress =
+          previous?.phase === 'exit'
+            ? getWorldReentryProgressFromExit(previous.exitElapsedMs)
+            : previous?.progress ?? 0
+        const progress = clamp(
+          previousProgress + deltaSeconds / WORLD_ENTRY_ANIMATION_SECONDS,
+          0,
+          1
+        )
+        const state: WorldMorphState = { progress, phase: 'enter', exitElapsedMs: 0 }
+        worldMorphStates.set(world.id, state)
+        drawFragmentedWorld(
+          ctx,
+          palette,
+          target,
+          world,
+          state.progress,
+          time,
+          index,
+          false,
+          0,
+          scatteredWorldAlpha
+        )
+        return
+      }
+
+      if (!previous || previous.progress <= 0) {
+        worldMorphStates.delete(world.id)
+        drawFragmentedWorld(ctx, palette, target, world, 0, time, index, false, 0, scatteredWorldAlpha)
+        return
+      }
+
+      if (!hasWorldInstanceEnterStageStarted(previous.progress, 'cornerCut')) {
+        const progress = clamp(previous.progress - deltaSeconds / WORLD_ENTRY_ANIMATION_SECONDS, 0, 1)
+        if (progress <= 0) {
+          worldMorphStates.delete(world.id)
+        } else {
+          worldMorphStates.set(world.id, { progress, phase: 'enter', exitElapsedMs: 0 })
+        }
+        drawFragmentedWorld(ctx, palette, target, world, progress, time, index, false, 0, scatteredWorldAlpha)
+        return
+      }
+
+      const exitElapsedMs =
+        previous.phase === 'exit'
+          ? Math.min(WORLD_INSTANCE_EXIT_TOTAL_MS, previous.exitElapsedMs + deltaMs)
+          : deltaMs
+
+      if (exitElapsedMs >= WORLD_INSTANCE_EXIT_TOTAL_MS) {
+        worldMorphStates.delete(world.id)
+        drawFragmentedWorld(ctx, palette, target, world, 0, time, index, false, 0, scatteredWorldAlpha)
+        return
+      }
+
+      const state: WorldMorphState = {
+        progress: previous.progress,
+        phase: 'exit',
+        exitElapsedMs
+      }
+      worldMorphStates.set(world.id, state)
+      drawFragmentedWorld(
+        ctx,
+        palette,
+        target,
+        world,
+        state.progress,
+        time,
+        index,
+        true,
+        state.exitElapsedMs,
+        scatteredWorldAlpha
+      )
     })
   } else if (!loadingWorlds.value) {
-    drawEmptyWorldPreview(ctx, palette, time)
+    drawEmptyWorldPreview(ctx, palette, time, scatteredWorldAlpha)
   }
+  ctx.restore()
 
-  const createTarget = drawCreateButton(ctx, palette, time)
+  const createTarget = drawCreateButton(ctx, palette, time, deltaSeconds)
   sceneTargets.push(createTarget)
 
-  const assistantTarget: HomeCanvasTarget = {
-    kind: 'assistant',
-    rect: {
-      x: sceneWidth - 58,
-      y: 24,
-      w: 34,
-      h: 34
-    }
-  }
+  const assistantIsHover = hoverTarget?.kind === 'assistant'
+  assistantHoverProgress = clamp(
+    assistantHoverProgress +
+      (assistantIsHover ? 1 : -1) *
+        deltaSeconds *
+        HOME_ASSISTANT_BUTTON.hover.progressSpeed,
+    0,
+    1
+  )
+  const assistantTarget = drawHomeAssistantButton(
+    ctx,
+    palette,
+    sceneWidth - HOME_ASSISTANT_BUTTON.size - 16,
+    8,
+    time,
+    assistantHoverProgress
+  )
   sceneTargets.push(assistantTarget)
-  ctx.save()
-  ctx.strokeStyle = palette.line
-  ctx.fillStyle = hoverTarget?.kind === 'assistant' ? palette.panelHover : 'transparent'
-  ctx.beginPath()
-  ctx.arc(assistantTarget.rect.x + 17, assistantTarget.rect.y + 17, 12, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.stroke()
-  setCanvasFont(ctx, 9, 700)
-  ctx.fillStyle = palette.ink
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText('AI', assistantTarget.rect.x + 17, assistantTarget.rect.y + 17)
-  ctx.restore()
 
   if (loadingWorlds.value) {
     ctx.save()
@@ -1115,7 +1353,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   removeThemeListener()
   clampedTextCache.clear()
-  worldMorphProgress.clear()
+  worldMorphStates.clear()
 })
 </script>
 
@@ -1164,6 +1402,199 @@ onBeforeUnmount(() => {
   display: block;
 }
 
+.world-index-layer {
+  --world-index-card-progress: 0;
+  position: absolute;
+  z-index: 3;
+  top: 92px;
+  right: 36px;
+  bottom: 92px;
+  left: 11.5%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: 166px;
+  gap: 24px 28px;
+  align-content: start;
+  padding: 26px 34px;
+  overflow: auto;
+  opacity: var(--world-index-card-progress);
+  pointer-events: none;
+  transform: none;
+  transition: none;
+}
+
+.world-index-layer.is-open {
+  pointer-events: auto;
+}
+
+.world-index-card {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid rgba(18, 22, 28, 0.12);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 22% 42%, rgba(32, 36, 40, 0.06), transparent 18%),
+    linear-gradient(180deg, rgba(252, 252, 250, 0.92), rgba(238, 238, 235, 0.92));
+  box-shadow: 0 22px 62px rgba(32, 36, 40, 0.12);
+  clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 22px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
+  overflow: hidden;
+  transform: none;
+  opacity: var(--world-index-card-progress);
+  transition: none;
+  cursor: pointer;
+}
+
+.world-index-card:focus-visible {
+  outline: 2px solid rgba(20, 24, 30, 0.3);
+  outline-offset: 4px;
+}
+
+.world-index-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 52% 0 0;
+  border-right: 1px solid rgba(20, 24, 30, 0.08);
+  background:
+    linear-gradient(135deg, transparent 0 46%, rgba(18, 22, 28, 0.08) 47%, transparent 48%),
+    radial-gradient(circle at 54% 52%, rgba(20, 24, 30, 0.08), transparent 23%);
+  opacity: 0.82;
+  z-index: -1;
+}
+
+.card-dots {
+  display: none;
+}
+
+.world-index-card-body {
+  position: relative;
+  height: 100%;
+  padding: 24px 28px 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.world-index-card h3 {
+  margin: 0;
+  font-size: 23px;
+  line-height: 1.05;
+  color: #12161d;
+}
+
+.world-index-card p {
+  margin-top: 12px;
+  color: #767d87;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.world-index-card-actions {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.card-link,
+.card-icon,
+.card-close {
+  border: 0;
+  color: #11151b;
+  cursor: pointer;
+  font: inherit;
+}
+
+.card-link {
+  position: relative;
+  min-width: 104px;
+  padding: 0 0 9px;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.card-link::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: rgba(10, 13, 18, 0.58);
+}
+
+.card-link::before {
+  content: '→';
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-weight: 500;
+}
+
+.card-icon {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 8px 24px rgba(20, 24, 30, 0.12);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.card-icon.danger {
+  color: #c44545;
+}
+
+.card-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  color: rgba(20, 24, 30, 0.46);
+  font-size: 22px;
+  line-height: 1;
+  z-index: 2;
+}
+
+.theme-dark .world-index-card {
+  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(circle at 22% 42%, rgba(255, 255, 255, 0.07), transparent 18%),
+    linear-gradient(180deg, rgba(36, 37, 38, 0.94), rgba(25, 26, 27, 0.94));
+  box-shadow: 0 22px 62px rgba(0, 0, 0, 0.32);
+}
+
+.theme-dark .world-index-card h3,
+.theme-dark .card-link,
+.theme-dark .card-icon,
+.theme-dark .card-close {
+  color: #f1f2f2;
+}
+
+.theme-dark .world-index-card p {
+  color: #a4a8ad;
+}
+
+.theme-dark .card-icon {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.theme-dark .dialog-backdrop {
+  background: rgba(16, 17, 18, 0.62);
+}
+
+.theme-dark .dialog-card {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(30, 31, 32, 0.96);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.34);
+}
+
+.theme-dark .field {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -1172,16 +1603,16 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(17, 19, 22, 0.28);
-  backdrop-filter: blur(10px);
+  background: rgba(245, 246, 246, 0.62);
+  backdrop-filter: blur(8px);
 }
 
 .dialog-card {
   width: min(560px, 100%);
-  border: 1px solid var(--home-dialog-border);
+  border: 1px solid rgba(20, 24, 30, 0.1);
   border-radius: 8px;
-  background: var(--home-dialog-bg);
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 28px 90px rgba(40, 44, 50, 0.14);
   padding: 24px;
 }
 
@@ -1239,7 +1670,7 @@ p {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--home-dialog-border);
-  background: var(--home-field-bg);
+  background: rgba(255, 255, 255, 0.9);
   color: var(--home-dialog-text);
   border-radius: 6px;
   padding: 14px 16px;
@@ -1254,7 +1685,7 @@ p {
 
 .field-area {
   min-height: 100px;
-  resize: vertical;
+  resize: none;
 }
 
 .dialog-actions {

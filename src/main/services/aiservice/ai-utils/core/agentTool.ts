@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 export type AgentToolRiskLevel = 'low' | 'medium' | 'high'
 export type AgentToolCompletionSemantics = 'definitive' | 'eventual'
+export type AgentToolContextRetention = 'evidence' | 'ephemeral' | 'none'
 
 export type AgentToolReceipt = {
   kind: string
@@ -21,6 +22,7 @@ export interface AgentToolMetadata {
   readOnly?: boolean
   idempotent?: boolean
   completionSemantics?: AgentToolCompletionSemantics
+  contextRetention?: AgentToolContextRetention
 }
 
 export type AgentToolResultEnvelope<TData> = {
@@ -40,6 +42,7 @@ export type AgentToolResultEnvelope<TData> = {
     readOnly: boolean
     idempotent: boolean
     completionSemantics: AgentToolCompletionSemantics
+    contextRetention: AgentToolContextRetention
   }
 }
 
@@ -73,9 +76,15 @@ export type AgentTool<
   TOutputSchema extends z.ZodTypeAny = z.ZodTypeAny
 > = DynamicStructuredTool & {
   agentMetadata: Required<
-    Pick<AgentToolMetadata, 'riskLevel' | 'readOnly' | 'idempotent' | 'completionSemantics'>
+    Pick<
+      AgentToolMetadata,
+      'riskLevel' | 'readOnly' | 'idempotent' | 'completionSemantics' | 'contextRetention'
+    >
   > &
-    Omit<AgentToolMetadata, 'riskLevel' | 'readOnly' | 'idempotent' | 'completionSemantics'>
+    Omit<
+      AgentToolMetadata,
+      'riskLevel' | 'readOnly' | 'idempotent' | 'completionSemantics' | 'contextRetention'
+    >
   baseDescription: string
   inputSchema: TInputSchema
   outputSchema: TOutputSchema
@@ -100,7 +109,8 @@ const normalizeMetadata = (metadata: AgentToolMetadata): AgentTool['agentMetadat
   riskLevel: metadata.riskLevel ?? 'low',
   readOnly: metadata.readOnly ?? false,
   idempotent: metadata.idempotent ?? false,
-  completionSemantics: metadata.completionSemantics ?? 'definitive'
+  completionSemantics: metadata.completionSemantics ?? 'definitive',
+  contextRetention: metadata.contextRetention ?? 'ephemeral'
 })
 
 const toErrorMessage = (error: unknown): string => {
@@ -122,6 +132,7 @@ const buildToolDescription = (description: string, metadata: AgentTool['agentMet
 
   lines.push(`Input: ${metadata.inputSummary}`)
   lines.push(`Output: ${metadata.outputSummary}`)
+  lines.push(`Context retention: ${metadata.contextRetention}`)
 
   return lines.join('\n')
 }
@@ -173,7 +184,8 @@ const buildSuccessEnvelope = <TData>(
     riskLevel: metadata.riskLevel,
     readOnly: metadata.readOnly,
     idempotent: metadata.idempotent,
-    completionSemantics: metadata.completionSemantics
+    completionSemantics: metadata.completionSemantics,
+    contextRetention: metadata.contextRetention
   }
 })
 
@@ -199,7 +211,8 @@ const buildFailureEnvelope = (
     riskLevel: metadata.riskLevel,
     readOnly: metadata.readOnly,
     idempotent: metadata.idempotent,
-    completionSemantics: metadata.completionSemantics
+    completionSemantics: metadata.completionSemantics,
+    contextRetention: metadata.contextRetention
   }
 })
 
@@ -236,6 +249,12 @@ export function parseAgentToolResultEnvelope<TData = unknown>(
   const idempotent = typeof meta?.idempotent === 'boolean' ? meta.idempotent : false
   const completionSemantics =
     meta?.completionSemantics === 'eventual' ? 'eventual' : 'definitive'
+  const contextRetention =
+    meta?.contextRetention === 'evidence' ||
+    meta?.contextRetention === 'ephemeral' ||
+    meta?.contextRetention === 'none'
+      ? meta.contextRetention
+      : 'ephemeral'
 
   if (!toolName || !timestamp) {
     return null
@@ -266,7 +285,8 @@ export function parseAgentToolResultEnvelope<TData = unknown>(
       riskLevel,
       readOnly,
       idempotent,
-      completionSemantics
+      completionSemantics,
+      contextRetention
     }
   }
 }

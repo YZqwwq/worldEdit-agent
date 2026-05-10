@@ -42,14 +42,20 @@ type CharacterProfileSearchData = {
 }
 
 type CharacterDemographicSearchData = {
-  age?: number | null
-  ageLabel?: string
-  heightLabel?: string
-  gender?: string
-  raceEntityId?: string
-  factionEntityId?: string
-  nationEntityId?: string
-  birthplaceEntityId?: string
+  basicInfo?: {
+    order?: string[]
+    fields?: Record<
+      string,
+      {
+        label?: string
+        kind?: string
+        value?: string | number | null
+        entityType?: string
+        custom?: boolean
+        locked?: boolean
+      }
+    >
+  }
 }
 
 type SearchCharacterEntitiesInput = {
@@ -97,6 +103,16 @@ const includesAllSearchValues = (source: unknown, queries: string[]): boolean =>
 
   return queries.every((query) => values.some((value) => value.includes(query)))
 }
+
+const getBasicInfoValue = (demographic: CharacterDemographicSearchData, key: string): unknown =>
+  demographic.basicInfo?.fields?.[key]?.value
+
+const getBasicInfoSearchValues = (demographic: CharacterDemographicSearchData): unknown[] =>
+  Object.values(demographic.basicInfo?.fields ?? {}).flatMap((field) => [
+    field.label,
+    field.value,
+    field.entityType
+  ])
 
 const parseJsonObject = (input: string, fallback: Record<string, unknown> = {}): Record<string, unknown> => {
   try {
@@ -390,13 +406,7 @@ class WorldbuildingService {
           ...(profile.personalityTraits ?? []),
           ...(profile.abilities ?? []),
           ...(profile.tags ?? []),
-          demographic.ageLabel,
-          demographic.heightLabel,
-          demographic.gender,
-          demographic.raceEntityId,
-          demographic.factionEntityId,
-          demographic.nationEntityId,
-          demographic.birthplaceEntityId
+          ...getBasicInfoSearchValues(demographic)
         ].some((value) => includesSearchText(value, keyword))
 
       if (!keywordMatched) continue
@@ -414,24 +424,24 @@ class WorldbuildingService {
       if (!summaryMatched) continue
       if (summary) matchedFields.add('summary')
 
-      const genderMatched = includesSearchText(demographic.gender, gender)
+      const genderMatched = includesSearchText(getBasicInfoValue(demographic, 'gender'), gender)
       if (!genderMatched) continue
       if (gender) matchedFields.add('gender')
 
-      const raceMatched = includesSearchText(demographic.raceEntityId, raceEntityId)
+      const raceMatched = includesSearchText(getBasicInfoValue(demographic, 'race'), raceEntityId)
       if (!raceMatched) continue
       if (raceEntityId) matchedFields.add('raceEntityId')
 
-      const factionMatched = includesSearchText(demographic.factionEntityId, factionEntityId)
+      const factionMatched = includesSearchText(getBasicInfoValue(demographic, 'faction'), factionEntityId)
       if (!factionMatched) continue
       if (factionEntityId) matchedFields.add('factionEntityId')
 
-      const nationMatched = includesSearchText(demographic.nationEntityId, nationEntityId)
+      const nationMatched = includesSearchText(getBasicInfoValue(demographic, 'nation'), nationEntityId)
       if (!nationMatched) continue
       if (nationEntityId) matchedFields.add('nationEntityId')
 
       const birthplaceMatched = includesSearchText(
-        demographic.birthplaceEntityId,
+        getBasicInfoValue(demographic, 'birthplace'),
         birthplaceEntityId
       )
       if (!birthplaceMatched) continue

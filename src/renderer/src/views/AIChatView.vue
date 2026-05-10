@@ -718,6 +718,7 @@ import ChatHeader from '../features/chat/components/ChatHeader.vue'
 import ChatMessageList from '../features/chat/components/ChatMessageList.vue'
 import MessageComposer from '../features/chat/components/MessageComposer.vue'
 import type { ChatParticipantProfile, UploadedChatFile } from '../features/chat/types'
+import { getFrontendDetailTime } from '../../../main/utils/getDetailTime'
 import {
   isSupportedChatImageUpload,
   type MainAgentUserMessageInput
@@ -1387,14 +1388,7 @@ const PERSONA_METRICS: Array<{ key: PersonaMetricKey; label: string }> = [
 
 const formatIsoTime = (iso?: string): string => {
   if (!iso) return ''
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return iso
-  const month = (date.getMonth() + 1).toString().padStart(2, '0')
-  const day = date.getDate().toString().padStart(2, '0')
-  const hours = date.getHours().toString().padStart(2, '0')
-  const minutes = date.getMinutes().toString().padStart(2, '0')
-  const seconds = date.getSeconds().toString().padStart(2, '0')
-  return `${month}/${day} ${hours}:${minutes}:${seconds}`
+  return getFrontendDetailTime(iso)
 }
 
 const formatPercent = (value?: number): string => {

@@ -855,7 +855,7 @@ const buildPolicy = (
     },
     memory: {
       archiveThreshold: Math.round(clamp(8 - metrics.verbosity_index * 4, 4, 8)),
-      shortTermLimit: Math.round(clamp(6 + metrics.verbosity_index * 4, 6, 10))
+      shortTermLimit: 4
     },
     signals: signals.map((signal) => signal.user_signal)
   }

@@ -7,6 +7,7 @@ import { agent } from '../agentrsystem/agentReactSystem'
 import {
   attachMainAgentContentPartsMetadata,
   getMainAgentContentPartsFromPersistedMessage,
+  MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY,
   parseMainAgentContentForPersistence
 } from '../messagecontent/mainAgentMessageContentService'
 import { contentToText } from '../messageoutput/transformRespones'
@@ -32,9 +33,13 @@ class MainAgentChatRuntimeService {
     const controller = mainAgentRunControlService.startRun({ eventId, turnId })
     let fullText = ''
     const persistedMessage = await chatMessageService.getMessageById(userMessageId)
-    const originalContent = getMainAgentContentPartsFromPersistedMessage(persistedMessage)
-    const effectiveContent = originalContent.length > 0 ? originalContent : content
-    const message = parseMainAgentContentForPersistence(effectiveContent)
+  const originalContent = getMainAgentContentPartsFromPersistedMessage(persistedMessage)
+  const effectiveContent = originalContent.length > 0 ? originalContent : content
+  const message = parseMainAgentContentForPersistence(effectiveContent)
+  const userMessageCreatedAtIso =
+    persistedMessage?.createdAt instanceof Date
+      ? persistedMessage.createdAt.toISOString()
+      : new Date().toISOString()
 
     try {
       return await runWithTraceContext(runId, { turnId, emitChunk: onChunk }, async () => {
@@ -43,7 +48,12 @@ class MainAgentChatRuntimeService {
             messages: [
               new HumanMessage({
                 content: message,
-                additional_kwargs: attachMainAgentContentPartsMetadata(undefined, effectiveContent)
+                additional_kwargs: attachMainAgentContentPartsMetadata(
+                  {
+                    [MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY]: userMessageCreatedAtIso
+                  },
+                  effectiveContent
+                )
               })
             ],
             taskLifecycle

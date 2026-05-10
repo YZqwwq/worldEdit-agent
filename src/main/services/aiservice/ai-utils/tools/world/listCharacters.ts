@@ -54,14 +54,24 @@ const characterProfileSummarySchema = z.object({
 })
 
 const characterDemographicSummarySchema = z.object({
-  age: z.number().nullable().optional(),
-  ageLabel: z.string().optional(),
-  heightLabel: z.string().optional(),
-  gender: z.string().optional(),
-  raceEntityId: z.string().optional(),
-  factionEntityId: z.string().optional(),
-  nationEntityId: z.string().optional(),
-  birthplaceEntityId: z.string().optional()
+  basicInfo: z
+    .object({
+      order: z.array(z.string()).optional(),
+      fields: z
+        .record(
+          z.string(),
+          z.object({
+            label: z.string().optional(),
+            kind: z.string().optional(),
+            value: z.union([z.string(), z.number(), z.null()]).optional(),
+            entityType: z.string().optional(),
+            custom: z.boolean().optional(),
+            locked: z.boolean().optional()
+          })
+        )
+        .optional()
+    })
+    .optional()
 })
 
 const listCharactersOutputSchema = z.object({
@@ -92,7 +102,7 @@ export const listCharactersTool = defineAgentTool({
     ],
     whenNotToUse: ['已经明确知道 entityId，应直接调用 get_entity_detail', '要查询的不是人物实体'],
     inputSummary:
-      '提供至少一个查询条件，可使用 worldId、keyword、name、title、summary、gender、raceEntityId、factionEntityId、nationEntityId、birthplaceEntityId、personalityTraits、abilities、tags。',
+      '提供至少一个查询条件，可使用 worldId、keyword、name、title、summary、gender、raceEntityId、factionEntityId、nationEntityId、birthplaceEntityId、personalityTraits、abilities、tags。基础信息查询会匹配 character_demographic.basicInfo 中的默认字段。',
     outputSummary:
       '返回人物候选列表。每项包含 worldId、worldName、matchedFields、entity 基础信息，以及 profile / demographic 的摘要字段。',
     examples: [

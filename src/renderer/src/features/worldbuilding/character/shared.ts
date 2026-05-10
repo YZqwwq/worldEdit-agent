@@ -1,4 +1,5 @@
 import type {
+  WorldEntityType,
   WorldEntityComponentPayload,
   WorldEntityDetailPayload
 } from '@share/cache/worldbuilding/worldbuilding'
@@ -28,15 +29,26 @@ export type CharacterProfileData = {
   tags?: string[]
 }
 
+export type CharacterBasicInfoFieldKind = 'entity_name' | 'text' | 'number' | 'option' | 'entity_ref'
+
+export type CharacterBasicInfoFieldValue = string | number | null
+
+export type CharacterBasicInfoField = {
+  label: string
+  kind: CharacterBasicInfoFieldKind
+  value: CharacterBasicInfoFieldValue
+  entityType?: WorldEntityType
+  custom?: boolean
+  locked?: boolean
+}
+
+export type CharacterBasicInfoData = {
+  order: string[]
+  fields: Record<string, CharacterBasicInfoField>
+}
+
 export type CharacterDemographicData = {
-  age?: number | null
-  ageLabel?: string
-  heightLabel?: string
-  gender?: string
-  raceEntityId?: string
-  factionEntityId?: string
-  nationEntityId?: string
-  birthplaceEntityId?: string
+  basicInfo?: CharacterBasicInfoData
 }
 
 export const DEFAULT_PORTRAIT_TRANSFORM: PortraitTransform = {
@@ -50,6 +62,81 @@ export const CHARACTER_LAYOUT_VARIANTS = [
   { value: 'v2' as const, label: '版式二' },
   { value: 'v3' as const, label: '版式三' }
 ]
+
+export const CHARACTER_BASIC_INFO_DEFAULT_ORDER = [
+  'name',
+  'gender',
+  'age',
+  'race',
+  'faction',
+  'nation',
+  'birthplace',
+  'height'
+] as const
+
+export const CHARACTER_BASIC_INFO_DEFAULT_FIELDS: Record<
+  (typeof CHARACTER_BASIC_INFO_DEFAULT_ORDER)[number],
+  Omit<CharacterBasicInfoField, 'value'>
+> = {
+  name: { label: '人物', kind: 'entity_name', locked: true },
+  gender: { label: '性别', kind: 'option' },
+  age: { label: '年龄', kind: 'text' },
+  race: { label: '种族', kind: 'entity_ref', entityType: 'race' },
+  faction: { label: '所属势力', kind: 'entity_ref', entityType: 'faction' },
+  nation: { label: '所属国家', kind: 'entity_ref', entityType: 'nation' },
+  birthplace: { label: '出生地', kind: 'entity_ref', entityType: 'city' },
+  height: { label: '身高', kind: 'text' }
+}
+
+export const createDefaultCharacterBasicInfo = (): CharacterBasicInfoData => ({
+  order: [...CHARACTER_BASIC_INFO_DEFAULT_ORDER],
+  fields: Object.fromEntries(
+    CHARACTER_BASIC_INFO_DEFAULT_ORDER.map((key) => [
+      key,
+      {
+        ...CHARACTER_BASIC_INFO_DEFAULT_FIELDS[key],
+        value: ''
+      }
+    ])
+  ) as Record<string, CharacterBasicInfoField>
+})
+
+export const getCharacterBasicInfoField = (
+  demographic: CharacterDemographicData | undefined,
+  key: string
+): CharacterBasicInfoField | null => demographic?.basicInfo?.fields?.[key] ?? null
+
+export const getCharacterBasicInfoValue = (
+  demographic: CharacterDemographicData | undefined,
+  key: string
+): string => {
+  const value = getCharacterBasicInfoField(demographic, key)?.value
+  return value == null ? '' : String(value)
+}
+
+export const updateCharacterBasicInfoValues = (
+  current: CharacterBasicInfoData | undefined,
+  values: Partial<Record<(typeof CHARACTER_BASIC_INFO_DEFAULT_ORDER)[number], CharacterBasicInfoFieldValue>>
+): CharacterBasicInfoData => {
+  const base = current ?? createDefaultCharacterBasicInfo()
+  const next: CharacterBasicInfoData = {
+    order: [...new Set([...CHARACTER_BASIC_INFO_DEFAULT_ORDER, ...(base.order ?? [])])],
+    fields: { ...(base.fields ?? {}) }
+  }
+
+  for (const key of CHARACTER_BASIC_INFO_DEFAULT_ORDER) {
+    const defaultField = CHARACTER_BASIC_INFO_DEFAULT_FIELDS[key]
+    next.fields[key] = {
+      ...defaultField,
+      ...next.fields[key],
+      label: next.fields[key]?.label || defaultField.label,
+      kind: next.fields[key]?.kind || defaultField.kind,
+      value: values[key] ?? next.fields[key]?.value ?? ''
+    }
+  }
+
+  return next
+}
 
 export const getCharacterComponentByType = <TData extends Record<string, unknown>>(
   detail: WorldEntityDetailPayload | null,

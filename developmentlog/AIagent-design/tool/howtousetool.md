@@ -1,191 +1,251 @@
-# 工具系统说明
+# 工具系统使用说明
 
 ## 文档定位
 
-这份文档只描述当前工具系统的使用方式与开发规范。
+这份文档描述当前工具系统的使用方式与开发规范。
 
-它不再解释历史问题，也不复盘旧结构；它只回答：
+它只回答当前实现真相：
 
-1. 当前工具系统分成哪些层
-2. 新工具应该怎么定义
-3. 工具如何进入统一注册器
-4. 主 agent 和子 agent 应该如何消费工具
+1. 工具应该在哪里定义
+2. 主 agent 和子 agent 如何加载工具
+3. 工具如何对 AI 暴露能力层级
+4. 拓展工具如何按需发现与激活
+5. 工具结果如何进入 agent 循环上下文
 
-如果要看统一注册器本身的架构，请配合阅读：
+统一注册结构的细节见：
 
-- [unified-tool-registry-design.md](/Users/admin/Documents/trae_projects/worldEdit-agent/developmentlog/AIagent-design/tool/unified-tool-registry-design.md)
+- [unified-tool-registry-design.md](./unified-tool-registry-design.md)
 
 ## 当前工具系统分层
 
-当前工具系统分成四层：
+当前工具系统分成五层：
 
 1. 原子工具定义层
-2. 统一注册层
-3. agent 视角 facade
+2. agent 工具注册层
+3. 可见性与按需激活层
 4. tool runner
+5. 工具上下文重装层
 
 一句话：
 
-`工具本身定义能力`
-`注册器定义谁能加载`
-`facade 提供 agent 视角入口`
-`runner 负责实际执行`
+`tools 定义能力`
+`registry 定义能力层级和可见性`
+`get_extend_tools 负责发现并激活默认隐藏的拓展工具`
+`toolNode 负责真实执行工具`
+`toolContextReloadNode 负责压缩工具结果并清理重复上下文`
 
 ## 1. 原子工具定义层
 
-放在：
+原子工具放在：
 
 - `src/main/services/aiservice/ai-utils/tools/*`
 
 这一层只负责定义单个工具本身。
 
-例如：
+示例目录：
 
+- `tools/utility/*`
+- `tools/conversation/*`
+- `tools/network/*`
 - `tools/world/*`
 - `tools/task/*`
 - `tools/character/*`
-- `tools/utility/*`
 
-这里不处理：
+正式工具必须使用：
 
-- 主 agent 是否可见
-- 哪个子 agent 可见
-- 当前属于哪个 toolkit
+- `src/main/services/aiservice/ai-utils/core/agentTool.ts`
 
-这些都属于注册层职责。
+也就是通过 `defineAgentTool(...)` 定义。
 
-## 2. 统一注册层
+工具定义必须包含：
 
-当前唯一注册真源是：
+- `name`
+- `description`
+- `inputSchema`
+- `outputSchema`
+- `metadata`
+- `execute`
 
-- [unifiedToolRegistry.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/ai-utils/toolkits/unifiedToolRegistry.ts)
+不要把裸 LangChain `tool(...)` 作为正式能力入口散落在业务代码里。
 
-工具进入系统后，必须在这里声明：
+## 2. 工具注册层
 
+当前没有继续使用旧的 `unifiedToolRegistry.ts / scopes / facade` 结构。
+
+当前主 agent 的注册真源是：
+
+- `src/main/services/aiservice/ai-utils/toolkits/mainAgentToolRegistry.ts`
+
+当前子 agent 的注册真源是：
+
+- `src/main/services/aiservice/ai-utils/toolkits/childAgentToolRegistry.ts`
+
+注册项类型在：
+
+- `src/main/services/aiservice/ai-utils/toolkits/toolRegistryTypes.ts`
+
+每个工具注册项需要声明：
+
+- `key`
+- `tool`
 - `category`
+- `capabilityLayer`
+- `capabilityGroup`
+- `capabilitySummary`
 - `audience`
 - `access`
 - `enabled`
-- `scopes`
+- `defaultVisible`
+- `discoverable`
 
-如果一个工具没有进入统一注册器，就不应该被任何 agent 当成正式可用工具。
+其中 `capabilityLayer` 是 AI 感知工具系统结构的关键字段。
 
-## 3. agent 视角 facade
+当前能力层级：
 
-当前保留两层 facade：
+- `core`
+  基础工具，默认可见，例如当前时间、中文历史消息回忆、拓展工具发现。
+- `domain`
+  领域工具，访问本地世界观、角色、任务等业务数据。
+- `extension`
+  拓展工具，默认不可见，需要先通过 `get_extend_tools` 发现并激活。
+- `sub_agent`
+  子 agent 协作工具，例如委派人物编辑或继续等待补参的子任务。
 
-- [mainAgentToolkit.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/ai-utils/toolkits/mainAgentToolkit.ts)
-- [characterEditorToolkit.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/ai-utils/toolkits/characterEditorToolkit.ts)
+## 3. 主 agent 工具加载链
 
-它们的职责是：
+主 agent 当前通过 `mainAgentToolRegistry.ts` 暴露这些入口：
 
-- 提供 agent 视角的命名入口
-- 对统一 resolver 做薄封装
+- `getMainAgentToolEntries()`
+- `getVisibleMainAgentToolEntries(state)`
+- `getVisibleMainAgentToolEntryMap(state)`
+- `getMainAgentTools(state)`
 
-它们不应该：
+它们被以下位置消费：
 
-- 再维护一份独立工具列表
-- 再声明工具可见性
-- 成为第二套注册真源
+- `modelwithtool.ts`
+  根据当前 state 绑定可见工具 schema。
+- `contextnode.ts`
+  根据当前可见工具生成工具使用 prompt。
+- `toolnode.ts`
+  根据当前可见工具执行模型发起的 tool call。
 
-## 4. tool runner
+重点：
 
-tool runner 的职责是：
+- 模型每轮不是固定看到全部工具。
+- 默认隐藏的拓展工具不会直接出现在 bindTools 中。
+- 只有 state 的 `enabledExtensionTools` 包含某个拓展工具名时，该工具才会进入下一轮模型可见集合。
 
-`真正执行模型选中的工具`
+## 4. 子 agent 工具加载链
 
-当前主 agent 的 runner 是：
+子 agent 当前通过 `childAgentToolRegistry.ts` 暴露：
 
-- `bindToolsToModel(...)`
-- `toolNode`
+- `getChildAgentToolEntries(executorKind)`
+- `getChildAgentTools(executorKind)`
 
-当前 `character_editor` 的 runner 是：
+当前已接入的主要子 agent 是：
 
-- 自己的 tool loop
+- `character_editor`
 
-所以当前结构是：
+对应工具包括：
 
-- 注册层统一
-- 执行层分开
+- `get_character_detail`
+- `upsert_character_description`
 
-## 工具定义规范
+子 agent 工具同样使用 `AgentToolRegistryEntry`，所以 prompt 可以看到统一的：
 
-### 1. 必须使用 `defineAgentTool`
+- `category`
+- `capabilityLayer`
+- `capabilityGroup`
+- `capabilitySummary`
+- `audience`
+- `access`
 
-所有正式工具都应基于：
+## 5. 拓展工具发现与激活
 
-- [agentTool.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/ai-utils/core/agentTool.ts)
+拓展工具默认不直接展示给 AI。
 
-不要直接散落定义裸 `tool(async () => ...)` 作为正式能力入口。
+当 AI 需要外部能力、高成本能力或默认不可见能力时，先调用：
 
-### 2. 工具命名规范
+- `get_extend_tools`
 
-建议采用：
+该工具位于：
 
-- `list_xxx`
-- `get_xxx`
-- `create_xxx`
-- `update_xxx`
-- `delete_xxx`
-- `delegate_xxx`
+- `src/main/services/aiservice/ai-utils/tools/utility/getExtendTools.ts`
 
-要求：
+它做三件事：
 
-- 动词清晰
-- 目标对象明确
-- 不使用模糊名称
+1. 从 `extensionToolCatalog.ts` 获取可发现拓展工具目录
+2. 根据 `purpose` 或 `toolNames` 返回匹配工具
+3. 返回 `activatedToolNames`
 
-### 3. 输入必须有明确 schema
+`toolNode` 解析 `get_extend_tools` 的返回后，会把 `activatedToolNames` 写入 state：
 
-即便无参数工具，也应显式使用：
+- `enabledExtensionTools`
 
-```ts
-z.object({})
-```
+下一轮模型调用时：
 
-不要允许“随便传什么都行”的工具存在。
+- `modelwithtool.ts` 会重新根据 state 绑定工具
+- 被激活的拓展工具才会进入真实 tool schema
 
-### 4. 输出必须有明确 schema
+这使拓展工具具备清晰的两步语义：
 
-所有工具输出都必须经过输出 schema 校验。
+1. 发现并激活
+2. 下一轮真实调用
 
-这样做的作用是：
+## 6. 历史常用拓展工具
 
-- 避免静默破坏
-- 保证模型看到的结果稳定
-- 保证后续 receipt / envelope 语义可靠
+为了避免 AI 每次都完整查看拓展工具目录，当前加入了拓展工具使用频次统计。
 
-### 5. metadata 必须完整
+统计表实体：
 
-每个工具都应明确：
+- `src/share/entity/database/ToolUsageStatsRecord.ts`
 
-- `whenToUse`
-- `whenNotToUse`
-- `inputSummary`
-- `outputSummary`
-- `riskLevel`
-- `readOnly`
-- `idempotent`
+服务：
 
-如有必要，再补：
+- `src/main/services/aiservice/ai-utils/toolkits/toolUsageStatsService.ts`
 
-- `usageContract`
-- `examples`
-- `completionSemantics`
+数据库表：
 
-## 工具结果规范
+- `tool_usage_stats`
 
-当前工具执行结果统一为 envelope 结构。
+记录字段：
 
-成功时至少包含：
+- `toolName`
+- `capabilityLayer`
+- `usageCount`
+- `lastUsedAtIso`
 
-- `ok`
+统计规则：
+
+- 只有真实执行 `capabilityLayer === 'extension'` 的工具时才计数。
+- 调用 `get_extend_tools` 本身不算拓展工具使用。
+- 统计失败不会阻断工具执行。
+
+`get_extend_tools` 输出中包含：
+
+- `frequentTools`
+
+它返回历史调用次数最多的拓展工具前 3 个，并附带：
+
+- 工具名
+- 摘要
+- 调用次数
+- 最后使用时间
+
+## 7. 工具结果 envelope
+
+所有正式工具都应返回统一 envelope。
+
+成功时包含：
+
+- `ok=true`
 - `data`
 - `message`
 - `nextSuggestions`
+- `receipt`
 - `meta`
 
-失败时至少包含：
+失败时包含：
 
 - `ok=false`
 - `error`
@@ -193,96 +253,119 @@ z.object({})
 - `nextSuggestions`
 - `meta`
 
-如果工具属于明确写入类工具，且写入已经真正提交，应提供：
+`defineAgentTool(...)` 会负责：
 
-- `receipt`
+- 输入 schema 校验
+- 输出 schema 校验
+- 成功 envelope 包装
+- 失败 envelope 包装
+- metadata 归一化
 
-这样子 agent 才能根据 receipt 判断：
+如果工具发生真实写入，且写入已经提交，应提供 `receipt`，方便 agent 判断本轮动作已经完成。
 
-- 本轮写入是否已经 definitively committed
+## 8. 工具结果上下文保留
 
-## 工具进入系统的标准路径
+工具 metadata 中的关键字段：
 
-新增一个正式工具时，推荐按下面顺序接入：
+- `contextRetention`
+
+当前取值：
+
+- `evidence`
+  工具结果属于信息补充证据，例如中文历史消息回忆、网页搜索。结果会进入证据区，在本次 agent 循环内持续保留。
+- `ephemeral`
+  工具结果只需要让下一轮模型感知，例如写入、编辑、激活工具目录、错误结果。
+- `none`
+  工具结果不进入后续模型上下文。
+
+主 agent 的工具结果不会一直原样堆进 LangGraph message 队列。
+
+当前链路是：
+
+1. `toolNode` 执行工具
+2. `toolNode` 生成协议所需的紧凑 `ToolMessage`
+3. `toolNode` 同时把完整结果摘要写入 `pendingToolContext`
+4. `toolContextReloadNode` 汇总 `pendingToolContext`
+5. `toolContextReloadNode` 将结果拆入：
+   - `toolEvidenceContext`
+   - `ephemeralToolContext`
+6. `toolContextReloadNode` 用 `RemoveMessage` 立即清理本轮 tool-call/ToolMessage transcript
+7. `modelnode.ts` 在下一轮模型调用前把工具上下文作为 system context 注入
+
+这样可以避免工具调用循环中反复重复大段工具返回。
+
+## 9. 工具日志
+
+当前主 agent 工具执行日志在 `toolNode` 中统一记录。
+
+调用前记录：
+
+- 工具名
+- toolCallId
+- 输入参数
+
+返回后记录：
+
+- 工具名
+- toolCallId
+- 输入参数
+- envelope 状态
+- message
+- error
+- receipt
+- nextSuggestions
+- meta
+- data
+
+因此，只要工具经过主 agent 的 `toolNode` 执行，工具节点 log 就能看到输入和返回。
+
+## 新增工具标准路径
+
+新增一个正式主 agent 工具时：
 
 1. 在 `tools/*` 下定义原子工具
 2. 使用 `defineAgentTool(...)` 包装
-3. 补齐 metadata、输入输出 schema、必要的 receipt
-4. 在 `unifiedToolRegistry.ts` 中声明可见性
-5. 根据 scope 由主 agent 或子 agent facade 自动获得该工具
-6. 如有必要，更新 prompt / 设计文档
+3. 补齐输入输出 schema
+4. 补齐 metadata，尤其是 `contextRetention`
+5. 在 `mainAgentToolRegistry.ts` 注册
+6. 判断它属于 `core / domain / extension / sub_agent`
+7. 如果是拓展工具，设置：
+   - `capabilityLayer: 'extension'`
+   - `defaultVisible: false`
+   - `discoverable: true`
+8. 跑 `npm run typecheck:node`
+9. 如有行为变化，同步更新本文档
 
-## 主 agent 与子 agent 的使用方式
+新增子 agent 工具时：
 
-当前主 agent 应通过：
-
-- `getToolsForMainAgent()`
-- `getToolEntriesForMainAgent()`
-
-来获取工具与工具说明。
-
-当前子 agent 应通过：
-
-- `getToolsForExecutor(executorKind)`
-- `getToolEntriesForExecutor(executorKind)`
-
-来获取工具与工具说明。
-
-不应该绕开 resolver 直接在业务代码里手写工具列表。
-
-## 对称性约束
-
-当前工具层有一个明确约束：
-
-`主 agent 与子 agent 在 toolkit facade 这一层必须保持对称`
-
-也就是说：
-
-- 主 agent 有 facade，子 agent 也有 facade
-- 如果未来决定删除 facade，则主子 agent 一起删
-- 不允许一边保留 kit，一边完全直连 resolver
-
-这样做的目的不是增加层次，而是：
-
-- 保持主子 agent 的开发逻辑一致
-- 保持文件排布一致
-- 降低开发时的切换成本
-
-## toolUsagePrompt 的使用方式
-
-当前：
-
-- [toolUsagePrompt.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/ai-utils/core/toolUsagePrompt.ts)
-
-已经直接消费：
-
-- `UnifiedToolRegistryEntry[]`
-
-因此工具提示生成时，优先传：
-
-- `getToolEntriesForMainAgent()`
-- `characterEditorToolRegistry`
-
-而不是临时把工具 map 拼成另一套解释真源。
+1. 在 `tools/*` 下定义原子工具
+2. 使用 `defineAgentTool(...)` 包装
+3. 在 `childAgentToolRegistry.ts` 对应 executor 下注册
+4. 确认子 agent 执行链会消费该 registry
+5. 跑类型检查
 
 ## 当前维护原则
 
 后续维护工具层时，遵守以下原则：
 
 1. 原子工具只放在 `tools/*`
-2. 工具可见性只在 `unifiedToolRegistry.ts` 中声明
-3. facade 只能做薄封装
-4. 主子 agent facade 层保持对称
-5. prompt 优先消费 registry entry
-6. runner 可以不同，但工具来源必须统一
+2. 主 agent 工具只从 `mainAgentToolRegistry.ts` 获取
+3. 子 agent 工具只从 `childAgentToolRegistry.ts` 获取
+4. prompt 优先消费 registry entry，而不是裸 tool map
+5. 拓展工具默认隐藏，必须通过 `get_extend_tools` 激活
+6. 工具返回进入上下文前必须被压缩和分类
+7. 大结果不要长期堆在 LangGraph message 队列里
+8. 写入类工具需要明确 receipt
 
 ## 当前结论
 
-当前工具系统已经是：
+当前工具系统已经形成：
 
-- 一套统一定义协议
-- 一份统一注册真源
-- 两个对称 facade
-- 两条独立 runner 链
+- 一套统一工具定义协议
+- 主 agent / 子 agent 分开的注册真源
+- 清晰的能力层级
+- 默认隐藏的拓展工具发现与激活机制
+- 历史常用拓展工具 top3 统计
+- 工具结果上下文重装机制
 
-这就是当前项目的工具系统工作方式。
+这就是当前项目的工具系统使用方式。

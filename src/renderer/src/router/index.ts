@@ -14,7 +14,12 @@ const routes = [
   {
     path: '/world/:worldId/entity/:entityId',
     name: 'WorldEntityEditor',
-    component: () => import('../views/WorldEntityView.vue')
+    component: () => import('../views/CharacterWorkspaceView.vue')
+  },
+  {
+    path: '/world/:worldId/entity/:entityId/profile',
+    name: 'CharacterProfileEditor',
+    component: () => import('../views/CharacterProfileEditorView.vue')
   },
   {
     path: '/world/:worldId/entity/:entityId/portrait',

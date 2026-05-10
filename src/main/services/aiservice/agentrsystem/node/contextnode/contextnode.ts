@@ -4,7 +4,8 @@ import { memoryManager } from '../../manager/memory/MemoryManager'
 import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { buildMemoryPromptPlan } from '../../manager/memory/memoryPromptPolicy'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
-import { getMainAgentToolEntries } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
+import { getVisibleMainAgentToolEntries } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
+import { MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY } from '../../../messagecontent/mainAgentMessageContentService'
 import {
   buildPersonaAssemblyPrompt,
   loadCharacterPrompt,
@@ -14,15 +15,21 @@ import {
   traceArtifact,
   traceDecision
 } from '../../../../log/trace/agentTraceEmitter'
+import { getCurrentDetailTime, getDetailTime } from '../../../../../utils/getDetailTime'
 
 const formatCurrentContextTime = (): string => {
-  const now = new Date()
-  const weekday = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][now.getDay()]
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  const timezone =
-    Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
+  return getCurrentDetailTime()
+}
 
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())} ${weekday}（时区：${timezone}）`
+const getCurrentUserMessageCreatedAt = (
+  state: typeof MessagesState.State
+): string | null => {
+  const userMessage = state.messages
+    .slice()
+    .reverse()
+    .find((message) => message instanceof HumanMessage && !message.additional_kwargs?.isHistory)
+  const createdAt = userMessage?.additional_kwargs?.[MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY]
+  return typeof createdAt === 'string' && createdAt.trim() ? createdAt.trim() : null
 }
 
 /**
@@ -40,6 +47,7 @@ export async function contextNode(
   const expressionProfile =
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
   const currentTimeContext = formatCurrentContextTime()
+  const currentUserMessageCreatedAt = getCurrentUserMessageCreatedAt(state)
 
   // 人格组装提示
   const personaAssemblyPrompt = buildPersonaAssemblyPrompt({
@@ -56,6 +64,14 @@ export async function contextNode(
       `当前时间锚点：${currentTimeContext}\n默认以此作为“现在/今天/最近”之类相对时间表达的解释基准；除非用户明确提供其他时间背景，否则不要自行假设年份或日期。`
     )
   )
+
+  if (currentUserMessageCreatedAt) {
+    messages.push(
+      new SystemMessage(
+        `当前用户消息时间：${getDetailTime(currentUserMessageCreatedAt)}。这是你“看到”本轮用户发来这条消息时的聊天时间戳；理解“刚刚/这条消息/用户现在说”时优先参考它。`
+      )
+    )
+  }
 
   // 当前活跃任务
   if (state.taskLifecycle?.activeTask) {
@@ -92,7 +108,7 @@ export async function contextNode(
     )
   }
 
-  const toolUsagePrompt = buildToolUsageSystemPrompt(getMainAgentToolEntries())
+  const toolUsagePrompt = buildToolUsageSystemPrompt(getVisibleMainAgentToolEntries(state))
   if (toolUsagePrompt) {
     messages.push(new SystemMessage(toolUsagePrompt))
   }

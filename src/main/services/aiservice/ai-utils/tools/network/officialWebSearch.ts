@@ -189,7 +189,8 @@ export const officialWebSearchTool = defineAgentTool({
     riskLevel: 'low',
     readOnly: true,
     idempotent: false,
-    completionSemantics: 'definitive'
+    completionSemantics: 'definitive',
+    contextRetention: 'evidence'
   },
   async execute(input) {
     const { apiKey, baseURL, model } = await resolveSearchModelConfig()
