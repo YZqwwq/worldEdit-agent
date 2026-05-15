@@ -171,7 +171,7 @@ const defaultCharacterBasicInfo: {
   order: ['name', 'gender', 'age', 'race', 'faction', 'nation', 'birthplace', 'height'],
   fields: {
     name: { label: '人物', kind: 'entity_name', value: '', custom: false, locked: true },
-    gender: { label: '性别', kind: 'option', value: '', custom: false, locked: false },
+    gender: { label: '性别', kind: 'text', value: '', custom: false, locked: false },
     age: { label: '年龄', kind: 'text', value: '', custom: false, locked: false },
     race: { label: '种族', kind: 'entity_ref', entityType: 'race', value: '', custom: false, locked: false },
     faction: { label: '所属势力', kind: 'entity_ref', entityType: 'faction', value: '', custom: false, locked: false },

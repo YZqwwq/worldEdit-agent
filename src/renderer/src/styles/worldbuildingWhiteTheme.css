@@ -15,4 +15,18 @@
   --wb-radius-panel: 24px;
   --wb-radius-card: 10px;
   --wb-radius-pill: 999px;
+
+  --wb-narrative-bg: #ffffff;
+  --wb-narrative-sidebar-bg: #ffffff;
+  --wb-narrative-surface-bg: #ffffff;
+  --wb-narrative-toolbar-bg: #ffffff;
+  --wb-narrative-hover: #f3f4f6;
+  --wb-narrative-active: #eeeeee;
+  --wb-narrative-border: rgba(17, 24, 39, 0.08);
+  --wb-narrative-border-strong: rgba(17, 24, 39, 0.14);
+  --wb-narrative-text: #202124;
+  --wb-narrative-text-muted: #70757a;
+  --wb-narrative-text-faint: #9aa0a6;
+  --wb-narrative-accent: #0fbc73;
+  --wb-narrative-editor-width: 760px;
 }

@@ -79,7 +79,7 @@ export const CHARACTER_BASIC_INFO_DEFAULT_FIELDS: Record<
   Omit<CharacterBasicInfoField, 'value'>
 > = {
   name: { label: '人物', kind: 'entity_name', locked: true },
-  gender: { label: '性别', kind: 'option' },
+  gender: { label: '性别', kind: 'text' },
   age: { label: '年龄', kind: 'text' },
   race: { label: '种族', kind: 'entity_ref', entityType: 'race' },
   faction: { label: '所属势力', kind: 'entity_ref', entityType: 'faction' },

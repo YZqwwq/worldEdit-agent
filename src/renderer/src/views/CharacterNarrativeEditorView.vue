@@ -1,63 +1,89 @@
 <template>
-  <div class="entity-shell">
-    <header class="entity-topbar">
-      <div class="topbar-links">
+  <div class="worldbuilding-white-theme narrative-editor-page">
+    <aside class="narrative-sidebar">
+      <header class="sidebar-home">
+        <router-link
+          to="/"
+          class="sidebar-home-link"
+        >
+          <span class="sidebar-icon" aria-hidden="true">⌂</span>
+          <span>首页</span>
+        </router-link>
+        <button type="button" class="sidebar-menu-btn" aria-label="更多">...</button>
+      </header>
+
+      <section class="catalog-panel">
+        <header class="catalog-head">
+          <div class="catalog-title">
+            <span class="sidebar-icon" aria-hidden="true">☷</span>
+            <span>目录</span>
+          </div>
+          <div class="catalog-actions">
+            <button type="button" aria-label="定位">✣</button>
+            <button type="button" aria-label="目录设置">☰</button>
+          </div>
+        </header>
+
         <router-link
           v-if="worldId"
+          class="catalog-tree-item active"
           :to="{ name: 'WorldEditor', params: { worldId } }"
-          class="back-link"
         >
-          返回世界实例
+          <span aria-hidden="true">⌄</span>
+          <span class="catalog-tree-title">{{ documentTitle }}</span>
         </router-link>
-        <router-link
-          :to="{ name: 'WorldEntityEditor', params: { worldId, entityId } }"
-          class="sub-link"
+
+        <div class="catalog-child">名称思路构建</div>
+      </section>
+    </aside>
+
+    <section class="narrative-main">
+      <div class="format-toolbar" role="toolbar" aria-label="文本编辑工具栏">
+        <div class="toolbar-group toolbar-group-primary">
+          <button type="button" class="toolbar-add-btn" aria-label="新增">+</button>
+        </div>
+
+        <div
+          v-for="(group, groupIndex) in toolbarGroups"
+          :key="groupIndex"
+          class="toolbar-group"
         >
-          返回功能选择
-        </router-link>
+          <button
+            v-for="item in group"
+            :key="item.label"
+            type="button"
+            class="toolbar-tool"
+            :aria-label="item.title"
+            :title="item.title"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+
+        <div class="toolbar-group toolbar-status-group">
+          <span class="editor-counts">{{ characterEditorStats.characters }} 字</span>
+          <span
+            class="autosave-hint"
+            :class="{ saving: savingNarrative, error: narrativeSaveState === 'error' }"
+          >
+            {{ narrativeSaveHint }}
+          </span>
+        </div>
       </div>
 
-      <router-link to="/chat" class="assistant-link">AI 助手</router-link>
-    </header>
-
-    <main v-if="entityDetail" class="editor-page">
-      <section class="panel-dark">
-        <div class="editor-head">
-          <div>
-            <div class="eyebrow accent">Narrative Editor</div>
-            <h1>{{ entityDetail.entity.name }}</h1>
-          </div>
-          <div class="editor-head-actions">
-            <span class="editor-counts">
-              {{ characterEditorStats.words }} 字词 {{ characterEditorStats.characters }} 字符
-            </span>
-            <span class="autosave-hint" :class="{ saving: savingNarrative, error: narrativeSaveState === 'error' }">
-              {{ narrativeSaveHint }}
-            </span>
-            <WorldEditorShortcutHelp />
-            <button
-              type="button"
-              class="editor-config-btn"
-              :aria-label="showAppearancePanel ? '收起编辑器样式' : '打开编辑器样式'"
-              :title="showAppearancePanel ? '收起编辑器样式' : '打开编辑器样式'"
-              @click="showAppearancePanel = !showAppearancePanel"
-            >
-              <span class="editor-config-icon" aria-hidden="true">{{ showAppearancePanel ? '×' : '✎' }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="editor-copy">
-          文本编辑已经从人物展示页中拆出。这里专门维护人物介绍、经历、关系、秘密与叙事文案，不再和立绘布局混在一起。
-        </div>
-
+      <main v-if="entityDetail" class="editor-workspace">
         <WorldRichTextAppearancePanel
           v-if="showAppearancePanel"
           v-model="characterEditorAppearance"
           class="appearance-popover"
         />
 
-        <div class="editor-shell-frame">
+        <section class="document-canvas">
+          <div class="document-content-column">
+            <h1 class="document-heading">{{ documentTitle }}</h1>
+            <div class="document-meta-line" aria-hidden="true">⋮</div>
+          </div>
+
           <WorldRichTextEditor
             v-model="characterDescriptionInput"
             class="narrative-editor"
@@ -65,20 +91,22 @@
             :appearance="characterEditorAppearance"
             :show-toolbar-meta="false"
             :show-toolbar="false"
+            theme="light"
             @stats-change="characterEditorStats = $event"
           />
-        </div>
 
-        <footer class="editor-footer">
-          <router-link
-            :to="{ name: 'CharacterPortraitEditor', params: { worldId, entityId } }"
-            class="feature-link"
-          >
-            进入人物立绘展示页
-          </router-link>
-        </footer>
-      </section>
-    </main>
+          <span class="document-word-count">{{ characterEditorStats.characters }}字</span>
+        </section>
+
+        <aside class="outline-panel">
+          <h2>大纲</h2>
+        </aside>
+      </main>
+
+      <main v-else class="editor-loading">
+        正在读取文本编辑页面
+      </main>
+    </section>
   </div>
 </template>
 
@@ -92,7 +120,7 @@ import type {
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import { toPlainIpcPayload } from '../utils/ipcPayload'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
-import WorldEditorShortcutHelp from '../features/worldbuilding/editor/components/WorldEditorShortcutHelp.vue'
+import { useAppTitleBar } from '../composables/useAppTitleBar'
 import WorldRichTextAppearancePanel from '../features/worldbuilding/editor/components/WorldRichTextAppearancePanel.vue'
 import WorldRichTextEditor from '../features/worldbuilding/editor/components/WorldRichTextEditor.vue'
 import {
@@ -104,6 +132,7 @@ import {
   getCharacterComponentByType,
   type CharacterProfileData
 } from '../features/worldbuilding/character/shared'
+import '../styles/worldbuildingWhiteTheme.css'
 
 const route = useRoute()
 
@@ -122,6 +151,43 @@ let lastSavedNarrativeSignature = ''
 
 const worldId = computed(() => String(route.params.worldId || ''))
 const entityId = computed(() => String(route.params.entityId || ''))
+const documentTitle = computed(() => entityDetail.value?.entity.name || '人物文本编辑')
+
+const toolbarGroups = [
+  [
+    { label: '↶', title: '撤销' },
+    { label: '↷', title: '重做' },
+    { label: '刷', title: '格式刷' },
+    { label: '擦', title: '清除格式' }
+  ],
+  [
+    { label: '正文⌄', title: '段落样式' },
+    { label: '15px⌄', title: '字号' }
+  ],
+  [
+    { label: 'B', title: '加粗' },
+    { label: 'I', title: '斜体' },
+    { label: 'S', title: '删除线' },
+    { label: 'U', title: '下划线' },
+    { label: 'T⌄', title: '文字样式' }
+  ],
+  [
+    { label: 'A⌄', title: '文字颜色' },
+    { label: '⌁⌄', title: '高亮' }
+  ],
+  [
+    { label: '≡⌄', title: '对齐' },
+    { label: '•☰', title: '无序列表' },
+    { label: '1☰', title: '有序列表' },
+    { label: '▾☰', title: '缩进' }
+  ],
+  [
+    { label: '☑', title: '待办' },
+    { label: '🔗', title: '链接' },
+    { label: '❝', title: '引用' },
+    { label: '─', title: '分割线' }
+  ]
+] as const
 
 const canSaveNarrative = computed(() => Boolean(entityDetail.value))
 
@@ -131,6 +197,14 @@ const narrativeSaveHint = computed(() => {
   if (narrativeSaveState.value === 'error') return '自动保存失败'
   return '自动保存'
 })
+
+useAppTitleBar(
+  computed(() => ({
+    title: documentTitle.value,
+    subtitle: '▧',
+    meta: narrativeSaveHint.value
+  }))
+)
 
 const narrativeAutosaveSignature = computed(() =>
   JSON.stringify({
@@ -249,190 +323,396 @@ useKeyboardShortcut(
 </script>
 
 <style scoped>
-.entity-shell {
-  min-height: 100vh;
-  padding: 20px;
-  box-sizing: border-box;
-  background:
-    radial-gradient(circle at top left, rgba(43, 55, 75, 0.32), transparent 24%),
-    linear-gradient(180deg, #0d1118 0%, #141a24 100%);
-  color: #edf2f7;
+.narrative-editor-page {
+  --narrative-sidebar-width: 288px;
+
+  width: 100vw;
+  height: 100%;
+  display: grid;
+  grid-template-columns: var(--narrative-sidebar-width) minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--wb-narrative-bg);
+  color: var(--wb-narrative-text);
 }
 
-.entity-topbar {
+.narrative-sidebar {
+  min-width: 0;
+  border-right: 1px solid var(--wb-narrative-border);
+  background: var(--wb-narrative-sidebar-bg);
   display: flex;
+  flex-direction: column;
+}
+
+.sidebar-home,
+.catalog-head,
+.format-toolbar {
+  flex-shrink: 0;
+}
+
+.sidebar-home {
+  height: 44px;
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  gap: 20px;
-  margin-bottom: 10px;
+  gap: 8px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--wb-narrative-border);
 }
 
-.topbar-links {
+.sidebar-home-link,
+.catalog-tree-item {
+  color: inherit;
+  text-decoration: none;
+}
+
+.sidebar-home-link {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--wb-narrative-text-muted);
+}
+
+.sidebar-icon {
+  width: 18px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--wb-narrative-text-muted);
+}
+
+.sidebar-menu-btn,
+.catalog-actions button,
+.toolbar-tool,
+.toolbar-add-btn {
+  border: 0;
+  background: transparent;
+  color: var(--wb-narrative-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sidebar-menu-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.sidebar-menu-btn:hover,
+.catalog-actions button:hover,
+.toolbar-tool:hover {
+  background: var(--wb-narrative-hover);
+  color: var(--wb-narrative-text);
+}
+
+.catalog-panel {
+  min-height: 0;
+  padding: 0 4px;
+  overflow: auto;
+}
+
+.catalog-head {
+  height: 36px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 7px;
+  color: var(--wb-narrative-text-muted);
 }
 
-.back-link,
-.assistant-link,
-.sub-link {
+.catalog-title,
+.catalog-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.catalog-title {
+  min-width: 0;
+  font-size: 15px;
+}
+
+.catalog-actions button {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.catalog-tree-item {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--wb-narrative-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.catalog-tree-item.active {
+  background: var(--wb-narrative-active);
+}
+
+.catalog-tree-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalog-child {
+  margin: 8px 0 0 56px;
+  color: var(--wb-narrative-text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.narrative-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--wb-narrative-surface-bg);
+}
+
+.format-toolbar {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--wb-narrative-border);
+  background: var(--wb-narrative-toolbar-bg);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 7px;
+  border-left: 1px solid var(--wb-narrative-border);
+}
+
+.toolbar-group-primary {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.toolbar-status-group {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.toolbar-tool,
+.toolbar-add-btn {
+  height: 28px;
+  min-width: 26px;
+  padding: 0 6px;
+  border-radius: 5px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 42px;
-  padding: 7px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(185, 150, 93, 0.22);
-  background: rgba(13, 17, 24, 0.94);
-  color: #e7d2ad;
   line-height: 1;
-  text-decoration: none;
-  font: inherit;
+  white-space: nowrap;
+  font-size: 13px;
 }
 
-.sub-link {
-  border-color: rgba(205, 161, 92, 0.14);
-  color: #cbb790;
+.toolbar-add-btn {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--wb-narrative-accent);
+  color: #ffffff;
+  font-weight: 800;
 }
 
-.editor-page {
-  min-height: calc(100vh - 108px);
-}
-
-.panel-dark {
-  min-height: inherit;
-  border-radius: 28px;
-  border: 1px solid rgba(205, 161, 92, 0.18);
-  background:
-    linear-gradient(180deg, rgba(20, 25, 34, 0.98), rgba(13, 17, 24, 0.98));
-  box-shadow: 0 26px 60px rgba(2, 4, 8, 0.38);
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-}
-
-.editor-head {
-  flex-shrink: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.editor-head h1 {
-  margin: 8px 0 0;
-  font-size: 34px;
-  color: #f5efe4;
-}
-
-.editor-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #7c8798;
-}
-
-.eyebrow.accent {
-  color: #cda15c;
-}
-
-.editor-copy {
-  margin-top: 14px;
-  color: #9aa6b8;
-  line-height: 1.75;
+.toolbar-tool.active {
+  color: #315cff;
 }
 
 .editor-counts,
 .autosave-hint {
+  color: var(--wb-narrative-text-faint);
   font-size: 12px;
-  color: #8f99ab;
   white-space: nowrap;
 }
 
 .autosave-hint.saving {
-  color: #d7b272;
+  color: #b7791f;
 }
 
 .autosave-hint.error {
-  color: #ef8f8f;
+  color: #c24141;
 }
 
-.editor-config-btn {
-  border: 1px solid rgba(205, 161, 92, 0.18);
-  border-radius: 10px;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: rgba(11, 15, 22, 0.94);
-  color: #e7d2ad;
-  font: inherit;
+.editor-workspace {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  overflow: hidden;
+}
+
+.document-canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.document-content-column {
+  width: min(var(--wb-narrative-editor-width), calc(100% - 80px));
+  margin: 56px auto 0;
+  color: var(--wb-narrative-text);
+}
+
+.document-heading {
+  margin: 0 0 44px;
+  font-size: 34px;
+  line-height: 1.25;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.document-meta-line {
+  width: 20px;
+  margin-bottom: 14px;
+  color: var(--wb-narrative-text-muted);
+  font-size: 20px;
   line-height: 1;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.editor-config-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.narrative-editor {
+  position: absolute;
+  inset: 162px 0 36px;
+}
+
+.document-word-count {
+  position: absolute;
+  left: 0;
+  bottom: 92px;
+  color: var(--wb-narrative-text-faint);
   font-size: 12px;
-  line-height: 1;
+}
+
+.outline-panel {
+  min-width: 0;
+  border-left: 0;
+  background: #ffffff;
+  padding: 48px 24px;
+}
+
+.outline-panel h2 {
+  margin: 0;
+  color: var(--wb-narrative-text);
+  font-size: 15px;
+  font-weight: 800;
 }
 
 .appearance-popover {
   position: absolute;
-  top: 94px;
+  top: 12px;
   right: 18px;
   z-index: 20;
 }
 
-.editor-shell-frame {
+.editor-loading {
   flex: 1;
-  min-height: 0;
-  margin-top: 14px;
-  border-radius: 22px;
-  overflow: hidden;
-  border: 1px solid rgba(205, 161, 92, 0.12);
-}
-
-.narrative-editor {
-  height: 100%;
-}
-
-.editor-footer {
-  margin-top: 14px;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
+  color: var(--wb-narrative-text-muted);
 }
 
-.feature-link {
-  color: #e7d2ad;
-  text-decoration: none;
-  font-weight: 700;
+.narrative-editor :deep(.editor-shell) {
+  height: 100%;
+  gap: 0;
 }
 
-@media (max-width: 900px) {
-  .entity-topbar {
-    flex-direction: column;
-    align-items: stretch;
+.narrative-editor :deep(.editor-frame) {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.narrative-editor :deep(.editor-content .tiptap) {
+  max-width: min(var(--wb-content-width, var(--wb-narrative-editor-width)), calc(100% - 80px));
+  padding: 0 0 120px;
+  color: var(--wb-narrative-text);
+  font-size: calc(15px * var(--wb-font-scale, 1));
+  line-height: var(--wb-line-height, 1.75);
+}
+
+.narrative-editor :deep(.editor-content .tiptap p) {
+  color: var(--wb-narrative-text);
+}
+
+.narrative-editor :deep(.editor-content .tiptap h1),
+.narrative-editor :deep(.editor-content .tiptap h2),
+.narrative-editor :deep(.editor-content .tiptap h3),
+.narrative-editor :deep(.editor-content .tiptap strong) {
+  color: var(--wb-narrative-text);
+}
+
+.narrative-editor :deep(.editor-content .tiptap p.is-editor-empty:first-child::before) {
+  color: var(--wb-narrative-text-faint);
+}
+
+.appearance-popover :deep(.appearance-panel) {
+  border-color: var(--wb-narrative-border-strong);
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--wb-narrative-text);
+  box-shadow: 0 20px 46px rgba(17, 24, 39, 0.12);
+}
+
+.appearance-popover :deep(.panel-head h3),
+.appearance-popover :deep(.setting-label) {
+  color: var(--wb-narrative-text);
+}
+
+.appearance-popover :deep(.eyebrow),
+.appearance-popover :deep(.panel-tip) {
+  color: var(--wb-narrative-text-muted);
+}
+
+.appearance-popover :deep(.reset-btn) {
+  border-color: var(--wb-narrative-border);
+  background: var(--wb-narrative-hover);
+  color: var(--wb-narrative-text);
+}
+
+.format-toolbar :deep(.shortcut-help-btn) {
+  border: 0;
+  background: transparent;
+  color: var(--wb-narrative-text-muted);
+}
+
+@media (max-width: 980px) {
+  .narrative-editor-page {
+    --narrative-sidebar-width: 210px;
   }
 
-  .appearance-popover {
-    position: static;
-    width: 100%;
-    margin-top: 14px;
+  .editor-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .outline-panel {
+    display: none;
+  }
+
+  .toolbar-status-group {
+    margin-left: 0;
   }
 }
 </style>

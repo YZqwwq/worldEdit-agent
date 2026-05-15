@@ -1835,7 +1835,7 @@ useKeyboardShortcut(
 
 <style scoped>
 .portrait-editor-page {
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
   padding: 0;
   box-sizing: border-box;
