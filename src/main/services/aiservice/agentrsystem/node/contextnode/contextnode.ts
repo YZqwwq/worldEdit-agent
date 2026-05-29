@@ -4,7 +4,10 @@ import { memoryManager } from '../../manager/memory/MemoryManager'
 import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { buildMemoryPromptPlan } from '../../manager/memory/memoryPromptPolicy'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
-import { getVisibleMainAgentToolEntries } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
+import {
+  getVisibleMainAgentToolEntries,
+  resolveMainAgentToolActivationState
+} from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import { MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY } from '../../../messagecontent/mainAgentMessageContentService'
 import {
   buildPersonaAssemblyPrompt,
@@ -48,6 +51,10 @@ export async function contextNode(
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
   const currentTimeContext = formatCurrentContextTime()
   const currentUserMessageCreatedAt = getCurrentUserMessageCreatedAt(state)
+  const toolActivationState = await resolveMainAgentToolActivationState({
+    ...state,
+    suppressedTools: []
+  })
 
   // 人格组装提示
   const personaAssemblyPrompt = buildPersonaAssemblyPrompt({
@@ -108,7 +115,10 @@ export async function contextNode(
     )
   }
 
-  const toolUsagePrompt = buildToolUsageSystemPrompt(getVisibleMainAgentToolEntries(state))
+  const toolUsagePrompt = buildToolUsageSystemPrompt(
+    getVisibleMainAgentToolEntries(toolActivationState),
+    toolActivationState
+  )
   if (toolUsagePrompt) {
     messages.push(new SystemMessage(toolUsagePrompt))
   }
@@ -125,7 +135,11 @@ export async function contextNode(
   // 长期稳定记忆
   if (memoryPromptPlan.longTermPrompt) {
     injectedSections.push('longTermMemory')
-    messages.push(new SystemMessage(`长期稳定记忆:\n${memoryPromptPlan.longTermPrompt}`))
+    messages.push(
+      new SystemMessage(
+        `跨轮长期记忆（用于保持事实连续性与用户关系连续性）:\n${memoryPromptPlan.longTermPrompt}`
+      )
+    )
   }
 
   // 记忆槽位
@@ -137,7 +151,11 @@ export async function contextNode(
   // 最近阶段记忆
   if (memoryPromptPlan.recentStagePrompt) {
     injectedSections.push('recentStageMemory')
-    messages.push(new SystemMessage(`最近阶段记忆:\n${memoryPromptPlan.recentStagePrompt}`))
+    messages.push(
+      new SystemMessage(
+        `最近阶段记忆（用于恢复已滑出短期窗口的近期上下文）:\n${memoryPromptPlan.recentStagePrompt}`
+      )
+    )
   }
 
   for (const msg of snapshot.shortTerm) {
@@ -176,7 +194,12 @@ export async function contextNode(
       hasActiveTask: Boolean(state.taskLifecycle?.activeTask),
       hasLongTermMemory: Boolean(memoryPromptPlan.longTermPrompt),
       hasSlotPrompt: Boolean(memoryPromptPlan.slotPrompt),
-      hasRecentStagePrompt: Boolean(memoryPromptPlan.recentStagePrompt)
+      hasRecentStagePrompt: Boolean(memoryPromptPlan.recentStagePrompt),
+      longTermMemoryPreview: memoryPromptPlan.longTermPrompt.slice(0, 240),
+      recentStageCount: snapshot.recentStages.length,
+      recentStagePreview: memoryPromptPlan.recentStagePrompt.slice(0, 240),
+      quickToolsets: toolActivationState.quickToolsets ?? [],
+      quickTools: toolActivationState.quickTools ?? []
     }
   })
 
@@ -197,6 +220,9 @@ export async function contextNode(
   // 最终顺序由 llmCall 节点负责调整 (System -> History -> User Input)。
 
   return {
-    messages: messages
+    messages: messages,
+    quickToolsets: toolActivationState.quickToolsets ?? [],
+    quickTools: toolActivationState.quickTools ?? [],
+    suppressedTools: []
   }
 }

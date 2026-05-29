@@ -15,6 +15,13 @@ import type {
   WorldbuildingSchemaCatalogPayload,
   WorldPayload
 } from '@share/cache/worldbuilding/worldbuilding'
+import type {
+  CharacterNarrativeDocumentPayload,
+  CreateCharacterNarrativeDocumentInput,
+  DeleteCharacterNarrativeDocumentInput,
+  MoveCharacterNarrativeDocumentInput,
+  UpdateCharacterNarrativeDocumentInput
+} from '@share/cache/worldbuilding/characterNarrativeDocument'
 
 export const worldbuildingClientService = {
   listWorlds(): Promise<WorldPayload[]> {
@@ -80,5 +87,39 @@ export const worldbuildingClientService = {
 
   createRelation(input: CreateWorldEntityRelationInput): Promise<WorldEntityRelationPayload> {
     return window.api.createWorldEntityRelation(input)
+  },
+
+  listCharacterNarrativeDocuments(
+    characterEntityId: string
+  ): Promise<CharacterNarrativeDocumentPayload[]> {
+    return window.api.listCharacterNarrativeDocuments(characterEntityId)
+  },
+
+  getCharacterNarrativeDocument(
+    documentId: string
+  ): Promise<CharacterNarrativeDocumentPayload | null> {
+    return window.api.getCharacterNarrativeDocument(documentId)
+  },
+
+  createCharacterNarrativeDocument(
+    input: CreateCharacterNarrativeDocumentInput
+  ): Promise<CharacterNarrativeDocumentPayload> {
+    return window.api.createCharacterNarrativeDocument(input)
+  },
+
+  updateCharacterNarrativeDocument(
+    input: UpdateCharacterNarrativeDocumentInput
+  ): Promise<CharacterNarrativeDocumentPayload> {
+    return window.api.updateCharacterNarrativeDocument(input)
+  },
+
+  moveCharacterNarrativeDocument(
+    input: MoveCharacterNarrativeDocumentInput
+  ): Promise<CharacterNarrativeDocumentPayload> {
+    return window.api.moveCharacterNarrativeDocument(input)
+  },
+
+  deleteCharacterNarrativeDocument(input: DeleteCharacterNarrativeDocumentInput): Promise<void> {
+    return window.api.deleteCharacterNarrativeDocument(input)
   }
 }

@@ -25,7 +25,7 @@ const titleBar = useAppTitleBarState()
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 var(--app-titlebar-window-control-width) 0 16px;
+  padding: 0 var(--app-titlebar-window-control-width) 0 34px;
   border-bottom: 1px solid var(--app-titlebar-border);
   background: var(--app-titlebar-bg);
   color: var(--app-titlebar-text);

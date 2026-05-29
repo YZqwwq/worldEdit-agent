@@ -3,7 +3,8 @@ import { ToolMessage } from '@langchain/core/messages'
 import { parseAgentToolResultEnvelope } from '../../../ai-utils/core/agentTool'
 import {
   getMainAgentTools,
-  getVisibleMainAgentToolEntryMap
+  getVisibleMainAgentToolEntryMap,
+  resolveMainAgentToolActivationState
 } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import { toolUsageStatsService } from '../../../ai-utils/toolkits/toolUsageStatsService'
 import {
@@ -149,26 +150,38 @@ const buildResultSummary = (
     )
   }
 
-  if (toolName === 'get_extend_tools' && data) {
-    const activatedToolNames = Array.isArray(data.activatedToolNames)
-      ? data.activatedToolNames.filter((item): item is string => typeof item === 'string')
-      : []
-    const frequentTools = Array.isArray(data.frequentTools)
-      ? (data.frequentTools as Array<Record<string, unknown>>)
-          .slice(0, 3)
-          .map((tool) => {
-            const name = typeof tool.name === 'string' ? tool.name : 'unknown_tool'
-            const summary = typeof tool.summary === 'string' ? tool.summary : ''
-            const usageCount = typeof tool.usageCount === 'number' ? tool.usageCount : 0
-            return `${name}(${usageCount}次)：${summary}`
+  if (toolName === 'query_tool_catalog' && data) {
+    const toolsets = Array.isArray(data.toolsets)
+      ? (data.toolsets as Array<Record<string, unknown>>)
+          .slice(0, 5)
+          .map((toolset) => {
+            const id = typeof toolset.id === 'string' ? toolset.id : 'unknown_toolset'
+            const summary = typeof toolset.summary === 'string' ? toolset.summary : ''
+            const toolCount = typeof toolset.toolCount === 'number' ? toolset.toolCount : 0
+            return `${id}(${toolCount}个工具)：${summary}`
           })
       : []
     return compact(
+      `工具底图查询返回 ${typeof data.count === 'number' ? data.count : toolsets.length} 个候选工具集。\n${toolsets.join('\n')}`,
+      1200
+    )
+  }
+
+  if (toolName === 'activate_toolset' && data) {
+    const activatedToolsets = Array.isArray(data.activatedToolsets)
+      ? data.activatedToolsets.filter((item): item is string => typeof item === 'string')
+      : []
+    const activatedTools = Array.isArray(data.activatedTools)
+      ? data.activatedTools.filter((item): item is string => typeof item === 'string')
+      : []
+    const missingToolsets = Array.isArray(data.missingToolsets)
+      ? data.missingToolsets.filter((item): item is string => typeof item === 'string')
+      : []
+    return compact(
       [
-        `拓展工具目录已返回，已激活：${activatedToolNames.join(', ') || '无'}。`,
-        frequentTools.length > 0
-          ? `历史常用拓展工具 top3：${frequentTools.join('；')}`
-          : '暂无历史常用拓展工具统计。'
+        `已激活工具集：${activatedToolsets.join(', ') || '无'}。`,
+        `下一轮可见工具：${activatedTools.join(', ') || '无'}。`,
+        missingToolsets.length > 0 ? `未找到工具集：${missingToolsets.join(', ')}` : ''
       ].join('\n'),
       1200
     )
@@ -230,10 +243,13 @@ export async function toolNode(
     typeof lastMessage.id === 'string' && lastMessage.id ? lastMessage.id : ''
   ].filter(Boolean)
   const toolPolicy = state.personaPolicy?.tool
-  const tools = getMainAgentTools(state)
-  const toolEntries = getVisibleMainAgentToolEntryMap(state)
+  const toolActivationState = await resolveMainAgentToolActivationState(state)
+  const tools = getMainAgentTools(toolActivationState)
+  const toolEntries = getVisibleMainAgentToolEntryMap(toolActivationState)
   const executedTools: Array<Record<string, unknown>> = []
-  const activatedExtensionTools: string[] = []
+  const activatedToolsets: string[] = []
+  const activatedTools: string[] = []
+  const suppressedTools: string[] = []
   // 遍历工具组执行调用
   for (const toolCall of msg.tool_calls) {
     traceState('toolNode', {
@@ -380,7 +396,10 @@ export async function toolNode(
       const result = await (tool as any).invoke(toolCall.args)
       const envelope = parseAgentToolResultEnvelope(result)
       const toolEntry = toolEntries[toolCall.name]
-      if (toolEntry?.capabilityLayer === 'extension') {
+      if (toolEntry?.turnCallLimit === 1 && envelope?.ok !== false) {
+        suppressedTools.push(toolEntry.tool.name)
+      }
+      if (toolEntry && toolEntry.activationMode !== 'always') {
         try {
           await toolUsageStatsService.recordToolUse({
             toolName: toolCall.name,
@@ -393,16 +412,26 @@ export async function toolNode(
           )
         }
       }
-      const activatedFromEnvelope =
-        toolCall.name === 'get_extend_tools' &&
+      const activatedToolsetsFromEnvelope =
+        toolCall.name === 'activate_toolset' &&
         envelope?.data &&
         typeof envelope.data === 'object' &&
-        Array.isArray((envelope.data as Record<string, unknown>).activatedToolNames)
-          ? ((envelope.data as Record<string, unknown>).activatedToolNames as unknown[])
+        Array.isArray((envelope.data as Record<string, unknown>).activatedToolsets)
+          ? ((envelope.data as Record<string, unknown>).activatedToolsets as unknown[])
               .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
               .map((item) => item.trim())
           : []
-      activatedExtensionTools.push(...activatedFromEnvelope)
+      const activatedToolsFromEnvelope =
+        toolCall.name === 'activate_toolset' &&
+        envelope?.data &&
+        typeof envelope.data === 'object' &&
+        Array.isArray((envelope.data as Record<string, unknown>).activatedTools)
+          ? ((envelope.data as Record<string, unknown>).activatedTools as unknown[])
+              .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+              .map((item) => item.trim())
+          : []
+      activatedToolsets.push(...activatedToolsetsFromEnvelope)
+      activatedTools.push(...activatedToolsFromEnvelope)
       const envelopeData =
         envelope?.data && typeof envelope.data === 'object' ? envelope.data : undefined
       executedTools.push({
@@ -435,8 +464,12 @@ export async function toolNode(
           'usedSearch' in envelope.data
             ? Boolean((envelope.data as any).usedSearch)
             : undefined,
-        activatedExtensionTools:
-          activatedFromEnvelope.length > 0 ? activatedFromEnvelope : undefined
+        activatedToolsets:
+          activatedToolsetsFromEnvelope.length > 0 ? activatedToolsetsFromEnvelope : undefined,
+        activatedTools:
+          activatedToolsFromEnvelope.length > 0 ? activatedToolsFromEnvelope : undefined,
+        suppressedForRestOfTurn:
+          toolEntry?.turnCallLimit === 1 && envelope?.ok !== false ? true : undefined
       })
       traceArtifact('toolNode', {
         title: `产物: toolNode ${toolCall.name} 返回`,
@@ -566,6 +599,8 @@ export async function toolNode(
     messages: toolMessages,
     pendingToolContext,
     activeToolTranscriptIds: [...new Set(activeToolTranscriptIds)],
-    enabledExtensionTools: [...new Set(activatedExtensionTools)]
+    activeToolsets: [...new Set(activatedToolsets)],
+    activeTools: [...new Set(activatedTools)],
+    suppressedTools: [...new Set([...(state.suppressedTools ?? []), ...suppressedTools])]
   }
 }

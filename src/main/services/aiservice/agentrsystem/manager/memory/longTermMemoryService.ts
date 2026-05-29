@@ -31,8 +31,8 @@ const describeMemorySummary = (
   current: MemoryLongTermSnapshot,
   stage: MemoryStageSnapshot
 ): string => {
-  const seeds = uniqueRecent([current.memorySummary, stage.summary], 4)
-  return combineLines(seeds, 280)
+  const seeds = uniqueRecent([current.memorySummary, stage.summary], 6)
+  return combineLines(seeds, 700)
 }
 
 const describeUserProfile = (
@@ -52,7 +52,7 @@ const describeUserProfile = (
     parts.push(`近期情绪表现为${describeUserMoodState(slots.user_mood.current_mood)}`)
   }
 
-  const built = combineLines(parts, 240)
+  const built = combineLines(parts, 360)
   if (built) {
     return built
   }
@@ -62,7 +62,7 @@ const describeUserProfile = (
   }
 
   const fallback = stage.summary
-  return compact(fallback, 220)
+  return compact(fallback, 360)
 }
 
 export const createDefaultLongTermMemory = (): MemoryLongTermSnapshot => ({

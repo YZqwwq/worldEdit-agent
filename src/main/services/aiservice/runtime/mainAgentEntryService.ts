@@ -1,6 +1,7 @@
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
   MainAgentEvent,
+  MainAgentBackgroundPersonaStagePayload,
   MainAgentUserMessagePayload,
   MainAgentTaskNotificationEvent
 } from '@share/cache/AItype/states/taskLifecycleState'
@@ -54,6 +55,12 @@ class MainAgentEntryService {
     await mainAgentDispatchService.enqueueTaskNotification(input)
   }
 
+  async enqueueBackgroundPersonaStage(
+    payload: MainAgentBackgroundPersonaStagePayload
+  ): Promise<void> {
+    await mainAgentDispatchService.enqueueBackgroundPersonaStage(payload)
+  }
+
   private async processEvent(event: MainAgentEvent, onChunk?: (chunk: StreamChunk) => void) {
     return orchestrateMainAgentEvent(event, {
       createChatTurn: async ({ eventId, sessionId, userMessageId }) => {
@@ -61,6 +68,14 @@ class MainAgentEntryService {
           eventId,
           sessionId,
           userMessageId
+        })
+        await mainAgentTurnService.markProcessing(turn.id)
+        return { turnId: turn.id }
+      },
+      createBackgroundPersonaStageTurn: async ({ eventId, sessionId }) => {
+        const turn = await mainAgentTurnService.createBackgroundPersonaStageTurn({
+          eventId,
+          sessionId
         })
         await mainAgentTurnService.markProcessing(turn.id)
         return { turnId: turn.id }
@@ -80,6 +95,8 @@ class MainAgentEntryService {
           onChunk,
           taskLifecycle
         ),
+      runBackgroundPersonaStage: (eventId, turnId, payload) =>
+        mainAgentChatRuntimeService.runBackgroundPersonaStage(eventId, turnId, payload),
       consumeTaskNotification: (taskEvent) =>
         this.consumeTaskNotificationEvent(taskEvent),
       applyEffects: (result) => mainAgentEffectApplierService.apply(result),

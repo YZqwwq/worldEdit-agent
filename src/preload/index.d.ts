@@ -31,6 +31,13 @@ import type {
   WorldbuildingSchemaCatalogPayload,
   WorldPayload
 } from '../share/cache/worldbuilding/worldbuilding'
+import type {
+  CharacterNarrativeDocumentPayload,
+  CreateCharacterNarrativeDocumentInput,
+  DeleteCharacterNarrativeDocumentInput,
+  MoveCharacterNarrativeDocumentInput,
+  UpdateCharacterNarrativeDocumentInput
+} from '../share/cache/worldbuilding/characterNarrativeDocument'
 
 declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
@@ -145,6 +152,25 @@ declare global {
     createWorldEntityRelation: (
       input: CreateWorldEntityRelationInput
     ) => Promise<WorldEntityRelationPayload>
+
+    listCharacterNarrativeDocuments: (
+      characterEntityId: string
+    ) => Promise<CharacterNarrativeDocumentPayload[]>
+    getCharacterNarrativeDocument: (
+      documentId: string
+    ) => Promise<CharacterNarrativeDocumentPayload | null>
+    createCharacterNarrativeDocument: (
+      input: CreateCharacterNarrativeDocumentInput
+    ) => Promise<CharacterNarrativeDocumentPayload>
+    updateCharacterNarrativeDocument: (
+      input: UpdateCharacterNarrativeDocumentInput
+    ) => Promise<CharacterNarrativeDocumentPayload>
+    moveCharacterNarrativeDocument: (
+      input: MoveCharacterNarrativeDocumentInput
+    ) => Promise<CharacterNarrativeDocumentPayload>
+    deleteCharacterNarrativeDocument: (
+      input: DeleteCharacterNarrativeDocumentInput
+    ) => Promise<void>
   }
 
   interface Window {

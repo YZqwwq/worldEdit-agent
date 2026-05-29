@@ -1,6 +1,7 @@
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
   MainAgentEvent,
+  MainAgentBackgroundPersonaStageEvent,
   MainAgentEventConsumptionResult,
   MainAgentTaskNotificationEvent,
   MainAgentUserMessageEvent,
@@ -31,6 +32,15 @@ export type MainAgentEventOrchestrationDependencies = {
     onChunk?: (chunk: StreamChunk) => void,
     taskLifecycle?: TaskLifecycleState
   ) => Promise<{ fullText: string; interrupted: boolean }>
+  createBackgroundPersonaStageTurn: (input: {
+    eventId: string
+    sessionId: string
+  }) => Promise<{ turnId: number }>
+  runBackgroundPersonaStage: (
+    eventId: string,
+    turnId: number,
+    payload: MainAgentBackgroundPersonaStageEvent['payload']
+  ) => Promise<{ fullText: string; interrupted: boolean }>
   consumeTaskNotification: (
     event: MainAgentTaskNotificationEvent
   ) => Promise<MainAgentEventConsumptionResult>
@@ -55,6 +65,7 @@ type UserMessagePreparedState =
 type MainAgentEventPreparedStateMap = {
   user_message: UserMessagePreparedState
   task_notification: null
+  background_persona_stage: { turnId: number }
 }
 
 type MainAgentEventHandler<TEvent extends MainAgentEvent> = {
@@ -280,9 +291,119 @@ const taskNotificationHandler: MainAgentEventHandler<MainAgentTaskNotificationEv
   }
 }
 
+const buildBackgroundStageResult = (
+  event: MainAgentBackgroundPersonaStageEvent,
+  turnId: number,
+  fullText: string,
+  interrupted: boolean
+): MainAgentEventConsumptionResult => {
+  const effectContext = createEffectContext(event)
+  const status = interrupted ? 'interrupted' : 'completed'
+  const summary = interrupted
+    ? 'background_persona_stage_interrupted'
+    : 'background_persona_stage_completed'
+
+  return {
+    handled: true,
+    consumer: 'background_persona_stage_consumer',
+    summary,
+    effects: [
+      {
+        ...effectContext,
+        type: 'update_chat_turn',
+        turnId,
+        status
+      },
+      {
+        ...effectContext,
+        type: 'record_interaction_observation',
+        observationType: interrupted
+          ? 'background_persona_stage_failed'
+          : 'background_persona_stage_completed',
+        source: 'background_persona',
+        summary: `${event.payload.title} / ${event.payload.stageId}: ${fullText.trim().slice(0, 160)}`,
+        payload: {
+          backgroundTaskId: event.payload.backgroundTaskId,
+          stageId: event.payload.stageId,
+          stageKind: event.payload.stageKind,
+          title: event.payload.title,
+          resumePointer: event.payload.resumePointer,
+          interrupted,
+          result: fullText
+        }
+      }
+    ]
+  }
+}
+
+const buildFailedBackgroundStageResult = (
+  event: MainAgentBackgroundPersonaStageEvent,
+  turnId: number | undefined,
+  error: unknown
+): MainAgentEventConsumptionResult => {
+  const effectContext = createEffectContext(event)
+  const message = error instanceof Error ? error.message : String(error)
+  return {
+    handled: true,
+    consumer: 'background_persona_stage_consumer',
+    summary: 'background_persona_stage_failed',
+    effects: [
+      ...(typeof turnId === 'number'
+        ? ([{
+            ...effectContext,
+            type: 'update_chat_turn',
+            turnId,
+            status: 'failed',
+            errorMessage: message
+          }] satisfies MainAgentEventConsumptionResult['effects'])
+        : []),
+      {
+        ...effectContext,
+        type: 'record_interaction_observation',
+        observationType: 'background_persona_stage_failed',
+        source: 'background_persona',
+        summary: `${event.payload.title} / ${event.payload.stageId} failed`,
+        payload: {
+          backgroundTaskId: event.payload.backgroundTaskId,
+          stageId: event.payload.stageId,
+          stageKind: event.payload.stageKind,
+          title: event.payload.title,
+          resumePointer: event.payload.resumePointer,
+          error: message
+        }
+      }
+    ]
+  }
+}
+
+const backgroundPersonaStageHandler: MainAgentEventHandler<MainAgentBackgroundPersonaStageEvent> = {
+  eventType: 'background_persona_stage',
+  owner: MAIN_AGENT_FLOW_RULES.background_persona_stage.owner,
+  async prepare(event, dependencies) {
+    const turn = await dependencies.createBackgroundPersonaStageTurn({
+      eventId: event.id,
+      sessionId: event.sessionId
+    })
+    return { turnId: turn.turnId }
+  },
+  async consume(event, prepared, dependencies) {
+    try {
+      const result = await dependencies.runBackgroundPersonaStage(
+        event.id,
+        prepared.turnId,
+        event.payload
+      )
+      return buildBackgroundStageResult(event, prepared.turnId, result.fullText, result.interrupted)
+    } catch (error) {
+      return buildFailedBackgroundStageResult(event, prepared.turnId, error)
+    }
+  }
+}
+
 export const MAIN_AGENT_EVENT_ORCHESTRATION_TABLE = {
   user_message: userMessageHandler,
-  task_notification: taskNotificationHandler
+  task_notification: taskNotificationHandler,
+  background_persona_stage: backgroundPersonaStageHandler
 } satisfies {
   [K in MainAgentEvent['type']]: MainAgentEventHandler<Extract<MainAgentEvent, { type: K }>>
 }
@@ -315,6 +436,15 @@ export async function orchestrateMainAgentEvent(
   if (event.type === 'user_message') {
     return executeMainAgentEventHandler(
       MAIN_AGENT_EVENT_ORCHESTRATION_TABLE.user_message,
+      event,
+      dependencies,
+      runtime
+    )
+  }
+
+  if (event.type === 'background_persona_stage') {
+    return executeMainAgentEventHandler(
+      MAIN_AGENT_EVENT_ORCHESTRATION_TABLE.background_persona_stage,
       event,
       dependencies,
       runtime

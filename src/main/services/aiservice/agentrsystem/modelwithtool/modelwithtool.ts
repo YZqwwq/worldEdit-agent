@@ -1,7 +1,10 @@
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { Runnable } from '@langchain/core/runnables'
-import { getMainAgentTools } from '../../ai-utils/toolkits/mainAgentToolRegistry'
-import type { ToolVisibilityState } from '../../ai-utils/toolkits/toolRegistryTypes'
+import {
+  getMainAgentTools,
+  resolveMainAgentToolActivationState
+} from '../../ai-utils/toolkits/mainAgentToolRegistry'
+import type { ToolActivationState } from '../../ai-utils/toolkits/toolRegistryTypes'
 import {
   normalizeModelResponse,
   type ConfiguredModelRuntime
@@ -34,13 +37,14 @@ export function bindToolsToModel(
   return new ModelWithTool(runtime, toolRegistry).getModel()
 }
 
-export async function getModelWithTool(state?: ToolVisibilityState): Promise<{
+export async function getModelWithTool(state?: ToolActivationState): Promise<{
   runnable: Runnable
   runtime: ConfiguredModelRuntime
 }> {
   const runtime = await getConfiguredModelRuntime()
+  const resolvedState = await resolveMainAgentToolActivationState(state)
   return {
-    runnable: bindToolsToModel(runtime, getMainAgentTools(state)),
+    runnable: bindToolsToModel(runtime, getMainAgentTools(resolvedState)),
     runtime
   }
 }

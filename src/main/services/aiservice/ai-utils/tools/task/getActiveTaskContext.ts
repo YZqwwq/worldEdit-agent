@@ -57,7 +57,8 @@ const getActiveTaskContextOutputSchema = z.object({
   dispatch: z.object({
     state: z.string(),
     queuedUserCount: z.number().int().min(0),
-    queuedTaskCount: z.number().int().min(0),
+    queuedTaskNotificationCount: z.number().int().min(0),
+    queuedBackgroundCount: z.number().int().min(0),
     totalQueued: z.number().int().min(0),
     currentSource: z.string().optional(),
     currentLabel: z.string().optional()

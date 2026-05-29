@@ -7,6 +7,7 @@ import { chatMessageService } from '../../chat/chatMessageService'
 import { taskTraceService } from '../../../task/taskTraceService'
 import { mainAgentTurnService } from '../mainAgentTurnService'
 import { memoryManager } from '../../agentrsystem/manager/memory/MemoryManager'
+import { interactionObservationService } from '../../agentrsystem/manager/personal/interactionObservationService'
 
 class MainAgentEffectApplierService {
   async apply(result: MainAgentEventConsumptionResult): Promise<void> {
@@ -81,6 +82,14 @@ class MainAgentEffectApplierService {
         effect.onChunk?.({
           type: 'stream_error',
           message: effect.message
+        })
+        return
+      case 'record_interaction_observation':
+        await interactionObservationService.record({
+          type: effect.observationType,
+          source: effect.source,
+          summary: effect.summary,
+          payload: effect.payload
         })
         return
     }

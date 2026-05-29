@@ -32,6 +32,13 @@ import type {
   WorldbuildingRelationDefinition,
   WorldbuildingSchemaCatalogPayload
 } from '../share/cache/worldbuilding/worldbuilding'
+import type {
+  CharacterNarrativeDocumentPayload,
+  CreateCharacterNarrativeDocumentInput,
+  DeleteCharacterNarrativeDocumentInput,
+  MoveCharacterNarrativeDocumentInput,
+  UpdateCharacterNarrativeDocumentInput
+} from '../share/cache/worldbuilding/characterNarrativeDocument'
 
 // Local type to ensure availability in this module
 type Api = {
@@ -148,6 +155,25 @@ type Api = {
   createWorldEntityRelation: (
     input: CreateWorldEntityRelationInput
   ) => Promise<WorldEntityRelationPayload>
+
+  listCharacterNarrativeDocuments: (
+    characterEntityId: string
+  ) => Promise<CharacterNarrativeDocumentPayload[]>
+  getCharacterNarrativeDocument: (
+    documentId: string
+  ) => Promise<CharacterNarrativeDocumentPayload | null>
+  createCharacterNarrativeDocument: (
+    input: CreateCharacterNarrativeDocumentInput
+  ) => Promise<CharacterNarrativeDocumentPayload>
+  updateCharacterNarrativeDocument: (
+    input: UpdateCharacterNarrativeDocumentInput
+  ) => Promise<CharacterNarrativeDocumentPayload>
+  moveCharacterNarrativeDocument: (
+    input: MoveCharacterNarrativeDocumentInput
+  ) => Promise<CharacterNarrativeDocumentPayload>
+  deleteCharacterNarrativeDocument: (
+    input: DeleteCharacterNarrativeDocumentInput
+  ) => Promise<void>
 }
 
 // Custom APIs for renderer
@@ -203,7 +229,19 @@ const api: Api = {
   deleteWorldEntity: (entityId) => ipcRenderer.invoke('world:deleteEntity', entityId),
   getWorldEntityDetail: (entityId) => ipcRenderer.invoke('world:getEntityDetail', entityId),
   upsertWorldEntityComponent: (input) => ipcRenderer.invoke('world:upsertComponent', input),
-  createWorldEntityRelation: (input) => ipcRenderer.invoke('world:createRelation', input)
+  createWorldEntityRelation: (input) => ipcRenderer.invoke('world:createRelation', input),
+  listCharacterNarrativeDocuments: (characterEntityId) =>
+    ipcRenderer.invoke('characterNarrative:listDocuments', characterEntityId),
+  getCharacterNarrativeDocument: (documentId) =>
+    ipcRenderer.invoke('characterNarrative:getDocument', documentId),
+  createCharacterNarrativeDocument: (input) =>
+    ipcRenderer.invoke('characterNarrative:createDocument', input),
+  updateCharacterNarrativeDocument: (input) =>
+    ipcRenderer.invoke('characterNarrative:updateDocument', input),
+  moveCharacterNarrativeDocument: (input) =>
+    ipcRenderer.invoke('characterNarrative:moveDocument', input),
+  deleteCharacterNarrativeDocument: (input) =>
+    ipcRenderer.invoke('characterNarrative:deleteDocument', input)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

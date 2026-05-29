@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
+  MainAgentBackgroundPersonaStagePayload,
   MainAgentEvent,
   MainAgentEventConsumptionResult,
   MainAgentDispatchState,
@@ -26,16 +27,18 @@ type QueueEntry = {
 
 const createId = (): string => randomUUID()
 const DEFAULT_SESSION_ID = 'default'
-const MAX_CONSECUTIVE_USER_EVENTS = 3
+
+const getBackgroundStageDedupeKey = (payload: MainAgentBackgroundPersonaStagePayload): string =>
+  `background_persona_stage:${payload.backgroundTaskId}:${payload.stageId}`
 
 class MainAgentDispatchService {
   private readonly queue: QueueEntry[] = []
   private readonly queuedEventIds = new Set<string>()
   private readonly queuedTaskNotificationIds = new Set<number>()
+  private readonly queuedBackgroundStageKeys = new Set<string>()
   private readonly eventStreamSubscribers = new Map<string, Set<(chunk: StreamChunk) => void>>()
   private processing = false
   private currentEvent: MainAgentEvent | null = null
-  private consecutiveUserEventsProcessed = 0
   private handlers: DispatchHandlers = {}
 
   configure(handlers: DispatchHandlers): void {
@@ -50,29 +53,34 @@ class MainAgentDispatchService {
       return 'processing'
     }
 
-    const queuedUserCount = this.queue.filter((entry) => entry.event.source === 'user').length
-    const queuedTaskCount = this.queue.length - queuedUserCount
+    const counts = this.getQueuedCounts()
+    const activeQueues = [
+      counts.queuedUserCount,
+      counts.queuedTaskNotificationCount,
+      counts.queuedBackgroundCount
+    ].filter((count) => count > 0).length
 
-    if (queuedUserCount > 0 && queuedTaskCount > 0) {
-      return 'active'
+    if (activeQueues > 1) {
+      return 'mixed-active'
     }
-    if (queuedUserCount > 0) {
+    if (counts.queuedUserCount > 0) {
       return 'user-active'
     }
-    if (queuedTaskCount > 0) {
-      return 'tasklist-active'
+    if (counts.queuedTaskNotificationCount > 0) {
+      return 'task-active'
+    }
+    if (counts.queuedBackgroundCount > 0) {
+      return 'background-active'
     }
     return 'idle'
   }
 
   getSnapshot(): TaskDispatchSnapshot {
-    const queuedUserCount = this.queue.filter((entry) => entry.event.source === 'user').length
-    const queuedTaskCount = this.queue.length - queuedUserCount
+    const counts = this.getQueuedCounts()
 
     return {
       state: this.getState(),
-      queuedUserCount,
-      queuedTaskCount,
+      ...counts,
       totalQueued: this.queue.length,
       currentSource: this.currentEvent?.source,
       currentEventType: this.currentEvent?.type,
@@ -116,7 +124,7 @@ class MainAgentDispatchService {
     const event = await mainAgentEventLogService.createTaskNotificationEvent({
       id: createId(),
       sessionId: DEFAULT_SESSION_ID,
-      priority: 'background',
+      priority: 'deferred',
       createdAt: Date.now(),
       dedupeKey,
       payload: input
@@ -127,12 +135,41 @@ class MainAgentDispatchService {
     })
   }
 
+  async enqueueBackgroundPersonaStage(
+    payload: MainAgentBackgroundPersonaStagePayload
+  ): Promise<void> {
+    const dedupeKey = getBackgroundStageDedupeKey(payload)
+    if (this.queuedBackgroundStageKeys.has(dedupeKey)) {
+      return
+    }
+
+    const existing = await mainAgentEventLogService.getActiveBackgroundPersonaStageEventByDedupeKey(dedupeKey)
+    if (existing) {
+      return this.enqueueLoadedEvent(existing, {
+        dedupeBackgroundStageKey: dedupeKey
+      })
+    }
+
+    const event = await mainAgentEventLogService.createBackgroundPersonaStageEvent({
+      id: createId(),
+      sessionId: DEFAULT_SESSION_ID,
+      priority: 'idle',
+      createdAt: Date.now(),
+      dedupeKey,
+      payload
+    })
+
+    return this.enqueueLoadedEvent(event, {
+      dedupeBackgroundStageKey: dedupeKey
+    })
+  }
+
   async enqueueRecoveredEvent(event: MainAgentEvent): Promise<void> {
-    return this.enqueueLoadedEvent(event)
+    return this.enqueueLoadedEvent(event, this.getDedupeOptionsForEvent(event))
   }
 
   async enqueuePersistedUserEvent(
-    event: MainAgentEvent,
+    event: Extract<MainAgentEvent, { type: 'user_message' }>,
     onChunk?: (chunk: StreamChunk) => void
   ): Promise<void> {
     return this.enqueueLoadedEvent(event, { onChunk })
@@ -145,10 +182,21 @@ class MainAgentDispatchService {
     }
     this.queuedEventIds.clear()
     this.queuedTaskNotificationIds.clear()
+    this.queuedBackgroundStageKeys.clear()
     this.eventStreamSubscribers.clear()
     this.processing = false
     this.currentEvent = null
-    this.consecutiveUserEventsProcessed = 0
+  }
+
+  private getQueuedCounts(): Pick<
+    TaskDispatchSnapshot,
+    'queuedUserCount' | 'queuedTaskNotificationCount' | 'queuedBackgroundCount'
+  > {
+    return {
+      queuedUserCount: this.queue.filter((entry) => entry.event.source === 'user').length,
+      queuedTaskNotificationCount: this.queue.filter((entry) => entry.event.source === 'task_queue').length,
+      queuedBackgroundCount: this.queue.filter((entry) => entry.event.source === 'background_persona').length
+    }
   }
 
   private addStreamSubscriber(eventId: string, onChunk?: (chunk: StreamChunk) => void): void {
@@ -177,6 +225,7 @@ class MainAgentDispatchService {
     event: MainAgentEvent,
     options?: {
       dedupeTaskNotificationId?: number
+      dedupeBackgroundStageKey?: string
       onChunk?: (chunk: StreamChunk) => void
     }
   ): Promise<void> {
@@ -190,21 +239,18 @@ class MainAgentDispatchService {
       if (typeof options?.dedupeTaskNotificationId === 'number') {
         this.queuedTaskNotificationIds.add(options.dedupeTaskNotificationId)
       }
+      if (options?.dedupeBackgroundStageKey) {
+        this.queuedBackgroundStageKeys.add(options.dedupeBackgroundStageKey)
+      }
       this.queue.push({ event, resolve, reject })
       void this.drain()
     })
   }
 
   private pickNext(): QueueEntry | undefined {
-    const hasTaskEvent = this.queue.some((entry) => entry.event.source === 'task_queue')
-    const shouldForceTaskEvent =
-      hasTaskEvent && this.consecutiveUserEventsProcessed >= MAX_CONSECUTIVE_USER_EVENTS
-
-    if (!shouldForceTaskEvent) {
-      const userIndex = this.queue.findIndex((entry) => entry.event.source === 'user')
-      if (userIndex >= 0) {
-        return this.queue.splice(userIndex, 1)[0]
-      }
+    const userIndex = this.queue.findIndex((entry) => entry.event.source === 'user')
+    if (userIndex >= 0) {
+      return this.queue.splice(userIndex, 1)[0]
     }
 
     const taskIndex = this.queue.findIndex((entry) => entry.event.source === 'task_queue')
@@ -212,12 +258,14 @@ class MainAgentDispatchService {
       return this.queue.splice(taskIndex, 1)[0]
     }
 
-    const userIndex = this.queue.findIndex((entry) => entry.event.source === 'user')
-    if (userIndex >= 0) {
-      return this.queue.splice(userIndex, 1)[0]
+    const backgroundIndex = this.queue.findIndex(
+      (entry) => entry.event.source === 'background_persona'
+    )
+    if (backgroundIndex >= 0) {
+      return this.queue.splice(backgroundIndex, 1)[0]
     }
 
-    return this.queue.shift()
+    return undefined
   }
 
   private async drain(): Promise<void> {
@@ -243,7 +291,6 @@ class MainAgentDispatchService {
             consumer: result.consumer,
             summary: result.summary
           })
-          this.trackProcessedEvent(entry.event)
           entry.resolve()
         } catch (error) {
           await mainAgentEventLogService.markFailed(entry.event.id, {
@@ -251,11 +298,7 @@ class MainAgentDispatchService {
           })
           entry.reject(error)
         } finally {
-          this.queuedEventIds.delete(entry.event.id)
-          this.eventStreamSubscribers.delete(entry.event.id)
-          if (entry.event.source === 'task_queue') {
-            this.queuedTaskNotificationIds.delete(entry.event.payload.notificationId)
-          }
+          this.clearQueuedEventDedupe(entry.event)
           this.currentEvent = null
         }
       }
@@ -264,12 +307,33 @@ class MainAgentDispatchService {
     }
   }
 
-  private trackProcessedEvent(event: MainAgentEvent): void {
-    if (event.source === 'user') {
-      this.consecutiveUserEventsProcessed += 1
+  private getDedupeOptionsForEvent(event: MainAgentEvent): {
+    dedupeTaskNotificationId?: number
+    dedupeBackgroundStageKey?: string
+  } {
+    if (event.source === 'task_queue') {
+      return {
+        dedupeTaskNotificationId: event.payload.notificationId
+      }
+    }
+    if (event.source === 'background_persona') {
+      return {
+        dedupeBackgroundStageKey: event.dedupeKey || getBackgroundStageDedupeKey(event.payload)
+      }
+    }
+    return {}
+  }
+
+  private clearQueuedEventDedupe(event: MainAgentEvent): void {
+    this.queuedEventIds.delete(event.id)
+    this.eventStreamSubscribers.delete(event.id)
+    if (event.source === 'task_queue') {
+      this.queuedTaskNotificationIds.delete(event.payload.notificationId)
       return
     }
-    this.consecutiveUserEventsProcessed = 0
+    if (event.source === 'background_persona') {
+      this.queuedBackgroundStageKeys.delete(event.dedupeKey || getBackgroundStageDedupeKey(event.payload))
+    }
   }
 
   private formatCurrentLabel(event: MainAgentEvent | null): string | undefined {
@@ -279,7 +343,10 @@ class MainAgentDispatchService {
     if (event.source === 'user') {
       return parseMainAgentContentForPersistence(event.payload.content).trim().slice(0, 48) || '用户消息处理中'
     }
-    return `任务 #${event.payload.taskId} / 通知 #${event.payload.notificationId}`
+    if (event.source === 'task_queue') {
+      return `任务 #${event.payload.taskId} / 通知 #${event.payload.notificationId}`
+    }
+    return `后台任务 ${event.payload.title} / 阶段 ${event.payload.stageId}`
   }
 
   private async processEvent(

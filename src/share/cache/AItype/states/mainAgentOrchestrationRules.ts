@@ -32,6 +32,13 @@ export const MAIN_AGENT_FLOW_RULES: Record<MainAgentEventType, MainAgentFlowRule
     startWhen: 'notification pending -> processing with mainAgentEventId bound',
     commitWhen: 'notification processing -> consumed after effect apply succeeds',
     recoveryStrategy: 'replay'
+  },
+  background_persona_stage: {
+    eventType: 'background_persona_stage',
+    owner: 'turn',
+    startWhen: 'event queued -> processing and background turn queued -> processing',
+    commitWhen: 'background stage turn completed or interrupted',
+    recoveryStrategy: 'compensate_fail'
   }
 }
 

@@ -48,12 +48,11 @@ export const toolUsageStatsService = {
     await repository.save(existing)
   },
 
-  async listTopExtensionTools(limit = 3): Promise<ToolUsageStatsItem[]> {
+  async listTopActivatedTools(limit = 3): Promise<ToolUsageStatsItem[]> {
     const repository = getRepository()
     if (!repository) return []
 
     const records = await repository.find({
-      where: { capabilityLayer: 'extension' },
       order: {
         usageCount: 'DESC',
         lastUsedAtIso: 'DESC',

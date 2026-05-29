@@ -30,6 +30,7 @@ import type {
   SaveChatAvatarInput
 } from '../../../share/cache/render/aiagent/chatAvatarProfile'
 import { worldbuildingService } from '../worldbuilding/worldbuildingService'
+import { characterNarrativeDocumentService } from '../worldbuilding/characterNarrativeDocumentService'
 import type {
   CreateWorldEntityInput,
   CreateWorldEntityRelationInput,
@@ -40,6 +41,12 @@ import type {
   WorldEntityPayload,
   WorldbuildingSchemaCatalogPayload
 } from '@share/cache/worldbuilding/worldbuilding'
+import type {
+  CreateCharacterNarrativeDocumentInput,
+  DeleteCharacterNarrativeDocumentInput,
+  MoveCharacterNarrativeDocumentInput,
+  UpdateCharacterNarrativeDocumentInput
+} from '@share/cache/worldbuilding/characterNarrativeDocument'
 import { taskService } from '../task/taskService'
 import { createConfiguredModelRuntime } from './model-adapters/modelProviderAdapter'
 import { contentToText } from './messageoutput/transformRespones'
@@ -446,6 +453,42 @@ export function initializeAIEndpoints(): void {
     'world:createRelation',
     async (_event, input: CreateWorldEntityRelationInput) => {
       return worldbuildingService.createRelation(input)
+    }
+  )
+
+  ipcMain.handle('characterNarrative:listDocuments', async (_event, characterEntityId: string) => {
+    return characterNarrativeDocumentService.listDocuments(characterEntityId)
+  })
+
+  ipcMain.handle('characterNarrative:getDocument', async (_event, documentId: string) => {
+    return characterNarrativeDocumentService.getDocument(documentId)
+  })
+
+  ipcMain.handle(
+    'characterNarrative:createDocument',
+    async (_event, input: CreateCharacterNarrativeDocumentInput) => {
+      return characterNarrativeDocumentService.createDocument(input)
+    }
+  )
+
+  ipcMain.handle(
+    'characterNarrative:updateDocument',
+    async (_event, input: UpdateCharacterNarrativeDocumentInput) => {
+      return characterNarrativeDocumentService.updateDocument(input)
+    }
+  )
+
+  ipcMain.handle(
+    'characterNarrative:moveDocument',
+    async (_event, input: MoveCharacterNarrativeDocumentInput) => {
+      return characterNarrativeDocumentService.moveDocument(input)
+    }
+  )
+
+  ipcMain.handle(
+    'characterNarrative:deleteDocument',
+    async (_event, input: DeleteCharacterNarrativeDocumentInput) => {
+      return characterNarrativeDocumentService.deleteDocument(input)
     }
   )
 

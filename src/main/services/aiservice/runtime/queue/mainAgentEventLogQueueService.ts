@@ -2,6 +2,8 @@ import { AppDataSource } from '../../../../database'
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import type { MainAgentEventStatus } from '@share/cache/AItype/states/mainAgentEventState'
 import type {
+  MainAgentBackgroundPersonaStageEvent,
+  MainAgentBackgroundPersonaStagePayload,
   MainAgentEvent,
   MainAgentEventConsumer,
   MainAgentTaskNotificationEvent,
@@ -102,6 +104,78 @@ const toTaskNotificationEvent = (
   }
 })
 
+const normalizeTaskNotificationPayload = (
+  payloadRaw: Record<string, unknown>
+): PersistedTaskPayload | null => {
+  if (
+    typeof payloadRaw.taskId !== 'number' ||
+    typeof payloadRaw.notificationId !== 'number'
+  ) {
+    return null
+  }
+  return {
+    taskId: payloadRaw.taskId,
+    notificationId: payloadRaw.notificationId
+  }
+}
+
+const toBackgroundPersonaStageEvent = (
+  row: MainAgentEventRecord,
+  payload: MainAgentBackgroundPersonaStagePayload
+): MainAgentBackgroundPersonaStageEvent => ({
+  id: row.id,
+  type: 'background_persona_stage',
+  source: 'background_persona',
+  sessionId: row.sessionId,
+  priority: row.priority,
+  createdAt: row.createdAtMs,
+  dedupeKey: row.dedupeKey || undefined,
+  payload
+})
+
+const normalizeBackgroundPersonaStagePayload = (
+  payloadRaw: Record<string, unknown>
+): MainAgentBackgroundPersonaStagePayload | null => {
+  const backgroundTaskId =
+    typeof payloadRaw.backgroundTaskId === 'string' ? payloadRaw.backgroundTaskId.trim() : ''
+  const stageId = typeof payloadRaw.stageId === 'string' ? payloadRaw.stageId.trim() : ''
+  const stageKind = typeof payloadRaw.stageKind === 'string' ? payloadRaw.stageKind.trim() : ''
+  const title = typeof payloadRaw.title === 'string' ? payloadRaw.title.trim() : ''
+  const resumePointer =
+    typeof payloadRaw.resumePointer === 'string' ? payloadRaw.resumePointer.trim() : ''
+  const instruction =
+    typeof payloadRaw.instruction === 'string' ? payloadRaw.instruction.trim() : ''
+
+  if (!backgroundTaskId || !stageId || !stageKind || !title || !resumePointer || !instruction) {
+    return null
+  }
+
+  const input =
+    payloadRaw.input && typeof payloadRaw.input === 'object' && !Array.isArray(payloadRaw.input)
+      ? (payloadRaw.input as Record<string, unknown>)
+      : {}
+  const context =
+    payloadRaw.context && typeof payloadRaw.context === 'object' && !Array.isArray(payloadRaw.context)
+      ? (payloadRaw.context as Record<string, unknown>)
+      : undefined
+  const expectedResult =
+    typeof payloadRaw.expectedResult === 'string' && payloadRaw.expectedResult.trim()
+      ? payloadRaw.expectedResult.trim()
+      : undefined
+
+  return {
+    backgroundTaskId,
+    stageId,
+    stageKind,
+    title,
+    resumePointer,
+    instruction,
+    input,
+    expectedResult,
+    context
+  }
+}
+
 class MainAgentEventLogService {
   private get repo() {
     return AppDataSource.getRepository(MainAgentEventRecord)
@@ -147,17 +221,8 @@ class MainAgentEventLogService {
     if (!row || row.type !== 'task_notification') {
       return null
     }
-    const payloadRaw = parseJsonObject(row.payloadJson)
-    if (
-      typeof payloadRaw.taskId !== 'number' ||
-      typeof payloadRaw.notificationId !== 'number'
-    ) {
-      return null
-    }
-    return toTaskNotificationEvent(row, {
-      taskId: payloadRaw.taskId,
-      notificationId: payloadRaw.notificationId
-    })
+    const payload = normalizeTaskNotificationPayload(parseJsonObject(row.payloadJson))
+    return payload ? toTaskNotificationEvent(row, payload) : null
   }
 
   async createTaskNotificationEvent(input: {
@@ -186,6 +251,51 @@ class MainAgentEventLogService {
     })
     await this.repo.save(row)
     return toTaskNotificationEvent(row, input.payload)
+  }
+
+  async getActiveBackgroundPersonaStageEventByDedupeKey(
+    dedupeKey: string
+  ): Promise<MainAgentBackgroundPersonaStageEvent | null> {
+    const row = await this.repo.findOne({
+      where: [
+        { dedupeKey, status: 'queued' },
+        { dedupeKey, status: 'processing' }
+      ],
+      order: { persistedAt: 'DESC' }
+    })
+    if (!row || row.type !== 'background_persona_stage') {
+      return null
+    }
+    const payload = normalizeBackgroundPersonaStagePayload(parseJsonObject(row.payloadJson))
+    return payload ? toBackgroundPersonaStageEvent(row, payload) : null
+  }
+
+  async createBackgroundPersonaStageEvent(input: {
+    id: string
+    sessionId: string
+    priority: MainAgentBackgroundPersonaStageEvent['priority']
+    createdAt: number
+    dedupeKey: string
+    payload: MainAgentBackgroundPersonaStagePayload
+  }): Promise<MainAgentBackgroundPersonaStageEvent> {
+    const row = this.repo.create({
+      id: input.id,
+      type: 'background_persona_stage',
+      source: 'background_persona',
+      sessionId: input.sessionId,
+      priority: input.priority,
+      createdAtMs: input.createdAt,
+      dedupeKey: input.dedupeKey,
+      payloadJson: JSON.stringify(input.payload),
+      status: 'queued',
+      consumer: null,
+      summary: '',
+      errorMessage: '',
+      startedAt: null,
+      finishedAt: null
+    })
+    await this.repo.save(row)
+    return toBackgroundPersonaStageEvent(row, input.payload)
   }
 
   async markProcessing(eventId: string): Promise<void> {
@@ -243,37 +353,33 @@ class MainAgentEventLogService {
     const payloadRaw = parseJsonObject(row.payloadJson)
     if (row.type === 'user_message') {
       const payload = normalizePersistedUserPayload(payloadRaw)
-      if (!payload) {
-        return null
-      }
-      return toUserMessageEvent(row, payload)
+      return payload ? toUserMessageEvent(row, payload) : null
     }
-
-    if (
-      typeof payloadRaw.taskId !== 'number' ||
-      typeof payloadRaw.notificationId !== 'number'
-    ) {
-      return null
+    if (row.type === 'task_notification') {
+      const payload = normalizeTaskNotificationPayload(payloadRaw)
+      return payload ? toTaskNotificationEvent(row, payload) : null
     }
-    return toTaskNotificationEvent(row, {
-      taskId: payloadRaw.taskId,
-      notificationId: payloadRaw.notificationId
-    })
+    if (row.type === 'background_persona_stage') {
+      const payload = normalizeBackgroundPersonaStagePayload(payloadRaw)
+      return payload ? toBackgroundPersonaStageEvent(row, payload) : null
+    }
+    return null
   }
 
-  async listQueuedUserEvents(): Promise<MainAgentUserMessageEvent[]> {
+  async listQueuedEvents(): Promise<MainAgentEvent[]> {
     const rows = await this.repo.find({
-      where: { type: 'user_message', status: 'queued' },
+      where: { status: 'queued' },
       order: { createdAtMs: 'ASC', persistedAt: 'ASC' }
     })
-    return rows.flatMap((row) => {
-      const payloadRaw = parseJsonObject(row.payloadJson)
-      const payload = normalizePersistedUserPayload(payloadRaw)
-      if (!payload) {
-        return []
+
+    const events: MainAgentEvent[] = []
+    for (const row of rows) {
+      const event = await this.getEventById(row.id)
+      if (event) {
+        events.push(event)
       }
-      return [toUserMessageEvent(row, payload)]
-    })
+    }
+    return events
   }
 
   async listProcessingEvents(): Promise<MainAgentEvent[]> {
@@ -281,29 +387,13 @@ class MainAgentEventLogService {
       where: { status: 'processing' },
       order: { startedAt: 'ASC', createdAtMs: 'ASC' }
     })
+
     const events: MainAgentEvent[] = []
     for (const row of rows) {
-      const payloadRaw = parseJsonObject(row.payloadJson)
-      if (row.type === 'user_message') {
-        const payload = normalizePersistedUserPayload(payloadRaw)
-        if (!payload) {
-          continue
-        }
-        events.push(toUserMessageEvent(row, payload))
-        continue
+      const event = await this.getEventById(row.id)
+      if (event) {
+        events.push(event)
       }
-      if (
-        typeof payloadRaw.taskId !== 'number' ||
-        typeof payloadRaw.notificationId !== 'number'
-      ) {
-        continue
-      }
-      events.push(
-        toTaskNotificationEvent(row, {
-          taskId: payloadRaw.taskId,
-          notificationId: payloadRaw.notificationId
-        })
-      )
     }
     return events
   }
@@ -333,19 +423,10 @@ class MainAgentEventLogService {
 
     const events: MainAgentTaskNotificationEvent[] = []
     for (const row of rows) {
-      const payloadRaw = parseJsonObject(row.payloadJson)
-      if (
-        typeof payloadRaw.taskId !== 'number' ||
-        typeof payloadRaw.notificationId !== 'number'
-      ) {
-        continue
+      const payload = normalizeTaskNotificationPayload(parseJsonObject(row.payloadJson))
+      if (payload) {
+        events.push(toTaskNotificationEvent(row, payload))
       }
-      events.push(
-        toTaskNotificationEvent(row, {
-          taskId: payloadRaw.taskId,
-          notificationId: payloadRaw.notificationId
-        })
-      )
     }
     return events
   }

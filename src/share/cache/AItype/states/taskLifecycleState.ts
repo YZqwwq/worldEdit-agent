@@ -36,19 +36,24 @@ export type TaskNotificationStatus = 'pending' | 'processing' | 'consumed'
 
 export type TaskTraceActor = 'subagent' | 'main_agent' | 'user' | 'system'
 
-export type MainAgentInboxSource = 'user' | 'task_queue'
-export type MainAgentEventType = 'user_message' | 'task_notification'
-export type MainAgentEventPriority = 'interactive' | 'background'
+export type MainAgentInboxSource = 'user' | 'task_queue' | 'background_persona'
+export type MainAgentEventType =
+  | 'user_message'
+  | 'task_notification'
+  | 'background_persona_stage'
+export type MainAgentEventPriority = 'interactive' | 'deferred' | 'idle'
 export type MainAgentEventConsumer =
   | 'chat_runtime'
   | 'task_notification_consumer'
   | 'lifecycle_control'
+  | 'background_persona_stage_consumer'
 
 export type MainAgentDispatchState =
   | 'idle'
   | 'user-active'
-  | 'tasklist-active'
-  | 'active'
+  | 'task-active'
+  | 'background-active'
+  | 'mixed-active'
   | 'processing'
 
 export type TaskTraceStage =
@@ -129,7 +134,8 @@ export interface TaskTraceSnapshot {
 export interface TaskDispatchSnapshot {
   state: MainAgentDispatchState
   queuedUserCount: number
-  queuedTaskCount: number
+  queuedTaskNotificationCount: number
+  queuedBackgroundCount: number
   totalQueued: number
   currentSource?: MainAgentInboxSource
   currentEventType?: MainAgentEventType
@@ -168,9 +174,28 @@ export interface MainAgentTaskNotificationEvent extends MainAgentEventBase {
   payload: MainAgentTaskNotificationPayload
 }
 
+export interface MainAgentBackgroundPersonaStagePayload {
+  backgroundTaskId: string
+  stageId: string
+  stageKind: string
+  title: string
+  resumePointer: string
+  instruction: string
+  input: Record<string, unknown>
+  expectedResult?: string
+  context?: Record<string, unknown>
+}
+
+export interface MainAgentBackgroundPersonaStageEvent extends MainAgentEventBase {
+  type: 'background_persona_stage'
+  source: 'background_persona'
+  payload: MainAgentBackgroundPersonaStagePayload
+}
+
 export type MainAgentEvent =
   | MainAgentUserMessageEvent
   | MainAgentTaskNotificationEvent
+  | MainAgentBackgroundPersonaStageEvent
 
 export interface MainAgentEffectBase {
   eventId: string
@@ -225,6 +250,14 @@ export interface MainAgentStreamErrorEffect extends MainAgentEffectBase {
   message: string
 }
 
+export interface MainAgentRecordInteractionObservationEffect extends MainAgentEffectBase {
+  type: 'record_interaction_observation'
+  observationType: import('./interactionObservation').InteractionObservationType
+  source: import('./interactionObservation').InteractionObservationSource
+  summary?: string
+  payload?: Record<string, unknown>
+}
+
 export type MainAgentEffect =
   | MainAgentSaveMessageEffect
   | MainAgentUpdateChatTurnEffect
@@ -232,6 +265,7 @@ export type MainAgentEffect =
   | MainAgentEmitTraceEffect
   | MainAgentStreamDoneEffect
   | MainAgentStreamErrorEffect
+  | MainAgentRecordInteractionObservationEffect
 
 export interface MainAgentEventConsumptionResult {
   handled: boolean

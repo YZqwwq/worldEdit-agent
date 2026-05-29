@@ -6,8 +6,15 @@ export type InteractionObservationType =
   | 'task_failed'
   | 'task_needs_input'
   | 'task_cancelled'
+  | 'background_persona_stage_completed'
+  | 'background_persona_stage_failed'
 
-export type InteractionObservationSource = 'user' | 'main_agent' | 'task_queue' | 'system'
+export type InteractionObservationSource =
+  | 'user'
+  | 'main_agent'
+  | 'task_queue'
+  | 'background_persona'
+  | 'system'
 
 export interface InteractionObservationSnapshot {
   id: number

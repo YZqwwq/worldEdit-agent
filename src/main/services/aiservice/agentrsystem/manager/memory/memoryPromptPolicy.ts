@@ -21,8 +21,8 @@ export const buildMemoryPromptPlan = (
   const slotPrompt = buildMemorySlotPrompt(slots)
 
   const recentStagePrompt =
-    memory.shortTerm.length < 2 && memory.recentStages.length > 0
-      ? buildRecentStagePrompt(memory.recentStages.slice(0, 1))
+    memory.recentStages.length > 0
+      ? buildRecentStagePrompt(memory.recentStages.slice(0, 3))
       : ''
 
   return {

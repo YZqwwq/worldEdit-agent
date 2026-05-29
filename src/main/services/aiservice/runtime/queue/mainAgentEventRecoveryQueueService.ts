@@ -4,31 +4,47 @@ import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
 import { mainAgentTurnService } from '../mainAgentTurnService'
 
 class MainAgentEventRecoveryService {
-  async reconcileUserMessageEvents(): Promise<void> {
+  async reconcileTurnOwnedEvents(): Promise<void> {
     const processingEvents = await mainAgentEventLogService.listProcessingEvents()
 
     for (const event of processingEvents) {
-      if (event.type !== 'user_message') {
+      if (event.type !== 'user_message' && event.type !== 'background_persona_stage') {
         continue
       }
 
       const turn = await mainAgentTurnService.findByEventId(event.id)
       if (turn?.status === 'completed' || turn?.status === 'interrupted') {
         await mainAgentEventLogService.markCompleted(event.id, {
-          consumer: 'chat_runtime',
-          summary: turn.status === 'completed' ? 'user_message_completed' : 'user_message_interrupted'
+          consumer:
+            event.type === 'user_message'
+              ? 'chat_runtime'
+              : 'background_persona_stage_consumer',
+          summary:
+            event.type === 'user_message'
+              ? turn.status === 'completed'
+                ? 'user_message_completed'
+                : 'user_message_interrupted'
+              : turn.status === 'completed'
+                ? 'background_persona_stage_completed'
+                : 'background_persona_stage_interrupted'
         })
         continue
       }
 
       await mainAgentTurnService.reconcileIncompleteTurnForFailedEvent({
         eventId: event.id,
-        errorMessage: 'Main agent user_message event was interrupted before commit completed.'
+        errorMessage: 'Main agent event was interrupted before commit completed.'
       })
       await mainAgentEventLogService.markFailed(event.id, {
-        consumer: 'chat_runtime',
-        summary: 'user_message_reconciled_failed_during_startup',
-        errorMessage: 'Main agent user_message event was interrupted before commit completed.'
+        consumer:
+          event.type === 'user_message'
+            ? 'chat_runtime'
+            : 'background_persona_stage_consumer',
+        summary:
+          event.type === 'user_message'
+            ? 'user_message_reconciled_failed_during_startup'
+            : 'background_persona_stage_reconciled_failed_during_startup',
+        errorMessage: 'Main agent event was interrupted before commit completed.'
       })
     }
   }
@@ -75,8 +91,8 @@ class MainAgentEventRecoveryService {
     }
   }
 
-  async enqueueQueuedUserEvents(): Promise<void> {
-    const queuedEvents = await mainAgentEventLogService.listQueuedUserEvents()
+  async enqueueQueuedEvents(): Promise<void> {
+    const queuedEvents = await mainAgentEventLogService.listQueuedEvents()
     for (const event of queuedEvents) {
       await mainAgentDispatchService.enqueueRecoveredEvent(event)
     }

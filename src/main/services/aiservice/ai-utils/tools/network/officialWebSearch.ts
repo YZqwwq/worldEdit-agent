@@ -1,6 +1,5 @@
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
-import OpenAI from 'openai'
 import * as z from 'zod'
 import { modelConfigService } from '../../../../modelconfig/modelConfigService'
 import { defineAgentTool } from '../../core/agentTool'
@@ -26,12 +25,41 @@ const officialWebSearchOutputSchema = z.object({
 })
 
 type DashScopeSearchResult = {
+  icon?: string
+  site_name?: string
+  index?: number
   title?: string
   link?: string
   url?: string
 }
 
-const DEFAULT_DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+type DashScopeNativeGenerationResponse = {
+  output?: {
+    choices?: Array<{
+      message?: {
+        content?: string
+      }
+    }>
+    search_info?: {
+      search_results?: DashScopeSearchResult[]
+    }
+  }
+  usage?: {
+    plugins?: {
+      search?: {
+        count?: number
+        strategy?: string
+      }
+    }
+  }
+  request_id?: string
+  code?: string
+  message?: string
+}
+
+const DASHSCOPE_GENERATION_URL =
+  'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation'
+const DEFAULT_DASHSCOPE_SEARCH_MODEL = 'qwen-plus'
 const WEB_SEARCH_DEBUG_LOG_PATH = join(
   process.cwd(),
   'src/main/services/log/logs/official-web-search-debug.jsonl'
@@ -82,13 +110,29 @@ const buildSearchSummary = (input: {
   return `${conciseConclusion}\n${sourceStatus}`
 }
 
-const extractSources = (completion: unknown): Array<{ title: string; url: string }> => {
-  const candidateResults =
-    (completion as any)?.search_info?.search_results ??
-    (completion as any)?.output?.search_info?.search_results ??
-    (completion as any)?.usage?.search_info?.search_results ??
-    (completion as any)?.response_metadata?.search_info?.search_results ??
-    []
+const isResponsesOnlySearchModel = (model: string): boolean => {
+  const normalized = model.trim().toLowerCase()
+  return (
+    normalized.startsWith('qwen3.7-') ||
+    normalized.startsWith('qwen3.6-')
+  )
+}
+
+const resolveDashScopeSearchModel = (model: string): string => {
+  const explicitSearchModel = process.env.DASHSCOPE_WEB_SEARCH_MODEL?.trim()
+  if (explicitSearchModel) return explicitSearchModel
+
+  const normalized = model.trim()
+  if (!normalized || isResponsesOnlySearchModel(normalized)) {
+    return DEFAULT_DASHSCOPE_SEARCH_MODEL
+  }
+  return normalized
+}
+
+const extractSources = (
+  response: DashScopeNativeGenerationResponse
+): Array<{ title: string; url: string }> => {
+  const candidateResults = response.output?.search_info?.search_results ?? []
 
   if (!Array.isArray(candidateResults)) {
     return []
@@ -107,34 +151,27 @@ const extractSources = (completion: unknown): Array<{ title: string; url: string
     .filter((item) => item.title || item.url)
 }
 
-const extractResultCount = (completion: unknown, sources: Array<{ title: string; url: string }>): number => {
-  const directCount = (completion as any)?.usage?.plugins?.search?.count
-  if (Number.isFinite(directCount)) {
-    return Math.max(0, Number(directCount))
-  }
+const extractResultCount = (
+  _response: DashScopeNativeGenerationResponse,
+  sources: Array<{ title: string; url: string }>
+): number => {
   return sources.length
 }
 
 const resolveSearchModelConfig = async (): Promise<{
   apiKey: string
-  baseURL: string
   model: string
 }> => {
   const config = await modelConfigService.getModelConfig()
   const apiKey = config.modelKey.trim()
-  const baseURL = (config.baseURL || DEFAULT_DASHSCOPE_BASE_URL).trim()
-  const model = config.model.trim()
+  const model = resolveDashScopeSearchModel(config.model.trim())
 
   if (!apiKey) {
     throw new Error('当前未配置 DashScope API Key，无法执行官方联网搜索。')
   }
 
   if (config.vendor !== 'openai') {
-    throw new Error('当前主模型并非 OpenAI 兼容配置，无法执行 DashScope 官方联网搜索。')
-  }
-
-  if (!baseURL.toLowerCase().includes('dashscope.aliyuncs.com')) {
-    throw new Error('当前主模型 baseURL 不是 DashScope 兼容地址，无法执行官方联网搜索。')
+    throw new Error('当前主模型并非 DashScope/OpenAI 兼容配置，无法读取 DashScope API Key。')
   }
 
   if (!model) {
@@ -143,9 +180,58 @@ const resolveSearchModelConfig = async (): Promise<{
 
   return {
     apiKey,
-    baseURL,
     model
   }
+}
+
+const callDashScopeNativeWebSearch = async (input: {
+  apiKey: string
+  model: string
+  query: string
+  reason?: string
+}): Promise<DashScopeNativeGenerationResponse> => {
+  const response = await fetch(DASHSCOPE_GENERATION_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${input.apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: input.model,
+      input: {
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是联网搜索工具。请基于联网结果给出简短、可靠、可引用的结论。优先保留关键信息，不要闲聊。'
+          },
+          {
+            role: 'user',
+            content: input.reason
+              ? `搜索问题：${input.query}\n搜索目的：${input.reason}`
+              : input.query
+          }
+        ]
+      },
+      parameters: {
+        enable_search: true,
+        search_options: {
+          forced_search: true,
+          enable_source: true,
+          search_strategy: 'max'
+        },
+        result_format: 'message'
+      }
+    })
+  })
+
+  const data = (await response.json()) as DashScopeNativeGenerationResponse
+  if (!response.ok) {
+    throw new Error(
+      data.message || `DashScope native web search failed with status ${response.status}.`
+    )
+  }
+  return data
 }
 
 export const officialWebSearchTool = defineAgentTool({
@@ -193,39 +279,17 @@ export const officialWebSearchTool = defineAgentTool({
     contextRetention: 'evidence'
   },
   async execute(input) {
-    const { apiKey, baseURL, model } = await resolveSearchModelConfig()
-    const client = new OpenAI({
+    const { apiKey, model } = await resolveSearchModelConfig()
+    const response = await callDashScopeNativeWebSearch({
       apiKey,
-      baseURL
+      model,
+      query: input.query,
+      reason: input.reason
     })
 
-    const completion = await client.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            '你是联网搜索工具。请基于联网结果给出简短、可靠、可引用的结论。优先保留关键信息，不要闲聊。'
-        },
-        {
-          role: 'user',
-          content: input.reason
-            ? `搜索问题：${input.query}\n搜索目的：${input.reason}`
-            : input.query
-        }
-      ],
-      temperature: 0.2,
-      enable_search: true,
-      search_options: {
-        forced_search: true,
-        enable_source: true,
-        search_strategy: 'turbo'
-      }
-    } as any)
-
-    const rawAnswer = completion.choices?.[0]?.message?.content?.trim() || ''
-    const sources = extractSources(completion)
-    const resultCount = extractResultCount(completion, sources)
+    const rawAnswer = response.output?.choices?.[0]?.message?.content?.trim() || ''
+    const sources = extractSources(response)
+    const resultCount = extractResultCount(response, sources)
     const usedSearch = true
     const hasStructuredSources = resultCount > 0 || sources.length > 0
     const summary = buildSearchSummary({
@@ -240,11 +304,12 @@ export const officialWebSearchTool = defineAgentTool({
         model,
         query: input.query,
         reason: input.reason ?? null,
+        protocol: 'dashscope_native_generation',
         enable_search: true,
         search_options: {
           forced_search: true,
           enable_source: true,
-          search_strategy: 'turbo'
+          search_strategy: 'max'
         }
       },
       parsed: {
@@ -256,18 +321,13 @@ export const officialWebSearchTool = defineAgentTool({
         sources,
         rawAnswerPreview: rawAnswer.slice(0, 500),
         candidatePaths: {
-          search_info: safeSerialize((completion as any)?.search_info),
-          output_search_info: safeSerialize((completion as any)?.output?.search_info),
-          usage_search_info: safeSerialize((completion as any)?.usage?.search_info),
-          response_metadata_search_info: safeSerialize(
-            (completion as any)?.response_metadata?.search_info
-          ),
-          usage_plugins_search: safeSerialize((completion as any)?.usage?.plugins?.search),
-          choices0_message: safeSerialize((completion as any)?.choices?.[0]?.message),
-          usage: safeSerialize((completion as any)?.usage)
+          output_search_info: safeSerialize(response.output?.search_info),
+          usage_plugins_search: safeSerialize(response.usage?.plugins?.search),
+          output_choice0_message: safeSerialize(response.output?.choices?.[0]?.message),
+          usage: safeSerialize(response.usage)
         }
       },
-      rawCompletion: safeSerialize(completion)
+      rawCompletion: safeSerialize(response)
     })
 
     return {
@@ -307,12 +367,12 @@ export const officialWebSearchTool = defineAgentTool({
       ]
     }
     return [
-      '工具已执行强制联网搜索，但没有返回结构化来源；回答时不要声称掌握了可引用链接。',
-      '如果结果看起来不够稳定，可换更具体的 query 再搜一次。'
+      '工具已执行 DashScope 原生强制联网搜索；如果 summary 非空，应先基于 summary 作答。',
+      '没有结构化来源时，不要声称掌握了可引用链接，也不要重复搜索同一 query。'
     ]
   },
   failureSuggestions: [
-    '确认当前模型配置使用的是 DashScope OpenAI 兼容地址与有效 API Key。',
+    '确认当前模型配置使用的是有效 DashScope API Key。',
     '如果问题不依赖最新资料，请改用常规回答而不是继续强行联网。'
   ]
 })

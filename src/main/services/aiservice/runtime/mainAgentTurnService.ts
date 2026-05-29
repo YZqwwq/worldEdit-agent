@@ -141,6 +141,34 @@ class MainAgentTurnService {
     return saved
   }
 
+  async createBackgroundPersonaStageTurn(input: {
+    eventId: string
+    sessionId: string
+  }): Promise<MainAgentTurnRecord> {
+    const existing = await this.repo.findOneBy({ eventId: input.eventId })
+    if (existing) {
+      return existing
+    }
+
+    const memoryCheckpoint = await memoryManager.getCheckpoint()
+    const turn = this.repo.create({
+      eventId: input.eventId,
+      sessionId: input.sessionId,
+      consumer: 'background_persona_stage_consumer',
+      status: 'queued',
+      userMessageId: null,
+      aiMessageId: null,
+      reversible: 0,
+      memoryCheckpointJson: JSON.stringify(memoryCheckpoint),
+      errorMessage: '',
+      startedAt: null,
+      completedAt: null,
+      interruptedAt: null,
+      revertedAt: null
+    })
+    return this.repo.save(turn)
+  }
+
   async findByEventId(eventId: string): Promise<MainAgentTurnRecord | null> {
     return this.repo.findOneBy({ eventId })
   }

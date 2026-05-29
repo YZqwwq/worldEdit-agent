@@ -50,7 +50,10 @@
               用户队列 {{ snapshot.dispatch.queuedUserCount }}
             </span>
             <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
-              子队列 {{ snapshot.dispatch.queuedTaskCount }}
+              任务回流 {{ snapshot.dispatch.queuedTaskNotificationCount }}
+            </span>
+            <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+              后台 {{ snapshot.dispatch.queuedBackgroundCount }}
             </span>
           </div>
 
@@ -471,17 +474,19 @@ const hasInspection = (execution: TaskExecutionSnapshot): boolean =>
 
 const formatDispatchState = (state: MainAgentDispatchState): string => {
   if (state === 'processing') return '处理中'
-  if (state === 'active') return '双源待处理'
+  if (state === 'mixed-active') return '多队列待处理'
   if (state === 'user-active') return '等待用户消息'
-  if (state === 'tasklist-active') return '等待子队列消息'
+  if (state === 'task-active') return '等待任务回流'
+  if (state === 'background-active') return '等待后台阶段'
   return '空闲'
 }
 
 const dispatchStateClass = (state: MainAgentDispatchState): string => {
   if (state === 'processing') return 'bg-emerald-50 text-emerald-700'
-  if (state === 'active') return 'bg-amber-50 text-amber-700'
+  if (state === 'mixed-active') return 'bg-amber-50 text-amber-700'
   if (state === 'user-active') return 'bg-sky-50 text-sky-700'
-  if (state === 'tasklist-active') return 'bg-indigo-50 text-indigo-700'
+  if (state === 'task-active') return 'bg-indigo-50 text-indigo-700'
+  if (state === 'background-active') return 'bg-violet-50 text-violet-700'
   return 'bg-slate-100 text-slate-600'
 }
 

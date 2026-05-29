@@ -2,7 +2,10 @@ import { Annotation, messagesStateReducer } from '@langchain/langgraph'
 import { BaseMessage } from '@langchain/core/messages'
 import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
 import type { MoodAssessment } from '@share/cache/AItype/states/moodAssessment'
-import type { TaskLifecycleState } from '@share/cache/AItype/states/taskLifecycleState'
+import type {
+  MainAgentBackgroundPersonaStagePayload,
+  TaskLifecycleState
+} from '@share/cache/AItype/states/taskLifecycleState'
 import type { ExpressionPromptProfileState } from '@share/cache/AItype/states/expressionPromptProfile'
 import type { AgentToolContextRetention } from '../../ai-utils/core/agentTool'
 
@@ -55,6 +58,10 @@ export const MessagesState = Annotation.Root({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),
+  backgroundPersonaStage: Annotation<MainAgentBackgroundPersonaStagePayload | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
   toolEvidenceContext: Annotation<ToolContextItem[]>({
     reducer: (_x, y) => y ?? [],
     default: () => []
@@ -75,7 +82,7 @@ export const MessagesState = Annotation.Root({
     reducer: (_x, y) => y ?? [],
     default: () => []
   }),
-  enabledExtensionTools: Annotation<string[]>({
+  activeToolsets: Annotation<string[]>({
     reducer: (x, y) => {
       const merged = new Set<string>(x ?? [])
       for (const item of y ?? []) {
@@ -85,6 +92,30 @@ export const MessagesState = Annotation.Root({
       }
       return [...merged]
     },
+    default: () => []
+  }),
+  activeTools: Annotation<string[]>({
+    reducer: (x, y) => {
+      const merged = new Set<string>(x ?? [])
+      for (const item of y ?? []) {
+        if (typeof item === 'string' && item.trim()) {
+          merged.add(item.trim())
+        }
+      }
+      return [...merged]
+    },
+    default: () => []
+  }),
+  quickToolsets: Annotation<string[]>({
+    reducer: (_x, y) => y ?? [],
+    default: () => []
+  }),
+  quickTools: Annotation<string[]>({
+    reducer: (_x, y) => y ?? [],
+    default: () => []
+  }),
+  suppressedTools: Annotation<string[]>({
+    reducer: (x, y) => y ?? x ?? [],
     default: () => []
   })
 })

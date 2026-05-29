@@ -7,6 +7,10 @@ import { contentToText } from '../../../messageoutput/transformRespones'
 export async function memoryNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
+  if (state.backgroundPersonaStage) {
+    return {}
+  }
+
   const messages = state.messages
   
   // 策略：找到本轮对话中的 User 消息和 AI 消息并保存

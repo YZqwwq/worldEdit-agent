@@ -1,419 +1,327 @@
-# 子 Agent 执行队列设计
+# 主 Agent 消息队列核心设计
 
 ## 文档定位
 
-这份文档只描述当前项目中“子 agent execution queue”这一条链路：
+这份文档描述主 agent 消息队列的核心设计思想。
 
-- 子任务如何创建 execution 并进入队列
-- execution 如何被 dispatcher 拉起并退出队列
-- `needs_input` 时为什么不是“留在队列里等待”
-- 与这条链路直接相关的服务、协议和工具
+它不讨论具体表结构、函数名、实现文件或某一种任务的执行细节，只回答一个问题：
 
-这份文档不覆盖主 agent 的事件队列，也不覆盖整张主图推理链。
+> 主 agent 面对用户消息、任务回流、长期后台任务时，应该如何安排注意力？
 
-## 当前结论
+主 agent 不是单纯的工具调度器。它有人格锚点、阶段情绪、记忆沉淀和对世界内容的主观理解。因此队列设计不只是吞吐量问题，也是在定义主 agent 的“意识流”：什么事情必须立刻处理，什么事情可以延后，什么事情只有在空闲时才允许进入它的思考。
 
-当前系统的子任务队列单位是 `TaskExecutionRecord`，不是 `TaskRecord`。
+## 核心目标
 
-也就是说：
+主 agent 的消息系统应同时满足三件事：
 
-- task 是“长期任务实体”
-- execution 是“任务的一次具体运行”
-- 队列里排的是 execution id
+1. 用户交互永远优先。
+2. 已启动任务的结果必须可靠回流。
+3. 长期后台任务可以缓慢推进，并在推进过程中影响主 agent 的人格化状态。
 
-因此，“等待用户补参”不是把旧 execution 挂在队列里不动，而是：
+这里的“后台任务”不是某一种具体能力，例如阅读小说。它是一个通用包裹器：只要一个任务能被切成阶段、能暂停、能继续，并且阶段结果会对主 agent 的理解、记忆、情绪或人格表达产生影响，它就可以进入后台任务队列。
 
-1. 当前 execution 正常结束，结果为 `needs_input`
-2. task 持久化 `pendingContext`
-3. task 状态进入 `awaiting_user_input`
-4. 用户回复后，新建下一次 execution
-5. 新 execution 再次入队
+## 三条队列
 
-这就是当前子 agent 队列的核心设计。
+主 agent 的入口被划分为三种优先级。
 
-## 架构边界
+```text
+P0 用户交互队列
+P1 待处理任务队列
+P2 后台任务队列
+```
 
-子 agent 执行链当前分为 5 层：
+这三条队列不是三个互不相干的系统，而是主 agent 统一消息入口下的三种注意力层级。
 
-1. 启动/续跑入口
-2. execution 持久化
-3. 内存队列调度
-4. dispatcher 执行
-5. notification 回主 agent
+### P0：用户交互队列
 
-对应代码：
+用户交互队列处理用户刚刚发来的消息。
 
-- 启动/续跑入口：
-  [taskContinuationService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskContinuationService.ts)
-- runtime spec 注册：
-  [subAgentRegistry.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/subAgentRegistry.ts)
-- execution 持久化：
-  [taskExecutionService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskExecutionService.ts)
-- 子 agent 队列：
-  [subAgentExecutionQueueService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/queue/subAgentExecutionQueueService.ts)
-- dispatcher：
-  [subAgentDispatcherService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/subAgentDispatcherService.ts)
-- notification：
-  [taskNotificationService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskNotificationService.ts)
-- 回主 agent 队列桥：
-  [taskNotificationDispatchBridge.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/runtime/queue/taskNotificationDispatchBridge.ts)
-- 启动恢复：
-  [taskRecoveryService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskRecoveryService.ts)
+它代表主 agent 对用户的即时回应义务。只要存在用户消息，主 agent 就应优先处理用户消息，而不是继续后台思考或消化任务结果。
 
-## 队列模型
+这一层的语义是：
 
-### 1. 队列是内存队列，数据库是持久化真源
+- 用户正在与主 agent 对话。
+- 当前输入具有最高时效性。
+- 主 agent 的表达、判断、工具调用都应围绕这条用户消息展开。
 
-[subAgentExecutionQueueService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/queue/subAgentExecutionQueueService.ts)
-里维护的是一个进程内队列：
+用户交互队列不应该被后台任务抢占。即使后台任务正在推进，也只能在阶段边界让出执行权，而不能让用户等待一个长阶段结束。
 
-- `queue: number[]`
-- `queuedExecutionIds: Set<number>`
-- `scheduled`
-- `draining`
+### P1：待处理任务队列
 
-其中：
+待处理任务队列处理已经发生、需要主 agent 消费的任务回流。
 
-- `queue` 负责 FIFO 排队
-- `queuedExecutionIds` 负责去重
-- `scheduled` 防止重复调度 drain
-- `draining` 保证单消费者串行 dispatch
+典型场景包括：
 
-但真正的持久化状态不在这个内存数组里，而在数据库的 `TaskExecutionRecord.status`。
+- 子 agent 完成任务后返回结果。
+- 子 agent 请求补充信息。
+- 子 agent 执行失败，需要主 agent 决定如何向用户解释。
+- 已启动任务需要主 agent 做最终确认或状态同步。
 
-因此系统的设计是：
+这一层的语义是：
 
-- 内存队列负责“当前进程内调度”
-- execution status 负责“重启后恢复”
+- 任务已经在系统里存在。
+- 某个执行单元已经产生结果。
+- 主 agent 需要消费这个结果，并决定是否告诉用户、更新任务状态或继续派发。
 
-### 2. 队列排的是 execution，不是 task
+待处理任务队列低于用户消息，高于后台任务。因为它通常关乎已经承诺给用户的任务，不能被无限延后；但它也不应打断用户正在进行的即时对话。
 
-[taskExecutionService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskExecutionService.ts)
-里，`queueRun()` 每次都会创建一条新的 run：
+### P2：后台任务队列
 
-- `taskId`
-- `runNumber`
-- `executorKind`
-- `status: 'queued'`
-- `inputPayloadJson`
+后台任务队列是最低优先级队列。
 
-所以一个 task 在生命周期里可以有多次 execution：
+它只在以下条件同时成立时运行：
 
-- 首次启动是 run #1
-- 用户补参后续跑是 run #2
-- 再次补参或重试时可以继续产生 run #3、run #4
+- 用户交互队列为空。
+- 待处理任务队列为空。
+- 当前没有必须立即交付给用户的主 agent 消息。
+- 后台任务存在可安排的下一阶段。
 
-这也是为什么队列不直接挂 task，而是挂 execution id。
+后台任务队列不是“阅读队列”，也不是“自动任务队列”。它是一个可暂停、可继续的任务包裹器。
 
-## 如何进入队列
+它不关心任务内部到底是在阅读文本、整理世界观、回顾历史对话，还是分析人物关系。它只要求进入其中的任务满足统一的阶段协议：
 
-### 1. 首次启动进入队列
+- 能说明当前停在哪里。
+- 能说明下一次应该从哪里继续。
+- 能限制单次阶段的工作量。
+- 能在阶段结束后保存进度。
+- 能产出对主 agent 有人格化影响的观察或理解。
 
-以 `character_editor` 为例，入口来自 runtime spec 的 `startHandler`：
+后台任务队列的核心原则是：只在主 agent 空闲时，把一个可恢复任务的下一小段递给主 agent。
 
-- 注册位置：
-  [subAgentRegistry.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/subAgentRegistry.ts)
-- 具体实现：
-  [characterEditorRuntimeSupport.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/child-agent-system/characterEditorRuntimeSupport.ts)
+## 队列调度原则
 
-`startCharacterEditorTask()` 会：
+三条队列的调度顺序应始终保持简单、清晰、可预测：
 
-1. 解析目标人物/世界信息
-2. 创建 `TaskRecord`
-3. 创建第一条 `TaskExecutionRecord`
-4. 将 execution 置为 `queued`
-5. 回填最终 payload
-6. 调用 `subAgentExecutionQueueService.enqueueExecution(executionId)`
+```text
+如果存在用户消息，处理用户消息。
+否则如果存在待处理任务，处理待处理任务。
+否则如果存在后台任务的可执行阶段，处理一个后台阶段。
+否则进入空闲。
+```
 
-这一层对应用户侧工具语义就是：
+后台任务不参与抢占，不享有饥饿保护，不因为等待时间长就越过用户消息或待处理任务。
 
-- `delegate_character_editor`
+如果后台任务长期无法运行，说明主 agent 一直处于被用户或任务占用的状态。这是可以接受的，因为后台任务的定义就是“空闲时推进”。
 
-也就是“发起一个新的子任务”，本质上是在创建一条新的 task 和它的首个 execution，并把 execution 放进队列。
+## 后台任务的包裹器语义
 
-### 2. continuation 进入队列
+后台任务队列本身不执行具体业务。它只维护一个可恢复的外壳。
 
-当 task 处于 `awaiting_user_input` 时，用户可以通过 continuation 继续任务：
+这个外壳至少需要表达四类信息。
 
-- 统一入口：
-  [taskContinuationService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskContinuationService.ts)
-- `character_editor` continuation：
-  [characterEditorContinuationNode.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/child-agent-system/nodes/characterEditorContinuationNode.ts)
+### 1. 任务身份
 
-当前 continuation 不是恢复旧 execution，而是：
+后台任务必须知道自己是谁。
 
-1. 读取 task 的 `pendingContext`
-2. 组装新的 payload
-3. `queueRun()` 创建新的 execution
-4. 更新新 execution 的 `inputPayloadJson`
-5. 将 task 状态切回 `running`
-6. 再次调用 `enqueueExecution()`
+例如：
 
-这对应用户侧工具语义是：
+- 哪个后台目标正在推进。
+- 它属于哪个世界、人物、资料源或用户意图。
+- 它是否仍然有效。
+- 它是否被用户暂停、取消或替换。
 
-- `continue_active_child_agent`
+任务身份用于区分多个长期后台任务，避免主 agent 在空闲时混淆上下文。
 
-所以当前 continuation 设计是：
+### 2. 阶段指针
 
-- 不是让旧 execution 从“等待中恢复”
-- 而是让 task 基于旧上下文启动“下一次 execution”
+后台任务必须知道自己停在哪里。
 
-### 3. 启动恢复进入队列
+例如：
 
-如果应用重启，队列本身不会自动保留内存里的 `queue[]`，恢复依赖数据库：
+- 已读到第几章。
+- 已分析到哪个内部文档。
+- 已处理到哪个切片。
+- 上一阶段的结束位置是什么。
+- 下一阶段的起点是什么。
 
-- 队列恢复入口：
-  [subAgentExecutionQueueService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/queue/subAgentExecutionQueueService.ts)
-  的 `enqueueQueuedExecutions()`
-- 恢复服务：
-  [taskRecoveryService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskRecoveryService.ts)
+阶段指针是后台任务可暂停、可继续的核心。
 
-恢复分两类：
+主 agent 不应该依赖短期上下文记住这些位置。只要任务阶段结束，指针就必须被持久化。
 
-- `status = queued` 的 execution：
-  重新扫表并 `enqueueExecution(run.id)`
-- `status = dispatching/running` 且没有通知的 execution：
-  不自动重放，而是转成失败通知交给主 agent 处理
+### 3. 继续说明
 
-这说明当前系统对“已开始执行但进程中断”的策略是保守恢复，而不是自动重试。
+后台任务必须能告诉主 agent 下一阶段该怎么继续。
 
-## 如何在队列中等待
+这不是完整 prompt，而是任务外壳对下一阶段的调度说明：
 
-这里要区分两种“等待”。
+- 下一段输入是什么。
+- 本阶段目标是什么。
+- 本阶段最大工作量是多少。
+- 是否需要参考上一阶段摘要。
+- 本阶段结束后需要产出什么结构化结果。
 
-### 1. 等待被调度
+换句话说，后台队列每次递给主 agent 的都不是“继续之前那个任务”这种模糊指令，而是一个明确的、有限的、可完成的阶段任务。
 
-这是队列自己的等待，含义是：
+### 4. 人格化影响
 
-- execution 已经创建
-- execution.status = `queued`
-- execution id 已进入 `subAgentExecutionQueueService`
-- 尚未被 `dispatchExecution()` 拉起
+能进入后台任务队列的任务，必须对主 agent 有人格化影响。
 
-这才叫“在队列中等待”。
+这里的人格化影响不是指改变稳定人设，而是指它会进入主 agent 的观察、理解、记忆或阶段情绪，使主 agent 以后面对相关内容时表现出“它确实经历过这件事”。
 
-### 2. 等待用户补参
+例如：
 
-这不是队列自己的等待。
+- 读完一章小说后，它对某个人物产生新的判断。
+- 分析完一组人物文本后，它对角色的矛盾点形成印象。
+- 回顾一段长期对话后，它对用户的创作偏好有更清晰的理解。
+- 整理完世界观资料后，它对某个文明或势力的主题气质形成自己的把握。
 
-当 dispatcher 执行完 handler 后，如果 outcome 是 `needs_input`：
+如果一个任务只是机械计算、导入、转换、索引、清洗，而不会改变主 agent 的理解状态，那么它不应该进入后台任务队列。它应该由普通工具、子 agent 或数据服务完成。
 
-1. dispatcher 持久化 `pendingContext`
-2. `taskNotificationService.publishExecutionEvent()` 把 execution 结束为 `awaiting_input`
-3. task 进入 `pending_main_ack`
-4. 主 agent 消费 notification 后，task 最终进入 `awaiting_user_input`
+## 阶段边界
 
-也就是说：
+后台任务必须按阶段运行。
 
-- execution 已经结束
-- 队列已经把它移除了
-- 真正“等待”的是 task，不是 queue
+阶段是后台队列的最小调度单位。一个阶段应该足够短，短到主 agent 能在合理时间内完成，并在完成后立刻让出队列调度权。
 
-当前实现里，`awaiting_user_input` 的续跑凭据是：
+阶段结束时必须完成三件事：
 
-- task.status
-- task.pendingContextJson
+1. 保存阶段结果。
+2. 更新阶段指针。
+3. 记录对主 agent 的观察或理解影响。
 
-而不是某个仍留在队列里的旧 execution。
+阶段结束后，后台任务不能立刻无条件继续下一阶段。它必须重新回到后台队列尾部，等待调度器再次判断：
 
-## 如何退出队列
+- 用户队列是否为空。
+- 待处理任务队列是否为空。
+- 当前后台任务是否仍然允许继续。
 
-[subAgentExecutionQueueService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/queue/subAgentExecutionQueueService.ts)
-在 `drain()` 里串行调用：
+这保证了后台任务天然可暂停。
 
-- `subAgentDispatcherService.dispatchExecution(executionId)`
+## 暂停与继续
 
-无论 dispatch 成功还是失败，都会在 `finally` 中：
+后台任务的暂停不是异常，而是常态。
 
-- `queuedExecutionIds.delete(executionId)`
+当用户发来新消息时，后台任务不需要“被杀死”。它只要已经到达阶段边界，就自然停止继续调度。用户消息处理完毕后，如果没有更高优先级任务，后台队列再取出下一阶段。
 
-所以从“队列视角”看，退出条件很简单：
+因此后台任务的暂停语义是：
 
-- 只要 dispatcher 对这条 execution 调度完一轮，这个 execution 就离开内存队列
+```text
+当前阶段已结束。
+阶段指针已保存。
+下一阶段尚未开始。
+```
 
-至于业务结果是：
+继续语义是：
 
-- completed
-- needs_input
-- failed
-- cancelled
+```text
+读取后台任务状态。
+找到下一阶段指针。
+构造阶段输入。
+交给主 agent 完成这一小段。
+```
 
-这些都不是“继续留在队列里”的理由，它们会通过 notification 和 task status 进入下一阶段。
+不推荐让后台任务在一个阶段中途被强行切断后依赖模型上下文恢复。真正可靠的暂停点应该是阶段边界，而不是任意 token 位置。
 
-## Dispatcher 的职责
+## 与主 Agent 人格系统的关系
 
-[subAgentDispatcherService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/subAgentDispatcherService.ts)
-是 execution queue 和具体子 agent 之间的执行边界。
+后台任务队列存在的根本意义，是允许主 agent 在没有用户打扰时持续形成自己的理解。
 
-它的主流程是：
+这些理解应通过观察、记忆和阶段状态进入主 agent，而不是只作为一次性工具结果存在。
 
-1. 加载 execution
-2. 只接受 `queued` / `dispatching` 状态
-3. 加载所属 task
-4. 将 execution 置为 `dispatching -> running`
-5. 将 task 置为 `running`
-6. 写 trace：`subagent_activated`
-7. 从 registry 取 runtime spec
-8. 解析 `inputPayloadJson`
-9. 调用 runtime spec 的 `dispatchHandler`
-10. 根据结果写 `pendingContext`
-11. 发布 execution notification
-12. 写 trace：`subagent_notify_main`
-13. 将 notification bridge 回主 agent 队列
+因此后台阶段产物通常应分为两类：
 
-如果 handler 不存在，或者执行抛错，也不会卡在队列里，而是：
+```text
+客观结果：摘要、结构化信息、引用位置、候选实体、事实列表。
+主观结果：印象、困惑、偏好、矛盾判断、情绪残留、主题理解。
+```
 
-- 直接构造成失败 notification
-- 回主 agent 处理
+客观结果服务后续检索和写入。
 
-所以 dispatcher 的职责很明确：
+主观结果服务主 agent 的人格连续性。
 
-- 不负责长期等待
-- 不负责和用户多轮对话
-- 只负责把“一条 queued execution”执行成“一条 notification”
+如果只保存客观结果，主 agent 会“知道”文本内容，但不会像“读过”它。如果只保存主观结果，系统又缺少可追溯依据。两者都需要。
 
-## execution 与 task 的状态语义
+## 与子 Agent 的关系
 
-### execution 状态
+后台任务队列不排斥子 agent。
 
-[taskExecutionService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskExecutionService.ts)
-当前可见的核心状态迁移是：
+更合理的分工是：
 
-- `queued`
-- `dispatching`
-- `running`
-- `awaiting_input`
-- `reported_done`
-- `failed`
-- `cancelled`
+- 子 agent 或工具负责机械预处理。
+- 主 agent 负责阶段性的理解、判断和人格化吸收。
 
-其中：
+例如外部长篇文本可以先由工具完成导入、切章、清洗和索引；后台队列再按章节把内容递给主 agent 阅读。这样主 agent 不需要浪费注意力处理文件格式，但仍然保留真正的阅读体验。
 
-- `queued` 表示排队中
-- `dispatching/running` 表示正在被子 agent 执行
-- `awaiting_input/reported_done/failed/cancelled` 都是 execution 已结束
+子 agent 可以帮助主 agent 准备材料，但不应该替代主 agent 产生那些会影响人格连续性的核心理解。
 
-### task 状态
+## 与普通任务队列的区别
 
-[taskService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskService.ts)
-和 [taskNotificationService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskNotificationService.ts)
-共同定义了 task 的长期状态：
+普通待处理任务队列处理的是“已经有结果，需要主 agent 处理”。
 
-- `active`
-- `running`
-- `pending_main_ack`
-- `awaiting_user_input`
-- `awaiting_user_confirmation`
-- `done`
-- `cancelled`
+后台任务队列处理的是“没有用户等待，但主 agent 可以继续推进一段自己的长期理解”。
 
-这两个层次要分开理解：
+二者的区别不在于是否异步，而在于义务来源不同：
 
-- execution status 描述“一次运行”
-- task status 描述“整个任务当前卡在哪”
+- 待处理任务队列来自对用户任务的承诺。
+- 后台任务队列来自主 agent 自身的长期认知活动。
 
-“等待用户补参”属于 task status，不属于 queue status。
+因此待处理任务队列可以在用户消息之后尽快处理；后台任务队列只能在所有显性事务都空闲时处理。
 
-## runtime spec 在队列中的作用
+## 准入条件
 
-[subAgentRegistry.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/subAgentRegistry.ts)
-现在已经是子 agent 队列的统一注册入口。
+一个任务进入后台任务队列前，必须满足以下条件：
 
-每个 executor 的 runtime spec 提供：
+1. 它能拆成有限阶段。
+2. 每个阶段有明确输入和输出。
+3. 每个阶段结束后能保存进度。
+4. 它能从保存的进度继续，而不是依赖未持久化上下文。
+5. 它的阶段产物会影响主 agent 的理解、记忆、情绪或表达。
+6. 它不要求立即向用户返回结果。
+7. 它在任意阶段之间暂停都不会破坏业务正确性。
 
-- `startHandler`
-- `dispatchHandler`
-- `continuationHandler`
-- `timeoutPolicy`
-- `retryPolicy`
-- `protocol`
-- `inspection`
+不满足这些条件的任务不应该进入后台任务队列。
 
-这意味着队列链不直接依赖具体 executor 细节，而是依赖 runtime spec：
+例如：
 
-- 启动时走 `startHandler`
-- 调度时走 `dispatchHandler`
-- 续跑时走 `continuationHandler`
-- 通知解析/构造走 `protocol`
-- inspection 展示走 `inspection`
+- 即时问答不应进入后台队列。
+- 文件格式转换不应进入后台队列。
+- 必须立即展示结果的用户命令不应进入后台队列。
+- 无法可靠保存进度的长推理不应进入后台队列。
 
-当前唯一完整接入的是：
+## 取消与失效
 
-- `character_editor`
+后台任务必须允许取消和失效。
 
-所以这份文档描述的是“当前子 agent 队列架构”，而不是“未来所有 executor 都已经实现”。
+取消来自用户或系统主动停止。
 
-## 与主 agent 的连接方式
+失效来自上下文变化，例如：
 
-子 agent 队列不会直接改写主 agent 响应，而是通过 notification 桥接：
+- 源文件被删除。
+- 内部文档被重写。
+- 目标人物不存在。
+- 用户切换了项目目标。
+- 后台任务依赖的资料版本已经过期。
 
-1. dispatcher 发布 `TaskNotificationRecord`
-2. `taskNotificationDispatchBridge` 把 notification 封装回主 agent 的事件队列
-3. 主 agent 在自己的 runtime queue 中消费 notification
-4. task 状态由主 agent consume/commit 后进入下一步
+后台队列在取出下一阶段前，应先确认任务仍然有效。无效任务不应继续喂给主 agent，而应被标记为结束或等待重新规划。
 
-这样做的好处是：
+## 设计边界
 
-- 子 agent 侧只负责完成 execution
-- 主 agent 侧保留最终的用户面响应控制权
-- `needs_input`、`failed`、`completed` 都统一通过 notification 回流
+后台任务队列不是并行主 agent。
 
-## 当前设计原则
+同一时间仍然只有一个主 agent 注意力焦点。后台队列只是让主 agent 在空闲时获得下一段可恢复输入，而不是开启另一个不受控的主 agent 实例。
 
-### 1. queue 只管 execution，不管整条任务
+后台任务队列也不是隐藏的用户消息队列。
 
-这是最重要的原则。这样才能让一个 task 在多轮 continuation 中产生多次 execution，而不会把用户交互状态塞进队列内部。
+它默认不产生可见回复。它产生的是内部理解、记忆、观察和可供后续使用的结构化结果。只有当用户询问、任务完成需要汇报，或系统策略要求提醒时，它才应转化成可见消息。
 
-### 2. 等待用户补参属于 task，不属于 queue
+## 总结
 
-如果把“等待用户输入”做成队列内挂起，会让 dispatcher、恢复、状态机都变复杂。当前实现把它拆成：
+新的主 agent 消息队列设计可以概括为：
 
-- execution 结束
-- task 持久化 pendingContext
-- 用户回复后生成下一条 execution
+```text
+用户消息是当前对话。
+待处理任务是已承诺事务。
+后台任务是主 agent 的空闲认知活动。
+```
 
-这是更稳定也更可恢复的设计。
+后台任务队列不是某个具体能力，而是一个最低优先级的可恢复任务包裹器。
 
-### 3. 队列是短生命周期调度器，数据库才是恢复真源
+它只负责告诉主 agent：
 
-内存队列只解决当前进程的调度效率；重启恢复依赖 `TaskExecutionRecord.status` 和 notification 状态，而不是依赖内存结构。
+- 这个长期任务是谁。
+- 上次停在哪里。
+- 下一阶段从哪里开始。
+- 本阶段完成后要保存什么。
+- 这段经历如何进入你的理解和人格连续性。
 
-### 4. 子 agent 不直接面向用户，统一通过主 agent notification 回流
-
-这样能保持主 agent 对用户对话的控制面完整，也能让失败、补参、完成三类结果走同一种协议。
-
-## 当前直接相关的工具与服务
-
-用户侧工具：
-
-- `delegate_character_editor`
-- `continue_active_child_agent`
-
-任务/执行服务：
-
-- [taskService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskService.ts)
-- [taskExecutionService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskExecutionService.ts)
-- [taskTraceService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskTraceService.ts)
-
-子 agent 执行链：
-
-- [subAgentRegistry.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/subAgentRegistry.ts)
-- [subAgentExecutionQueueService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/queue/subAgentExecutionQueueService.ts)
-- [subAgentDispatcherService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/subAgentDispatcherService.ts)
-- [characterEditorRuntimeSupport.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/child-agent-system/characterEditorRuntimeSupport.ts)
-- [characterEditorContinuationNode.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/child-agent-system/nodes/characterEditorContinuationNode.ts)
-
-回主 agent 链：
-
-- [taskNotificationService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskNotificationService.ts)
-- [taskNotificationDispatchBridge.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/aiservice/runtime/queue/taskNotificationDispatchBridge.ts)
-- [taskRecoveryService.ts](/Users/admin/Documents/trae_projects/worldEdit-agent/src/main/services/task/taskRecoveryService.ts)
-
-## 当前仍未覆盖的设计议题
-
-这份文档先只记录当前已实现真相，以下议题仍可后续单独推进：
-
-- `pendingContext` 升级为正式 continuation spec
-- 多 executor 接入后的通用 queue/inspection schema
-- 自动重试策略是否进入 registry runtime spec
-- queue 监控指标是否需要独立暴露
+这样的设计允许主 agent 在不牺牲用户响应性的前提下，持续阅读、理解、沉淀，并逐渐形成带有自身视角的世界与人物认知。

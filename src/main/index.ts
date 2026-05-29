@@ -75,9 +75,9 @@ app.whenReady().then(async () => {
   initializeAIEndpoints() // 调用
   await taskRecoveryService.recoverInterruptedExecutions()
   await subAgentExecutionQueueService.enqueueQueuedExecutions()
-  await mainAgentEventRecoveryService.reconcileUserMessageEvents()
+  await mainAgentEventRecoveryService.reconcileTurnOwnedEvents()
   await mainAgentEventRecoveryService.reconcileTaskNotificationEvents()
-  await mainAgentEventRecoveryService.enqueueQueuedUserEvents()
+  await mainAgentEventRecoveryService.enqueueQueuedEvents()
   await taskRecoveryService.enqueuePendingNotifications()
 
   createWindow()
