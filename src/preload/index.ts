@@ -39,6 +39,10 @@ import type {
   MoveCharacterNarrativeDocumentInput,
   UpdateCharacterNarrativeDocumentInput
 } from '../share/cache/worldbuilding/characterNarrativeDocument'
+import type {
+  CharacterImpressionPayload,
+  UpsertCharacterImpressionInput
+} from '../share/cache/worldbuilding/characterImpression'
 
 // Local type to ensure availability in this module
 type Api = {
@@ -174,6 +178,10 @@ type Api = {
   deleteCharacterNarrativeDocument: (
     input: DeleteCharacterNarrativeDocumentInput
   ) => Promise<void>
+  getCharacterImpression: (characterEntityId: string) => Promise<CharacterImpressionPayload | null>
+  upsertCharacterImpression: (
+    input: UpsertCharacterImpressionInput
+  ) => Promise<CharacterImpressionPayload>
 }
 
 // Custom APIs for renderer
@@ -241,7 +249,11 @@ const api: Api = {
   moveCharacterNarrativeDocument: (input) =>
     ipcRenderer.invoke('characterNarrative:moveDocument', input),
   deleteCharacterNarrativeDocument: (input) =>
-    ipcRenderer.invoke('characterNarrative:deleteDocument', input)
+    ipcRenderer.invoke('characterNarrative:deleteDocument', input),
+  getCharacterImpression: (characterEntityId) =>
+    ipcRenderer.invoke('characterImpression:get', characterEntityId),
+  upsertCharacterImpression: (input) =>
+    ipcRenderer.invoke('characterImpression:upsert', input)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

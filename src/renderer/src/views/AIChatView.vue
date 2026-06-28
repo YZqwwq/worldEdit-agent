@@ -12,6 +12,7 @@
           :show-tasks="showTasks"
           :disable-purge="isLoading || purgeConfirmLoading"
           @open-memory="openMemorySnapshot"
+          @open-character-impression="openCharacterImpressionPanel"
           @open-model-config="openModelConfig"
           @open-purge-confirm="openPurgeConfirm"
           @toggle-logs="showLogs = !showLogs"
@@ -24,6 +25,17 @@
         ref="messagesContainer"
         @scroll="handleMessagesScroll"
       >
+        <div
+          v-if="agentStage"
+          class="sticky top-0 z-10 mb-4 flex justify-start pointer-events-none"
+        >
+          <div
+            class="inline-flex max-w-[520px] items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm"
+          >
+            <span class="h-1.5 w-1.5 rounded-full bg-sky-500" />
+            <span class="truncate">{{ agentStage.label }}</span>
+          </div>
+        </div>
         <ChatMessageList
           :messages="messages"
           :participants="chatParticipants"
@@ -641,6 +653,145 @@
       </div>
     </div>
 
+    <div
+      v-if="showCharacterImpressionPanel"
+      class="absolute inset-0 z-30 flex items-center justify-center bg-black/30 px-4"
+    >
+      <div class="flex max-h-[85vh] w-full max-w-5xl flex-col rounded-xl border border-gray-200 bg-white shadow-2xl">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+          <div>
+            <h3 class="text-lg font-semibold text-gray-800">人物印象</h3>
+            <p class="mt-1 text-sm text-slate-500">
+              选择世界观和人物，查看 AI 已保存的人物画像与主观看法。
+            </p>
+          </div>
+          <button
+            type="button"
+            class="text-gray-500 hover:text-gray-700"
+            @click="closeCharacterImpressionPanel"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="grid gap-4 border-b border-slate-200 bg-slate-50/70 px-6 py-4 md:grid-cols-[1fr_1fr_auto]">
+          <label class="flex min-w-0 flex-col gap-1 text-sm text-gray-700">
+            世界观
+            <select
+              v-model="selectedImpressionWorldId"
+              class="rounded-lg border border-gray-300 bg-white px-3 py-2 outline-none focus:border-blue-500 disabled:opacity-60"
+              :disabled="impressionWorldsLoading"
+              @change="handleImpressionWorldChange"
+            >
+              <option value="">请选择世界观</option>
+              <option
+                v-for="world in impressionWorlds"
+                :key="world.id"
+                :value="world.id"
+              >
+                {{ world.name }}
+              </option>
+            </select>
+          </label>
+
+          <label class="flex min-w-0 flex-col gap-1 text-sm text-gray-700">
+            人物
+            <select
+              v-model="selectedImpressionCharacterId"
+              class="rounded-lg border border-gray-300 bg-white px-3 py-2 outline-none focus:border-blue-500 disabled:opacity-60"
+              :disabled="impressionCharactersLoading || !selectedImpressionWorldId"
+              @change="loadSelectedCharacterImpression"
+            >
+              <option value="">请选择人物</option>
+              <option
+                v-for="character in impressionCharacters"
+                :key="character.id"
+                :value="character.id"
+              >
+                {{ character.name }}
+              </option>
+            </select>
+          </label>
+
+          <div class="flex items-end">
+            <button
+              type="button"
+              class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
+              :disabled="characterImpressionLoading || !selectedImpressionCharacterId"
+              @click="loadSelectedCharacterImpression"
+            >
+              {{ characterImpressionLoading ? '刷新中...' : '刷新' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div
+            v-if="characterImpressionError"
+            class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            {{ characterImpressionError }}
+          </div>
+
+          <div v-if="impressionWorldsLoading" class="py-10 text-center text-sm text-slate-500">
+            正在读取世界观...
+          </div>
+
+          <div v-else-if="impressionWorlds.length === 0" class="py-10 text-center text-sm text-slate-500">
+            暂无世界观
+          </div>
+
+          <div v-else-if="impressionCharactersLoading" class="py-10 text-center text-sm text-slate-500">
+            正在读取人物...
+          </div>
+
+          <div v-else-if="selectedImpressionWorldId && impressionCharacters.length === 0" class="py-10 text-center text-sm text-slate-500">
+            当前世界观暂无人物
+          </div>
+
+          <div v-else-if="!selectedImpressionCharacterId" class="py-10 text-center text-sm text-slate-500">
+            请选择人物
+          </div>
+
+          <div v-else-if="characterImpressionLoading" class="py-10 text-center text-sm text-slate-500">
+            正在读取人物印象...
+          </div>
+
+          <article v-else-if="selectedCharacterImpression" class="space-y-4">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h4 class="text-base font-semibold text-slate-900">
+                    {{ selectedImpressionCharacterName }}
+                  </h4>
+                  <p class="text-xs text-slate-500">
+                    更新时间 {{ formatIsoTime(selectedCharacterImpression.updatedAt) || '暂无' }}
+                  </p>
+                </div>
+                <span class="rounded-full bg-white px-3 py-1 text-xs text-slate-500">
+                  {{ selectedCharacterImpression.structuredText.length }} 字
+                </span>
+              </div>
+              <div class="whitespace-pre-wrap break-words rounded-lg bg-white px-4 py-4 text-sm leading-7 text-slate-700">
+                {{ selectedCharacterImpression.structuredText }}
+              </div>
+            </div>
+
+            <section class="rounded-xl border border-slate-200 bg-white p-4">
+              <h4 class="mb-2 text-sm font-semibold text-slate-800">更新标识</h4>
+              <div class="whitespace-pre-wrap break-words text-xs leading-6 text-slate-500">
+                {{ selectedCharacterImpression.updateMarker || '暂无' }}
+              </div>
+            </section>
+          </article>
+
+          <div v-else class="py-10 text-center text-sm text-slate-500">
+            该人物暂无已保存的人物印象
+          </div>
+        </div>
+      </div>
+    </div>
+
     <ConfirmDialog
       v-model="showPurgeConfirm"
       title="确认清空所有 AI 数据？"
@@ -737,6 +888,11 @@ import type {
   PersonaMetrics
 } from '../../../share/cache/AItype/states/personalState'
 import type { TaskMonitorSnapshot } from '../../../share/cache/AItype/states/taskLifecycleState'
+import type {
+  WorldEntityPayload,
+  WorldPayload
+} from '../../../share/cache/worldbuilding/worldbuilding'
+import type { CharacterImpressionPayload } from '../../../share/cache/worldbuilding/characterImpression'
 
 const {
   messages,
@@ -748,7 +904,8 @@ const {
   refreshHistory,
   purgeAllData,
   resetAgentState,
-  agentLogs
+  agentLogs,
+  agentStage
 } =
   useAIChatService()
 const userInput = ref('')
@@ -767,6 +924,16 @@ const showMemorySnapshot = ref(false)
 const memorySnapshotLoading = ref(false)
 const memorySnapshotError = ref('')
 const memorySnapshotData = ref<MemoryInspectionPayload | null>(null)
+const showCharacterImpressionPanel = ref(false)
+const impressionWorlds = ref<WorldPayload[]>([])
+const impressionCharacters = ref<WorldEntityPayload[]>([])
+const selectedImpressionWorldId = ref('')
+const selectedImpressionCharacterId = ref('')
+const selectedCharacterImpression = ref<CharacterImpressionPayload | null>(null)
+const impressionWorldsLoading = ref(false)
+const impressionCharactersLoading = ref(false)
+const characterImpressionLoading = ref(false)
+const characterImpressionError = ref('')
 const showAgentStateResetConfirm = ref(false)
 const agentStateResetLoading = ref(false)
 const showPurgeConfirm = ref(false)
@@ -796,6 +963,11 @@ let taskMonitorTimer: number | null = null
 const showRightSidebar = computed(() => showLogs.value || showTasks.value)
 const AUTO_SCROLL_THRESHOLD_PX = 120
 const composerDockPadding = computed(() => (uploadedFiles.value.length ? '10.5rem' : '7.5rem'))
+const selectedImpressionCharacterName = computed(
+  () =>
+    impressionCharacters.value.find((character) => character.id === selectedImpressionCharacterId.value)
+      ?.name || '未命名人物'
+)
 
 const activeModelSpeedResult = computed(() => modelSpeedResults.value[activeModelConfigTab.value] ?? null)
 const activeModelNameField = computed({
@@ -1039,6 +1211,82 @@ const loadMemorySnapshot = async (): Promise<void> => {
 const openMemorySnapshot = async (): Promise<void> => {
   showMemorySnapshot.value = true
   await loadMemorySnapshot()
+}
+
+const loadSelectedCharacterImpression = async (): Promise<void> => {
+  const characterId = selectedImpressionCharacterId.value
+  selectedCharacterImpression.value = null
+  characterImpressionError.value = ''
+  if (!characterId) return
+
+  characterImpressionLoading.value = true
+  try {
+    selectedCharacterImpression.value = await window.api.getCharacterImpression(characterId)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    characterImpressionError.value = `读取人物印象失败：${message}`
+  } finally {
+    characterImpressionLoading.value = false
+  }
+}
+
+const loadImpressionCharacters = async (): Promise<void> => {
+  const worldId = selectedImpressionWorldId.value
+  impressionCharacters.value = []
+  selectedCharacterImpression.value = null
+  characterImpressionError.value = ''
+  if (!worldId) {
+    selectedImpressionCharacterId.value = ''
+    return
+  }
+
+  impressionCharactersLoading.value = true
+  try {
+    const characters = await window.api.listWorldEntities(worldId, 'character')
+    impressionCharacters.value = characters
+    if (!characters.some((character) => character.id === selectedImpressionCharacterId.value)) {
+      selectedImpressionCharacterId.value = characters[0]?.id ?? ''
+    }
+    await loadSelectedCharacterImpression()
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    characterImpressionError.value = `读取人物列表失败：${message}`
+  } finally {
+    impressionCharactersLoading.value = false
+  }
+}
+
+const loadImpressionWorlds = async (): Promise<void> => {
+  impressionWorldsLoading.value = true
+  characterImpressionError.value = ''
+  try {
+    const worlds = await window.api.listWorlds()
+    impressionWorlds.value = worlds
+    if (!worlds.some((world) => world.id === selectedImpressionWorldId.value)) {
+      selectedImpressionWorldId.value = worlds[0]?.id ?? ''
+    }
+    await loadImpressionCharacters()
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    characterImpressionError.value = `读取世界观失败：${message}`
+  } finally {
+    impressionWorldsLoading.value = false
+  }
+}
+
+const handleImpressionWorldChange = async (): Promise<void> => {
+  selectedImpressionCharacterId.value = ''
+  await loadImpressionCharacters()
+}
+
+const openCharacterImpressionPanel = async (): Promise<void> => {
+  showCharacterImpressionPanel.value = true
+  await loadImpressionWorlds()
+}
+
+const closeCharacterImpressionPanel = async (): Promise<void> => {
+  showCharacterImpressionPanel.value = false
+  await restoreInputFocus()
 }
 
 const openAgentStateResetConfirm = (): void => {
@@ -1644,6 +1892,7 @@ const restoreInputFocus = async (): Promise<void> => {
     !isLoading.value &&
     !showModelConfig.value &&
     !showMemorySnapshot.value &&
+    !showCharacterImpressionPanel.value &&
     !showPurgeConfirm.value &&
     !showAgentStateResetConfirm.value &&
     !showDeleteFileConfirm.value &&

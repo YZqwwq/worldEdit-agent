@@ -8,6 +8,7 @@ import {
 } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import { toolUsageStatsService } from '../../../ai-utils/toolkits/toolUsageStatsService'
 import {
+  emitAgentStage,
   traceArtifact,
   traceDecision,
   traceError,
@@ -217,6 +218,23 @@ const createToolMessage = (input: {
     status: input.status
   })
 
+const getToolStageLabel = (
+  tool: unknown,
+  toolName: string,
+  status: 'start' | 'done' | 'error'
+): string => {
+  const metadata =
+    tool && typeof tool === 'object' && 'agentMetadata' in tool
+      ? (tool as { agentMetadata?: { uiStage?: { label?: string; doneLabel?: string; errorLabel?: string } } })
+          .agentMetadata
+      : undefined
+  const uiStage = metadata?.uiStage
+
+  if (status === 'done') return uiStage?.doneLabel || `已完成 ${toolName}`
+  if (status === 'error') return uiStage?.errorLabel || `${toolName} 执行失败`
+  return uiStage?.label || `正在执行 ${toolName}`
+}
+
 export async function toolNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
@@ -252,6 +270,7 @@ export async function toolNode(
   const suppressedTools: string[] = []
   // 遍历工具组执行调用
   for (const toolCall of msg.tool_calls) {
+    const stageId = `tool-${toolCall.id ?? randomUUID()}-${toolCall.name}`
     traceState('toolNode', {
       title: `状态: toolNode 调用 ${toolCall.name}`,
       summary: `准备调用 ${toolCall.name}`,
@@ -260,6 +279,11 @@ export async function toolNode(
         toolCallId: toolCall.id ?? null,
         args: toolCall.args ?? {}
       }
+    })
+    emitAgentStage({
+      stageId,
+      label: `正在执行 ${toolCall.name}`,
+      status: 'start'
     })
 
     if (
@@ -302,6 +326,11 @@ export async function toolNode(
           args: toolCall.args ?? {}
         }
       })
+      emitAgentStage({
+        stageId,
+        label: `${toolCall.name} 等待用户确认`,
+        status: 'error'
+      })
       continue
     }
 
@@ -341,6 +370,11 @@ export async function toolNode(
           reason: 'risk_policy_blocked',
           args: toolCall.args ?? {}
         }
+      })
+      emitAgentStage({
+        stageId,
+        label: `${toolCall.name} 已被当前策略拦截`,
+        status: 'error'
       })
       continue
     }
@@ -382,15 +416,30 @@ export async function toolNode(
           availableTools: Object.keys(tools)
         }
       })
+      emitAgentStage({
+        stageId,
+        label: `${toolCall.name} 不可用`,
+        status: 'error'
+      })
       continue
     }
 
     if (!toolCall.id) {
       console.warn('Tool call missing id, skipping')
+      emitAgentStage({
+        stageId,
+        label: `${toolCall.name} 缺少调用标识`,
+        status: 'error'
+      })
       continue
     }
 
     try {
+      emitAgentStage({
+        stageId,
+        label: getToolStageLabel(tool, toolCall.name, 'start'),
+        status: 'running'
+      })
       // 暂时使用 any 后续添加类型守卫
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (tool as any).invoke(toolCall.args)
@@ -490,6 +539,12 @@ export async function toolNode(
           data: envelopeData ?? result
         }
       })
+      emitAgentStage({
+        stageId,
+        label: getToolStageLabel(tool, toolCall.name, envelope?.ok === false ? 'error' : 'done'),
+        status: envelope?.ok === false ? 'error' : 'done',
+        detail: envelope?.ok === false ? envelope.error?.message || envelope.message : undefined
+      })
       toolMessages.push(
         (() => {
           const toolMessage = createToolMessage({
@@ -533,6 +588,12 @@ export async function toolNode(
           toolCallId: toolCall.id,
           args: toolCall.args ?? {}
         }
+      })
+      emitAgentStage({
+        stageId,
+        label: getToolStageLabel(tool, toolCall.name, 'error'),
+        status: 'error',
+        detail: error instanceof Error ? error.message : String(error)
       })
       const content = `Error executing tool "${toolCall.name}": ${error instanceof Error ? error.message : String(error)}`
       const toolMessage = createToolMessage({

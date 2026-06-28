@@ -31,6 +31,7 @@ import type {
 } from '../../../share/cache/render/aiagent/chatAvatarProfile'
 import { worldbuildingService } from '../worldbuilding/worldbuildingService'
 import { characterNarrativeDocumentService } from '../worldbuilding/characterNarrativeDocumentService'
+import { characterImpressionService } from '../worldbuilding/characterImpressionService'
 import type {
   CreateWorldEntityInput,
   CreateWorldEntityRelationInput,
@@ -47,6 +48,7 @@ import type {
   MoveCharacterNarrativeDocumentInput,
   UpdateCharacterNarrativeDocumentInput
 } from '@share/cache/worldbuilding/characterNarrativeDocument'
+import type { UpsertCharacterImpressionInput } from '@share/cache/worldbuilding/characterImpression'
 import { taskService } from '../task/taskService'
 import { createConfiguredModelRuntime } from './model-adapters/modelProviderAdapter'
 import { contentToText } from './messageoutput/transformRespones'
@@ -489,6 +491,17 @@ export function initializeAIEndpoints(): void {
     'characterNarrative:deleteDocument',
     async (_event, input: DeleteCharacterNarrativeDocumentInput) => {
       return characterNarrativeDocumentService.deleteDocument(input)
+    }
+  )
+
+  ipcMain.handle('characterImpression:get', async (_event, characterEntityId: string) => {
+    return characterImpressionService.getImpression(characterEntityId)
+  })
+
+  ipcMain.handle(
+    'characterImpression:upsert',
+    async (_event, input: UpsertCharacterImpressionInput) => {
+      return characterImpressionService.upsertImpression(input)
     }
   )
 

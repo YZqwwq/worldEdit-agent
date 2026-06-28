@@ -1,3 +1,5 @@
+import type { WorldEntityType } from '../../worldbuilding/worldbuilding'
+
 export type UserMoodState = 'calm' | 'positive' | 'impatient' | 'frustrated' | 'uncertain'
 
 // ConversationMode: 会话级框架。描述这段对话主要落在哪种关系/任务场域。
@@ -40,9 +42,23 @@ export interface UserMoodSlot {
   expiresAfterObservationId?: number // 过期时间
 }
 
+export type WorldFocusStatus = 'none' | 'candidate' | 'resolved' | 'ambiguous'
+
+export interface WorldFocusSlot {
+  worldId?: string
+  worldName?: string
+  focusType?: WorldEntityType
+  entityId?: string
+  entityName?: string
+  confidence: number
+  status: WorldFocusStatus
+  updatedAt?: string
+}
+
 export interface MemorySlotSnapshot {
   conversation_state: ConversationStateSlot // 对话状态
   user_mood: UserMoodSlot // 用户情绪
+  world_focus: WorldFocusSlot // 当前世界观聚焦对象
   lastObservationId: number // 最后一次观察ID
 }
 
@@ -94,5 +110,36 @@ export const describeUserMoodState = (value?: UserMoodState): string => {
       return '犹疑'
     default:
       return '未识别'
+  }
+}
+
+export const describeWorldFocusType = (value?: WorldEntityType): string => {
+  switch (value) {
+    case 'character':
+      return '人物'
+    case 'race':
+      return '种族'
+    case 'faction':
+      return '势力'
+    case 'nation':
+      return '国家'
+    case 'city':
+      return '城市'
+    case 'region':
+      return '地区'
+    case 'map':
+      return '地图'
+    case 'map_location':
+      return '地图地点'
+    case 'event':
+      return '事件'
+    case 'item':
+      return '物品'
+    case 'rule':
+      return '规则'
+    case 'custom':
+      return '自定义对象'
+    default:
+      return '未聚焦'
   }
 }

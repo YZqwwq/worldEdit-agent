@@ -5,6 +5,13 @@ export type AgentToolRiskLevel = 'low' | 'medium' | 'high'
 export type AgentToolCompletionSemantics = 'definitive' | 'eventual'
 export type AgentToolContextRetention = 'evidence' | 'ephemeral' | 'none'
 
+export type AgentToolUiStage = {
+  label: string
+  runningLabel?: string
+  doneLabel?: string
+  errorLabel?: string
+}
+
 export type AgentToolReceipt = {
   kind: string
   summary: string
@@ -23,6 +30,7 @@ export interface AgentToolMetadata {
   idempotent?: boolean
   completionSemantics?: AgentToolCompletionSemantics
   contextRetention?: AgentToolContextRetention
+  uiStage?: AgentToolUiStage
 }
 
 export type AgentToolResultEnvelope<TData> = {

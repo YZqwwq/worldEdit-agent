@@ -3,6 +3,7 @@ import {
   isInteractionState,
   type MemorySlotSnapshot
 } from '@share/cache/AItype/states/memorySlots'
+import type { WorldEntityType } from '@share/cache/worldbuilding/worldbuilding'
 import { AppDataSource } from '../../../../../database'
 import { MemorySlotRecord } from '../../../../../../share/entity/database/MemorySlotRecord'
 import { interactionObservationService } from '../personal/interactionObservationService'
@@ -13,6 +14,23 @@ import {
 } from './memoryWritePolicy'
 
 const MEMORY_SLOT_ROW_ID = 1
+const WORLD_ENTITY_TYPES: WorldEntityType[] = [
+  'character',
+  'race',
+  'faction',
+  'nation',
+  'city',
+  'region',
+  'map',
+  'map_location',
+  'event',
+  'item',
+  'rule',
+  'custom'
+]
+
+const isWorldEntityType = (value: unknown): value is WorldEntityType =>
+  typeof value === 'string' && WORLD_ENTITY_TYPES.includes(value as WorldEntityType)
 
 const parseSnapshot = (input: string): MemorySlotSnapshot => {
   try {
@@ -50,6 +68,43 @@ const parseSnapshot = (input: string): MemorySlotSnapshot => {
           expiresAfterObservationId:
             typeof parsed.user_mood?.expiresAfterObservationId === 'number'
               ? parsed.user_mood.expiresAfterObservationId
+              : undefined
+        },
+        world_focus: {
+          ...defaults.world_focus,
+          worldId:
+            typeof parsed.world_focus?.worldId === 'string'
+              ? parsed.world_focus.worldId
+              : undefined,
+          worldName:
+            typeof parsed.world_focus?.worldName === 'string'
+              ? parsed.world_focus.worldName
+              : undefined,
+          focusType: isWorldEntityType(parsed.world_focus?.focusType)
+            ? parsed.world_focus.focusType
+            : undefined,
+          entityId:
+            typeof parsed.world_focus?.entityId === 'string'
+              ? parsed.world_focus.entityId
+              : undefined,
+          entityName:
+            typeof parsed.world_focus?.entityName === 'string'
+              ? parsed.world_focus.entityName
+              : undefined,
+          confidence:
+            typeof parsed.world_focus?.confidence === 'number'
+              ? parsed.world_focus.confidence
+              : defaults.world_focus.confidence,
+          status:
+            parsed.world_focus?.status === 'candidate' ||
+            parsed.world_focus?.status === 'resolved' ||
+            parsed.world_focus?.status === 'ambiguous' ||
+            parsed.world_focus?.status === 'none'
+              ? parsed.world_focus.status
+              : defaults.world_focus.status,
+          updatedAt:
+            typeof parsed.world_focus?.updatedAt === 'string'
+              ? parsed.world_focus.updatedAt
               : undefined
         },
         lastObservationId:
@@ -100,6 +155,23 @@ class MemorySlotService {
     }
 
     snapshot.lastObservationId = row.lastObservationId
+    row.payloadJson = JSON.stringify(snapshot)
+    await this.repo.save(row)
+    return snapshot
+  }
+
+  async updateWorldFocus(
+    worldFocus: Partial<MemorySlotSnapshot['world_focus']>
+  ): Promise<MemorySlotSnapshot> {
+    const row = await this.loadRow()
+    const snapshot = parseSnapshot(row.payloadJson)
+    snapshot.lastObservationId = row.lastObservationId
+    snapshot.world_focus = {
+      ...createDefaultMemorySlots().world_focus,
+      ...snapshot.world_focus,
+      ...worldFocus,
+      updatedAt: worldFocus.updatedAt ?? new Date().toISOString()
+    }
     row.payloadJson = JSON.stringify(snapshot)
     await this.repo.save(row)
     return snapshot

@@ -21,6 +21,7 @@ import { WorldEntityComponentRecord } from '../../share/entity/database/WorldEnt
 import { WorldEntityRelationRecord } from '../../share/entity/database/WorldEntityRelationRecord'
 import { ToolUsageStatsRecord } from '../../share/entity/database/ToolUsageStatsRecord'
 import { CharacterNarrativeDocumentRecord } from '../../share/entity/database/CharacterNarrativeDocumentRecord'
+import { CharacterImpressionRecord } from '../../share/entity/database/CharacterImpressionRecord'
 
 // 数据库文件路径：UserData/database.sqlite
 const dbPath = join(app.getPath('userData'), 'database.sqlite')
@@ -50,6 +51,7 @@ export const AppDataSource = new DataSource({
     WorldEntityComponentRecord,
     WorldEntityRelationRecord,
     CharacterNarrativeDocumentRecord,
+    CharacterImpressionRecord,
     ToolUsageStatsRecord
   ],
   subscribers: [],

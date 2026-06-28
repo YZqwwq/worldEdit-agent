@@ -57,8 +57,19 @@ export type AIStructuredResponse = AIContentPart[]
 // 新增：流式传输协议定义
 // ==========================================
 
+export type AgentStageStatus = 'start' | 'running' | 'done' | 'error'
+
+export interface AgentStageChunk {
+  type: 'agent_stage'
+  stageId: string
+  label: string
+  status: AgentStageStatus
+  detail?: string
+}
+
 export type StreamChunk =
   | { type: 'text_delta'; content: string } // 文本增量
   | { type: 'stream_error'; message: string } // 传输层错误信息（与内容层 ErrorPart 区分）
   | { type: 'agent_trace'; record: AgentTraceRecord } // 结构化节点日志
+  | AgentStageChunk // 面向用户的执行阶段提示
   | { type: 'done'; fullContent: AIContentPart[] } // 结束信号，携带完整结构化结果

@@ -7,6 +7,7 @@ import type {
   TaskLifecycleState
 } from '@share/cache/AItype/states/taskLifecycleState'
 import type { ExpressionPromptProfileState } from '@share/cache/AItype/states/expressionPromptProfile'
+import type { WorldEntityType } from '@share/cache/worldbuilding/worldbuilding'
 import type { AgentToolContextRetention } from '../../ai-utils/core/agentTool'
 
 export type ToolContextSourceRef = {
@@ -30,6 +31,21 @@ export type ToolContextItem = {
 export type PendingToolContextItem = ToolContextItem & {
   toolCallId: string
   transcriptMessageIds: string[]
+}
+
+export type WorldFocusContext = {
+  worldId: string
+  worldName: string
+  focusType: WorldEntityType
+  entityId: string
+  entityName: string
+  confidence: number
+  impression?: {
+    found: boolean
+    structuredText?: string
+    updatedAt?: string
+    generatedThisTurn?: boolean
+  }
 }
 
 export const MessagesState = Annotation.Root({
@@ -59,6 +75,10 @@ export const MessagesState = Annotation.Root({
     default: () => undefined
   }),
   backgroundPersonaStage: Annotation<MainAgentBackgroundPersonaStagePayload | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  worldFocusContext: Annotation<WorldFocusContext | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),

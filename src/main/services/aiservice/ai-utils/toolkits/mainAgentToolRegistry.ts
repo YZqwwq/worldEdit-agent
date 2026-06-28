@@ -14,8 +14,13 @@ import { continueActiveChildAgentTool } from '../tools/task/continueActiveChildA
 import { delegateCharacterEditorTool } from '../tools/task/delegateCharacterEditor'
 import { getActiveTaskContextTool } from '../tools/task/getActiveTaskContext'
 import { getTaskDetailTool } from '../tools/task/getTaskDetail'
+import { recallAgentMemoryTool } from '../tools/memory/recallAgentMemory'
 import { officialWebSearchTool } from '../tools/network/officialWebSearch'
 import { searchRecentChineseConversationTool } from '../tools/conversation/searchRecentChineseConversation'
+import { getCharacterImpressionTool } from '../tools/character/getCharacterImpression'
+import { getCharacterNarrativeReadingPlanTool } from '../tools/character/getCharacterNarrativeReadingPlan'
+import { readCharacterNarrativeBatchTool } from '../tools/character/readCharacterNarrativeBatch'
+import { upsertCharacterImpressionTool } from '../tools/character/upsertCharacterImpression'
 import { activateToolsetTool } from '../tools/utility/activateToolset'
 import { addTool } from '../tools/utility/add'
 import { getTimeTool } from '../tools/utility/getTime'
@@ -32,10 +37,10 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
   {
     id: 'core_runtime',
     title: '核心运行工具',
-    summary: '主 agent 每轮都可使用的低成本工具：查询工具底图、激活工具集、确认时间和回溯短期中文对话。',
+    summary: '主 agent 每轮都可使用的低成本工具：查询工具底图、激活工具集、确认时间、主动回忆长期/阶段记忆和回溯短期中文对话。',
     tags: ['core', 'runtime', 'tool-discovery', 'memory', 'time'],
     activationHints: ['默认已挂载，无需激活。'],
-    whenToUse: ['处理普通对话、确认当前时间、回溯最近上下文、发现并激活专门工具集。'],
+    whenToUse: ['处理普通对话、确认当前时间、按需回忆历史、回溯最近上下文、发现并激活专门工具集。'],
     whenNotToUse: ['需要具体领域数据、联网搜索或写入能力时，应先查询并激活对应工具集。'],
     discoverable: false
   },
@@ -100,6 +105,25 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     whenNotToUse: ['本地数据库问题、稳定常识、闲聊、创作共想或用户已提供足够资料。'],
     quickAccessEligible: true,
     quickAccessScope: 'toolset'
+  },
+  {
+    id: 'character_impression',
+    title: '人物印象工具集',
+    summary: '读取人物文本编辑页的树状叙事文档，按稳定顺序分批阅读，并把主 agent 形成的人物画像/主观看法写入人物关联表。',
+    tags: ['character', 'impression', 'persona', 'narrative', 'reading', 'profile', '人物', '人物印象', '人物画像', '文本阅读', '叙事文本'],
+    activationHints: ['用户要求阅读某个人物的文本、建立人物画像、形成主 agent 对人物的看法或保存人物印象时激活。'],
+    whenToUse: [
+      '需要从人物文本编辑页的叙事文档中稳定读完全部文本',
+      '需要为人物建立外貌、性格、行为、能力、事迹、关系和主观看法等结构化印象',
+      '后台可暂停阅读任务需要按 cursor 恢复人物文本阅读'
+    ],
+    whenNotToUse: [
+      '只需要读取人物基础资料、人口学字段或世界实体详情',
+      '用户只是闲聊角色创作灵感，不要求读取本地人物文本',
+      '目标不是本地 character entity'
+    ],
+    quickAccessEligible: true,
+    quickAccessScope: 'toolset'
   }
 ]
 
@@ -142,6 +166,20 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     access: 'read',
     activationMode: 'always',
     enabled: true
+  },
+  {
+    key: recallAgentMemoryTool.name,
+    tool: recallAgentMemoryTool,
+    toolsetId: 'core_runtime',
+    category: 'agent_memory',
+    capabilityLayer: 'core',
+    capabilityGroup: '核心运行',
+    capabilitySummary: '按需回忆静默长期记忆和最近阶段归档；长期记忆默认不直接注入上下文，需要时主动调用。',
+    audience: 'main_agent',
+    access: 'read',
+    activationMode: 'always',
+    enabled: true,
+    turnCallLimit: 1
   },
   {
     key: searchRecentChineseConversationTool.name,
@@ -336,6 +374,62 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     quickAccessEligible: true,
     quickAccessScope: 'toolset',
     turnCallLimit: 1
+  },
+  {
+    key: getCharacterNarrativeReadingPlanTool.name,
+    tool: getCharacterNarrativeReadingPlanTool,
+    toolsetId: 'character_impression',
+    category: 'character_impression',
+    capabilityLayer: 'background_toolset',
+    capabilityGroup: '人物印象',
+    capabilitySummary: '为人物叙事文本建立稳定的树状阅读计划。',
+    audience: 'main_agent',
+    access: 'read',
+    activationMode: 'manual',
+    enabled: true,
+    quickAccessEligible: true
+  },
+  {
+    key: readCharacterNarrativeBatchTool.name,
+    tool: readCharacterNarrativeBatchTool,
+    toolsetId: 'character_impression',
+    category: 'character_impression',
+    capabilityLayer: 'background_toolset',
+    capabilityGroup: '人物印象',
+    capabilitySummary: '按 cursor 分批读取人物叙事正文，供主 agent 逐步形成印象。',
+    audience: 'main_agent',
+    access: 'read',
+    activationMode: 'manual',
+    enabled: true,
+    quickAccessEligible: true
+  },
+  {
+    key: getCharacterImpressionTool.name,
+    tool: getCharacterImpressionTool,
+    toolsetId: 'character_impression',
+    category: 'character_impression',
+    capabilityLayer: 'background_toolset',
+    capabilityGroup: '人物印象',
+    capabilitySummary: '读取已保存的主 agent 人物印象。',
+    audience: 'main_agent',
+    access: 'read',
+    activationMode: 'manual',
+    enabled: true,
+    quickAccessEligible: true
+  },
+  {
+    key: upsertCharacterImpressionTool.name,
+    tool: upsertCharacterImpressionTool,
+    toolsetId: 'character_impression',
+    category: 'character_impression',
+    capabilityLayer: 'background_toolset',
+    capabilityGroup: '人物印象',
+    capabilitySummary: '写入或替换人物关联的结构化主 agent 印象。',
+    audience: 'main_agent',
+    access: 'write',
+    activationMode: 'manual',
+    enabled: true,
+    quickAccessEligible: true
   }
 ]
 

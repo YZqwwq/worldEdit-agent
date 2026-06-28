@@ -33,6 +33,15 @@
       <button
         type="button"
         class="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+        title="查看 AI 对世界观人物的印象"
+        @click="$emit('open-character-impression')"
+      >
+        人物印象
+      </button>
+
+      <button
+        type="button"
+        class="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
         title="查看或修改模型参数"
         @click="$emit('open-model-config')"
       >
@@ -90,6 +99,7 @@ withDefaults(
 
 defineEmits<{
   (e: 'open-memory'): void
+  (e: 'open-character-impression'): void
   (e: 'open-model-config'): void
   (e: 'open-purge-confirm'): void
   (e: 'toggle-logs'): void

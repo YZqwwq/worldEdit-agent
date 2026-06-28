@@ -2,7 +2,7 @@ import type { AgentToolRegistryEntry, ToolActivationState } from '../toolkits/to
 import { getToolVisibilityTier } from '../toolkits/toolRegistryTypes'
 
 const CAPABILITY_LAYER_DESCRIPTIONS: Record<string, string> = {
-  core: '核心工具：低成本、默认可见，用于工具底图查询、工具集激活、时间确认和短期历史回忆。',
+  core: '核心工具：低成本、默认可见，用于工具底图查询、工具集激活、时间确认、按需长期回忆和短期历史回溯。',
   domain: '领域工具：访问本地世界观、角色、任务等业务数据库；默认按工具集激活后使用。',
   network: '联网工具：访问外部公开信息；默认按工具集激活后使用。',
   sub_agent: '子 agent 协作：启动或继续后台子 agent 流程，不用于普通查询。',
@@ -98,7 +98,8 @@ export function buildToolUsageSystemPrompt(
     '5. 如果最近几轮已经通过工具或明确回复确认了 worldId、worldName、entityId 等结构化标识，后续调用写入类或委派类工具时必须优先沿用这些已确认标识，不要无故丢失。',
     '6. 只有在上下文确实无法唯一定位目标时，才向用户追问；如果系统内已经能唯一确定目标，不要重复向用户索取已经确认过的信息。',
     '7. 专门工具集默认不可见；需要本地领域、联网、后台或高成本能力时，如果当前可用工具里没有合适快捷工具，先调用 query_tool_catalog 查询工具底图，再用 activate_toolset 激活，不要假设隐藏工具已经可用。',
-    '8. 当没有合适工具时，再明确告诉用户当前能力边界。',
+    '8. 长期记忆和阶段归档不会默认注入对话；当用户提到“之前、上次、刚才、继续、我们说过、你还记得吗”、用户曾明确纠正过事实，或当前问题需要旧结论/偏好/关系连续性时，优先调用 recall_agent_memory 回忆，不要只凭模型参数回答。',
+    '9. 当没有合适工具时，再明确告诉用户当前能力边界。',
     '',
     '工具能力地图：',
     capabilityMap,

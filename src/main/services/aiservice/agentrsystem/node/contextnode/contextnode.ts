@@ -1,4 +1,5 @@
 import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages'
+import type { PersonaActionPolicy } from '@share/cache/AItype/states/personaPolicy'
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
 import { memorySlotService } from '../../manager/memory/memorySlotService'
@@ -24,6 +25,26 @@ const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
 }
 
+const buildActionPolicyPrompt = (
+  actionPolicy: PersonaActionPolicy | undefined
+): string => {
+  if (!actionPolicy) return ''
+
+  const lines = [
+    '行动策略调制：',
+    `自主推进=${actionPolicy.autonomyDrive.toFixed(2)}`,
+    `谨慎度=${actionPolicy.caution.toFixed(2)}`,
+    `澄清需求=${actionPolicy.clarificationNeed.toFixed(2)}`,
+    `证据需求=${actionPolicy.evidenceNeed.toFixed(2)}`,
+    `回忆需求=${actionPolicy.recallNeed.toFixed(2)}`,
+    `写入保守度=${actionPolicy.writeConservatism.toFixed(2)}`,
+    `工具持续性=${actionPolicy.toolPersistence.toFixed(2)}`,
+    '使用规则：这是本轮行动倾向，不是用户可见内容。谨慎度/证据需求高时先查证或澄清；回忆需求高且问题涉及旧上下文时优先调用 recall_agent_memory；写入保守度高时写入、删除、修改前更应确认对象与意图。'
+  ]
+
+  return lines.join('\n')
+}
+
 const getCurrentUserMessageCreatedAt = (
   state: typeof MessagesState.State
 ): string | null => {
@@ -33,6 +54,37 @@ const getCurrentUserMessageCreatedAt = (
     .find((message) => message instanceof HumanMessage && !message.additional_kwargs?.isHistory)
   const createdAt = userMessage?.additional_kwargs?.[MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY]
   return typeof createdAt === 'string' && createdAt.trim() ? createdAt.trim() : null
+}
+
+const compactLongText = (value: string, max = 8000): string => {
+  const text = String(value || '').trim()
+  if (text.length <= max) return text
+  return `${text.slice(0, max).trimEnd()}\n\n[已截断：完整人物印象仍保存在人物关联表中。]`
+}
+
+const buildWorldFocusPrompt = (state: typeof MessagesState.State): string => {
+  const focus = state.worldFocusContext
+  if (!focus) return ''
+
+  const lines = [
+    '本轮世界观聚焦上下文：',
+    `世界观：${focus.worldName} (${focus.worldId})`,
+    `聚焦对象：${focus.focusType} / ${focus.entityName} (${focus.entityId})`,
+    `识别置信度：${focus.confidence.toFixed(2)}`,
+    '使用规则：这是一份本轮内部上下文。回答用户时可以自然承接该对象的信息，但不要主动暴露“我先去读取/聚焦了这个对象”之类过程性表述。'
+  ]
+
+  if (focus.impression?.found && focus.impression.structuredText) {
+    lines.push(
+      '',
+      `主 agent 已有人物印象${focus.impression.generatedThisTurn ? '（本轮刚建立）' : ''}：`,
+      compactLongText(focus.impression.structuredText)
+    )
+  } else if (focus.focusType === 'character') {
+    lines.push('', '主 agent 当前没有可用的人物印象；如果用户问题需要深入判断，应说明证据不足或基于已知资料谨慎回答。')
+  }
+
+  return lines.join('\n')
 }
 
 /**
@@ -122,6 +174,16 @@ export async function contextNode(
   if (toolUsagePrompt) {
     messages.push(new SystemMessage(toolUsagePrompt))
   }
+
+  const actionPolicyPrompt = buildActionPolicyPrompt(state.personaPolicy?.action)
+  if (actionPolicyPrompt) {
+    messages.push(new SystemMessage(actionPolicyPrompt))
+  }
+
+  const worldFocusPrompt = buildWorldFocusPrompt(state)
+  if (worldFocusPrompt) {
+    messages.push(new SystemMessage(worldFocusPrompt))
+  }
   // 短期窗口记忆
   const snapshot = await memoryManager.getSnapshot()
   if (snapshot.anchors.length > 0) {
@@ -132,30 +194,10 @@ export async function contextNode(
   const memoryPromptPlan = buildMemoryPromptPlan(snapshot, slotSnapshot)
   const injectedSections: string[] = ['personaAssemblyPrompt', 'currentTimeContext']
 
-  // 长期稳定记忆
-  if (memoryPromptPlan.longTermPrompt) {
-    injectedSections.push('longTermMemory')
-    messages.push(
-      new SystemMessage(
-        `跨轮长期记忆（用于保持事实连续性与用户关系连续性）:\n${memoryPromptPlan.longTermPrompt}`
-      )
-    )
-  }
-
   // 记忆槽位
   if (memoryPromptPlan.slotPrompt) {
     injectedSections.push('slotPrompt')
     messages.push(new SystemMessage(memoryPromptPlan.slotPrompt))
-  }
-
-  // 最近阶段记忆
-  if (memoryPromptPlan.recentStagePrompt) {
-    injectedSections.push('recentStageMemory')
-    messages.push(
-      new SystemMessage(
-        `最近阶段记忆（用于恢复已滑出短期窗口的近期上下文）:\n${memoryPromptPlan.recentStagePrompt}`
-      )
-    )
   }
 
   for (const msg of snapshot.shortTerm) {
@@ -174,6 +216,8 @@ export async function contextNode(
 
   if (state.taskLifecycle?.activeTask) injectedSections.push('activeTask')
   if (toolUsagePrompt) injectedSections.push('toolUsage')
+  if (actionPolicyPrompt) injectedSections.push('actionPolicy')
+  if (worldFocusPrompt) injectedSections.push('worldFocus')
   if (snapshot.anchors.length > 0) injectedSections.push('anchors')
   if (snapshot.shortTerm.length > 0) injectedSections.push('shortTermHistory')
 
@@ -192,12 +236,13 @@ export async function contextNode(
       shortTermCount: snapshot.shortTerm.length,
       anchorCount: snapshot.anchors.length,
       hasActiveTask: Boolean(state.taskLifecycle?.activeTask),
-      hasLongTermMemory: Boolean(memoryPromptPlan.longTermPrompt),
+      hasLongTermMemory: false,
+      longTermMemoryMode: 'recall_tool_only',
       hasSlotPrompt: Boolean(memoryPromptPlan.slotPrompt),
-      hasRecentStagePrompt: Boolean(memoryPromptPlan.recentStagePrompt),
-      longTermMemoryPreview: memoryPromptPlan.longTermPrompt.slice(0, 240),
+      hasRecentStagePrompt: false,
+      longTermMemoryPreview: '',
       recentStageCount: snapshot.recentStages.length,
-      recentStagePreview: memoryPromptPlan.recentStagePrompt.slice(0, 240),
+      recentStagePreview: '',
       quickToolsets: toolActivationState.quickToolsets ?? [],
       quickTools: toolActivationState.quickTools ?? []
     }

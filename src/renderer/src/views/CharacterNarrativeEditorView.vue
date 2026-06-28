@@ -1,12 +1,17 @@
 <template>
-  <div class="worldbuilding-white-theme narrative-editor-page">
+  <!-- 人物叙事编辑器 -->
+  <div
+    class="worldbuilding-white-theme narrative-editor-page"
+    :class="{ 'resizing-sidebar': resizingNarrativeSidebar }"
+    :style="narrativeSidebarStyle"
+  >
     <aside class="narrative-sidebar">
       <header class="sidebar-home">
         <router-link
-          :to="{ name: 'WorldEntityEditor', params: { worldId, entityId } }"
+          :to="{ name: 'CharacterProfileEditor', params: { worldId, entityId } }"
           class="sidebar-home-link"
-          aria-label="返回人物实例"
-          title="返回人物实例"
+          aria-label="返回人物资料"
+          title="返回人物资料"
         >
           <span class="sidebar-icon back-icon" aria-hidden="true">‹</span>
         </router-link>
@@ -69,7 +74,7 @@
               class="catalog-row-action danger"
               aria-label="删除文件"
               title="删除文件"
-              @click.stop="deleteNarrativeDocument(row.id)"
+              @click.stop="openNarrativeDeleteConfirm(row.id)"
             >
               ×
             </button>
@@ -77,6 +82,15 @@
         </div>
       </section>
     </aside>
+
+    <div
+      class="narrative-sidebar-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="调整目录宽度"
+      title="调整目录宽度"
+      @mousedown="startNarrativeSidebarResize"
+    />
 
     <section class="narrative-main">
       <div class="format-toolbar" role="toolbar" aria-label="文本编辑工具栏">
@@ -127,11 +141,14 @@
               type="text"
               aria-label="文件标题"
               placeholder="新建文件"
-              @blur="saveNarrative(true)"
+              @focus="handleNarrativeTitleFocus"
+              @blur="handleNarrativeTitleBlur"
             />
           </div>
 
           <WorldRichTextEditor
+            v-if="activeDocument"
+            :key="activeDocumentId"
             v-model="characterDescriptionInput"
             class="narrative-editor"
             placeholder="写下人物介绍、经历、关系、秘密与转折。"
@@ -164,6 +181,19 @@
         正在读取文本编辑页面
       </main>
     </section>
+
+    <ConfirmDialog
+      v-model="showNarrativeDeleteConfirm"
+      title="确认删除文件？"
+      :message="narrativeDeleteConfirmMessage"
+      confirm-text="删除"
+      loading-text="正在删除..."
+      danger
+      icon="danger"
+      :loading="deletingNarrativeDocument"
+      @confirm="confirmDeleteNarrativeDocument"
+      @cancel="cancelNarrativeDeleteConfirm"
+    />
   </div>
 </template>
 
@@ -175,6 +205,7 @@ import type { CharacterNarrativeDocumentPayload } from '@share/cache/worldbuildi
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 import { useAppTitleBar } from '../composables/useAppTitleBar'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import WorldRichTextAppearancePanel from '../features/worldbuilding/editor/components/WorldRichTextAppearancePanel.vue'
 import WorldRichTextEditor from '../features/worldbuilding/editor/components/WorldRichTextEditor.vue'
 import {
@@ -197,6 +228,11 @@ type NarrativeTreeNode = CharacterNarrativeDocumentPayload & {
 
 type NarrativeDropPosition = 'before' | 'after' | 'inside'
 
+const NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY = 'worldedit.characterNarrative.sidebarWidthRatio.v1'
+const DEFAULT_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.185
+const MIN_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.1
+const MAX_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.2
+
 const entityDetail = ref<WorldEntityDetailPayload | null>(null)
 const narrativeDocuments = ref<CharacterNarrativeDocumentPayload[]>([])
 const activeDocumentId = ref('')
@@ -208,8 +244,14 @@ const showAppearancePanel = ref(false)
 const savingNarrative = ref(false)
 const narrativeSaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const narrativeDocumentsLoading = ref(false)
+const narrativeTitleFocused = ref(false)
+const showNarrativeDeleteConfirm = ref(false)
+const deletingNarrativeDocument = ref(false)
+const pendingDeleteDocumentId = ref('')
 const draggingDocumentId = ref('')
 const dropTarget = ref<{ documentId: string; position: NarrativeDropPosition } | null>(null)
+const narrativeSidebarWidth = ref(356)
+const resizingNarrativeSidebar = ref(false)
 
 let syncingFromDetail = false
 let narrativeAutosaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -218,7 +260,10 @@ let lastSavedNarrativeSignature = ''
 
 const worldId = computed(() => String(route.params.worldId || ''))
 const entityId = computed(() => String(route.params.entityId || ''))
-const documentTitle = computed(() => activeDocumentTitle.value.trim() || '新建文件')
+const titleBarCharacterName = computed(() => entityDetail.value?.entity.name?.trim() || '人物文本')
+const narrativeSidebarStyle = computed(() => ({
+  '--narrative-sidebar-width': `${narrativeSidebarWidth.value}px`
+}))
 const activeDocument = computed(
   () => narrativeDocuments.value.find((document) => document.id === activeDocumentId.value) ?? null
 )
@@ -321,6 +366,23 @@ const toolbarGroups = [
 
 const canSaveNarrative = computed(() => Boolean(entityDetail.value && activeDocument.value))
 
+const pendingDeleteDocument = computed(() =>
+  pendingDeleteDocumentId.value ? getNarrativeDocument(pendingDeleteDocumentId.value) : null
+)
+
+const pendingDeleteDescendantIds = computed(() =>
+  pendingDeleteDocumentId.value ? getNarrativeDescendantIds(pendingDeleteDocumentId.value) : []
+)
+
+const narrativeDeleteConfirmMessage = computed(() => {
+  const document = pendingDeleteDocument.value
+  if (!document) return '确认删除该文件吗？'
+  const descendantCount = pendingDeleteDescendantIds.value.length
+  return descendantCount > 0
+    ? `删除「${document.title}」以及它的 ${descendantCount} 个子文件？`
+    : `删除「${document.title}」？`
+})
+
 const narrativeSaveHint = computed(() => {
   if (narrativeSaveState.value === 'saving') return '自动保存中...'
   if (narrativeSaveState.value === 'saved') return '已自动保存'
@@ -328,9 +390,76 @@ const narrativeSaveHint = computed(() => {
   return '自动保存'
 })
 
+const getNarrativeSidebarBounds = (): { min: number; max: number } => {
+  const viewportWidth = typeof window === 'undefined' ? 1920 : window.innerWidth
+  return {
+    min: Math.round(viewportWidth * MIN_NARRATIVE_SIDEBAR_WIDTH_RATIO),
+    max: Math.round(viewportWidth * MAX_NARRATIVE_SIDEBAR_WIDTH_RATIO)
+  }
+}
+
+const clampNarrativeSidebarWidth = (width: number): number => {
+  const bounds = getNarrativeSidebarBounds()
+  return Math.min(bounds.max, Math.max(bounds.min, Math.round(width)))
+}
+
+const clampNarrativeSidebarRatio = (ratio: number): number =>
+  Math.min(MAX_NARRATIVE_SIDEBAR_WIDTH_RATIO, Math.max(MIN_NARRATIVE_SIDEBAR_WIDTH_RATIO, ratio))
+
+const getNarrativeViewportWidth = (): number =>
+  typeof window === 'undefined' ? 1920 : Math.max(1, window.innerWidth)
+
+const loadNarrativeSidebarWidth = (): void => {
+  if (typeof window === 'undefined') {
+    narrativeSidebarWidth.value = clampNarrativeSidebarWidth(
+      getNarrativeViewportWidth() * DEFAULT_NARRATIVE_SIDEBAR_WIDTH_RATIO
+    )
+    return
+  }
+
+  const storedRatio = Number(window.localStorage.getItem(NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY))
+  const ratio = Number.isFinite(storedRatio)
+    ? clampNarrativeSidebarRatio(storedRatio)
+    : DEFAULT_NARRATIVE_SIDEBAR_WIDTH_RATIO
+  narrativeSidebarWidth.value = clampNarrativeSidebarWidth(getNarrativeViewportWidth() * ratio)
+}
+
+const persistNarrativeSidebarWidth = (): void => {
+  if (typeof window === 'undefined') return
+  const ratio = clampNarrativeSidebarRatio(narrativeSidebarWidth.value / getNarrativeViewportWidth())
+  window.localStorage.setItem(NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY, ratio.toFixed(4))
+}
+
+const syncNarrativeSidebarWidthBounds = (): void => {
+  narrativeSidebarWidth.value = clampNarrativeSidebarWidth(narrativeSidebarWidth.value)
+  persistNarrativeSidebarWidth()
+}
+
+const handleNarrativeSidebarResizeMove = (event: MouseEvent): void => {
+  if (!resizingNarrativeSidebar.value) return
+  narrativeSidebarWidth.value = clampNarrativeSidebarWidth(event.clientX)
+}
+
+const stopNarrativeSidebarResize = (): void => {
+  if (!resizingNarrativeSidebar.value) return
+  resizingNarrativeSidebar.value = false
+  persistNarrativeSidebarWidth()
+  document.body.classList.remove('narrative-sidebar-resizing')
+  window.removeEventListener('mousemove', handleNarrativeSidebarResizeMove)
+  window.removeEventListener('mouseup', stopNarrativeSidebarResize)
+}
+
+const startNarrativeSidebarResize = (event: MouseEvent): void => {
+  event.preventDefault()
+  resizingNarrativeSidebar.value = true
+  document.body.classList.add('narrative-sidebar-resizing')
+  window.addEventListener('mousemove', handleNarrativeSidebarResizeMove)
+  window.addEventListener('mouseup', stopNarrativeSidebarResize)
+}
+
 useAppTitleBar(
   computed(() => ({
-    title: documentTitle.value,
+    title: titleBarCharacterName.value,
     subtitle: '▧',
     meta: narrativeSaveHint.value
   }))
@@ -345,6 +474,20 @@ const narrativeAutosaveSignature = computed(() =>
     editorAppearance: normalizeWorldRichTextAppearance(characterEditorAppearance.value)
   })
 )
+
+const normalizeNarrativeTitleForCommit = (): void => {
+  activeDocumentTitle.value = activeDocumentTitle.value.trim() || '新建文件'
+}
+
+const handleNarrativeTitleFocus = (): void => {
+  narrativeTitleFocused.value = true
+}
+
+const handleNarrativeTitleBlur = (): void => {
+  narrativeTitleFocused.value = false
+  normalizeNarrativeTitleForCommit()
+  void saveNarrative(true, { fallbackBlankTitle: true })
+}
 
 const getLegacyNarrativeHtml = (): string => {
   const profile = getCharacterComponentByType<CharacterProfileData>(entityDetail.value, 'character_profile')
@@ -439,7 +582,7 @@ const placeNarrativeDocument = async (
   siblingIds: string[]
 ): Promise<void> => {
   if (!canMoveNarrativeDocumentToParent(documentId, parentDocumentId)) return
-  await saveNarrative(true)
+  await saveNarrative(true, { fallbackBlankTitle: true })
   await moveDocumentsIntoOrderedSiblings(parentDocumentId, siblingIds)
 }
 
@@ -570,7 +713,7 @@ const loadEntityDetail = async (): Promise<void> => {
 const selectNarrativeDocument = async (documentId: string): Promise<void> => {
   if (documentId === activeDocumentId.value) return
   clearNarrativeAutosave()
-  await saveNarrative(true)
+  await saveNarrative(true, { fallbackBlankTitle: true })
   const nextDocument = narrativeDocuments.value.find((document) => document.id === documentId) ?? null
   syncNarrativeFromDocument(nextDocument)
 }
@@ -578,7 +721,7 @@ const selectNarrativeDocument = async (documentId: string): Promise<void> => {
 const createNarrativeDocument = async (parentDocumentId: string | null = null): Promise<void> => {
   if (!entityDetail.value) return
   clearNarrativeAutosave()
-  await saveNarrative(true)
+  await saveNarrative(true, { fallbackBlankTitle: true })
   const created = await worldbuildingClientService.createCharacterNarrativeDocument({
     characterEntityId: entityDetail.value.entity.id,
     parentDocumentId,
@@ -589,58 +732,88 @@ const createNarrativeDocument = async (parentDocumentId: string | null = null): 
   syncNarrativeFromDocument(created)
 }
 
-const deleteNarrativeDocument = async (documentId: string): Promise<void> => {
+const openNarrativeDeleteConfirm = (documentId: string): void => {
+  if (deletingNarrativeDocument.value) return
   const document = getNarrativeDocument(documentId)
   if (!document) return
-  const descendantIds = getNarrativeDescendantIds(documentId)
-  const recursive = descendantIds.length > 0
-  const message = recursive
-    ? `删除「${document.title}」以及它的 ${descendantIds.length} 个子文件？`
-    : `删除「${document.title}」？`
-  if (!window.confirm(message)) return
+  pendingDeleteDocumentId.value = documentId
+  showNarrativeDeleteConfirm.value = true
+}
 
-  clearNarrativeAutosave()
-  await saveNarrative(true)
-  await worldbuildingClientService.deleteCharacterNarrativeDocument({
-    documentId,
-    recursive
-  })
+const cancelNarrativeDeleteConfirm = (): void => {
+  if (deletingNarrativeDocument.value) return
+  pendingDeleteDocumentId.value = ''
+}
 
-  const deletedIds = new Set([documentId, ...descendantIds])
-  const remainingDocuments = narrativeDocuments.value.filter((item) => !deletedIds.has(item.id))
-  narrativeDocuments.value = remainingDocuments
+const confirmDeleteNarrativeDocument = async (): Promise<void> => {
+  const documentId = pendingDeleteDocumentId.value
+  if (!documentId || deletingNarrativeDocument.value) return
 
-  if (!deletedIds.has(activeDocumentId.value)) return
-
-  const nextDocument = remainingDocuments[0] ?? null
-  if (nextDocument) {
-    syncNarrativeFromDocument(nextDocument)
+  const document = getNarrativeDocument(documentId)
+  if (!document) {
+    showNarrativeDeleteConfirm.value = false
+    pendingDeleteDocumentId.value = ''
     return
   }
+  const descendantIds = pendingDeleteDescendantIds.value
+  const recursive = descendantIds.length > 0
 
-  if (entityDetail.value) {
-    await createNarrativeDocument()
-  } else {
-    syncNarrativeFromDocument(null)
+  deletingNarrativeDocument.value = true
+  clearNarrativeAutosave()
+  try {
+    await saveNarrative(true, { fallbackBlankTitle: true })
+    await worldbuildingClientService.deleteCharacterNarrativeDocument({
+      documentId,
+      recursive
+    })
+
+    const deletedIds = new Set([documentId, ...descendantIds])
+    const remainingDocuments = narrativeDocuments.value.filter((item) => !deletedIds.has(item.id))
+    narrativeDocuments.value = remainingDocuments
+    showNarrativeDeleteConfirm.value = false
+    pendingDeleteDocumentId.value = ''
+
+    if (!deletedIds.has(activeDocumentId.value)) return
+
+    const nextDocument = remainingDocuments[0] ?? null
+    if (nextDocument) {
+      syncNarrativeFromDocument(nextDocument)
+      return
+    }
+
+    if (entityDetail.value) {
+      await createNarrativeDocument()
+    } else {
+      syncNarrativeFromDocument(null)
+    }
+  } finally {
+    deletingNarrativeDocument.value = false
   }
 }
 
-const saveNarrative = async (force = false): Promise<void> => {
+const saveNarrative = async (
+  force = false,
+  options: { fallbackBlankTitle?: boolean } = {}
+): Promise<void> => {
   if (!canSaveNarrative.value || !entityDetail.value || !activeDocument.value) return
   if (!force && narrativeAutosaveSignature.value === lastSavedNarrativeSignature) return
   if (savingNarrative.value) {
     narrativeSaveQueued = true
     return
   }
-  activeDocumentTitle.value = activeDocumentTitle.value.trim() || '新建文件'
+
+  if (options.fallbackBlankTitle || !narrativeTitleFocused.value) {
+    normalizeNarrativeTitleForCommit()
+  }
 
   savingNarrative.value = true
   narrativeSaveState.value = 'saving'
   const signatureAtSave = narrativeAutosaveSignature.value
+  const titleForSave = activeDocumentTitle.value.trim()
   try {
     const updated = await worldbuildingClientService.updateCharacterNarrativeDocument({
       documentId: activeDocument.value.id,
-      title: activeDocumentTitle.value,
+      ...(titleForSave ? { title: titleForSave } : {}),
       contentHtml: characterDescriptionInput.value,
       contentFormat: 'html'
     })
@@ -669,6 +842,7 @@ const clearNarrativeAutosave = (): void => {
 const scheduleNarrativeAutosave = (delay = 700): void => {
   if (syncingFromDetail || !entityDetail.value) return
   clearNarrativeAutosave()
+  if (narrativeTitleFocused.value) return
   if (!canSaveNarrative.value || narrativeAutosaveSignature.value === lastSavedNarrativeSignature) return
   narrativeSaveState.value = 'idle'
   narrativeAutosaveTimer = setTimeout(() => {
@@ -678,6 +852,8 @@ const scheduleNarrativeAutosave = (delay = 700): void => {
 }
 
 onMounted(async () => {
+  loadNarrativeSidebarWidth()
+  window.addEventListener('resize', syncNarrativeSidebarWidthBounds)
   await loadEntityDetail()
 })
 
@@ -687,6 +863,8 @@ watch(narrativeAutosaveSignature, () => {
 
 onBeforeUnmount(() => {
   clearNarrativeAutosave()
+  stopNarrativeSidebarResize()
+  window.removeEventListener('resize', syncNarrativeSidebarWidthBounds)
 })
 
 useKeyboardShortcut(
@@ -698,7 +876,7 @@ useKeyboardShortcut(
   },
   async () => {
     clearNarrativeAutosave()
-    await saveNarrative(true)
+    await saveNarrative(true, { fallbackBlankTitle: !narrativeTitleFocused.value })
   }
 )
 </script>
@@ -706,24 +884,56 @@ useKeyboardShortcut(
 <style scoped>
 .narrative-editor-page {
   --narrative-sidebar-width: 356px;
+  --narrative-sidebar-resizer-width: 6px;
   --narrative-editor-left: 76px;
   --narrative-outline-width: 150px;
 
   width: 100vw;
   height: 100%;
   display: grid;
-  grid-template-columns: var(--narrative-sidebar-width) minmax(0, 1fr);
+  grid-template-columns: var(--narrative-sidebar-width) var(--narrative-sidebar-resizer-width) minmax(0, 1fr);
   overflow: hidden;
   background: var(--wb-narrative-bg);
   color: var(--wb-narrative-text);
 }
 
+.narrative-editor-page.resizing-sidebar,
+:global(body.narrative-sidebar-resizing) {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .narrative-sidebar {
   min-width: 0;
-  border-right: 1px solid var(--wb-narrative-border);
   background: var(--wb-narrative-sidebar-bg);
   display: flex;
   flex-direction: column;
+}
+
+.narrative-sidebar-resizer {
+  position: relative;
+  min-width: var(--narrative-sidebar-resizer-width);
+  height: 100%;
+  border-left: 1px solid var(--wb-narrative-border);
+  background: var(--wb-narrative-sidebar-bg);
+  cursor: col-resize;
+  z-index: 4;
+}
+
+.narrative-sidebar-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: transparent;
+}
+
+.narrative-sidebar-resizer:hover::before,
+.narrative-editor-page.resizing-sidebar .narrative-sidebar-resizer::before {
+  background: var(--wb-narrative-accent);
 }
 
 .sidebar-home,

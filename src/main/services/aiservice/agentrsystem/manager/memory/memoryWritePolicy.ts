@@ -177,6 +177,10 @@ export const createDefaultMemorySlots = (): MemorySlotSnapshot => ({
   user_mood: {
     confidence: 0
   },
+  world_focus: {
+    confidence: 0,
+    status: 'none'
+  },
   lastObservationId: 0
 })
 
@@ -191,6 +195,9 @@ export const applyObservationToMemorySlots = (
     },
     user_mood: {
       ...slots.user_mood
+    },
+    world_focus: {
+      ...slots.world_focus
     },
     lastObservationId: observation.id
   }

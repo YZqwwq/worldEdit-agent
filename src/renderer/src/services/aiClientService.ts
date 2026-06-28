@@ -8,7 +8,7 @@ import {
 } from '../../../share/cache/AItype/states/mainAgentMessageContent'
 import type { ChatMessage, ChatMessageAttachment } from '../../../share/cache/render/aiagent/chatMessage'
 import { partsToMarkdown } from '../utils/aiToMarkdown'
-import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
+import type { AgentStageChunk, StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 import type { AgentTraceRecord } from '../../../share/cache/render/aiagent/agentTrace'
 
 export type AgentLog = AgentTraceRecord
@@ -16,6 +16,7 @@ export type AgentLog = AgentTraceRecord
 // A reactive reference to hold the list of chat messages
 const messages = ref<ChatMessage[]>([])
 const agentLogs = ref<AgentLog[]>([]) // 存储当前会话的监控日志
+const agentStage = ref<AgentStageChunk | null>(null)
 
 // A reactive reference to track if the AI is currently thinking
 const isLoading = ref(false)
@@ -24,6 +25,27 @@ const isLoading = ref(false)
 let currentStreamingMessageId: number | null = null
 let currentStreamingText = ''
 let stopListening: (() => void) | null = null
+let stageClearTimer: ReturnType<typeof setTimeout> | null = null
+
+const setAgentStage = (stage: AgentStageChunk | null): void => {
+  if (stageClearTimer) {
+    clearTimeout(stageClearTimer)
+    stageClearTimer = null
+  }
+  agentStage.value = stage
+}
+
+const clearAgentStageSoon = (stageId: string): void => {
+  if (stageClearTimer) {
+    clearTimeout(stageClearTimer)
+  }
+  stageClearTimer = setTimeout(() => {
+    if (agentStage.value?.stageId === stageId) {
+      agentStage.value = null
+    }
+    stageClearTimer = null
+  }, 900)
+}
 
 const buildChatAttachmentsFromContent = (
   content: MainAgentMessageContentPart[]
@@ -102,12 +124,20 @@ function handleStreamChunk(chunk: StreamChunk): void {
       agentLogs.value.push(chunk.record)
       break
 
+    case 'agent_stage':
+      setAgentStage(chunk)
+      if (chunk.status === 'done' || chunk.status === 'error') {
+        clearAgentStageSoon(chunk.stageId)
+      }
+      break
+
     case 'stream_error':
       msg.text =
         msg.text === '正在思考中...' || !msg.text.trim()
           ? chunk.message || '模型超时，未收到回复。'
           : `${msg.text}\n\n${chunk.message || '模型超时，未收到回复。'}`
       isLoading.value = false
+      setAgentStage(null)
       cleanupListener()
       break
 
@@ -117,6 +147,7 @@ function handleStreamChunk(chunk: StreamChunk): void {
         msg.text = partsToMarkdown(chunk.fullContent)
       }
       isLoading.value = false
+      setAgentStage(null)
       cleanupListener()
       break
   }
@@ -129,6 +160,7 @@ function cleanupListener(): void {
   }
   currentStreamingMessageId = null
   currentStreamingText = ''
+  setAgentStage(null)
   // 注意：agentLogs 不在这里清除，可能用户想保留查看，直到下次发送前
 }
 
@@ -174,6 +206,7 @@ async function clearHistory(): Promise<void> {
     await window.api.clearHistory()
     messages.value = []
     agentLogs.value = []
+    setAgentStage(null)
   } catch (error) {
     console.error('Failed to clear history:', error)
   }
@@ -226,6 +259,7 @@ async function purgeAllData(): Promise<void> {
     await window.api.purgeAllData()
     messages.value = []
     agentLogs.value = []
+    setAgentStage(null)
   } catch (error) {
     console.error('Failed to purge all data:', error)
   }
@@ -245,6 +279,7 @@ async function resetAgentState(): Promise<void> {
     await window.api.resetAgentState()
     messages.value = []
     agentLogs.value = []
+    setAgentStage(null)
   } catch (error) {
     console.error('Failed to reset agent state:', error)
   }
@@ -287,6 +322,7 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
   // 2. Set loading state & Init listener
   isLoading.value = true
   agentLogs.value = [] // 清空旧日志，开始新一轮监控
+  setAgentStage(null)
   
   // 注册监听器
   cleanupListener() // 确保清理旧的
@@ -312,6 +348,7 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
     const msg = messages.value.find((m) => m.id === aiMsgId)
     if (msg) msg.text = '抱歉，与AI通信时发生错误。'
     isLoading.value = false
+    setAgentStage(null)
     cleanupListener()
   }
 }
@@ -321,6 +358,7 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
 export function useAIChatService(): {
   messages: Ref<ChatMessage[]>
   agentLogs: Ref<AgentLog[]>
+  agentStage: Ref<AgentStageChunk | null>
   isLoading: Ref<boolean>
   sendMessage: (input: MainAgentUserMessageInput) => Promise<void>
   interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
@@ -339,6 +377,7 @@ export function useAIChatService(): {
   return {
     messages,
     agentLogs,
+    agentStage,
     isLoading,
     sendMessage,
     interruptCurrentRun,

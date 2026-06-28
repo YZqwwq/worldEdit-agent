@@ -38,6 +38,10 @@ import type {
   MoveCharacterNarrativeDocumentInput,
   UpdateCharacterNarrativeDocumentInput
 } from '../share/cache/worldbuilding/characterNarrativeDocument'
+import type {
+  CharacterImpressionPayload,
+  UpsertCharacterImpressionInput
+} from '../share/cache/worldbuilding/characterImpression'
 
 declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
@@ -171,6 +175,12 @@ declare global {
     deleteCharacterNarrativeDocument: (
       input: DeleteCharacterNarrativeDocumentInput
     ) => Promise<void>
+    getCharacterImpression: (
+      characterEntityId: string
+    ) => Promise<CharacterImpressionPayload | null>
+    upsertCharacterImpression: (
+      input: UpsertCharacterImpressionInput
+    ) => Promise<CharacterImpressionPayload>
   }
 
   interface Window {

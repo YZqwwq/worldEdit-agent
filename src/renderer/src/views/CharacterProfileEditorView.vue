@@ -47,30 +47,47 @@
 
         <div class="stage-dom-layer">
           <div class="stage-toolbar">
-            <router-link
+            <button
               v-if="worldId"
-              :to="{ name: 'WorldEditor', params: { worldId } }"
               class="stage-toolbar-link"
+              type="button"
+              @click="navigateFromProfile('WorldEditor')"
             >
               返回世界实例
-            </router-link>
-            <router-link
-              :to="{ name: 'WorldEntityEditor', params: { worldId, entityId } }"
+            </button>
+            <button
+              type="button"
               class="stage-toolbar-link stage-toolbar-link-muted"
+              @click="navigateFromProfile('AIChat')"
             >
-              返回功能选择
-            </router-link>
-            <router-link to="/chat" class="stage-toolbar-link stage-toolbar-link-muted">
               AI 助手
-            </router-link>
+            </button>
           </div>
 
-          <router-link
-            :to="{ name: 'CharacterPortraitEditor', params: { worldId, entityId } }"
+          <nav class="workspace-entry-tabs" aria-label="人物功能入口">
+            <button
+              type="button"
+              class="workspace-entry-tab"
+              @click="navigateFromProfile('CharacterPortraitEditor')"
+            >
+              人物立绘
+            </button>
+            <button
+              type="button"
+              class="workspace-entry-tab"
+              @click="navigateFromProfile('CharacterNarrativeEditor')"
+            >
+              文本编辑
+            </button>
+          </nav>
+
+          <button
+            type="button"
             class="portrait-replace-button"
+            @click="navigateFromProfile('CharacterPortraitEditor')"
           >
             替换人物图片
-          </router-link>
+          </button>
 
           <section class="identity-panel">
             <div class="identity-race">{{ leftRaceLabel }}</div>
@@ -323,7 +340,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type {
   UpdateWorldEntityInput,
   UpsertWorldEntityComponentInput,
@@ -348,6 +365,7 @@ import {
 import '../styles/worldbuildingWhiteTheme.css'
 
 const route = useRoute()
+const router = useRouter()
 
 const backgroundCanvasRef = ref<HTMLCanvasElement | null>(null)
 const overlayCanvasRef = ref<HTMLCanvasElement | null>(null)
@@ -659,6 +677,29 @@ const selectDossierTab = (key: DossierTabKey): void => {
   activeBasicInfoDrag.value = null
   activeDossierTab.value = key
   renderStage()
+}
+
+const navigateFromProfile = async (
+  target:
+    | 'WorldEditor'
+    | 'AIChat'
+    | 'CharacterPortraitEditor'
+    | 'CharacterNarrativeEditor'
+): Promise<void> => {
+  clearProfileAutosave()
+  await saveProfile(true).catch(() => undefined)
+
+  if (target === 'WorldEditor') {
+    await router.push({ name: target, params: { worldId: worldId.value } })
+    return
+  }
+
+  if (target === 'AIChat') {
+    await router.push({ name: target })
+    return
+  }
+
+  await router.push({ name: target, params: { worldId: worldId.value, entityId: entityId.value } })
 }
 
 const waitForLayoutFrame = (): Promise<void> =>
@@ -1740,9 +1781,13 @@ useKeyboardShortcut(
   align-items: center;
   min-height: 38px;
   padding: 0 14px;
+  border: 0;
+  background: transparent;
   color: rgba(255, 255, 255, 0.95);
   text-decoration: none;
+  font: inherit;
   font-weight: 600;
+  cursor: pointer;
 }
 
 .stage-toolbar-link + .stage-toolbar-link {
@@ -1751,6 +1796,48 @@ useKeyboardShortcut(
 
 .stage-toolbar-link-muted {
   color: rgba(255, 255, 255, 0.72);
+}
+
+.stage-toolbar-link:hover,
+.workspace-entry-tab:hover,
+.portrait-replace-button:hover {
+  background: rgba(24, 24, 24, 0.92);
+  color: rgba(255, 255, 255, 0.98);
+}
+
+.workspace-entry-tabs {
+  position: absolute;
+  top: 0;
+  left: calc(50% - var(--dossier-panel-width) * 0.5);
+  transform: translateX(-50%);
+  min-height: 42px;
+  display: inline-flex;
+  align-items: stretch;
+  z-index: 4;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-top: 0;
+  background: rgba(42, 42, 42, 0.86);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.14);
+  pointer-events: auto;
+}
+
+.workspace-entry-tab {
+  min-width: 108px;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.workspace-entry-tab:first-child {
+  border-left: 0;
 }
 
 .portrait-replace-button {
@@ -1767,14 +1854,12 @@ useKeyboardShortcut(
   background: rgba(42, 42, 42, 0.86);
   color: rgba(255, 255, 255, 0.92);
   text-decoration: none;
+  font: inherit;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.04em;
   pointer-events: auto;
-}
-
-.portrait-replace-button:hover {
-  background: rgba(24, 24, 24, 0.92);
+  cursor: pointer;
 }
 
 .identity-panel {
@@ -2365,12 +2450,27 @@ useKeyboardShortcut(
     border-left: 0;
   }
 
+  .workspace-entry-tabs {
+    top: 74px;
+    left: 0;
+    right: 0;
+    width: 100%;
+    transform: none;
+    justify-content: center;
+  }
+
+  .workspace-entry-tab {
+    min-width: 0;
+    flex: 1;
+    padding: 0 10px;
+  }
+
   .character-transform-layer {
     max-width: 68vw;
   }
 
   .portrait-replace-button {
-    top: 74px;
+    top: 116px;
     right: 0;
   }
 

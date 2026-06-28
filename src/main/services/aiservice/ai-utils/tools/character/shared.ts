@@ -80,6 +80,94 @@ export const upsertCharacterDescriptionOutputSchema = z.object({
   component: characterEntityComponentPayloadSchema
 })
 
+const characterNarrativeReaderCharacterSchema = z.object({
+  entityId: z.string(),
+  name: z.string(),
+  worldId: z.string()
+})
+
+export const getCharacterNarrativeReadingPlanInputSchema = z.object({
+  characterEntityId: z.string().trim().min(1)
+})
+
+export const characterNarrativeOutlineItemSchema = z.object({
+  documentId: z.string(),
+  parentDocumentId: z.string().nullable(),
+  title: z.string(),
+  depth: z.number().int().min(0),
+  path: z.array(z.string()),
+  childCount: z.number().int().min(0),
+  textLength: z.number().int().min(0),
+  updatedAt: z.string().optional()
+})
+
+export const getCharacterNarrativeReadingPlanOutputSchema = z.object({
+  character: characterNarrativeReaderCharacterSchema,
+  outline: z.array(characterNarrativeOutlineItemSchema),
+  totalDocuments: z.number().int().min(0),
+  totalReadableCharacters: z.number().int().min(0),
+  recommendedBatchMaxChars: z.number().int().positive(),
+  firstCursor: z.string()
+})
+
+export const readCharacterNarrativeBatchInputSchema = z.object({
+  characterEntityId: z.string().trim().min(1),
+  cursor: z.string().trim().optional(),
+  maxChars: z.number().int().min(1000).max(24000).optional()
+})
+
+export const characterNarrativeReadingChunkSchema = z.object({
+  chunkId: z.string(),
+  documentId: z.string(),
+  title: z.string(),
+  path: z.array(z.string()),
+  depth: z.number().int().min(0),
+  chunkIndex: z.number().int().min(0),
+  chunkCount: z.number().int().min(1),
+  text: z.string(),
+  textLength: z.number().int().min(0),
+  updatedAt: z.string().optional()
+})
+
+export const readCharacterNarrativeBatchOutputSchema = z.object({
+  character: characterNarrativeReaderCharacterSchema,
+  cursor: z.string(),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
+  batchIndexStart: z.number().int().min(0),
+  batchIndexEnd: z.number().int().min(0),
+  totalChunks: z.number().int().min(0),
+  returnedCharacters: z.number().int().min(0),
+  chunks: z.array(characterNarrativeReadingChunkSchema)
+})
+
+export const getCharacterImpressionInputSchema = z.object({
+  characterEntityId: z.string().trim().min(1)
+})
+
+export const characterImpressionPayloadSchema = z.object({
+  characterEntityId: z.string(),
+  structuredText: z.string(),
+  updateMarker: z.string(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional()
+})
+
+export const getCharacterImpressionOutputSchema = z.object({
+  found: z.boolean(),
+  impression: characterImpressionPayloadSchema.nullable()
+})
+
+export const upsertCharacterImpressionInputSchema = z.object({
+  characterEntityId: z.string().trim().min(1),
+  structuredText: z.string().trim().min(1).max(120000),
+  updateMarker: z.string().trim().max(20000).optional()
+})
+
+export const upsertCharacterImpressionOutputSchema = z.object({
+  impression: characterImpressionPayloadSchema
+})
+
 export const characterDemographicPatchSchema = z
   .object({
     basicInfo: z

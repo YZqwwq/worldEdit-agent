@@ -14,7 +14,7 @@ const routes = [
   {
     path: '/world/:worldId/entity/:entityId',
     name: 'WorldEntityEditor',
-    component: () => import('../views/CharacterWorkspaceView.vue')
+    component: () => import('../views/GenericWorldEntityEditorView.vue')
   },
   {
     path: '/world/:worldId/entity/:entityId/profile',

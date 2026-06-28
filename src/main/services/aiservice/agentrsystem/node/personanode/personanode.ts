@@ -11,6 +11,7 @@ import type {
   PersonaState
 } from '@share/cache/AItype/states/personalState'
 import type {
+  PersonaActionPolicy,
   PersonaPolicy
 } from '@share/cache/AItype/states/personaPolicy'
 import type {
@@ -823,38 +824,87 @@ const synthesizeMetrics = (
   )
 })
 
+const buildActionPolicy = (
+  baseMetrics: PersonaMetrics,
+  moodAssessment: MoodAssessment
+): PersonaActionPolicy => {
+  const tension = moodAssessment.情绪向量.紧张度
+  const frustration = moodAssessment.情绪向量.受挫度
+  const focus = moodAssessment.情绪向量.专注度
+  const restraint = moodAssessment.表达调制.收束度
+  const clarification = moodAssessment.表达调制.澄清需求
+
+  return {
+    autonomyDrive: roundTo(clamp(baseMetrics.autonomy_level * 0.78 + focus * 0.22, 0, 1)),
+    caution: roundTo(
+      clamp(
+        0.36 +
+          (1 - baseMetrics.risk_tolerance) * 0.32 +
+          (1 - baseMetrics.autonomy_level) * 0.16 +
+          restraint * 0.1 +
+          tension * 0.12 +
+          frustration * 0.08,
+        0,
+        1
+      )
+    ),
+    clarificationNeed: roundTo(
+      clamp(clarification * 0.72 + (1 - baseMetrics.autonomy_level) * 0.18 + tension * 0.1, 0, 1)
+    ),
+    evidenceNeed: roundTo(
+      clamp(0.28 + (1 - baseMetrics.risk_tolerance) * 0.28 + focus * 0.2 + tension * 0.12, 0, 1)
+    ),
+    recallNeed: roundTo(
+      clamp(0.24 + restraint * 0.18 + focus * 0.16 + moodAssessment.情绪向量.亲近度 * 0.12, 0, 1)
+    ),
+    writeConservatism: roundTo(
+      clamp(0.3 + (1 - baseMetrics.risk_tolerance) * 0.34 + restraint * 0.16 + frustration * 0.12, 0, 1)
+    ),
+    toolPersistence: roundTo(
+      clamp(baseMetrics.autonomy_level * 0.32 + baseMetrics.risk_tolerance * 0.26 + focus * 0.24 - frustration * 0.12, 0, 1)
+    )
+  }
+}
+
 const buildPolicy = (
-  metrics: PersonaMetrics,
+  baseMetrics: PersonaMetrics,
+  effectiveMetrics: PersonaMetrics,
+  moodAssessment: MoodAssessment,
   signals: PersonaSignal[],
   nowIso: string
 ): PersonaPolicy => {
+  const action = buildActionPolicy(baseMetrics, moodAssessment)
   const temperature = roundTo(
     clamp(
       0.45 +
-        metrics.risk_tolerance * 0.4 +
-        metrics.autonomy_level * 0.12 -
-        metrics.formality_score * 0.1,
+        effectiveMetrics.risk_tolerance * 0.4 +
+        effectiveMetrics.autonomy_level * 0.12 -
+        effectiveMetrics.formality_score * 0.1,
       0.2,
       1.2
     )
   )
-  const topP = roundTo(clamp(0.72 + metrics.risk_tolerance * 0.24, 0.6, 0.98))
-  const maxTokens = Math.round(clamp(520 + metrics.verbosity_index * 980, 420, 1800))
+  const topP = roundTo(clamp(0.72 + effectiveMetrics.risk_tolerance * 0.24, 0.6, 0.98))
+  const maxTokens = Math.round(clamp(520 + effectiveMetrics.verbosity_index * 980, 420, 1800))
 
   return {
     generatedAt: nowIso,
+    metrics: {
+      base: baseMetrics,
+      effective: effectiveMetrics
+    },
     sampling: {
       temperature,
       topP,
       maxTokens
     },
     tool: {
-      confirmBeforeSensitiveTools: metrics.autonomy_level < 0.4 || metrics.risk_tolerance < 0.4,
-      allowRiskyTools: metrics.risk_tolerance >= 0.45,
-      exploratoryBias: roundTo(clamp(metrics.risk_tolerance * 0.6 + metrics.autonomy_level * 0.4, 0, 1))
+      confirmBeforeSensitiveTools: action.caution >= 0.58 || action.writeConservatism >= 0.62,
+      allowRiskyTools: baseMetrics.risk_tolerance >= 0.5 && action.caution < 0.66 && action.writeConservatism < 0.7
     },
+    action,
     memory: {
-      archiveThreshold: Math.round(clamp(8 - metrics.verbosity_index * 4, 4, 8)),
+      archiveThreshold: Math.round(clamp(8 - baseMetrics.verbosity_index * 4, 4, 8)),
       shortTermLimit: 4
     },
     signals: signals.map((signal) => signal.user_signal)
@@ -1048,8 +1098,9 @@ export async function personaNode(
     FAMILA_CHARACTER_MOOD_BOUNDARY,
     slots
   )
-  const effectiveMetrics = applyMoodDeltaToMetrics(reconciled.state.metrics, moodAssessment.参数偏移)
-  const policy = buildPolicy(effectiveMetrics, reconciled.appliedSignals, nowIso)
+  const baseMetrics = reconciled.state.metrics
+  const effectiveMetrics = applyMoodDeltaToMetrics(baseMetrics, moodAssessment.参数偏移)
+  const policy = buildPolicy(baseMetrics, effectiveMetrics, moodAssessment, reconciled.appliedSignals, nowIso)
 
   traceDecision('personaNode', {
     title: '人格状态: personaNode',
@@ -1081,6 +1132,7 @@ export async function personaNode(
       `表达方案=${expressionProfile.id}` +
       `，温度=${policy.sampling.temperature.toFixed(2)}`,
     data: {
+      baseMetrics,
       effectiveMetrics,
       expressionProfile: {
         id: expressionProfile.id,
@@ -1088,6 +1140,8 @@ export async function personaNode(
         summary: expressionProfile.summary
       },
       sampling: policy.sampling,
+      action: policy.action,
+      tool: policy.tool,
       memory: policy.memory
     }
   })

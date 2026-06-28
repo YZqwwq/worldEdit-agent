@@ -47,9 +47,9 @@
               class="entity-card"
               role="button"
               tabindex="0"
-              @click="openEntity(entity.id)"
-              @keydown.enter.prevent="openEntity(entity.id)"
-              @keydown.space.prevent="openEntity(entity.id)"
+              @click="openEntity(entity)"
+              @keydown.enter.prevent="openEntity(entity)"
+              @keydown.space.prevent="openEntity(entity)"
             >
               <div class="entity-card-head">
                 <span class="entity-name">{{ entity.name }}</span>
@@ -234,8 +234,11 @@ const closeEntityDialog = (): void => {
   newEntitySummary.value = ''
 }
 
-const openEntity = async (entityId: string): Promise<void> => {
-  await router.push({ name: 'WorldEntityEditor', params: { worldId: worldId.value, entityId } })
+const openEntity = async (entity: WorldEntityPayload): Promise<void> => {
+  await router.push({
+    name: entity.type === 'character' ? 'CharacterProfileEditor' : 'WorldEntityEditor',
+    params: { worldId: worldId.value, entityId: entity.id }
+  })
 }
 
 const toggleEntityMenu = (entityId: string): void => {
@@ -282,7 +285,7 @@ const handleSubmitEntity = async (): Promise<void> => {
     })
     closeEntityDialog()
     await loadEntities()
-    await openEntity(created.id)
+    await openEntity(created)
   } finally {
     creatingEntity.value = false
   }

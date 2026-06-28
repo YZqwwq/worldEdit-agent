@@ -2,7 +2,12 @@
   <div class="editor-shell">
     <WorldRichTextToolbar v-if="showToolbar" :editor="editor" :show-meta="showToolbarMeta" />
 
-    <div class="editor-frame" :class="{ 'editor-frame-dark': theme === 'dark' }" :style="editorStyle">
+    <div
+      class="editor-frame"
+      :class="{ 'editor-frame-dark': theme === 'dark' }"
+      :style="editorStyle"
+      @mousedown="handleEditorFrameMouseDown"
+    >
       <EditorContent v-if="editor" :editor="editor" class="editor-content" />
     </div>
 
@@ -75,6 +80,15 @@ const editor = useEditor({
     })
   }
 })
+
+const handleEditorFrameMouseDown = (event: MouseEvent): void => {
+  if (!editor.value) return
+  const target = event.target
+  if (target instanceof HTMLElement && target.closest('.tiptap')) return
+
+  event.preventDefault()
+  editor.value.commands.focus('end')
+}
 
 watch(
   () => props.modelValue,

@@ -1243,7 +1243,7 @@ const navigateToWorldEditor = async (): Promise<void> => {
 
 const navigateToEntityEditor = async (): Promise<void> => {
   await savePortrait(true).catch(() => undefined)
-  await router.push({ name: 'WorldEntityEditor', params: { worldId: worldId.value, entityId: entityId.value } })
+  await router.push({ name: 'CharacterProfileEditor', params: { worldId: worldId.value, entityId: entityId.value } })
 }
 
 const savePortrait = async (force = false): Promise<void> => {
