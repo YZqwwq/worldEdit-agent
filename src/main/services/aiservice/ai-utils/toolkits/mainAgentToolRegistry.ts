@@ -17,9 +17,10 @@ import { getTaskDetailTool } from '../tools/task/getTaskDetail'
 import { recallAgentMemoryTool } from '../tools/memory/recallAgentMemory'
 import { officialWebSearchTool } from '../tools/network/officialWebSearch'
 import { searchRecentChineseConversationTool } from '../tools/conversation/searchRecentChineseConversation'
+import { createCharacterNarrativeReadingTaskTool } from '../tools/character/createCharacterNarrativeReadingTask'
 import { getCharacterImpressionTool } from '../tools/character/getCharacterImpression'
-import { getCharacterNarrativeReadingPlanTool } from '../tools/character/getCharacterNarrativeReadingPlan'
-import { readCharacterNarrativeBatchTool } from '../tools/character/readCharacterNarrativeBatch'
+import { inspectCharacterNarrativeCatalogTool } from '../tools/character/inspectCharacterNarrativeCatalog'
+import { readCharacterNarrativeTaskBatchTool } from '../tools/character/readCharacterNarrativeTaskBatch'
 import { upsertCharacterImpressionTool } from '../tools/character/upsertCharacterImpression'
 import { activateToolsetTool } from '../tools/utility/activateToolset'
 import { addTool } from '../tools/utility/add'
@@ -107,19 +108,38 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     quickAccessScope: 'toolset'
   },
   {
-    id: 'character_impression',
-    title: '人物印象工具集',
-    summary: '读取人物文本编辑页的树状叙事文档，按稳定顺序分批阅读，并把主 agent 形成的人物画像/主观看法写入人物关联表。',
-    tags: ['character', 'impression', 'persona', 'narrative', 'reading', 'profile', '人物', '人物印象', '人物画像', '文本阅读', '叙事文本'],
-    activationHints: ['用户要求阅读某个人物的文本、建立人物画像、形成主 agent 对人物的看法或保存人物印象时激活。'],
+    id: 'character_narrative_reader',
+    title: '人物文本阅读工具集',
+    summary: '查看人物树状文本目录，创建带目的的阅读任务，并按任务顺序分批读取正文。',
+    tags: ['character', 'narrative', 'reading', 'catalog', 'reader', '人物', '文本阅读', '叙事文本', '目录', '阅读任务'],
+    activationHints: ['用户要求阅读某个人物的文本、按文件/文件树选择性阅读、全量阅读人物文本、基于文本分析人物时激活。'],
     whenToUse: [
-      '需要从人物文本编辑页的叙事文档中稳定读完全部文本',
-      '需要为人物建立外貌、性格、行为、能力、事迹、关系和主观看法等结构化印象',
-      '后台可暂停阅读任务需要按 cursor 恢复人物文本阅读'
+      '需要查看人物文本目录并决定读哪些文件',
+      '需要全量阅读或选择性阅读人物树状文本',
+      '需要按阅读目的顺序分批读取人物正文'
     ],
     whenNotToUse: [
       '只需要读取人物基础资料、人口学字段或世界实体详情',
-      '用户只是闲聊角色创作灵感，不要求读取本地人物文本',
+      '用户只是要求保存已经形成的人物印象，而不需要再读取文本',
+      '目标不是本地 character entity'
+    ],
+    quickAccessEligible: true,
+    quickAccessScope: 'toolset'
+  },
+  {
+    id: 'character_impression',
+    title: '人物印象工具集',
+    summary: '读取或保存主 agent 对人物形成的结构化印象。',
+    tags: ['character', 'impression', 'persona', 'profile', '人物', '人物印象', '人物画像'],
+    activationHints: ['用户要求查看、建立或保存主 agent 对人物的主观看法/人物画像时激活。'],
+    whenToUse: [
+      '需要读取已保存的人物印象',
+      '已经读完必要人物文本，需要保存新的结构化人物印象',
+      '需要更新主 agent 对某个人物的主观看法'
+    ],
+    whenNotToUse: [
+      '还没有读取必要文本，应该先激活人物文本阅读工具集',
+      '只需要读取人物基础资料、人口学字段或世界实体详情',
       '目标不是本地 character entity'
     ],
     quickAccessEligible: true,
@@ -376,13 +396,13 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     turnCallLimit: 1
   },
   {
-    key: getCharacterNarrativeReadingPlanTool.name,
-    tool: getCharacterNarrativeReadingPlanTool,
-    toolsetId: 'character_impression',
-    category: 'character_impression',
+    key: inspectCharacterNarrativeCatalogTool.name,
+    tool: inspectCharacterNarrativeCatalogTool,
+    toolsetId: 'character_narrative_reader',
+    category: 'character_narrative_reader',
     capabilityLayer: 'background_toolset',
-    capabilityGroup: '人物印象',
-    capabilitySummary: '为人物叙事文本建立稳定的树状阅读计划。',
+    capabilityGroup: '人物文本阅读',
+    capabilitySummary: '查看人物树状文本目录和可选择的 document/document_tree/full 阅读范围。',
     audience: 'main_agent',
     access: 'read',
     activationMode: 'manual',
@@ -390,13 +410,27 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     quickAccessEligible: true
   },
   {
-    key: readCharacterNarrativeBatchTool.name,
-    tool: readCharacterNarrativeBatchTool,
-    toolsetId: 'character_impression',
-    category: 'character_impression',
+    key: createCharacterNarrativeReadingTaskTool.name,
+    tool: createCharacterNarrativeReadingTaskTool,
+    toolsetId: 'character_narrative_reader',
+    category: 'character_narrative_reader',
     capabilityLayer: 'background_toolset',
-    capabilityGroup: '人物印象',
-    capabilitySummary: '按 cursor 分批读取人物叙事正文，供主 agent 逐步形成印象。',
+    capabilityGroup: '人物文本阅读',
+    capabilitySummary: '把全量/选择性阅读意图编译成带 mission 和 unit 顺序的阅读任务。',
+    audience: 'main_agent',
+    access: 'read',
+    activationMode: 'manual',
+    enabled: true,
+    quickAccessEligible: true
+  },
+  {
+    key: readCharacterNarrativeTaskBatchTool.name,
+    tool: readCharacterNarrativeTaskBatchTool,
+    toolsetId: 'character_narrative_reader',
+    category: 'character_narrative_reader',
+    capabilityLayer: 'background_toolset',
+    capabilityGroup: '人物文本阅读',
+    capabilitySummary: '按 reading task 的 cursor 和 unit mission 顺序分批读取人物正文。',
     audience: 'main_agent',
     access: 'read',
     activationMode: 'manual',

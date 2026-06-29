@@ -152,18 +152,26 @@ const collectCharacterReadingText = async (
   truncated: boolean
   sourceCount: number
 }> => {
-  const plan = await characterNarrativeReadingService.getReadingPlan(characterEntityId)
-  let cursor: string | undefined = plan.firstCursor
-  let hasMore = plan.totalDocuments > 0
+  const task = await characterNarrativeReadingService.createReadingTask({
+    characterEntityId,
+    mode: 'full',
+    mission: '形成对人物的整体概念',
+    outputIntent: {
+      kind: 'character_impression',
+      instructions: '生成主 agent 对人物的结构化印象'
+    },
+    maxBatchChars: DEFAULT_BATCH_MAX_CHARS
+  })
+  let cursor: string | undefined = task.firstCursor
+  let hasMore = task.totalDocuments > 0
   let totalText = ''
   let sourceCount = 0
   let truncated = false
 
   while (hasMore && totalText.length < MAX_READING_CHARS_FOR_FOCUS) {
-    const batch = await characterNarrativeReadingService.readBatch({
-      characterEntityId,
-      cursor,
-      maxChars: DEFAULT_BATCH_MAX_CHARS
+    const batch = await characterNarrativeReadingService.readTaskBatch({
+      task,
+      cursor
     })
     const sections = batch.chunks
       .filter((chunk): chunk is CharacterNarrativeReadingChunk => Boolean(chunk.text.trim()))

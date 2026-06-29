@@ -80,14 +80,10 @@ export const upsertCharacterDescriptionOutputSchema = z.object({
   component: characterEntityComponentPayloadSchema
 })
 
-const characterNarrativeReaderCharacterSchema = z.object({
+export const characterNarrativeReaderCharacterSchema = z.object({
   entityId: z.string(),
   name: z.string(),
   worldId: z.string()
-})
-
-export const getCharacterNarrativeReadingPlanInputSchema = z.object({
-  characterEntityId: z.string().trim().min(1)
 })
 
 export const characterNarrativeOutlineItemSchema = z.object({
@@ -101,19 +97,54 @@ export const characterNarrativeOutlineItemSchema = z.object({
   updatedAt: z.string().optional()
 })
 
-export const getCharacterNarrativeReadingPlanOutputSchema = z.object({
-  character: characterNarrativeReaderCharacterSchema,
-  outline: z.array(characterNarrativeOutlineItemSchema),
-  totalDocuments: z.number().int().min(0),
-  totalReadableCharacters: z.number().int().min(0),
-  recommendedBatchMaxChars: z.number().int().positive(),
-  firstCursor: z.string()
+export const inspectCharacterNarrativeCatalogInputSchema = z.object({
+  characterEntityId: z.string().trim().min(1),
+  includePreview: z.boolean().optional(),
+  previewChars: z.number().int().min(0).max(1000).optional()
 })
 
-export const readCharacterNarrativeBatchInputSchema = z.object({
-  characterEntityId: z.string().trim().min(1),
-  cursor: z.string().trim().optional(),
-  maxChars: z.number().int().min(1000).max(24000).optional()
+export const characterNarrativeCatalogSelectableItemSchema = z.object({
+  type: z.enum(['document', 'document_tree']),
+  documentId: z.string(),
+  title: z.string(),
+  path: z.array(z.string()),
+  depth: z.number().int().min(0),
+  childCount: z.number().int().min(0),
+  subtreeDocumentCount: z.number().int().min(1),
+  textLength: z.number().int().min(0),
+  subtreeTextLength: z.number().int().min(0),
+  updatedAt: z.string().optional(),
+  preview: z.string().optional()
+})
+
+export const inspectCharacterNarrativeCatalogOutputSchema = z.object({
+  character: characterNarrativeReaderCharacterSchema,
+  totalDocuments: z.number().int().min(0),
+  totalReadableCharacters: z.number().int().min(0),
+  rootCount: z.number().int().min(0),
+  fullReadOption: z.object({
+    type: z.literal('full'),
+    label: z.string(),
+    mission: z.string(),
+    documentCount: z.number().int().min(0),
+    readableCharacters: z.number().int().min(0)
+  }),
+  selectableItems: z.array(characterNarrativeCatalogSelectableItemSchema),
+  selectionGuide: z.object({
+    rules: z.array(z.string()),
+    examples: z.array(
+      z.object({
+        mission: z.string(),
+        selections: z.array(
+          z.object({
+            type: z.enum(['document', 'document_tree', 'full']),
+            title: z.string(),
+            mission: z.string()
+          })
+        )
+      })
+    )
+  })
 })
 
 export const characterNarrativeReadingChunkSchema = z.object({
@@ -129,16 +160,120 @@ export const characterNarrativeReadingChunkSchema = z.object({
   updatedAt: z.string().optional()
 })
 
-export const readCharacterNarrativeBatchOutputSchema = z.object({
+export const characterNarrativeReadingSelectionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('document'),
+    documentId: z.string().trim().min(1),
+    mission: z.string().trim().min(1).max(1000)
+  }),
+  z.object({
+    type: z.literal('document_tree'),
+    rootDocumentId: z.string().trim().min(1),
+    mission: z.string().trim().min(1).max(1000)
+  })
+])
+
+export const characterNarrativeOutputIntentSchema = z.object({
+  kind: z.enum([
+    'character_impression',
+    'answer_question',
+    'compare_documents',
+    'extract_timeline',
+    'analyze_personality',
+    'custom'
+  ]),
+  instructions: z.string().trim().max(2000).optional()
+})
+
+export const createCharacterNarrativeReadingTaskInputSchema = z
+  .object({
+    characterEntityId: z.string().trim().min(1),
+    mission: z.string().trim().min(1).max(2000),
+    mode: z.enum(['full', 'selective']),
+    selections: z.array(characterNarrativeReadingSelectionSchema).max(20).optional(),
+    outputIntent: characterNarrativeOutputIntentSchema.optional(),
+    readingOrder: z.enum(['given_order', 'tree_order']).optional(),
+    maxBatchChars: z.number().int().min(1000).max(24000).optional()
+  })
+  .superRefine((input, ctx) => {
+    if (input.mode === 'selective' && (!input.selections || input.selections.length === 0)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['selections'],
+        message: 'selective mode requires at least one reading selection.'
+      })
+    }
+  })
+
+export const characterNarrativeReadingTaskUnitSchema = z.object({
+  unitId: z.string(),
+  type: z.enum(['full', 'document', 'document_tree']),
+  mission: z.string(),
+  documentId: z.string().optional(),
+  rootDocumentId: z.string().optional(),
+  title: z.string(),
+  path: z.array(z.string()),
+  documentIds: z.array(z.string()),
+  documentCount: z.number().int().min(0),
+  readableCharacters: z.number().int().min(0),
+  orderIndex: z.number().int().min(0)
+})
+
+export const characterNarrativeReadingTaskSchema = z.object({
+  taskId: z.string(),
   character: characterNarrativeReaderCharacterSchema,
+  mode: z.enum(['full', 'selective']),
+  mission: z.string(),
+  outputIntent: z.object({
+    kind: z.string(),
+    instructions: z.string().optional()
+  }),
+  totalDocuments: z.number().int().min(0),
+  totalReadableCharacters: z.number().int().min(0),
+  estimatedBatchCount: z.number().int().min(0),
+  maxBatchChars: z.number().int().min(1000).max(24000),
+  units: z.array(characterNarrativeReadingTaskUnitSchema),
+  firstCursor: z.string(),
+  warnings: z.array(z.string()),
+  readingProtocol: z.object({
+    rules: z.array(z.string()),
+    perUnitOutputGuidance: z.array(z.string()),
+    finalOutputGuidance: z.array(z.string())
+  })
+})
+
+export const createCharacterNarrativeReadingTaskOutputSchema = z.object({
+  task: characterNarrativeReadingTaskSchema
+})
+
+export const readCharacterNarrativeTaskBatchInputSchema = z.object({
+  task: characterNarrativeReadingTaskSchema,
+  cursor: z.string().trim().optional()
+})
+
+export const readCharacterNarrativeTaskBatchOutputSchema = z.object({
+  taskId: z.string(),
+  mission: z.string(),
+  outputIntent: z.object({
+    kind: z.string(),
+    instructions: z.string().optional()
+  }),
+  currentUnit: characterNarrativeReadingTaskUnitSchema,
   cursor: z.string(),
   nextCursor: z.string().nullable(),
+  hasMoreInUnit: z.boolean(),
   hasMore: z.boolean(),
-  batchIndexStart: z.number().int().min(0),
-  batchIndexEnd: z.number().int().min(0),
-  totalChunks: z.number().int().min(0),
+  unitIndex: z.number().int().min(0),
+  chunkIndexStart: z.number().int().min(0),
+  chunkIndexEnd: z.number().int().min(0),
+  totalUnitChunks: z.number().int().min(0),
   returnedCharacters: z.number().int().min(0),
-  chunks: z.array(characterNarrativeReadingChunkSchema)
+  chunks: z.array(characterNarrativeReadingChunkSchema),
+  readingInstruction: z.object({
+    taskMission: z.string(),
+    unitMission: z.string(),
+    requiredAgentAction: z.string()
+  })
 })
 
 export const getCharacterImpressionInputSchema = z.object({
