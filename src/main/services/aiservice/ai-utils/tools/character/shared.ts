@@ -303,6 +303,19 @@ export const upsertCharacterImpressionOutputSchema = z.object({
   impression: characterImpressionPayloadSchema
 })
 
+export const saveCharacterNarrativeImpressionInputSchema = z.object({
+  characterEntityId: z.string().trim().min(1),
+  structuredText: z.string().trim().min(1).max(120000),
+  sourceReadingTaskId: z.string().trim().max(200).optional(),
+  sourceMission: z.string().trim().max(2000).optional(),
+  evidenceSummary: z.string().trim().max(12000).optional(),
+  updateMarker: z.string().trim().max(20000).optional()
+})
+
+export const saveCharacterNarrativeImpressionOutputSchema = z.object({
+  impression: characterImpressionPayloadSchema
+})
+
 export const characterDemographicPatchSchema = z
   .object({
     basicInfo: z

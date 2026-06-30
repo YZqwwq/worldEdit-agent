@@ -21,6 +21,7 @@ import { createCharacterNarrativeReadingTaskTool } from '../tools/character/crea
 import { getCharacterImpressionTool } from '../tools/character/getCharacterImpression'
 import { inspectCharacterNarrativeCatalogTool } from '../tools/character/inspectCharacterNarrativeCatalog'
 import { readCharacterNarrativeTaskBatchTool } from '../tools/character/readCharacterNarrativeTaskBatch'
+import { saveCharacterNarrativeImpressionTool } from '../tools/character/saveCharacterNarrativeImpression'
 import { upsertCharacterImpressionTool } from '../tools/character/upsertCharacterImpression'
 import { activateToolsetTool } from '../tools/utility/activateToolset'
 import { addTool } from '../tools/utility/add'
@@ -109,18 +110,29 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
   },
   {
     id: 'character_narrative_reader',
-    title: '人物文本阅读工具集',
-    summary: '查看人物树状文本目录，创建带目的的阅读任务，并按任务顺序分批读取正文。',
-    tags: ['character', 'narrative', 'reading', 'catalog', 'reader', '人物', '文本阅读', '叙事文本', '目录', '阅读任务'],
-    activationHints: ['用户要求阅读某个人物的文本、按文件/文件树选择性阅读、全量阅读人物文本、基于文本分析人物时激活。'],
+    title: '人物文本阅读与印象形成工具集',
+    summary:
+      '围绕本地人物树状叙事文本建立或刷新 Agent 对人物的结构化印象：先查看目录，再创建带目的的阅读任务，按顺序分批阅读，最后把基于证据形成的印象保存到人物印象关联表。',
+    tags: ['character', 'narrative', 'reading', 'catalog', 'reader', 'impression', 'refresh-impression', '人物', '文本阅读', '叙事文本', '目录', '阅读任务', '人物印象', '重新形成印象'],
+    activationHints: [
+      '人物没有已保存印象，且用户问题需要理解该人物时激活。',
+      '用户要求阅读人物文本、建立人物画像、重新认识/重新评价/刷新对人物的印象时激活。',
+      '用户问题依赖人物叙事文本中的生平、性格、事件、关系或转折，而当前印象不存在、过旧、范围不足或证据不足时激活。',
+      '用户明确指出文本被更新、补充了新章节，或要求基于指定文件/文件树重新分析人物时激活。'
+    ],
     whenToUse: [
-      '需要查看人物文本目录并决定读哪些文件',
-      '需要全量阅读或选择性阅读人物树状文本',
-      '需要按阅读目的顺序分批读取人物正文'
+      '需要查看人物文本目录并决定读哪些文件，以建立或刷新人物印象',
+      '需要全量阅读或选择性阅读人物树状文本，形成对人物的整体概念或专题判断',
+      '需要按阅读目的顺序分批读取人物正文，并在每个阅读单元后形成阶段理解',
+      '需要把基于人物文本阅读形成的 Agent 印象保存到人物关联记录',
+      '当前已保存人物印象缺失、明显过旧、没有证据来源、与用户最新文本/问题不匹配，或只覆盖了部分文本但用户需要更完整判断',
+      '用户要求重新形成印象、更新人物画像、重新评价人物性格/生平/关系/事件影响'
     ],
     whenNotToUse: [
       '只需要读取人物基础资料、人口学字段或世界实体详情',
-      '用户只是要求保存已经形成的人物印象，而不需要再读取文本',
+      '用户只是要求查看已保存的人物印象，而不需要重新阅读文本或更新印象',
+      '已有印象足够新、证据范围足够覆盖当前问题，且用户没有要求重新分析',
+      '只是临时闲聊创作灵感，不需要基于本地文本证据形成持久化印象',
       '目标不是本地 character entity'
     ],
     quickAccessEligible: true,
@@ -433,6 +445,20 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     capabilitySummary: '按 reading task 的 cursor 和 unit mission 顺序分批读取人物正文。',
     audience: 'main_agent',
     access: 'read',
+    activationMode: 'manual',
+    enabled: true,
+    quickAccessEligible: true
+  },
+  {
+    key: saveCharacterNarrativeImpressionTool.name,
+    tool: saveCharacterNarrativeImpressionTool,
+    toolsetId: 'character_narrative_reader',
+    category: 'character_narrative_reader',
+    capabilityLayer: 'background_toolset',
+    capabilityGroup: '人物文本阅读',
+    capabilitySummary: '把已完成人物文本阅读任务综合出的 Agent 人物印象保存到人物印象关联表。',
+    audience: 'main_agent',
+    access: 'write',
     activationMode: 'manual',
     enabled: true,
     quickAccessEligible: true

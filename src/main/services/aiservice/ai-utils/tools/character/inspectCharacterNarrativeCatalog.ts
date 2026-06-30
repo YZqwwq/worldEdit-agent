@@ -8,19 +8,21 @@ import {
 export const inspectCharacterNarrativeCatalogTool = defineAgentTool({
   name: 'inspect_character_narrative_catalog',
   description:
-    'Inspect the tree-shaped narrative document catalog for a character before deciding what to read.',
+    'Inspect the tree-shaped narrative document catalog before deciding how to build or refresh the agent impression of a character.',
   inputSchema: inspectCharacterNarrativeCatalogInputSchema,
   outputSchema: inspectCharacterNarrativeCatalogOutputSchema,
   metadata: {
     whenToUse: [
-      '需要阅读人物文本，但还没有决定全量阅读还是选择性阅读',
+      '需要建立或重新形成人物印象，但还没有决定全量阅读还是选择性阅读',
       '需要查看人物文本目录、文件树、每个文件或子树的文本量',
-      '需要为 create_character_narrative_reading_task 准备 documentId 或 rootDocumentId'
+      '需要为 create_character_narrative_reading_task 准备 documentId 或 rootDocumentId',
+      '已有印象缺失、过旧、证据范围不足，或用户要求基于指定文本重新分析人物'
     ],
     whenNotToUse: [
       '已经有有效的 reading task，应该继续调用 read_character_narrative_task_batch',
       '只需要读取人物结构化 profile/demographic 信息，应使用人物详情工具',
-      '用户没有要求基于人物文本阅读做分析或总结'
+      '已有印象已经足够覆盖当前问题，且用户没有要求重新阅读或更新印象',
+      '用户没有要求基于人物文本阅读做分析、总结或印象刷新'
     ],
     inputSummary:
       '提供 characterEntityId；可选 includePreview/previewChars 让目录项附带短预览。',
@@ -29,8 +31,9 @@ export const inspectCharacterNarrativeCatalogTool = defineAgentTool({
     usageContract: [
       '本工具只查看目录，不读取完整正文。',
       '选择性阅读时，后续必须使用返回的 documentId 或 rootDocumentId 创建 reading task，不要只靠标题。',
-      '如果用户需要整体认识人物，优先考虑 fullReadOption。',
-      '如果用户只关心部分主题，从 selectableItems 中选择 document 或 document_tree。'
+      '如果用户需要整体认识人物、人物没有已保存印象、或旧印象证据不足，优先考虑 fullReadOption。',
+      '如果用户只关心部分主题、指定章节、某类事件或某个关系，从 selectableItems 中选择 document 或 document_tree。',
+      '如果用户要求“重新认识/重新评价/更新印象”，应先检查目录，再根据问题决定 full 或 selective。'
     ],
     riskLevel: 'low',
     readOnly: true,
