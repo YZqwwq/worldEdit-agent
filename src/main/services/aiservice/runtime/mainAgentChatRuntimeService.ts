@@ -36,13 +36,13 @@ class MainAgentChatRuntimeService {
     const controller = mainAgentRunControlService.startRun({ eventId, turnId })
     let fullText = ''
     const persistedMessage = await chatMessageService.getMessageById(userMessageId)
-  const originalContent = getMainAgentContentPartsFromPersistedMessage(persistedMessage)
-  const effectiveContent = originalContent.length > 0 ? originalContent : content
-  const message = parseMainAgentContentForPersistence(effectiveContent)
-  const userMessageCreatedAtIso =
-    persistedMessage?.createdAt instanceof Date
-      ? persistedMessage.createdAt.toISOString()
-      : new Date().toISOString()
+    const originalContent = getMainAgentContentPartsFromPersistedMessage(persistedMessage)
+    const effectiveContent = originalContent.length > 0 ? originalContent : content
+    const message = parseMainAgentContentForPersistence(effectiveContent)
+    const userMessageCreatedAtIso =
+      persistedMessage?.createdAt instanceof Date
+        ? persistedMessage.createdAt.toISOString()
+        : new Date().toISOString()
 
     try {
       return await runWithTraceContext(runId, { turnId, emitChunk: onChunk }, async () => {
@@ -86,8 +86,7 @@ class MainAgentChatRuntimeService {
       })
     } catch (error) {
       const interrupted =
-        controller.signal.aborted ||
-        (error instanceof Error && error.name === 'AbortError')
+        controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')
       if (!interrupted) {
         throw error
       }
@@ -143,8 +142,7 @@ class MainAgentChatRuntimeService {
       })
     } catch (error) {
       const interrupted =
-        controller.signal.aborted ||
-        (error instanceof Error && error.name === 'AbortError')
+        controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')
       if (!interrupted) {
         throw error
       }

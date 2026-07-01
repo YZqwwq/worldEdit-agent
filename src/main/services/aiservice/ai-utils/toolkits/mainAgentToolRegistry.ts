@@ -1,14 +1,15 @@
-import type { AgentToolRegistryEntry, ToolActivationState, ToolsetRegistryEntry } from './toolRegistryTypes'
+import type {
+  AgentToolRegistryEntry,
+  ToolActivationState,
+  ToolsetRegistryEntry
+} from './toolRegistryTypes'
 import {
   listDiscoverableToolsets,
   listEnabledEntries,
   listVisibleEntries,
   toToolMap
 } from './toolRegistryTypes'
-import {
-  configureToolsetCatalogProvider,
-  toToolsetCatalogItem
-} from './toolsetCatalog'
+import { configureToolsetCatalogProvider, toToolsetCatalogItem } from './toolsetCatalog'
 import { toolUsageStatsService } from './toolUsageStatsService'
 import { continueActiveChildAgentTool } from '../tools/task/continueActiveChildAgent'
 import { delegateCharacterEditorTool } from '../tools/task/delegateCharacterEditor'
@@ -27,19 +28,23 @@ import { activateToolsetTool } from '../tools/utility/activateToolset'
 import { addTool } from '../tools/utility/add'
 import { getTimeTool } from '../tools/utility/getTime'
 import { queryToolCatalogTool } from '../tools/utility/queryToolCatalog'
+import { deleteWorldEntityManualMentionTool } from '../tools/world/deleteWorldEntityManualMention'
 import { getEntityDetailTool } from '../tools/world/getEntityDetail'
 import { getWorldSchemaCatalogTool } from '../tools/world/getWorldSchemaCatalog'
 import { listCharactersTool } from '../tools/world/listCharacters'
 import { listEntitiesTool } from '../tools/world/listEntities'
+import { listWorldEntityManualMentionsTool } from '../tools/world/listWorldEntityManualMentions'
 import { listWorldsTool } from '../tools/world/listWorlds'
 import { resolveWorldByNameTool } from '../tools/world/resolveWorldByName'
 import { searchEntitiesTool } from '../tools/world/searchEntities'
+import { upsertWorldEntityManualMentionTool } from '../tools/world/upsertWorldEntityManualMention'
 
 export const mainAgentToolsets: ToolsetRegistryEntry[] = [
   {
     id: 'core_runtime',
     title: '核心运行工具',
-    summary: '主 agent 每轮都可使用的低成本工具：查询工具底图、激活工具集、确认时间、主动回忆长期/阶段记忆和回溯短期中文对话。',
+    summary:
+      '主 agent 每轮都可使用的低成本工具：查询工具底图、激活工具集、确认时间、主动回忆长期/阶段记忆和回溯短期中文对话。',
     tags: ['core', 'runtime', 'tool-discovery', 'memory', 'time'],
     activationHints: ['默认已挂载，无需激活。'],
     whenToUse: ['处理普通对话、确认当前时间、按需回忆历史、回溯最近上下文、发现并激活专门工具集。'],
@@ -83,6 +88,44 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     quickAccessScope: 'tool'
   },
   {
+    id: 'world_focus_index_maintenance',
+    title: '世界观聚焦索引维护工具集',
+    summary:
+      '维护世界观对象的人工称呼、别名、简称和外号。这些 manual mention 会作为源数据自动导入 BM25 聚焦索引，用于提升瞬时感知对人物等对象的命中率。',
+    tags: [
+      'world',
+      'focus',
+      'index',
+      'bm25',
+      'mention',
+      'alias',
+      'manual-mention',
+      '世界观',
+      '聚焦',
+      '索引',
+      '别名',
+      '称呼'
+    ],
+    activationHints: [
+      '用户明确说明某个称呼、简称、昵称、外号指向某个世界观实体时激活。',
+      '世界观瞬时感知聚焦错误，需要查看或修正某个实体的 manual mention 时激活。',
+      '读人物文本或实体资料时发现明确别名/称号，并需要让后续对话能用该称呼稳定聚焦时激活。'
+    ],
+    whenToUse: [
+      '需要为人物或其他世界观实体登记别名、简称、称谓、外号、用户习惯叫法',
+      '需要查看某个实体已有 manual mention',
+      '需要删除错误的 mention 映射',
+      '需要解释称呼数据如何进入 BM25 聚焦索引'
+    ],
+    whenNotToUse: [
+      '尚未确认称呼指向哪个实体',
+      '只需要读取世界观实体内容，不需要维护聚焦索引',
+      '用户只是临时描述、比喻或一次性代称，不应持久写入'
+    ],
+    quickAccessEligible: true,
+    quickAccessScope: 'toolset'
+  },
+  {
     id: 'task_inspection',
     title: '任务检查工具集',
     summary: '读取任务、执行、通知和 trace 详情，用于排查任务运行状态。',
@@ -97,8 +140,24 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     id: 'network_web_search',
     title: '联网搜索工具集',
     summary: '使用官方联网搜索读取最新公开信息。',
-    tags: ['network', 'web', 'search', 'latest', 'public-info', '联网', '网络', '搜索', '外部', '网页', '实时', '最新', '公开信息'],
-    activationHints: ['用户明确要求联网、网络搜索、外部搜索、网页搜索、最新信息，或答案依赖实时公开资料时激活。'],
+    tags: [
+      'network',
+      'web',
+      'search',
+      'latest',
+      'public-info',
+      '联网',
+      '网络',
+      '搜索',
+      '外部',
+      '网页',
+      '实时',
+      '最新',
+      '公开信息'
+    ],
+    activationHints: [
+      '用户明确要求联网、网络搜索、外部搜索、网页搜索、最新信息，或答案依赖实时公开资料时激活。'
+    ],
     whenToUse: [
       '新闻、天气、价格、近期发布、网页资料等时效性问题',
       '需要最新公开来源支撑回答',
@@ -113,7 +172,22 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     title: '人物文本阅读与印象形成工具集',
     summary:
       '围绕本地人物树状叙事文本建立或刷新 Agent 对人物的结构化印象：先查看目录，再创建带目的的阅读任务，按顺序分批阅读，最后把基于证据形成的印象保存到人物印象关联表。',
-    tags: ['character', 'narrative', 'reading', 'catalog', 'reader', 'impression', 'refresh-impression', '人物', '文本阅读', '叙事文本', '目录', '阅读任务', '人物印象', '重新形成印象'],
+    tags: [
+      'character',
+      'narrative',
+      'reading',
+      'catalog',
+      'reader',
+      'impression',
+      'refresh-impression',
+      '人物',
+      '文本阅读',
+      '叙事文本',
+      '目录',
+      '阅读任务',
+      '人物印象',
+      '重新形成印象'
+    ],
     activationHints: [
       '人物没有已保存印象，且用户问题需要理解该人物时激活。',
       '用户要求阅读人物文本、建立人物画像、重新认识/重新评价/刷新对人物的印象时激活。',
@@ -193,7 +267,8 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     category: 'utility',
     capabilityLayer: 'core',
     capabilityGroup: '核心运行',
-    capabilitySummary: '查看当前本地时间；通常 context 已提供时间，只有需要重新确认当前时刻时使用。',
+    capabilitySummary:
+      '查看当前本地时间；通常 context 已提供时间，只有需要重新确认当前时刻时使用。',
     audience: 'main_agent',
     access: 'read',
     activationMode: 'always',
@@ -206,7 +281,8 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     category: 'agent_memory',
     capabilityLayer: 'core',
     capabilityGroup: '核心运行',
-    capabilitySummary: '按需回忆静默长期记忆和最近阶段归档；长期记忆默认不直接注入上下文，需要时主动调用。',
+    capabilitySummary:
+      '按需回忆静默长期记忆和最近阶段归档；长期记忆默认不直接注入上下文，需要时主动调用。',
     audience: 'main_agent',
     access: 'read',
     activationMode: 'always',
@@ -392,6 +468,48 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     quickAccessEligible: true
   },
   {
+    key: listWorldEntityManualMentionsTool.name,
+    tool: listWorldEntityManualMentionsTool,
+    toolsetId: 'world_focus_index_maintenance',
+    category: 'world_focus_index',
+    capabilityLayer: 'domain',
+    capabilityGroup: '世界观聚焦索引维护',
+    capabilitySummary: '查看某个实体已登记的人工称呼、简称、别名或外号。',
+    audience: 'main_agent',
+    access: 'read',
+    activationMode: 'manual',
+    enabled: true,
+    quickAccessEligible: true
+  },
+  {
+    key: upsertWorldEntityManualMentionTool.name,
+    tool: upsertWorldEntityManualMentionTool,
+    toolsetId: 'world_focus_index_maintenance',
+    category: 'world_focus_index',
+    capabilityLayer: 'domain',
+    capabilityGroup: '世界观聚焦索引维护',
+    capabilitySummary: '新增或更新实体人工称呼；下一次搜索会自动导入 BM25 索引。',
+    audience: 'main_agent',
+    access: 'write',
+    activationMode: 'manual',
+    enabled: true,
+    quickAccessEligible: true
+  },
+  {
+    key: deleteWorldEntityManualMentionTool.name,
+    tool: deleteWorldEntityManualMentionTool,
+    toolsetId: 'world_focus_index_maintenance',
+    category: 'world_focus_index',
+    capabilityLayer: 'domain',
+    capabilityGroup: '世界观聚焦索引维护',
+    capabilitySummary: '删除错误的实体人工称呼；下一次搜索会自动刷新 BM25 索引。',
+    audience: 'main_agent',
+    access: 'write',
+    activationMode: 'manual',
+    enabled: true,
+    quickAccessEligible: true
+  },
+  {
     key: officialWebSearchTool.name,
     tool: officialWebSearchTool,
     toolsetId: 'network_web_search',
@@ -506,9 +624,7 @@ export const getMainAgentToolEntries = (): AgentToolRegistryEntry[] =>
   listEnabledEntries(mainAgentToolRegistry)
 
 export const hasMainAgentTool = (toolName: string): boolean =>
-  getMainAgentToolEntries().some(
-    (entry) => entry.key === toolName || entry.tool.name === toolName
-  )
+  getMainAgentToolEntries().some((entry) => entry.key === toolName || entry.tool.name === toolName)
 
 export const getVisibleMainAgentToolEntries = (
   state?: ToolActivationState

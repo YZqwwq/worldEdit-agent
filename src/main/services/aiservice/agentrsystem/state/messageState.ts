@@ -41,11 +41,35 @@ export type WorldFocusContext = {
   entityName: string
   confidence: number
   impression?: {
+    status: 'available' | 'missing' | 'stale' | 'insufficient'
     found: boolean
     structuredText?: string
     updatedAt?: string
+    latestNarrativeUpdatedAt?: string
+    narrativeDocumentCount?: number
+    narrativeReadableCharacters?: number
+    reason?: string
     generatedThisTurn?: boolean
   }
+}
+
+export type InstantPerceptionDetectorStatus = {
+  status: 'fulfilled' | 'rejected'
+  durationMs: number
+  producedStateKeys: string[]
+  errorMessage?: string
+}
+
+export type InstantPerceptionSnapshot = {
+  mode: 'parallel_dag'
+  startedAt: string
+  completedAt: string
+  durationMs: number
+  detectors: {
+    worldFocus: InstantPerceptionDetectorStatus
+    persona: InstantPerceptionDetectorStatus
+  }
+  warnings: string[]
 }
 
 export const MessagesState = Annotation.Root({
@@ -79,6 +103,10 @@ export const MessagesState = Annotation.Root({
     default: () => undefined
   }),
   worldFocusContext: Annotation<WorldFocusContext | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  instantPerception: Annotation<InstantPerceptionSnapshot | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),

@@ -15,19 +15,14 @@ import {
   loadCharacterPrompt,
   loadExpressionPromptProfile
 } from '../../../prompt/main_agent/agentPromptService'
-import {
-  traceArtifact,
-  traceDecision
-} from '../../../../log/trace/agentTraceEmitter'
+import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEmitter'
 import { getCurrentDetailTime, getDetailTime } from '../../../../../utils/getDetailTime'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
 }
 
-const buildActionPolicyPrompt = (
-  actionPolicy: PersonaActionPolicy | undefined
-): string => {
+const buildActionPolicyPrompt = (actionPolicy: PersonaActionPolicy | undefined): string => {
   if (!actionPolicy) return ''
 
   const lines = [
@@ -45,9 +40,7 @@ const buildActionPolicyPrompt = (
   return lines.join('\n')
 }
 
-const getCurrentUserMessageCreatedAt = (
-  state: typeof MessagesState.State
-): string | null => {
+const getCurrentUserMessageCreatedAt = (state: typeof MessagesState.State): string | null => {
   const userMessage = state.messages
     .slice()
     .reverse()
@@ -74,14 +67,53 @@ const buildWorldFocusPrompt = (state: typeof MessagesState.State): string => {
     '使用规则：这是一份本轮内部上下文。回答用户时可以自然承接该对象的信息，但不要主动暴露“我先去读取/聚焦了这个对象”之类过程性表述。'
   ]
 
-  if (focus.impression?.found && focus.impression.structuredText) {
+  if (focus.impression) {
     lines.push(
       '',
-      `主 agent 已有人物印象${focus.impression.generatedThisTurn ? '（本轮刚建立）' : ''}：`,
-      compactLongText(focus.impression.structuredText)
+      `人物印象状态：${focus.impression.status}`,
+      focus.impression.reason ? `状态原因：${focus.impression.reason}` : '',
+      focus.impression.updatedAt ? `人物印象更新时间：${focus.impression.updatedAt}` : '',
+      focus.impression.latestNarrativeUpdatedAt
+        ? `人物叙事文本最新更新时间：${focus.impression.latestNarrativeUpdatedAt}`
+        : '',
+      typeof focus.impression.narrativeDocumentCount === 'number'
+        ? `人物叙事文本数量：${focus.impression.narrativeDocumentCount}`
+        : ''
     )
-  } else if (focus.focusType === 'character') {
-    lines.push('', '主 agent 当前没有可用的人物印象；如果用户问题需要深入判断，应说明证据不足或基于已知资料谨慎回答。')
+  }
+
+  if (focus.impression?.found && focus.impression.structuredText) {
+    lines.push('', `主 agent 已有人物印象：`, compactLongText(focus.impression.structuredText))
+  }
+
+  if (
+    focus.focusType === 'character' &&
+    (!focus.impression?.found || focus.impression.status !== 'available')
+  ) {
+    lines.push(
+      '',
+      '人物理解使用规则：当前人物印象缺失、过期或证据不足；如果用户问题需要深入判断该人物的性格、动机、生平、关系、事件影响或要求重新评价，应优先激活 character_narrative_reader 工具集，按人物文本目录创建阅读任务并在必要时保存新的 save_character_narrative_impression。若不阅读，请明确保持谨慎，不要对文本未支持的内容做强断言。'
+    )
+  }
+
+  return lines.filter(Boolean).join('\n')
+}
+
+const buildInstantPerceptionPrompt = (state: typeof MessagesState.State): string => {
+  const perception = state.instantPerception
+  if (!perception) return ''
+
+  const lines = [
+    '本轮瞬时感知状态：',
+    `感知模式：${perception.mode}`,
+    `总耗时：${perception.durationMs}ms`,
+    `worldFocus：${perception.detectors.worldFocus.status} / ${perception.detectors.worldFocus.durationMs}ms / 输出=${perception.detectors.worldFocus.producedStateKeys.join(', ') || 'none'}`,
+    `persona：${perception.detectors.persona.status} / ${perception.detectors.persona.durationMs}ms / 输出=${perception.detectors.persona.producedStateKeys.join(', ') || 'none'}`,
+    '使用规则：这是内部感知层健康状态。不要向用户复述这些技术细节；若某项感知失败，只按已有上下文自然降级。'
+  ]
+
+  if (perception.warnings.length > 0) {
+    lines.push(`感知警告：${perception.warnings.join('；')}`)
   }
 
   return lines.join('\n')
@@ -94,7 +126,6 @@ const buildWorldFocusPrompt = (state: typeof MessagesState.State): string => {
 export async function contextNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
-  
   const messages: BaseMessage[] = []
 
   const slotSnapshot = await memorySlotService.reconcileFromObservations()
@@ -180,6 +211,11 @@ export async function contextNode(
     messages.push(new SystemMessage(actionPolicyPrompt))
   }
 
+  const instantPerceptionPrompt = buildInstantPerceptionPrompt(state)
+  if (instantPerceptionPrompt) {
+    messages.push(new SystemMessage(instantPerceptionPrompt))
+  }
+
   const worldFocusPrompt = buildWorldFocusPrompt(state)
   if (worldFocusPrompt) {
     messages.push(new SystemMessage(worldFocusPrompt))
@@ -202,21 +238,26 @@ export async function contextNode(
 
   for (const msg of snapshot.shortTerm) {
     if (msg.role === 'user') {
-      messages.push(new HumanMessage({
-        content: msg.content,
-        additional_kwargs: { isHistory: true }
-      }))
+      messages.push(
+        new HumanMessage({
+          content: msg.content,
+          additional_kwargs: { isHistory: true }
+        })
+      )
     } else if (msg.role === 'ai') {
-      messages.push(new AIMessage({
-        content: msg.content,
-        additional_kwargs: { isHistory: true }
-      }))
+      messages.push(
+        new AIMessage({
+          content: msg.content,
+          additional_kwargs: { isHistory: true }
+        })
+      )
     }
   }
 
   if (state.taskLifecycle?.activeTask) injectedSections.push('activeTask')
   if (toolUsagePrompt) injectedSections.push('toolUsage')
   if (actionPolicyPrompt) injectedSections.push('actionPolicy')
+  if (instantPerceptionPrompt) injectedSections.push('instantPerception')
   if (worldFocusPrompt) injectedSections.push('worldFocus')
   if (snapshot.anchors.length > 0) injectedSections.push('anchors')
   if (snapshot.shortTerm.length > 0) injectedSections.push('shortTermHistory')
@@ -255,7 +296,8 @@ export async function contextNode(
       systemMessageCount: messages.filter((message) => message instanceof SystemMessage).length,
       historyMessageCount: snapshot.shortTerm.length,
       estimatedPromptChars: messages.reduce((total, message) => {
-        const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+        const content =
+          typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
         return total + content.length
       }, 0)
     }

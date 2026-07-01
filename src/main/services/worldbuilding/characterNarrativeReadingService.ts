@@ -137,6 +137,17 @@ export interface CharacterNarrativeTaskReadingBatch {
   }
 }
 
+export interface CharacterNarrativeFreshnessSnapshot {
+  character: {
+    entityId: string
+    name: string
+    worldId: string
+  }
+  totalDocuments: number
+  totalReadableCharacters: number
+  latestDocumentUpdatedAt?: string
+}
+
 type TreeNode = CharacterNarrativeDocumentRecord & {
   children: TreeNode[]
 }
@@ -348,6 +359,37 @@ class CharacterNarrativeReadingService {
     }
     visit(node)
     return ids
+  }
+
+  async getFreshnessSnapshot(
+    characterEntityId: string
+  ): Promise<CharacterNarrativeFreshnessSnapshot> {
+    const character = await this.assertCharacterEntity(characterEntityId)
+    const documents = await this.documentRepo.find({
+      where: { characterEntityId: character.id }
+    })
+    const latestUpdatedAt = documents.reduce<Date | null>((latest, document) => {
+      if (!document.updatedAt) return latest
+      if (!latest || document.updatedAt.getTime() > latest.getTime()) {
+        return document.updatedAt
+      }
+      return latest
+    }, null)
+    const totalReadableCharacters = documents.reduce(
+      (total, document) => total + htmlToReadableText(document.contentHtml).length,
+      0
+    )
+
+    return {
+      character: {
+        entityId: character.id,
+        name: character.name,
+        worldId: character.worldId
+      },
+      totalDocuments: documents.length,
+      totalReadableCharacters,
+      latestDocumentUpdatedAt: latestUpdatedAt?.toISOString()
+    }
   }
 
   private buildDocumentMaps(roots: TreeNode[]): {

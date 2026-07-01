@@ -8,10 +8,7 @@ import { AppDataSource } from '../../../../../database'
 import { MemorySlotRecord } from '../../../../../../share/entity/database/MemorySlotRecord'
 import { interactionObservationService } from '../personal/interactionObservationService'
 import { personaConfigService } from '../personal/personaConfigService'
-import {
-  applyObservationToMemorySlots,
-  createDefaultMemorySlots
-} from './memoryWritePolicy'
+import { applyObservationToMemorySlots, createDefaultMemorySlots } from './memoryWritePolicy'
 
 const MEMORY_SLOT_ROW_ID = 1
 const WORLD_ENTITY_TYPES: WorldEntityType[] = [
@@ -41,10 +38,9 @@ const parseSnapshot = (input: string): MemorySlotSnapshot => {
         ...defaults,
         conversation_state: {
           ...defaults.conversation_state,
-          conversation_mode:
-            isConversationMode(parsed.conversation_state?.conversation_mode)
-              ? parsed.conversation_state.conversation_mode
-              : undefined,
+          conversation_mode: isConversationMode(parsed.conversation_state?.conversation_mode)
+            ? parsed.conversation_state.conversation_mode
+            : undefined,
           interaction_state: isInteractionState(parsed.conversation_state?.interaction_state)
             ? parsed.conversation_state.interaction_state
             : undefined
@@ -119,8 +115,25 @@ const parseSnapshot = (input: string): MemorySlotSnapshot => {
 }
 
 class MemorySlotService {
+  private writeQueue: Promise<void> = Promise.resolve()
+
   private get repo() {
     return AppDataSource.getRepository(MemorySlotRecord)
+  }
+
+  private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.writeQueue
+    let release: () => void = () => {}
+    this.writeQueue = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    await previous
+    try {
+      return await operation()
+    } finally {
+      release()
+    }
   }
 
   private async loadRow(): Promise<MemorySlotRecord> {
@@ -144,47 +157,53 @@ class MemorySlotService {
   }
 
   async reconcileFromObservations(): Promise<MemorySlotSnapshot> {
-    const row = await this.loadRow()
-    const config = await personaConfigService.getConfig()
-    let snapshot = parseSnapshot(row.payloadJson)
-    const observations = await interactionObservationService.listSince(row.lastObservationId)
+    return this.withWriteLock(async () => {
+      const row = await this.loadRow()
+      const config = await personaConfigService.getConfig()
+      let snapshot = parseSnapshot(row.payloadJson)
+      const observations = await interactionObservationService.listSince(row.lastObservationId)
 
-    for (const observation of observations) {
-      snapshot = applyObservationToMemorySlots(snapshot, observation, config)
-      row.lastObservationId = observation.id
-    }
+      for (const observation of observations) {
+        snapshot = applyObservationToMemorySlots(snapshot, observation, config)
+        row.lastObservationId = observation.id
+      }
 
-    snapshot.lastObservationId = row.lastObservationId
-    row.payloadJson = JSON.stringify(snapshot)
-    await this.repo.save(row)
-    return snapshot
+      snapshot.lastObservationId = row.lastObservationId
+      row.payloadJson = JSON.stringify(snapshot)
+      await this.repo.save(row)
+      return snapshot
+    })
   }
 
   async updateWorldFocus(
     worldFocus: Partial<MemorySlotSnapshot['world_focus']>
   ): Promise<MemorySlotSnapshot> {
-    const row = await this.loadRow()
-    const snapshot = parseSnapshot(row.payloadJson)
-    snapshot.lastObservationId = row.lastObservationId
-    snapshot.world_focus = {
-      ...createDefaultMemorySlots().world_focus,
-      ...snapshot.world_focus,
-      ...worldFocus,
-      updatedAt: worldFocus.updatedAt ?? new Date().toISOString()
-    }
-    row.payloadJson = JSON.stringify(snapshot)
-    await this.repo.save(row)
-    return snapshot
+    return this.withWriteLock(async () => {
+      const row = await this.loadRow()
+      const snapshot = parseSnapshot(row.payloadJson)
+      snapshot.lastObservationId = row.lastObservationId
+      snapshot.world_focus = {
+        ...createDefaultMemorySlots().world_focus,
+        ...snapshot.world_focus,
+        ...worldFocus,
+        updatedAt: worldFocus.updatedAt ?? new Date().toISOString()
+      }
+      row.payloadJson = JSON.stringify(snapshot)
+      await this.repo.save(row)
+      return snapshot
+    })
   }
 
   async clear(): Promise<void> {
-    let row = await this.repo.findOneBy({ id: MEMORY_SLOT_ROW_ID })
-    if (!row) {
-      row = this.repo.create({ id: MEMORY_SLOT_ROW_ID })
-    }
-    row.lastObservationId = 0
-    row.payloadJson = JSON.stringify(createDefaultMemorySlots())
-    await this.repo.save(row)
+    return this.withWriteLock(async () => {
+      let row = await this.repo.findOneBy({ id: MEMORY_SLOT_ROW_ID })
+      if (!row) {
+        row = this.repo.create({ id: MEMORY_SLOT_ROW_ID })
+      }
+      row.lastObservationId = 0
+      row.payloadJson = JSON.stringify(createDefaultMemorySlots())
+      await this.repo.save(row)
+    })
   }
 }
 

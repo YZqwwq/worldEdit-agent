@@ -4,6 +4,7 @@ import { WorldRecord } from '../../../share/entity/database/WorldRecord'
 import { WorldEntityRecord } from '../../../share/entity/database/WorldEntityRecord'
 import { WorldEntityComponentRecord } from '../../../share/entity/database/WorldEntityComponentRecord'
 import { WorldEntityRelationRecord } from '../../../share/entity/database/WorldEntityRelationRecord'
+import { WorldEntityManualMentionRecord } from '../../../share/entity/database/WorldEntityManualMentionRecord'
 import type {
   CreateWorldEntityInput,
   CreateWorldEntityRelationInput,
@@ -29,6 +30,7 @@ import {
   validateWorldbuildingComponentData,
   validateWorldbuildingRelationData
 } from '@share/cache/worldbuilding/definitions'
+import { worldEntityMentionIndexService } from './worldEntityMentionIndexService'
 
 const DEFAULT_SCHEMA_VERSION = 1
 
@@ -83,7 +85,10 @@ type CharacterSearchMatchPayload = {
   demographic: CharacterDemographicSearchData
 }
 
-const normalizeSearchText = (value: unknown): string => String(value ?? '').trim().toLowerCase()
+const normalizeSearchText = (value: unknown): string =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
 
 const normalizeSearchList = (value: string[] | undefined): string[] =>
   (value ?? []).map(normalizeSearchText).filter(Boolean)
@@ -114,7 +119,10 @@ const getBasicInfoSearchValues = (demographic: CharacterDemographicSearchData): 
     field.entityType
   ])
 
-const parseJsonObject = (input: string, fallback: Record<string, unknown> = {}): Record<string, unknown> => {
+const parseJsonObject = (
+  input: string,
+  fallback: Record<string, unknown> = {}
+): Record<string, unknown> => {
   try {
     const parsed = JSON.parse(input)
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -191,6 +199,10 @@ class WorldbuildingService {
     return AppDataSource.getRepository(WorldEntityRelationRecord)
   }
 
+  private get manualMentionRepo() {
+    return AppDataSource.getRepository(WorldEntityManualMentionRecord)
+  }
+
   async createWorld(input: CreateWorldInput): Promise<WorldPayload> {
     const name = String(input.name || '').trim()
     if (!name) throw new Error('World name is required')
@@ -203,6 +215,7 @@ class WorldbuildingService {
       schemaVersion: DEFAULT_SCHEMA_VERSION
     })
     const saved = await this.worldRepo.save(record)
+    worldEntityMentionIndexService.invalidateAll()
     return toWorldPayload(saved)
   }
 
@@ -227,6 +240,7 @@ class WorldbuildingService {
     record.status = input.status || record.status || 'active'
 
     const saved = await this.worldRepo.save(record)
+    worldEntityMentionIndexService.invalidateAll()
     return toWorldPayload(saved)
   }
 
@@ -251,12 +265,19 @@ class WorldbuildingService {
           .from(WorldEntityComponentRecord)
           .where('entityId IN (:...entityIds)', { entityIds })
           .execute()
+        await manager
+          .createQueryBuilder()
+          .delete()
+          .from(WorldEntityManualMentionRecord)
+          .where('entityId IN (:...entityIds)', { entityIds })
+          .execute()
       }
 
       await manager.delete(WorldEntityRelationRecord, { worldId: normalizedWorldId })
       await manager.delete(WorldEntityRecord, { worldId: normalizedWorldId })
       await manager.delete(WorldRecord, { id: normalizedWorldId })
     })
+    worldEntityMentionIndexService.invalidateAll()
   }
 
   async createEntity(input: CreateWorldEntityInput): Promise<WorldEntityPayload> {
@@ -290,9 +311,7 @@ class WorldbuildingService {
       ? buildStarterComponentSeeds(input.type, input.initialComponents ?? [])
       : []
     const adHocSeeds =
-      input.initializeStarterComponents === true
-        ? []
-        : (input.initialComponents ?? [])
+      input.initializeStarterComponents === true ? [] : (input.initialComponents ?? [])
 
     for (const componentSeed of [...starterSeeds, ...adHocSeeds]) {
       await this.upsertComponent({
@@ -303,16 +322,18 @@ class WorldbuildingService {
       })
     }
 
+    worldEntityMentionIndexService.invalidateAll()
     return toEntityPayload(saved)
   }
 
-  async listEntities(worldId: string, type?: WorldEntityPayload['type']): Promise<WorldEntityPayload[]> {
+  async listEntities(
+    worldId: string,
+    type?: WorldEntityPayload['type']
+  ): Promise<WorldEntityPayload[]> {
     const normalizedWorldId = String(worldId || '').trim()
     if (!normalizedWorldId) throw new Error('worldId is required')
 
-    const where = type
-      ? { worldId: normalizedWorldId, type }
-      : { worldId: normalizedWorldId }
+    const where = type ? { worldId: normalizedWorldId, type } : { worldId: normalizedWorldId }
 
     const records = await this.entityRepo.find({
       where,
@@ -321,7 +342,9 @@ class WorldbuildingService {
     return records.map(toEntityPayload)
   }
 
-  async searchCharacterEntities(input: SearchCharacterEntitiesInput): Promise<CharacterSearchMatchPayload[]> {
+  async searchCharacterEntities(
+    input: SearchCharacterEntitiesInput
+  ): Promise<CharacterSearchMatchPayload[]> {
     const worldId = String(input.worldId || '').trim()
     const keyword = normalizeSearchText(input.keyword)
     const name = normalizeSearchText(input.name)
@@ -432,11 +455,17 @@ class WorldbuildingService {
       if (!raceMatched) continue
       if (raceEntityId) matchedFields.add('raceEntityId')
 
-      const factionMatched = includesSearchText(getBasicInfoValue(demographic, 'faction'), factionEntityId)
+      const factionMatched = includesSearchText(
+        getBasicInfoValue(demographic, 'faction'),
+        factionEntityId
+      )
       if (!factionMatched) continue
       if (factionEntityId) matchedFields.add('factionEntityId')
 
-      const nationMatched = includesSearchText(getBasicInfoValue(demographic, 'nation'), nationEntityId)
+      const nationMatched = includesSearchText(
+        getBasicInfoValue(demographic, 'nation'),
+        nationEntityId
+      )
       if (!nationMatched) continue
       if (nationEntityId) matchedFields.add('nationEntityId')
 
@@ -491,6 +520,15 @@ class WorldbuildingService {
     record.status = input.status || record.status || 'active'
 
     const saved = await this.entityRepo.save(record)
+    await this.manualMentionRepo.update(
+      { entityId: saved.id },
+      {
+        worldId: saved.worldId,
+        entityType: saved.type,
+        entityName: saved.name
+      }
+    )
+    worldEntityMentionIndexService.invalidateAll()
     return toEntityPayload(saved)
   }
 
@@ -503,6 +541,7 @@ class WorldbuildingService {
       if (!entity) throw new Error(`Entity not found: ${normalizedEntityId}`)
 
       await manager.delete(WorldEntityComponentRecord, { entityId: normalizedEntityId })
+      await manager.delete(WorldEntityManualMentionRecord, { entityId: normalizedEntityId })
 
       await manager
         .createQueryBuilder()
@@ -515,6 +554,7 @@ class WorldbuildingService {
 
       await manager.delete(WorldEntityRecord, { id: normalizedEntityId })
     })
+    worldEntityMentionIndexService.invalidateAll()
   }
 
   async upsertComponent(
@@ -544,6 +584,7 @@ class WorldbuildingService {
     record.dataJson = JSON.stringify(normalizedData)
 
     const saved = await this.componentRepo.save(record)
+    worldEntityMentionIndexService.invalidateAll()
     return toComponentPayload(saved)
   }
 
@@ -558,9 +599,7 @@ class WorldbuildingService {
     return records.map(toComponentPayload)
   }
 
-  async createRelation(
-    input: CreateWorldEntityRelationInput
-  ): Promise<WorldEntityRelationPayload> {
+  async createRelation(input: CreateWorldEntityRelationInput): Promise<WorldEntityRelationPayload> {
     const worldId = String(input.worldId || '').trim()
     const sourceEntityId = String(input.sourceEntityId || '').trim()
     const targetEntityId = String(input.targetEntityId || '').trim()
