@@ -55,6 +55,14 @@ const awaitingUserInputDecisionSchema = z.object({
   })
 })
 
+const activeTaskCancellationSchema = z.object({
+  decision: z.object({
+    cancelTask: z.boolean(),
+    confidence: z.number().min(0).max(1),
+    reason: z.string().trim().min(1).max(300)
+  })
+})
+
 type AwaitingUserInputDecisionResult = z.infer<typeof awaitingUserInputDecisionSchema>
 
 export type AwaitingUserInputDecisionType = AwaitingUserInputDecisionResult['decision']['type']
@@ -63,7 +71,7 @@ export type AwaitingUserInputDecision = {
   type: AwaitingUserInputDecisionType
   confidence: number
   reason: string
-  source: 'rule' | 'quick_model' | 'fallback'
+  source: 'quick_model' | 'fallback'
 }
 
 type AwaitingUserInputNeed = {
@@ -105,8 +113,7 @@ const parseCharacterEditorNeed = (
       missingFields: ['worldName'],
       waitingSummary: '当前还缺少明确的世界观名称。',
       guidanceMessage:
-        lastPrompt ||
-        '我现在需要你提供这个角色所属的世界观名称，拿到世界名后才能继续续跑。',
+        lastPrompt || '我现在需要你提供这个角色所属的世界观名称，拿到世界名后才能继续续跑。',
       lastPrompt
     }
   }
@@ -125,8 +132,7 @@ const parseCharacterEditorNeed = (
   return {
     missingFields: [],
     waitingSummary: '当前还需要更多修改信息，任务才能继续。',
-    guidanceMessage:
-      lastPrompt || '我现在还需要更明确的补充信息，拿到后才能继续当前任务。',
+    guidanceMessage: lastPrompt || '我现在还需要更明确的补充信息，拿到后才能继续当前任务。',
     lastPrompt
   }
 }
@@ -155,45 +161,28 @@ const describeAwaitingNeed = (
   }
 }
 
-const inferByRule = (userInput: string): AwaitingUserInputDecision | null => {
+type AwaitingUserInputRuleHints = {
+  possibleCancel: boolean
+  possibleStatusQuery: boolean
+  possibleNonContinuation: boolean
+  matchedHints: string[]
+}
+
+const buildRuleHints = (userInput: string): AwaitingUserInputRuleHints => {
   const trimmed = userInput.trim()
-  if (!trimmed) {
-    return {
-      type: 'clarify',
-      confidence: 0.98,
-      reason: '空输入不能安全续跑任务。',
-      source: 'rule'
-    }
+  const possibleCancel = matchesAnyPattern(trimmed, OBVIOUS_TASK_CANCEL_PATTERNS)
+  const possibleStatusQuery = matchesAnyPattern(trimmed, TASK_STATUS_QUERY_PATTERNS)
+  const possibleNonContinuation = matchesAnyPattern(trimmed, NON_CONTINUATION_PATTERNS)
+  return {
+    possibleCancel,
+    possibleStatusQuery,
+    possibleNonContinuation,
+    matchedHints: [
+      possibleCancel ? 'possible_cancel' : '',
+      possibleStatusQuery ? 'possible_status_query' : '',
+      possibleNonContinuation ? 'possible_non_continuation' : ''
+    ].filter(Boolean)
   }
-
-  if (matchesAnyPattern(trimmed, OBVIOUS_TASK_CANCEL_PATTERNS)) {
-    return {
-      type: 'cancel_task',
-      confidence: 0.95,
-      reason: '命中了显式取消表达。',
-      source: 'rule'
-    }
-  }
-
-  if (matchesAnyPattern(trimmed, TASK_STATUS_QUERY_PATTERNS)) {
-    return {
-      type: 'ask_status',
-      confidence: 0.9,
-      reason: '命中了任务进度或缺失信息查询表达。',
-      source: 'rule'
-    }
-  }
-
-  if (matchesAnyPattern(trimmed, NON_CONTINUATION_PATTERNS)) {
-    return {
-      type: 'clarify',
-      confidence: 0.88,
-      reason: '命中了闲聊或空泛反馈表达，不应直接续跑。',
-      source: 'rule'
-    }
-  }
-
-  return null
 }
 
 const buildPrompt = (input: {
@@ -201,6 +190,7 @@ const buildPrompt = (input: {
   activeTask: Pick<ActiveTaskSnapshot, 'id' | 'title' | 'status' | 'executorKind'>
   pendingContext: Record<string, unknown>
   need: AwaitingUserInputNeed
+  ruleHints: AwaitingUserInputRuleHints
 }): string => `你是主代理在 awaiting_user_input 状态下的安全分流节点。
 
 目标：
@@ -214,6 +204,9 @@ ${JSON.stringify(input.pendingContext, null, 2)}
 
 当前等待信息摘要：
 ${JSON.stringify(input.need, null, 2)}
+
+规则提示（只能作为弱线索，不能直接当结论）：
+${JSON.stringify(input.ruleHints, null, 2)}
 
 用户最新输入：
 ${input.userInput}
@@ -245,13 +238,11 @@ const inferWithModel = async (input: {
   activeTask: Pick<ActiveTaskSnapshot, 'id' | 'title' | 'status' | 'executorKind'>
   pendingContext: Record<string, unknown>
   need: AwaitingUserInputNeed
+  ruleHints: AwaitingUserInputRuleHints
 }): Promise<AwaitingUserInputDecision> => {
   const model = await getQuickModel()
   const response = await model.invoke(
-    [
-      new SystemMessage('你只负责输出合法 JSON。'),
-      new HumanMessage(buildPrompt(input))
-    ],
+    [new SystemMessage('你只负责输出合法 JSON。'), new HumanMessage(buildPrompt(input))],
     { signal: AbortSignal.timeout(8000) } as Record<string, unknown>
   )
   const text = contentToText(response.content)
@@ -276,8 +267,95 @@ const inferFallback = (): AwaitingUserInputDecision => ({
   source: 'fallback'
 })
 
-export const matchesObviousTaskCancellation = (text: string): boolean =>
-  matchesAnyPattern(text.trim(), OBVIOUS_TASK_CANCEL_PATTERNS)
+export type ActiveTaskCancellationDecision = {
+  cancelTask: boolean
+  confidence: number
+  reason: string
+  source: 'quick_model' | 'fallback'
+}
+
+const buildActiveTaskCancellationPrompt = (input: {
+  userInput: string
+  activeTask: Pick<ActiveTaskSnapshot, 'id' | 'title' | 'status' | 'executorKind'>
+  ruleHints: AwaitingUserInputRuleHints
+}): string => `你是主代理的“活跃任务取消判断器”。你只判断用户最新输入是否明确要求取消当前活跃任务。
+
+当前活跃任务：
+${JSON.stringify(input.activeTask, null, 2)}
+
+规则提示（只能作为弱线索，不能直接当结论）：
+${JSON.stringify(input.ruleHints, null, 2)}
+
+用户最新输入：
+${input.userInput}
+
+判断边界：
+1. 只有用户明确想取消/停止/放弃“当前活跃任务”时，cancelTask=true。
+2. 如果用户只是说“算了”但可能是在讨论任务内容、字段、方案或局部修改，不要直接取消任务。
+3. 如果用户是在取消任务内某个字段、某个设定、某个动作，而不是取消整个活跃任务，cancelTask=false。
+4. 不确定时 cancelTask=false。
+
+只输出 JSON：
+{
+  "decision": {
+    "cancelTask": false,
+    "confidence": 0.0,
+    "reason": "一句简短原因"
+  }
+}`
+
+export const inferActiveTaskCancellation = async (input: {
+  userInput: string
+  activeTask: Pick<ActiveTaskSnapshot, 'id' | 'title' | 'status' | 'executorKind'>
+}): Promise<ActiveTaskCancellationDecision> => {
+  const trimmed = input.userInput.trim()
+  if (!trimmed) {
+    return {
+      cancelTask: false,
+      confidence: 1,
+      reason: '空输入不应取消当前任务。',
+      source: 'fallback'
+    }
+  }
+
+  const ruleHints = buildRuleHints(trimmed)
+  try {
+    const model = await getQuickModel()
+    const response = await model.invoke(
+      [
+        new SystemMessage('你只负责输出合法 JSON。'),
+        new HumanMessage(
+          buildActiveTaskCancellationPrompt({
+            userInput: trimmed,
+            activeTask: input.activeTask,
+            ruleHints
+          })
+        )
+      ],
+      { signal: AbortSignal.timeout(8000) } as Record<string, unknown>
+    )
+    const text = contentToText(response.content)
+    const jsonText = extractJsonObject(text)
+    if (!jsonText) {
+      throw new Error('Active-task cancellation model did not return valid JSON')
+    }
+
+    const parsed = activeTaskCancellationSchema.parse(JSON.parse(jsonText))
+    return {
+      cancelTask: parsed.decision.cancelTask && parsed.decision.confidence >= 0.72,
+      confidence: parsed.decision.confidence,
+      reason: parsed.decision.reason,
+      source: 'quick_model'
+    }
+  } catch (error) {
+    return {
+      cancelTask: false,
+      confidence: 0.2,
+      reason: `取消判断失败，保守不取消：${toErrorMessage(error)}`,
+      source: 'fallback'
+    }
+  }
+}
 
 export const buildAwaitingUserInputStatusMessage = (input: {
   activeTask: Pick<ActiveTaskSnapshot, 'title' | 'executorKind'>
@@ -312,31 +390,39 @@ class AwaitingUserInputNode {
     activeTask: Pick<ActiveTaskSnapshot, 'id' | 'title' | 'status' | 'executorKind'>
     pendingContext: Record<string, unknown>
   }): Promise<AwaitingUserInputDecision> {
-    const ruleDecision = inferByRule(input.userInput)
-    if (ruleDecision) {
+    if (!input.userInput.trim()) {
+      const fallback: AwaitingUserInputDecision = {
+        type: 'clarify',
+        confidence: 0.98,
+        reason: '空输入不能安全续跑任务。',
+        source: 'fallback'
+      }
       traceDecision('awaitingUserInputNode', {
-        summary: `规则识别为 ${ruleDecision.type}`,
+        summary: '空输入保守识别为 clarify',
         data: {
           stage: 'awaiting_user_input_decision',
-          source: ruleDecision.source,
-          decision: ruleDecision
+          source: fallback.source,
+          decision: fallback
         }
       })
-      return ruleDecision
+      return fallback
     }
 
     const need = describeAwaitingNeed(input.activeTask, input.pendingContext)
+    const ruleHints = buildRuleHints(input.userInput)
 
     try {
       const inferred = await inferWithModel({
         ...input,
-        need
+        need,
+        ruleHints
       })
       traceDecision('awaitingUserInputNode', {
         summary: `quick model 识别为 ${inferred.type}`,
         data: {
           stage: 'awaiting_user_input_decision',
           source: inferred.source,
+          ruleHints,
           decision: inferred
         }
       })

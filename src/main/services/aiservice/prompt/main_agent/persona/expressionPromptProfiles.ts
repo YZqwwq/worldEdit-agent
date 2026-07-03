@@ -182,6 +182,17 @@ const EXPRESSION_PROMPT_PROFILES: ExpressionPromptProfileDefinition[] = [
     }
   },
   {
+    id: 'reflective_discussion',
+    title: '讨论型表达',
+    summary:
+      '用于现实生活、技术、时事、哲学等问题的讨论型表达：更有判断、更能分析，但保持克制和陪伴感。',
+    prompt: REFLECTIVE_DISCUSSION_EXPRESSION_PROMPT,
+    match: {
+      conversationModes: ['knowledge_query', 'practical_support'],
+      interactionStates: ['deep_talk', 'working']
+    }
+  },
+  {
     id: 'default',
     title: '稳态表达',
     summary: '非日常闲聊场景下使用的稳态、克制、清晰表达。',
@@ -189,11 +200,11 @@ const EXPRESSION_PROMPT_PROFILES: ExpressionPromptProfileDefinition[] = [
   }
 ]
 
-// 草案：暂不接入自动匹配，等情境拆分方案确定后再正式纳入路由。
 export const REFLECTIVE_DISCUSSION_EXPRESSION_PROFILE_DRAFT: ExpressionPromptProfileDefinition = {
   id: 'reflective_discussion',
   title: '讨论型表达',
-  summary: '用于现实生活、技术、时事、哲学等问题的讨论型表达：更有判断、更能分析，但保持克制和陪伴感。',
+  summary:
+    '用于现实生活、技术、时事、哲学等问题的讨论型表达：更有判断、更能分析，但保持克制和陪伴感。',
   prompt: REFLECTIVE_DISCUSSION_EXPRESSION_PROMPT
 }
 
@@ -236,7 +247,8 @@ export const getDefaultExpressionPrompt = (): string => DEFAULT_EXPRESSION_PROMP
 export const getExpressionPromptProfileById = (
   id: ExpressionPromptProfileId
 ): ExpressionPromptProfileDefinition =>
-  EXPRESSION_PROMPT_PROFILES.find((profile) => profile.id === id) ?? DEFAULT_EXPRESSION_PROMPT_PROFILE
+  EXPRESSION_PROMPT_PROFILES.find((profile) => profile.id === id) ??
+  DEFAULT_EXPRESSION_PROMPT_PROFILE
 
 export const resolveExpressionPromptProfile = (
   slotSnapshot: MemorySlotSnapshot

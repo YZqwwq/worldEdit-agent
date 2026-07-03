@@ -1,7 +1,6 @@
 import { Annotation, messagesStateReducer } from '@langchain/langgraph'
 import { BaseMessage } from '@langchain/core/messages'
 import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
-import type { MoodAssessment } from '@share/cache/AItype/states/moodAssessment'
 import type {
   MainAgentBackgroundPersonaStagePayload,
   TaskLifecycleState
@@ -54,20 +53,28 @@ export type WorldFocusContext = {
 }
 
 export type InstantPerceptionDetectorStatus = {
-  status: 'fulfilled' | 'rejected'
+  status: 'fulfilled' | 'rejected' | 'skipped'
   durationMs: number
   producedStateKeys: string[]
   errorMessage?: string
+  skipReason?: string
 }
 
 export type InstantPerceptionSnapshot = {
-  mode: 'parallel_dag'
+  mode: 'scene_gated_dag'
   startedAt: string
   completedAt: string
   durationMs: number
   detectors: {
+    scene: InstantPerceptionDetectorStatus
+    userMood: InstantPerceptionDetectorStatus
     worldFocus: InstantPerceptionDetectorStatus
     persona: InstantPerceptionDetectorStatus
+  }
+  routing: {
+    shouldRunWorldFocus: boolean
+    worldFocusSkipped: boolean
+    worldFocusSkipReason?: string
   }
   warnings: string[]
 }
@@ -83,10 +90,6 @@ export const MessagesState = Annotation.Root({
     default: () => undefined
   }),
   personaPolicy: Annotation<PersonaPolicy | undefined>({
-    reducer: (x, y) => y ?? x,
-    default: () => undefined
-  }),
-  moodAssessment: Annotation<MoodAssessment | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),

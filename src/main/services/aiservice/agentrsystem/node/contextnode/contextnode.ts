@@ -1,4 +1,5 @@
 import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages'
+import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
 import type { PersonaActionPolicy } from '@share/cache/AItype/states/personaPolicy'
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
@@ -17,6 +18,7 @@ import {
 } from '../../../prompt/main_agent/agentPromptService'
 import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEmitter'
 import { getCurrentDetailTime, getDetailTime } from '../../../../../utils/getDetailTime'
+import { applyScenePerceptionToMemorySlots } from '../../state/sceneContextAdapter'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
@@ -55,9 +57,13 @@ const compactLongText = (value: string, max = 8000): string => {
   return `${text.slice(0, max).trimEnd()}\n\n[已截断：完整人物印象仍保存在人物关联表中。]`
 }
 
-const buildWorldFocusPrompt = (state: typeof MessagesState.State): string => {
+const buildWorldFocusPrompt = (
+  state: typeof MessagesState.State,
+  slotSnapshot: MemorySlotSnapshot
+): string => {
   const focus = state.worldFocusContext
   if (!focus) return ''
+  if (slotSnapshot.scene_perception.shouldRunWorldFocus !== true) return ''
 
   const lines = [
     '本轮世界观聚焦上下文：',
@@ -99,6 +105,29 @@ const buildWorldFocusPrompt = (state: typeof MessagesState.State): string => {
   return lines.filter(Boolean).join('\n')
 }
 
+const buildScenePrompt = (slotSnapshot: MemorySlotSnapshot): string => {
+  const scene = slotSnapshot.scene_perception
+  if (!scene) return ''
+
+  const lines = [
+    '本轮场景连续性判断：',
+    `主场景：${scene.primaryDomain}`,
+    scene.referenceDomains.length > 0 ? `临时参考场景：${scene.referenceDomains.join(', ')}` : '',
+    `连续性：${scene.continuity}`,
+    `当前场景仍然有效：${scene.currentSceneStillActive ? '是' : '否'}`,
+    `应用内世界观讨论相关：${scene.appWorldbuildingDiscussionRelated ? '是' : '否'}`,
+    `应用内世界观实例相关：${scene.appWorldbuildingInstanceRelated ? '是' : '否'}`,
+    `是否运行世界观实例聚焦：${scene.shouldRunWorldFocus ? '是' : '否'}`,
+    `是否允许使用历史世界观焦点：${scene.shouldInjectHistoricalWorldFocus ? '是' : '否'}`,
+    `判断置信度：${scene.confidence.toFixed(2)}`,
+    `判断理由：${scene.reason}`,
+    scene.evidence.length > 0 ? `判断证据：${scene.evidence.join('；')}` : '',
+    '使用规则：这是内部路由上下文。若连续性为 temporary_reference，用户提到的外部作品/现实对象只是参考或类比，不要把它当作应用内世界观焦点。若不允许使用历史世界观焦点，不要主动把旧人物/世界观对象带入回答。'
+  ]
+
+  return lines.filter(Boolean).join('\n')
+}
+
 const buildInstantPerceptionPrompt = (state: typeof MessagesState.State): string => {
   const perception = state.instantPerception
   if (!perception) return ''
@@ -107,8 +136,11 @@ const buildInstantPerceptionPrompt = (state: typeof MessagesState.State): string
     '本轮瞬时感知状态：',
     `感知模式：${perception.mode}`,
     `总耗时：${perception.durationMs}ms`,
+    `scene：${perception.detectors.scene.status} / ${perception.detectors.scene.durationMs}ms / 输出=${perception.detectors.scene.producedStateKeys.join(', ') || 'none'}`,
+    `userMood：${perception.detectors.userMood.status} / ${perception.detectors.userMood.durationMs}ms / 输出=${perception.detectors.userMood.producedStateKeys.join(', ') || 'none'}`,
     `worldFocus：${perception.detectors.worldFocus.status} / ${perception.detectors.worldFocus.durationMs}ms / 输出=${perception.detectors.worldFocus.producedStateKeys.join(', ') || 'none'}`,
     `persona：${perception.detectors.persona.status} / ${perception.detectors.persona.durationMs}ms / 输出=${perception.detectors.persona.producedStateKeys.join(', ') || 'none'}`,
+    `worldFocus 路由：${perception.routing.shouldRunWorldFocus ? 'run' : 'skip'}${perception.routing.worldFocusSkipReason ? ` / ${perception.routing.worldFocusSkipReason}` : ''}`,
     '使用规则：这是内部感知层健康状态。不要向用户复述这些技术细节；若某项感知失败，只按已有上下文自然降级。'
   ]
 
@@ -129,6 +161,7 @@ export async function contextNode(
   const messages: BaseMessage[] = []
 
   const slotSnapshot = await memorySlotService.reconcileFromObservations()
+  const effectiveSlotSnapshot = applyScenePerceptionToMemorySlots(slotSnapshot)
   const characterPrompt = await loadCharacterPrompt()
   const expressionProfile =
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
@@ -143,7 +176,7 @@ export async function contextNode(
   const personaAssemblyPrompt = buildPersonaAssemblyPrompt({
     characterPrompt,
     expressionPrompt: expressionProfile.prompt,
-    moodAssessment: state.moodAssessment
+    moodAssessment: effectiveSlotSnapshot.ai_mood.current
   })
   if (personaAssemblyPrompt) {
     messages.push(new SystemMessage(personaAssemblyPrompt))
@@ -216,7 +249,12 @@ export async function contextNode(
     messages.push(new SystemMessage(instantPerceptionPrompt))
   }
 
-  const worldFocusPrompt = buildWorldFocusPrompt(state)
+  const scenePrompt = buildScenePrompt(effectiveSlotSnapshot)
+  if (scenePrompt) {
+    messages.push(new SystemMessage(scenePrompt))
+  }
+
+  const worldFocusPrompt = buildWorldFocusPrompt(state, effectiveSlotSnapshot)
   if (worldFocusPrompt) {
     messages.push(new SystemMessage(worldFocusPrompt))
   }
@@ -227,7 +265,9 @@ export async function contextNode(
   }
 
   // 记忆系统
-  const memoryPromptPlan = buildMemoryPromptPlan(snapshot, slotSnapshot)
+  const memoryPromptPlan = buildMemoryPromptPlan(snapshot, effectiveSlotSnapshot, {
+    includeWorldFocus: effectiveSlotSnapshot.scene_perception.shouldInjectHistoricalWorldFocus
+  })
   const injectedSections: string[] = ['personaAssemblyPrompt', 'currentTimeContext']
 
   // 记忆槽位
@@ -258,6 +298,7 @@ export async function contextNode(
   if (toolUsagePrompt) injectedSections.push('toolUsage')
   if (actionPolicyPrompt) injectedSections.push('actionPolicy')
   if (instantPerceptionPrompt) injectedSections.push('instantPerception')
+  if (scenePrompt) injectedSections.push('scene')
   if (worldFocusPrompt) injectedSections.push('worldFocus')
   if (snapshot.anchors.length > 0) injectedSections.push('anchors')
   if (snapshot.shortTerm.length > 0) injectedSections.push('shortTermHistory')

@@ -6,13 +6,20 @@ export type MemoryPromptPlan = {
   slotPrompt: string
 }
 
+export type MemoryPromptPlanOptions = {
+  includeWorldFocus?: boolean
+}
+
 export const buildMemoryPromptPlan = (
   memory: MemorySnapshot,
-  slots: MemorySlotSnapshot
+  slots: MemorySlotSnapshot,
+  options: MemoryPromptPlanOptions = {}
 ): MemoryPromptPlan => {
   void memory
 
-  const slotPrompt = buildMemorySlotPrompt(slots)
+  const slotPrompt = buildMemorySlotPrompt(slots, {
+    includeWorldFocus: options.includeWorldFocus
+  })
 
   return {
     slotPrompt

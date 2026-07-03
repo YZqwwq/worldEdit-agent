@@ -15,16 +15,29 @@ import {
   traceState
 } from '../../../../log/trace/agentTraceEmitter'
 import { MessagesState } from '../../state/messageState'
-import type {
-  PendingToolContextItem,
-  ToolContextSourceRef
-} from '../../state/messageState'
+import type { PendingToolContextItem, ToolContextSourceRef } from '../../state/messageState'
 
-const isSensitiveTool = (toolName: string): boolean =>
-  /(delete|remove|edit|write|exec|shell|run|modify|replace|purge)/i.test(toolName)
+const isSensitiveToolByMetadata = (metadata?: {
+  readOnly?: boolean
+  riskLevel?: 'low' | 'medium' | 'high'
+  idempotent?: boolean
+}): boolean => {
+  if (!metadata) return false
+  return (
+    metadata.readOnly === false || metadata.riskLevel === 'medium' || metadata.riskLevel === 'high'
+  )
+}
 
-const isRiskyTool = (toolName: string): boolean =>
-  /(delete|remove|edit|write|exec|shell|run|modify|replace|purge|http|request|call)/i.test(toolName)
+const isRiskyToolByMetadata = (metadata?: {
+  readOnly?: boolean
+  riskLevel?: 'low' | 'medium' | 'high'
+  idempotent?: boolean
+}): boolean => {
+  if (!metadata) return false
+  return (
+    metadata.riskLevel === 'high' || (metadata.readOnly === false && metadata.idempotent === false)
+  )
+}
 
 const buildToolMessageContent = (
   toolName: string,
@@ -61,7 +74,9 @@ const buildToolMessageContent = (
 }
 
 const compact = (value: string, max = 900): string => {
-  const normalized = String(value || '').trim().replace(/\s+/g, ' ')
+  const normalized = String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
   if (normalized.length <= max) return normalized
   return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`
 }
@@ -75,7 +90,10 @@ const stringifyCompact = (value: unknown, max = 900): string => {
   }
 }
 
-const buildSourceRefs = (toolName: string, data: Record<string, unknown> | undefined): ToolContextSourceRef[] => {
+const buildSourceRefs = (
+  toolName: string,
+  data: Record<string, unknown> | undefined
+): ToolContextSourceRef[] => {
   if (!data) return []
 
   if (toolName === 'search_recent_chinese_conversation' && Array.isArray(data.matches)) {
@@ -110,13 +128,19 @@ const buildResultSummary = (
   }
 
   const data =
-    envelope.data && typeof envelope.data === 'object' ? (envelope.data as Record<string, unknown>) : undefined
+    envelope.data && typeof envelope.data === 'object'
+      ? (envelope.data as Record<string, unknown>)
+      : undefined
 
   if (toolName === 'search_recent_chinese_conversation' && data) {
-    const matches = Array.isArray(data.matches) ? (data.matches as Array<Record<string, unknown>>) : []
+    const matches = Array.isArray(data.matches)
+      ? (data.matches as Array<Record<string, unknown>>)
+      : []
     const query = typeof data.query === 'string' ? data.query : ''
-    const searchedTurnCount = typeof data.searchedTurnCount === 'number' ? data.searchedTurnCount : 0
-    const searchedMessageCount = typeof data.searchedMessageCount === 'number' ? data.searchedMessageCount : 0
+    const searchedTurnCount =
+      typeof data.searchedTurnCount === 'number' ? data.searchedTurnCount : 0
+    const searchedMessageCount =
+      typeof data.searchedMessageCount === 'number' ? data.searchedMessageCount : 0
     const topMatches = matches
       .slice(0, 4)
       .map((match, index) => {
@@ -153,14 +177,12 @@ const buildResultSummary = (
 
   if (toolName === 'query_tool_catalog' && data) {
     const toolsets = Array.isArray(data.toolsets)
-      ? (data.toolsets as Array<Record<string, unknown>>)
-          .slice(0, 5)
-          .map((toolset) => {
-            const id = typeof toolset.id === 'string' ? toolset.id : 'unknown_toolset'
-            const summary = typeof toolset.summary === 'string' ? toolset.summary : ''
-            const toolCount = typeof toolset.toolCount === 'number' ? toolset.toolCount : 0
-            return `${id}(${toolCount}个工具)：${summary}`
-          })
+      ? (data.toolsets as Array<Record<string, unknown>>).slice(0, 5).map((toolset) => {
+          const id = typeof toolset.id === 'string' ? toolset.id : 'unknown_toolset'
+          const summary = typeof toolset.summary === 'string' ? toolset.summary : ''
+          const toolCount = typeof toolset.toolCount === 'number' ? toolset.toolCount : 0
+          return `${id}(${toolCount}个工具)：${summary}`
+        })
       : []
     return compact(
       `工具底图查询返回 ${typeof data.count === 'number' ? data.count : toolsets.length} 个候选工具集。\n${toolsets.join('\n')}`,
@@ -225,8 +247,13 @@ const getToolStageLabel = (
 ): string => {
   const metadata =
     tool && typeof tool === 'object' && 'agentMetadata' in tool
-      ? (tool as { agentMetadata?: { uiStage?: { label?: string; doneLabel?: string; errorLabel?: string } } })
-          .agentMetadata
+      ? (
+          tool as {
+            agentMetadata?: {
+              uiStage?: { label?: string; doneLabel?: string; errorLabel?: string }
+            }
+          }
+        ).agentMetadata
       : undefined
   const uiStage = metadata?.uiStage
 
@@ -242,8 +269,11 @@ export async function toolNode(
 
   // Check if message has tool_calls - relax instanceof check to handle AIMessageChunk or version mismatches
   // Use _getType() as seen in shouldContinue.ts or check constructor name
-  const isAIMessage = (lastMessage as any)._getType?.() === 'ai' || lastMessage.constructor.name === 'AIMessage' || lastMessage.constructor.name === 'AIMessageChunk'
-  
+  const isAIMessage =
+    (lastMessage as any)._getType?.() === 'ai' ||
+    lastMessage.constructor.name === 'AIMessage' ||
+    lastMessage.constructor.name === 'AIMessageChunk'
+
   if (!isAIMessage) {
     return { messages: [] }
   }
@@ -270,6 +300,8 @@ export async function toolNode(
   const suppressedTools: string[] = []
   // 遍历工具组执行调用
   for (const toolCall of msg.tool_calls) {
+    const toolEntryForPolicy = toolEntries[toolCall.name]
+    const toolMetadataForPolicy = toolEntryForPolicy?.tool.agentMetadata
     const stageId = `tool-${toolCall.id ?? randomUUID()}-${toolCall.name}`
     traceState('toolNode', {
       title: `状态: toolNode 调用 ${toolCall.name}`,
@@ -288,7 +320,7 @@ export async function toolNode(
 
     if (
       toolPolicy?.confirmBeforeSensitiveTools &&
-      isSensitiveTool(toolCall.name)
+      isSensitiveToolByMetadata(toolMetadataForPolicy)
     ) {
       if (toolCall.id) {
         const content =
@@ -334,7 +366,7 @@ export async function toolNode(
       continue
     }
 
-    if (toolPolicy && !toolPolicy.allowRiskyTools && isRiskyTool(toolCall.name)) {
+    if (toolPolicy && !toolPolicy.allowRiskyTools && isRiskyToolByMetadata(toolMetadataForPolicy)) {
       if (toolCall.id) {
         const content =
           `Tool "${toolCall.name}" is blocked by current risk policy. ` +
@@ -455,10 +487,7 @@ export async function toolNode(
             capabilityLayer: toolEntry.capabilityLayer
           })
         } catch (statsError) {
-          console.warn(
-            `Failed to record tool usage stats for "${toolCall.name}":`,
-            statsError
-          )
+          console.warn(`Failed to record tool usage stats for "${toolCall.name}":`, statsError)
         }
       }
       const activatedToolsetsFromEnvelope =
@@ -489,9 +518,7 @@ export async function toolNode(
         message: envelope?.message ?? null,
         receipt: envelope?.receipt?.summary ?? null,
         searchMode:
-          typeof envelope?.data === 'object' &&
-          envelope?.data &&
-          'searchMode' in envelope.data
+          typeof envelope?.data === 'object' && envelope?.data && 'searchMode' in envelope.data
             ? (envelope.data as any).searchMode
             : undefined,
         hasStructuredSources:
@@ -507,10 +534,8 @@ export async function toolNode(
           Number.isFinite((envelope.data as any).resultCount)
             ? (envelope.data as any).resultCount
             : undefined,
-          usedSearch:
-          typeof envelope?.data === 'object' &&
-          envelope?.data &&
-          'usedSearch' in envelope.data
+        usedSearch:
+          typeof envelope?.data === 'object' && envelope?.data && 'usedSearch' in envelope.data
             ? Boolean((envelope.data as any).usedSearch)
             : undefined,
         activatedToolsets:
@@ -554,7 +579,9 @@ export async function toolNode(
           })
           if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
           const retention =
-            envelope?.ok === false ? 'ephemeral' : (tool.agentMetadata.contextRetention ?? 'ephemeral')
+            envelope?.ok === false
+              ? 'ephemeral'
+              : (tool.agentMetadata.contextRetention ?? 'ephemeral')
           if (retention !== 'none') {
             const data =
               envelope?.data && typeof envelope.data === 'object'

@@ -1,9 +1,12 @@
 import { traceArtifact, traceDecision, traceError } from '../../../../log/trace/agentTraceEmitter'
+import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { MessagesState, type InstantPerceptionDetectorStatus } from '../../state/messageState'
 import { personaNode } from '../personanode/personanode'
+import { sceneNode } from '../scenenode/sceneNode'
+import { userMoodNode } from '../usermoodnode/userMoodNode'
 import { worldFocusNode } from '../worldfocusnode/worldFocusNode'
 
-type DetectorName = 'worldFocus' | 'persona'
+type DetectorName = 'scene' | 'userMood' | 'worldFocus' | 'persona'
 
 type DetectorResult = {
   name: DetectorName
@@ -53,6 +56,17 @@ const runDetector = async (
   }
 }
 
+const skippedDetector = (name: DetectorName, reason: string): DetectorResult => ({
+  name,
+  patch: {},
+  status: {
+    status: 'skipped',
+    durationMs: 0,
+    producedStateKeys: [],
+    skipReason: reason
+  }
+})
+
 const mergeDetectorPatch = (
   target: Partial<typeof MessagesState.State>,
   patch: Partial<typeof MessagesState.State>
@@ -63,8 +77,11 @@ const mergeDetectorPatch = (
 /**
  * InstantPerceptionNode: 本轮即时感知 DAG 的编排层。
  *
- * 第一版采用“并行基础 detector + 统一 merge”的形态：
- * - worldFocusNode: 识别世界观/实体焦点，并补充人物印象状态。
+ * 当前采用“场景判断写入动态 slot + 条件 detector”的形态：
+ * - sceneNode: 使用轻量模型判断本轮是否仍在当前场景、是否只是临时引用外部方向、
+ *   以及是否需要进入应用内世界观实例感知，并将结果覆盖写入 slot.scene_perception。
+ * - userMoodNode: 使用轻量模型判断用户短期情绪，并覆盖写入 slot.user_mood。
+ * - worldFocusNode: 仅在 slot.scene_perception 判断需要时运行，识别世界观/实体焦点，并补充人物印象状态。
  * - personaNode: 识别人格偏好、AI 侧情绪和表达策略。
  *
  * 后续可以在这里继续挂载 task intent、memory need、tool need 等 detector，
@@ -76,35 +93,56 @@ export async function instantPerceptionNode(
   const startedAtMs = now()
   const startedAt = new Date(startedAtMs).toISOString()
 
+  const scene = await runDetector('scene', () => sceneNode(state))
+  const userMood = await runDetector('userMood', () => userMoodNode(state))
+  const slotsAfterScene = await memorySlotService.getSnapshot()
+  const scenePerception = slotsAfterScene.scene_perception
+  const shouldRunWorldFocus = scenePerception.shouldRunWorldFocus === true
+  const worldFocusSkipReason = scenePerception.reason || 'scene_not_app_worldbuilding_instance'
+
   const [worldFocus, persona] = await Promise.all([
-    runDetector('worldFocus', () => worldFocusNode(state)),
+    shouldRunWorldFocus
+      ? runDetector('worldFocus', () => worldFocusNode(state))
+      : Promise.resolve(skippedDetector('worldFocus', worldFocusSkipReason)),
     runDetector('persona', () => personaNode(state))
   ])
 
   const merged: Partial<typeof MessagesState.State> = {}
+  mergeDetectorPatch(merged, scene.patch)
+  mergeDetectorPatch(merged, userMood.patch)
   mergeDetectorPatch(merged, worldFocus.patch)
   mergeDetectorPatch(merged, persona.patch)
 
   const completedAtMs = now()
-  const warnings = [worldFocus, persona]
+  const warnings = [scene, userMood, worldFocus, persona]
     .filter((result) => result.status.status === 'rejected')
     .map((result) => `${result.name}: ${result.status.errorMessage || 'unknown error'}`)
 
   const instantPerception = {
-    mode: 'parallel_dag' as const,
+    mode: 'scene_gated_dag' as const,
     startedAt,
     completedAt: new Date(completedAtMs).toISOString(),
     durationMs: completedAtMs - startedAtMs,
     detectors: {
+      scene: scene.status,
+      userMood: userMood.status,
       worldFocus: worldFocus.status,
       persona: persona.status
+    },
+    routing: {
+      shouldRunWorldFocus,
+      worldFocusSkipped: worldFocus.status.status === 'skipped',
+      worldFocusSkipReason:
+        worldFocus.status.status === 'skipped' ? worldFocus.status.skipReason : undefined
     },
     warnings
   }
 
   traceDecision('instantPerceptionNode', {
-    title: '决策: instantPerceptionNode 并行感知完成',
+    title: '决策: instantPerceptionNode 场景门控感知完成',
     summary:
+      `scene=${scene.status.status}/${scene.status.durationMs}ms，` +
+      `userMood=${userMood.status.status}/${userMood.status.durationMs}ms，` +
       `worldFocus=${worldFocus.status.status}/${worldFocus.status.durationMs}ms，` +
       `persona=${persona.status.status}/${persona.status.durationMs}ms`,
     data: instantPerception
@@ -114,7 +152,14 @@ export async function instantPerceptionNode(
     title: '产物: instantPerceptionNode 感知快照',
     summary:
       `耗时 ${instantPerception.durationMs}ms，` +
-      `输出 ${[...worldFocus.status.producedStateKeys, ...persona.status.producedStateKeys].join(', ') || 'none'}`
+      `输出 ${
+        [
+          ...scene.status.producedStateKeys,
+          ...userMood.status.producedStateKeys,
+          ...worldFocus.status.producedStateKeys,
+          ...persona.status.producedStateKeys
+        ].join(', ') || 'none'
+      }`
   })
 
   return {

@@ -1,6 +1,30 @@
 import type { WorldEntityType } from '../../worldbuilding/worldbuilding'
+import type { MoodAssessment } from './moodAssessment'
 
 export type UserMoodState = 'calm' | 'positive' | 'impatient' | 'frustrated' | 'uncertain'
+
+// ScenePerceptionSlot: Agent 运行过程中的动态场景状态。
+// 它不是长期记忆，而是由 sceneNode 每轮覆盖写入的短期运行态。
+export const SCENE_DOMAINS = [
+  'app_worldbuilding',
+  'general_creative',
+  'external_media',
+  'practical_support',
+  'daily_life',
+  'knowledge_query',
+  'relational_intimacy',
+  'unknown'
+] as const
+export type SceneDomain = (typeof SCENE_DOMAINS)[number]
+
+export const SCENE_CONTINUITIES = [
+  'continue_current_scene',
+  'temporary_reference',
+  'scene_shift',
+  'new_scene',
+  'uncertain'
+] as const
+export type SceneContinuity = (typeof SCENE_CONTINUITIES)[number]
 
 // ConversationMode: 会话级框架。描述这段对话主要落在哪种关系/任务场域。
 export const CONVERSATION_MODES = [
@@ -28,6 +52,12 @@ export const isConversationMode = (value: unknown): value is ConversationMode =>
 export const isInteractionState = (value: unknown): value is InteractionState =>
   typeof value === 'string' && INTERACTION_STATES.includes(value as InteractionState)
 
+export const isSceneDomain = (value: unknown): value is SceneDomain =>
+  typeof value === 'string' && SCENE_DOMAINS.includes(value as SceneDomain)
+
+export const isSceneContinuity = (value: unknown): value is SceneContinuity =>
+  typeof value === 'string' && SCENE_CONTINUITIES.includes(value as SceneContinuity)
+
 export interface ConversationStateSlot {
   conversation_mode?: ConversationMode // 对话模式
   interaction_state?: InteractionState // 当前关系性交谈状态
@@ -40,6 +70,13 @@ export interface UserMoodSlot {
   confidence: number // 对agent的信心
   updatedAt?: string // 更新时间
   expiresAfterObservationId?: number // 过期时间
+}
+
+// AiMoodSlot: AI 侧阶段情绪，是 Agent 运行中的动态状态。
+// 它由 personaNode 每轮覆盖写入，用于延续本轮/近轮表达调制，不属于长期记忆。
+export interface AiMoodSlot {
+  current?: MoodAssessment
+  updatedAt?: string
 }
 
 export type WorldFocusStatus = 'none' | 'candidate' | 'resolved' | 'ambiguous'
@@ -55,10 +92,34 @@ export interface WorldFocusSlot {
   updatedAt?: string
 }
 
+export interface ScenePerceptionSlot {
+  primaryDomain: SceneDomain
+  referenceDomains: SceneDomain[]
+  continuity: SceneContinuity
+  currentSceneStillActive: boolean
+  appWorldbuildingDiscussionRelated: boolean
+  appWorldbuildingInstanceRelated: boolean
+  shouldRunWorldFocus: boolean
+  shouldInjectHistoricalWorldFocus: boolean
+  confidence: number
+  reason: string
+  evidence: string[]
+  source: 'sceneNode'
+  updatedAt?: string
+  previousScene?: {
+    primaryDomain?: SceneDomain
+    appWorldbuildingInstanceRelated?: boolean
+    worldFocusEntityName?: string
+    worldFocusEntityId?: string
+  }
+}
+
 export interface MemorySlotSnapshot {
   conversation_state: ConversationStateSlot // 对话状态
   user_mood: UserMoodSlot // 用户情绪
+  ai_mood: AiMoodSlot // AI 侧阶段情绪：Agent 运行态，每轮由 personaNode 覆盖
   world_focus: WorldFocusSlot // 当前世界观聚焦对象
+  scene_perception: ScenePerceptionSlot // 当前场景感知：Agent 运行态，每轮由 sceneNode 覆盖
   lastObservationId: number // 最后一次观察ID
 }
 

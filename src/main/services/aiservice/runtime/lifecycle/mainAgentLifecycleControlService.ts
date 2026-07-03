@@ -15,7 +15,7 @@ import {
   awaitingUserInputNode,
   buildAwaitingUserInputClarifyMessage,
   buildAwaitingUserInputStatusMessage,
-  matchesObviousTaskCancellation
+  inferActiveTaskCancellation
 } from './nodes/awaitingUserInputNode'
 import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAgentMessageContentService'
 
@@ -177,7 +177,11 @@ class MainAgentLifecycleControlService {
         }
       }
 
-      if (matchesObviousTaskCancellation(text)) {
+      const cancellationDecision = await inferActiveTaskCancellation({
+        userInput: text,
+        activeTask
+      })
+      if (cancellationDecision.cancelTask) {
         const latestRun = await taskExecutionService.getLatestRun(activeTask.id)
         if (latestRun && !['reported_done', 'failed', 'cancelled'].includes(latestRun.status)) {
           await taskExecutionService.setRunStatus(latestRun.id, 'cancelled', {
@@ -201,7 +205,10 @@ class MainAgentLifecycleControlService {
             mainTraceMessage: '主 agent 已根据用户指令取消当前任务。',
             payload: {
               action: 'cancel_task',
-              userInput: text
+              userInput: text,
+              decisionSource: cancellationDecision.source,
+              decisionConfidence: cancellationDecision.confidence,
+              decisionReason: cancellationDecision.reason
             },
             onChunk
           })
