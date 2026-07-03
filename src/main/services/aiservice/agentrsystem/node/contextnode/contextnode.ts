@@ -64,41 +64,60 @@ const buildWorldFocusPrompt = (
   const focus = state.worldFocusContext
   if (!focus) return ''
   if (slotSnapshot.scene_perception.shouldRunWorldFocus !== true) return ''
+  if (focus.focuses.length === 0) return ''
+  const focuses = focus.focuses
+  const primaryFocus =
+    focuses.find((item) => item.entityId === focus.primaryFocusId) ??
+    focuses.find((item) => item.role === 'primary' || item.role === 'target') ??
+    focuses[0]
 
   const lines = [
     '本轮世界观聚焦上下文：',
-    `世界观：${focus.worldName} (${focus.worldId})`,
-    `聚焦对象：${focus.focusType} / ${focus.entityName} (${focus.entityId})`,
+    `聚焦模式：${focus.mode === 'multi' ? '多人物焦点组' : '单人物焦点'}`,
+    focus.focusTask ? `本轮焦点任务：${focus.focusTask.type} / ${focus.focusTask.description}` : '',
+    `主焦点：${primaryFocus.worldName} / ${primaryFocus.focusType} / ${primaryFocus.entityName} (${primaryFocus.entityId})`,
+    focuses.length > 1
+      ? `焦点组：${focuses
+          .map((item) => `${item.role}:${item.worldName}/${item.entityName}(${item.entityId})`)
+          .join('；')}`
+      : '',
     `识别置信度：${focus.confidence.toFixed(2)}`,
     '使用规则：这是一份本轮内部上下文。回答用户时可以自然承接该对象的信息，但不要主动暴露“我先去读取/聚焦了这个对象”之类过程性表述。'
   ]
 
-  if (focus.impression) {
+  for (const item of focuses) {
+    if (!item.impression) continue
     lines.push(
       '',
-      `人物印象状态：${focus.impression.status}`,
-      focus.impression.reason ? `状态原因：${focus.impression.reason}` : '',
-      focus.impression.updatedAt ? `人物印象更新时间：${focus.impression.updatedAt}` : '',
-      focus.impression.latestNarrativeUpdatedAt
-        ? `人物叙事文本最新更新时间：${focus.impression.latestNarrativeUpdatedAt}`
+      `人物「${item.entityName}」印象状态：${item.impression.status}`,
+      item.impression.reason ? `状态原因：${item.impression.reason}` : '',
+      item.impression.updatedAt ? `人物印象更新时间：${item.impression.updatedAt}` : '',
+      item.impression.latestNarrativeUpdatedAt
+        ? `人物叙事文本最新更新时间：${item.impression.latestNarrativeUpdatedAt}`
         : '',
-      typeof focus.impression.narrativeDocumentCount === 'number'
-        ? `人物叙事文本数量：${focus.impression.narrativeDocumentCount}`
+      typeof item.impression.narrativeDocumentCount === 'number'
+        ? `人物叙事文本数量：${item.impression.narrativeDocumentCount}`
         : ''
     )
+
+    if (item.impression.found && item.impression.structuredText) {
+      lines.push(
+        '',
+        `主 agent 已有人物「${item.entityName}」印象：`,
+        compactLongText(item.impression.structuredText)
+      )
+    }
   }
 
-  if (focus.impression?.found && focus.impression.structuredText) {
-    lines.push('', `主 agent 已有人物印象：`, compactLongText(focus.impression.structuredText))
-  }
-
-  if (
-    focus.focusType === 'character' &&
-    (!focus.impression?.found || focus.impression.status !== 'available')
-  ) {
+  const hasUnavailableCharacterImpression = focuses.some(
+    (item) =>
+      item.focusType === 'character' &&
+      (!item.impression?.found || item.impression.status !== 'available')
+  )
+  if (hasUnavailableCharacterImpression) {
     lines.push(
       '',
-      '人物理解使用规则：当前人物印象缺失、过期或证据不足；如果用户问题需要深入判断该人物的性格、动机、生平、关系、事件影响或要求重新评价，应优先激活 character_narrative_reader 工具集，按人物文本目录创建阅读任务并在必要时保存新的 save_character_narrative_impression。若不阅读，请明确保持谨慎，不要对文本未支持的内容做强断言。'
+      '人物理解使用规则：当前焦点组中存在人物印象缺失或过期；如果用户问题需要深入判断人物的性格、动机、生平、关系、事件影响或要求重新评价，应优先激活 character_narrative_reader 工具集，按人物文本目录创建阅读任务并在必要时保存新的 save_character_narrative_impression。若不阅读，请明确保持谨慎，不要对文本未支持的内容做强断言。'
     )
   }
 

@@ -31,13 +31,26 @@ const buildMemorySlotLines = (
   if (
     includeWorldFocus &&
     slots.world_focus.status === 'resolved' &&
-    slots.world_focus.worldName &&
-    slots.world_focus.entityName
+    slots.world_focus.focuses.length > 0
   ) {
-    lines.push(
-      `当前世界观焦点：世界观「${slots.world_focus.worldName}」，` +
-        `${describeWorldFocusType(slots.world_focus.focusType)}「${slots.world_focus.entityName}」。`
-    )
+    if (slots.world_focus.focuses.length === 1) {
+      const focus = slots.world_focus.focuses[0]
+      lines.push(
+        `当前世界观焦点：世界观「${focus.worldName}」，` +
+          `${describeWorldFocusType(focus.focusType)}「${focus.entityName}」。`
+      )
+    } else {
+      lines.push(
+        `当前世界观焦点组：${slots.world_focus.focuses
+          .map(
+            (focus) =>
+              `${focus.role}:${focus.worldName}/${describeWorldFocusType(focus.focusType)}「${
+                focus.entityName
+              }」`
+          )
+          .join('；')}。`
+      )
+    }
   }
 
   return lines

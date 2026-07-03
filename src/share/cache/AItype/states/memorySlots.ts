@@ -80,13 +80,45 @@ export interface AiMoodSlot {
 }
 
 export type WorldFocusStatus = 'none' | 'candidate' | 'resolved' | 'ambiguous'
+export type WorldFocusMode = 'none' | 'single' | 'multi'
+export type WorldFocusItemRole = 'primary' | 'co_focus' | 'reference' | 'target' | 'background'
+export type WorldFocusItemSource =
+  | 'explicit_mention'
+  | 'mention_index'
+  | 'previous_focus'
+  | 'tool_result'
+export type WorldFocusTaskType =
+  | 'single_analysis'
+  | 'compare'
+  | 'relationship'
+  | 'dialogue'
+  | 'joint_analysis'
+  | 'batch_edit'
+  | 'reference_edit'
+  | 'unknown'
+
+export interface WorldFocusItem {
+  worldId: string
+  worldName: string
+  focusType: WorldEntityType
+  entityId: string
+  entityName: string
+  role: WorldFocusItemRole
+  source: WorldFocusItemSource
+  confidence: number
+  reason?: string
+}
+
+export interface WorldFocusTask {
+  type: WorldFocusTaskType
+  description: string
+}
 
 export interface WorldFocusSlot {
-  worldId?: string
-  worldName?: string
-  focusType?: WorldEntityType
-  entityId?: string
-  entityName?: string
+  mode: WorldFocusMode
+  primaryFocusId?: string
+  focuses: WorldFocusItem[]
+  focusTask?: WorldFocusTask
   confidence: number
   status: WorldFocusStatus
   updatedAt?: string

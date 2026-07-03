@@ -42,6 +42,8 @@ export const createDefaultMemorySlots = (): MemorySlotSnapshot => ({
   },
   ai_mood: {},
   world_focus: {
+    mode: 'none',
+    focuses: [],
     confidence: 0,
     status: 'none'
   },

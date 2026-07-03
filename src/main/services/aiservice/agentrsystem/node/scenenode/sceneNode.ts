@@ -250,14 +250,22 @@ export async function sceneNode(
 ): Promise<Partial<typeof MessagesState.State>> {
   const currentUserText = getCurrentUserText(state)
   const slots = await memorySlotService.getSnapshot()
+  const primaryWorldFocus =
+    slots.world_focus.focuses.find(
+      (focus) => focus.entityId === slots.world_focus.primaryFocusId
+    ) ??
+    slots.world_focus.focuses.find(
+      (focus) => focus.role === 'primary' || focus.role === 'target'
+    ) ??
+    slots.world_focus.focuses[0]
   const memoryWorldFocus =
-    slots.world_focus.status === 'resolved'
+    slots.world_focus.status === 'resolved' && primaryWorldFocus
       ? {
           status: slots.world_focus.status,
-          worldName: slots.world_focus.worldName,
-          focusType: slots.world_focus.focusType,
-          entityName: slots.world_focus.entityName,
-          entityId: slots.world_focus.entityId
+          worldName: primaryWorldFocus.worldName,
+          focusType: primaryWorldFocus.focusType,
+          entityName: primaryWorldFocus.entityName,
+          entityId: primaryWorldFocus.entityId
         }
       : undefined
 

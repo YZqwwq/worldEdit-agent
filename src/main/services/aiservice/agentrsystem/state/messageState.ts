@@ -32,23 +32,47 @@ export type PendingToolContextItem = ToolContextItem & {
   transcriptMessageIds: string[]
 }
 
-export type WorldFocusContext = {
+export type WorldFocusImpressionContext = {
+  status: 'available' | 'missing' | 'stale' | 'insufficient'
+  found: boolean
+  structuredText?: string
+  updatedAt?: string
+  latestNarrativeUpdatedAt?: string
+  narrativeDocumentCount?: number
+  narrativeReadableCharacters?: number
+  reason?: string
+  generatedThisTurn?: boolean
+}
+
+export type WorldFocusContextItem = {
   worldId: string
   worldName: string
   focusType: WorldEntityType
   entityId: string
   entityName: string
+  role: 'primary' | 'co_focus' | 'reference' | 'target' | 'background'
+  source: 'explicit_mention' | 'mention_index' | 'previous_focus' | 'tool_result'
   confidence: number
-  impression?: {
-    status: 'available' | 'missing' | 'stale' | 'insufficient'
-    found: boolean
-    structuredText?: string
-    updatedAt?: string
-    latestNarrativeUpdatedAt?: string
-    narrativeDocumentCount?: number
-    narrativeReadableCharacters?: number
-    reason?: string
-    generatedThisTurn?: boolean
+  reason?: string
+  impression?: WorldFocusImpressionContext
+}
+
+export type WorldFocusContext = {
+  mode: 'single' | 'multi'
+  primaryFocusId?: string
+  focuses: WorldFocusContextItem[]
+  confidence: number
+  focusTask?: {
+    type:
+      | 'single_analysis'
+      | 'compare'
+      | 'relationship'
+      | 'dialogue'
+      | 'joint_analysis'
+      | 'batch_edit'
+      | 'reference_edit'
+      | 'unknown'
+    description: string
   }
 }
 

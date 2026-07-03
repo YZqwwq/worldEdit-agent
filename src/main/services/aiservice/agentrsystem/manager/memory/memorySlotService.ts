@@ -3,6 +3,12 @@ import {
   isInteractionState,
   isSceneContinuity,
   isSceneDomain,
+  type WorldFocusItem,
+  type WorldFocusItemRole,
+  type WorldFocusItemSource,
+  type WorldFocusMode,
+  type WorldFocusStatus,
+  type WorldFocusTaskType,
   type MemorySlotSnapshot
 } from '@share/cache/AItype/states/memorySlots'
 import type { MoodAssessment, 情绪标签 } from '@share/cache/AItype/states/moodAssessment'
@@ -31,6 +37,47 @@ const WORLD_ENTITY_TYPES: WorldEntityType[] = [
 
 const isWorldEntityType = (value: unknown): value is WorldEntityType =>
   typeof value === 'string' && WORLD_ENTITY_TYPES.includes(value as WorldEntityType)
+
+const WORLD_FOCUS_STATUSES: WorldFocusStatus[] = ['none', 'candidate', 'resolved', 'ambiguous']
+const WORLD_FOCUS_MODES: WorldFocusMode[] = ['none', 'single', 'multi']
+const WORLD_FOCUS_ITEM_ROLES: WorldFocusItemRole[] = [
+  'primary',
+  'co_focus',
+  'reference',
+  'target',
+  'background'
+]
+const WORLD_FOCUS_ITEM_SOURCES: WorldFocusItemSource[] = [
+  'explicit_mention',
+  'mention_index',
+  'previous_focus',
+  'tool_result'
+]
+const WORLD_FOCUS_TASK_TYPES: WorldFocusTaskType[] = [
+  'single_analysis',
+  'compare',
+  'relationship',
+  'dialogue',
+  'joint_analysis',
+  'batch_edit',
+  'reference_edit',
+  'unknown'
+]
+
+const isWorldFocusStatus = (value: unknown): value is WorldFocusStatus =>
+  typeof value === 'string' && WORLD_FOCUS_STATUSES.includes(value as WorldFocusStatus)
+
+const isWorldFocusMode = (value: unknown): value is WorldFocusMode =>
+  typeof value === 'string' && WORLD_FOCUS_MODES.includes(value as WorldFocusMode)
+
+const isWorldFocusItemRole = (value: unknown): value is WorldFocusItemRole =>
+  typeof value === 'string' && WORLD_FOCUS_ITEM_ROLES.includes(value as WorldFocusItemRole)
+
+const isWorldFocusItemSource = (value: unknown): value is WorldFocusItemSource =>
+  typeof value === 'string' && WORLD_FOCUS_ITEM_SOURCES.includes(value as WorldFocusItemSource)
+
+const isWorldFocusTaskType = (value: unknown): value is WorldFocusTaskType =>
+  typeof value === 'string' && WORLD_FOCUS_TASK_TYPES.includes(value as WorldFocusTaskType)
 
 const isString = (value: unknown): value is string => typeof value === 'string'
 
@@ -122,6 +169,78 @@ const parseMoodAssessment = (value: unknown): MoodAssessment | undefined => {
   }
 }
 
+const parseWorldFocusItem = (value: unknown): WorldFocusItem | null => {
+  if (!value || typeof value !== 'object') return null
+
+  const raw = value as Record<string, any>
+  if (
+    !isString(raw.worldId) ||
+    !isString(raw.worldName) ||
+    !isWorldEntityType(raw.focusType) ||
+    !isString(raw.entityId) ||
+    !isString(raw.entityName)
+  ) {
+    return null
+  }
+
+  return {
+    worldId: raw.worldId,
+    worldName: raw.worldName,
+    focusType: raw.focusType,
+    entityId: raw.entityId,
+    entityName: raw.entityName,
+    role: isWorldFocusItemRole(raw.role) ? raw.role : 'co_focus',
+    source: isWorldFocusItemSource(raw.source) ? raw.source : 'mention_index',
+    confidence: clamp01(isNumber(raw.confidence) ? raw.confidence : 0),
+    reason: isString(raw.reason) ? raw.reason : undefined
+  }
+}
+
+const normalizeWorldFocusSlot = (
+  input: unknown,
+  defaults: MemorySlotSnapshot['world_focus']
+): MemorySlotSnapshot['world_focus'] => {
+  const raw = input && typeof input === 'object' ? (input as Record<string, any>) : {}
+  const status = isWorldFocusStatus(raw.status) ? raw.status : defaults.status
+  const confidence = clamp01(isNumber(raw.confidence) ? raw.confidence : defaults.confidence)
+  const parsedFocuses = Array.isArray(raw.focuses)
+    ? raw.focuses.map(parseWorldFocusItem).filter((item): item is WorldFocusItem => Boolean(item))
+    : []
+  const focuses = parsedFocuses
+  const primaryFocusId = isString(raw.primaryFocusId)
+    ? raw.primaryFocusId
+    : focuses.find((item) => item.role === 'primary')?.entityId
+  const primary =
+    focuses.find((item) => item.entityId === primaryFocusId) ??
+    focuses.find((item) => item.role === 'primary') ??
+    focuses[0]
+  const mode = isWorldFocusMode(raw.mode)
+    ? raw.mode
+    : focuses.length > 1
+      ? 'multi'
+      : focuses.length === 1
+        ? 'single'
+        : 'none'
+  const focusTask =
+    raw.focusTask && typeof raw.focusTask === 'object'
+      ? {
+          type: isWorldFocusTaskType(raw.focusTask.type) ? raw.focusTask.type : 'unknown',
+          description: isString(raw.focusTask.description) ? raw.focusTask.description : ''
+        }
+      : undefined
+
+  return {
+    ...defaults,
+    mode: status === 'resolved' ? mode : focuses.length > 0 ? mode : 'none',
+    primaryFocusId: primary?.entityId,
+    focuses,
+    focusTask,
+    confidence,
+    status,
+    updatedAt: isString(raw.updatedAt) ? raw.updatedAt : undefined
+  }
+}
+
 const parseSnapshot = (input: string): MemorySlotSnapshot => {
   try {
     const parsed = JSON.parse(input) as Record<string, any>
@@ -164,43 +283,7 @@ const parseSnapshot = (input: string): MemorySlotSnapshot => {
           current: parseMoodAssessment(parsed.ai_mood?.current),
           updatedAt: isString(parsed.ai_mood?.updatedAt) ? parsed.ai_mood.updatedAt : undefined
         },
-        world_focus: {
-          ...defaults.world_focus,
-          worldId:
-            typeof parsed.world_focus?.worldId === 'string'
-              ? parsed.world_focus.worldId
-              : undefined,
-          worldName:
-            typeof parsed.world_focus?.worldName === 'string'
-              ? parsed.world_focus.worldName
-              : undefined,
-          focusType: isWorldEntityType(parsed.world_focus?.focusType)
-            ? parsed.world_focus.focusType
-            : undefined,
-          entityId:
-            typeof parsed.world_focus?.entityId === 'string'
-              ? parsed.world_focus.entityId
-              : undefined,
-          entityName:
-            typeof parsed.world_focus?.entityName === 'string'
-              ? parsed.world_focus.entityName
-              : undefined,
-          confidence:
-            typeof parsed.world_focus?.confidence === 'number'
-              ? parsed.world_focus.confidence
-              : defaults.world_focus.confidence,
-          status:
-            parsed.world_focus?.status === 'candidate' ||
-            parsed.world_focus?.status === 'resolved' ||
-            parsed.world_focus?.status === 'ambiguous' ||
-            parsed.world_focus?.status === 'none'
-              ? parsed.world_focus.status
-              : defaults.world_focus.status,
-          updatedAt:
-            typeof parsed.world_focus?.updatedAt === 'string'
-              ? parsed.world_focus.updatedAt
-              : undefined
-        },
+        world_focus: normalizeWorldFocusSlot(parsed.world_focus, defaults.world_focus),
         scene_perception: {
           ...defaults.scene_perception,
           primaryDomain: isSceneDomain(parsed.scene_perception?.primaryDomain)
@@ -343,25 +426,6 @@ class MemorySlotService {
     })
   }
 
-  async updateWorldFocus(
-    worldFocus: Partial<MemorySlotSnapshot['world_focus']>
-  ): Promise<MemorySlotSnapshot> {
-    return this.withWriteLock(async () => {
-      const row = await this.loadRow()
-      const snapshot = parseSnapshot(row.payloadJson)
-      snapshot.lastObservationId = row.lastObservationId
-      snapshot.world_focus = {
-        ...createDefaultMemorySlots().world_focus,
-        ...snapshot.world_focus,
-        ...worldFocus,
-        updatedAt: worldFocus.updatedAt ?? new Date().toISOString()
-      }
-      row.payloadJson = JSON.stringify(snapshot)
-      await this.repo.save(row)
-      return snapshot
-    })
-  }
-
   async replaceWorldFocus(
     worldFocus: Partial<MemorySlotSnapshot['world_focus']>
   ): Promise<MemorySlotSnapshot> {
@@ -369,11 +433,13 @@ class MemorySlotService {
       const row = await this.loadRow()
       const snapshot = parseSnapshot(row.payloadJson)
       snapshot.lastObservationId = row.lastObservationId
-      snapshot.world_focus = {
-        ...createDefaultMemorySlots().world_focus,
-        ...worldFocus,
-        updatedAt: worldFocus.updatedAt ?? new Date().toISOString()
-      }
+      snapshot.world_focus = normalizeWorldFocusSlot(
+        {
+          ...worldFocus,
+          updatedAt: worldFocus.updatedAt ?? new Date().toISOString()
+        },
+        createDefaultMemorySlots().world_focus
+      )
       row.payloadJson = JSON.stringify(snapshot)
       await this.repo.save(row)
       return snapshot

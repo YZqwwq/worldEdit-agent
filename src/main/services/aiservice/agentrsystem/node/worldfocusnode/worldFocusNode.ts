@@ -1,6 +1,11 @@
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
 import type {
+  WorldFocusItem,
+  WorldFocusItemRole,
+  WorldFocusTaskType
+} from '@share/cache/AItype/states/memorySlots'
+import type {
   WorldEntityPayload,
   WorldEntityType,
   WorldPayload
@@ -21,15 +26,31 @@ import {
 import { contentToText } from '../../../messageoutput/transformRespones'
 import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { getQuickModel } from '../../modelwithtool/quick-base-model'
-import { MessagesState, type WorldFocusContext } from '../../state/messageState'
+import {
+  MessagesState,
+  type WorldFocusContext,
+  type WorldFocusImpressionContext
+} from '../../state/messageState'
 
 type ResolvedFocus = {
   world: WorldPayload
   entity: WorldEntityPayload
   confidence: number
   source: 'mention_index' | 'previous_focus'
+  role: WorldFocusItemRole
+  reason?: string
   matchedMentions?: string[]
   score?: number
+}
+
+type ResolvedFocusGroup = {
+  focuses: ResolvedFocus[]
+  confidence: number
+  primaryFocusId?: string
+  focusTask: {
+    type: WorldFocusTaskType
+    description: string
+  }
 }
 
 type FocusCandidate = {
@@ -49,7 +70,7 @@ type FocusCandidate = {
 type FocusResolutionResult =
   | {
       type: 'resolved'
-      focus: ResolvedFocus
+      focusGroup: ResolvedFocusGroup
       reason: string
     }
   | {
@@ -62,7 +83,37 @@ type FocusResolutionResult =
 const worldFocusResolutionSchema = z.object({
   decision: z.object({
     type: z.enum(['resolved', 'ambiguous', 'none']),
-    selectedCandidateId: z.string().trim().optional(),
+    selectedCandidateIds: z.array(z.string().trim()).max(8).optional(),
+    primaryCandidateId: z.string().trim().optional(),
+    focusTask: z
+      .object({
+        type: z
+          .enum([
+            'single_analysis',
+            'compare',
+            'relationship',
+            'dialogue',
+            'joint_analysis',
+            'batch_edit',
+            'reference_edit',
+            'unknown'
+          ])
+          .default('unknown'),
+        description: z.string().trim().max(240).default('')
+      })
+      .optional(),
+    candidateRoles: z
+      .array(
+        z.object({
+          candidateId: z.string().trim(),
+          role: z
+            .enum(['primary', 'co_focus', 'reference', 'target', 'background'])
+            .default('co_focus'),
+          reason: z.string().trim().max(160).optional()
+        })
+      )
+      .max(8)
+      .optional(),
     confidence: z.number().finite().min(0).max(1),
     reason: z.string().trim().min(1).max(300)
   })
@@ -125,7 +176,7 @@ const buildRecentMessagePreview = (
 
 const toFocusCandidate = (
   candidate: WorldEntityMentionSearchCandidate,
-  previousFocus?: { worldId?: string; entityId?: string }
+  previousFocus?: WorldFocusItem
 ): FocusCandidate => ({
   candidateId: `mention:${candidate.worldId}:${candidate.entityType}:${candidate.entityId}`,
   source: 'mention_index',
@@ -143,21 +194,9 @@ const toFocusCandidate = (
 
 const createPreviousFocusCandidate = async (
   worlds: WorldPayload[],
-  previousFocus: {
-    status?: string
-    worldId?: string
-    entityId?: string
-    focusType?: WorldEntityType
-  }
+  previousFocus: WorldFocusItem | undefined
 ): Promise<FocusCandidate | null> => {
-  if (
-    previousFocus.status !== 'resolved' ||
-    !previousFocus.worldId ||
-    !previousFocus.entityId ||
-    !previousFocus.focusType
-  ) {
-    return null
-  }
+  if (!previousFocus) return null
 
   const world = worlds.find((item) => item.id === previousFocus.worldId)
   if (!world) return null
@@ -207,10 +246,10 @@ const buildFocusResolutionPrompt = (input: {
   currentUserText: string
   recentMessages: RecentMessagePreview[]
   candidates: FocusCandidate[]
-}): string => `你是“应用内世界观焦点裁决器”，不是聊天助手。你只判断用户最新输入真正指向哪个候选人物。
+}): string => `你是“应用内世界观焦点组裁决器”，不是聊天助手。你只判断用户最新输入真正指向哪些候选人物，以及这些人物在本轮任务中的角色。
 
 目标：
-从候选列表中判断本轮是否能确定一个应用内人物焦点。
+从候选列表中判断本轮是否能确定一个或多个人物焦点。
 
 判断规则：
 1. 候选由索引召回和历史焦点提供。索引分数只是检索特征，不是最终结论。
@@ -218,7 +257,9 @@ const buildFocusResolutionPrompt = (input: {
 3. previous_focus 候选只有在用户明显延续上一轮人物、追问该人物，或最近对话上下文足以承接时才可选择。
 4. 如果用户只是泛泛讨论创作、现实作品、例子，或没有指向任何候选，返回 none。
 5. 如果多个候选都合理，或上下文不足以区分，返回 ambiguous。
-6. 只有确实能定位到一个候选人物时才返回 resolved。
+6. 如果用户同时指向多个人物，且这些人物身份都能确定，返回 resolved，并在 selectedCandidateIds 中列出多个人物。
+7. “人物身份不明确”才是 ambiguous；“多个人物主次不明确”仍可 resolved，但 primaryCandidateId 可不填。
+8. candidateRoles 用于描述人物在本轮任务里的角色：primary 主焦点，co_focus 共同焦点，reference 参考对象，target 被修改/分析目标，background 背景对象。
 
 当前用户最新输入：
 ${input.currentUserText || '(empty)'}
@@ -247,7 +288,19 @@ ${JSON.stringify(
 {
   "decision": {
     "type": "resolved | ambiguous | none",
-    "selectedCandidateId": "仅 resolved 时填写候选 id",
+    "selectedCandidateIds": ["resolved 时填写一个或多个候选 id"],
+    "primaryCandidateId": "可选：主焦点候选 id",
+    "candidateRoles": [
+      {
+        "candidateId": "候选 id",
+        "role": "primary | co_focus | reference | target | background",
+        "reason": "可选，简短说明"
+      }
+    ],
+    "focusTask": {
+      "type": "single_analysis | compare | relationship | dialogue | joint_analysis | batch_edit | reference_edit | unknown",
+      "description": "简短描述本轮多人物/单人物任务"
+    },
     "confidence": 0.0,
     "reason": "不超过120字，说明为什么"
   }
@@ -289,6 +342,63 @@ const resolveFocusWithModel = async (input: {
   return worldFocusResolutionSchema.parse(JSON.parse(jsonText)).decision
 }
 
+const uniqueStrings = (values: Array<string | undefined>): string[] => [
+  ...new Set(values.filter((value): value is string => Boolean(value?.trim())))
+]
+
+const roleForCandidate = (
+  candidateId: string,
+  decision: z.infer<typeof worldFocusResolutionSchema>['decision'],
+  selectedCount: number
+): { role: WorldFocusItemRole; reason?: string } => {
+  const role = decision.candidateRoles?.find((item) => item.candidateId === candidateId)
+  if (role) {
+    return {
+      role: role.role,
+      reason: role.reason
+    }
+  }
+  if (decision.primaryCandidateId === candidateId || selectedCount === 1) {
+    return {
+      role: 'primary'
+    }
+  }
+  return {
+    role: 'co_focus'
+  }
+}
+
+const buildResolvedFocus = async (input: {
+  candidate: FocusCandidate
+  worlds: WorldPayload[]
+  confidence: number
+  role: WorldFocusItemRole
+  reason?: string
+}): Promise<ResolvedFocus | null> => {
+  const world = input.worlds.find((item) => item.id === input.candidate.worldId)
+  if (!world) return null
+
+  const detail = await worldbuildingService.getEntityDetail(input.candidate.entityId)
+  if (
+    !detail ||
+    detail.entity.worldId !== world.id ||
+    detail.entity.type !== input.candidate.entityType
+  ) {
+    return null
+  }
+
+  return {
+    world,
+    entity: detail.entity,
+    confidence: input.confidence,
+    source: input.candidate.source,
+    role: input.role,
+    reason: input.reason,
+    matchedMentions: input.candidate.matchedMentions,
+    score: input.candidate.score
+  }
+}
+
 const resolveFocus = async (
   text: string,
   recentMessages: RecentMessagePreview[]
@@ -314,6 +424,16 @@ const resolveFocus = async (
       candidates: []
     }
   }
+  const previousFocus =
+    slots.world_focus.status === 'resolved'
+      ? (slots.world_focus.focuses.find(
+          (focus) => focus.entityId === slots.world_focus.primaryFocusId
+        ) ??
+        slots.world_focus.focuses.find(
+          (focus) => focus.role === 'primary' || focus.role === 'target'
+        ) ??
+        slots.world_focus.focuses[0])
+      : undefined
 
   const [mentionCandidates, previousCandidate] = await Promise.all([
     worldEntityMentionIndexService.search({
@@ -321,15 +441,15 @@ const resolveFocus = async (
       entityType: 'character',
       limit: 8,
       previousFocus: {
-        worldId: slots.world_focus.worldId,
-        entityId: slots.world_focus.entityId
+        worldId: previousFocus?.worldId,
+        entityId: previousFocus?.entityId
       }
     }),
-    createPreviousFocusCandidate(worlds, slots.world_focus)
+    createPreviousFocusCandidate(worlds, previousFocus)
   ])
 
   const candidates = mergeFocusCandidates(
-    mentionCandidates.map((candidate) => toFocusCandidate(candidate, slots.world_focus)),
+    mentionCandidates.map((candidate) => toFocusCandidate(candidate, previousFocus)),
     previousCandidate
   )
 
@@ -339,10 +459,16 @@ const resolveFocus = async (
     candidates
   })
 
-  const selected = candidates.find(
-    (candidate) => candidate.candidateId === decision.selectedCandidateId
-  )
-  if (decision.type !== 'resolved' || !selected || decision.confidence < 0.5) {
+  const selectedCandidateIds = uniqueStrings([...(decision.selectedCandidateIds ?? [])])
+  const selectedCandidates = selectedCandidateIds
+    .map((candidateId) => candidates.find((candidate) => candidate.candidateId === candidateId))
+    .filter((candidate): candidate is FocusCandidate => Boolean(candidate))
+
+  if (
+    decision.type !== 'resolved' ||
+    selectedCandidates.length === 0 ||
+    decision.confidence < 0.5
+  ) {
     if (candidates.length > 0) {
       traceDecision('worldFocusNode', {
         title: '决策: worldFocusNode 未形成确定焦点',
@@ -361,17 +487,22 @@ const resolveFocus = async (
     }
   }
 
-  const world = worlds.find((item) => item.id === selected.worldId)
-  if (!world) {
-    return {
-      type: 'none',
-      confidence: 0,
-      reason: '模型选择的候选所属世界观不存在。',
-      candidates
-    }
-  }
-  const detail = await worldbuildingService.getEntityDetail(selected.entityId)
-  if (!detail || detail.entity.worldId !== world.id || detail.entity.type !== selected.entityType) {
+  const resolvedFocuses = (
+    await Promise.all(
+      selectedCandidates.map((candidate) => {
+        const role = roleForCandidate(candidate.candidateId, decision, selectedCandidates.length)
+        return buildResolvedFocus({
+          candidate,
+          worlds,
+          confidence: decision.confidence,
+          role: role.role,
+          reason: role.reason
+        })
+      })
+    )
+  ).filter((focus): focus is ResolvedFocus => Boolean(focus))
+
+  if (resolvedFocuses.length === 0) {
     return {
       type: 'none',
       confidence: 0,
@@ -380,16 +511,30 @@ const resolveFocus = async (
     }
   }
 
+  const primaryCandidateId =
+    decision.primaryCandidateId && selectedCandidateIds.includes(decision.primaryCandidateId)
+      ? decision.primaryCandidateId
+      : selectedCandidates.find((candidate) => {
+          const role = roleForCandidate(candidate.candidateId, decision, selectedCandidates.length)
+          return role.role === 'primary' || role.role === 'target'
+        })?.candidateId
+  const primaryEntityId =
+    selectedCandidates.find((candidate) => candidate.candidateId === primaryCandidateId)
+      ?.entityId ?? resolvedFocuses[0]?.entity.id
+
   return {
     type: 'resolved',
     reason: decision.reason,
-    focus: {
-      world,
-      entity: detail.entity,
+    focusGroup: {
+      focuses: resolvedFocuses,
       confidence: decision.confidence,
-      source: selected.source,
-      matchedMentions: selected.matchedMentions,
-      score: selected.score
+      primaryFocusId: primaryEntityId,
+      focusTask: {
+        type:
+          decision.focusTask?.type ??
+          (resolvedFocuses.length === 1 ? 'single_analysis' : 'unknown'),
+        description: decision.focusTask?.description || decision.reason
+      }
     }
   }
 }
@@ -402,7 +547,7 @@ const parseTime = (value: string | undefined): number | null => {
 
 const buildCharacterImpressionContext = async (
   characterEntityId: string
-): Promise<WorldFocusContext['impression']> => {
+): Promise<WorldFocusImpressionContext> => {
   const [existing, freshness] = await Promise.all([
     characterImpressionService.getImpression(characterEntityId),
     characterNarrativeReadingService.getFreshnessSnapshot(characterEntityId)
@@ -453,6 +598,18 @@ const buildCharacterImpressionContext = async (
   }
 }
 
+const toWorldFocusSlotItem = (focus: ResolvedFocus): WorldFocusItem => ({
+  worldId: focus.world.id,
+  worldName: focus.world.name,
+  focusType: focus.entity.type as WorldEntityType,
+  entityId: focus.entity.id,
+  entityName: focus.entity.name,
+  role: focus.role,
+  source: focus.source,
+  confidence: focus.confidence,
+  reason: focus.reason
+})
+
 export async function worldFocusNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
@@ -474,7 +631,11 @@ export async function worldFocusNode(
       return {}
     }
 
-    const { focus } = resolution
+    const { focusGroup } = resolution
+    const primaryFocus =
+      focusGroup.focuses.find((focus) => focus.entity.id === focusGroup.primaryFocusId) ??
+      focusGroup.focuses.find((focus) => focus.role === 'primary' || focus.role === 'target') ??
+      focusGroup.focuses[0]
 
     emitAgentStage({
       stageId: 'world-focus-resolve',
@@ -482,47 +643,64 @@ export async function worldFocusNode(
       status: 'running'
     })
 
-    await memorySlotService.updateWorldFocus({
-      worldId: focus.world.id,
-      worldName: focus.world.name,
-      focusType: focus.entity.type as WorldEntityType,
-      entityId: focus.entity.id,
-      entityName: focus.entity.name,
-      confidence: focus.confidence,
+    const focusItems = focusGroup.focuses.map(toWorldFocusSlotItem)
+    await memorySlotService.replaceWorldFocus({
+      mode: focusItems.length > 1 ? 'multi' : 'single',
+      primaryFocusId: primaryFocus.entity.id,
+      focuses: focusItems,
+      focusTask: focusGroup.focusTask,
+      confidence: focusGroup.confidence,
       status: 'resolved'
     })
 
-    let impression: WorldFocusContext['impression'] | undefined
-    if (focus.entity.type === 'character') {
-      emitAgentStage({
-        stageId: `world-focus-impression-${focus.entity.id}`,
-        label: '正在读取人物印象',
-        status: 'running'
+    const contextFocuses = await Promise.all(
+      focusGroup.focuses.map(async (focus) => {
+        let impression: WorldFocusImpressionContext | undefined
+        if (focus.entity.type === 'character') {
+          emitAgentStage({
+            stageId: `world-focus-impression-${focus.entity.id}`,
+            label: '正在读取人物印象',
+            status: 'running'
+          })
+          impression = await buildCharacterImpressionContext(focus.entity.id)
+        }
+        return {
+          ...toWorldFocusSlotItem(focus),
+          impression
+        }
       })
-      impression = await buildCharacterImpressionContext(focus.entity.id)
+    )
+    const primaryContextFocus =
+      contextFocuses.find((focus) => focus.entityId === primaryFocus.entity.id) ?? contextFocuses[0]
+    const impression = primaryContextFocus?.impression
+
+    if (primaryFocus.entity.type === 'character') {
+      emitAgentStage({
+        stageId: `world-focus-impression-${primaryFocus.entity.id}`,
+        label: '人物印象已读取',
+        status: 'done'
+      })
     }
 
     const worldFocusContext: WorldFocusContext = {
-      worldId: focus.world.id,
-      worldName: focus.world.name,
-      focusType: focus.entity.type,
-      entityId: focus.entity.id,
-      entityName: focus.entity.name,
-      confidence: focus.confidence,
-      impression
+      mode: focusGroup.focuses.length > 1 ? 'multi' : 'single',
+      primaryFocusId: primaryFocus.entity.id,
+      focuses: contextFocuses,
+      confidence: focusGroup.confidence,
+      focusTask: focusGroup.focusTask
     }
 
     traceDecision('worldFocusNode', {
       title: '决策: worldFocusNode 聚焦成功',
-      summary: `${focus.world.name} / ${focus.entity.type} / ${focus.entity.name}`,
+      summary: `${focusGroup.focuses.length > 1 ? '多焦点' : '单焦点'}：${contextFocuses
+        .map((focus) => focus.entityName)
+        .join('、')}`,
       data: {
-        worldId: focus.world.id,
-        entityId: focus.entity.id,
-        entityType: focus.entity.type,
-        confidence: focus.confidence,
-        source: focus.source,
-        matchedMentions: focus.matchedMentions,
-        mentionScore: focus.score,
+        mode: worldFocusContext.mode,
+        primaryFocusId: worldFocusContext.primaryFocusId,
+        focusTask: worldFocusContext.focusTask,
+        focuses: contextFocuses,
+        confidence: focusGroup.confidence,
         hasImpression: Boolean(impression?.found),
         impressionStatus: impression?.status,
         latestNarrativeUpdatedAt: impression?.latestNarrativeUpdatedAt
@@ -536,7 +714,9 @@ export async function worldFocusNode(
     })
     traceArtifact('worldFocusNode', {
       title: '产物: worldFocusNode 本轮聚焦上下文',
-      summary: `${focus.entity.name}${impression?.status ? `，人物印象状态：${impression.status}` : ''}`
+      summary: `${contextFocuses.map((focus) => focus.entityName).join('、')}${
+        impression?.status ? `，主焦点人物印象状态：${impression.status}` : ''
+      }`
     })
 
     return {
