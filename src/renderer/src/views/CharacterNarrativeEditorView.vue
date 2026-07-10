@@ -2,7 +2,10 @@
   <!-- 人物叙事编辑器 -->
   <div
     class="worldbuilding-white-theme narrative-editor-page"
-    :class="{ 'resizing-sidebar': resizingNarrativeSidebar }"
+    :class="{
+      'resizing-sidebar': resizingNarrativeSidebar,
+      'resizing-ai-panel': resizingNarrativeAiPanel
+    }"
     :style="narrativeSidebarStyle"
   >
     <aside class="narrative-sidebar">
@@ -25,7 +28,14 @@
             <span>目录</span>
           </div>
           <div class="catalog-actions">
-            <button type="button" aria-label="新建文件" title="新建文件" @click="createNarrativeDocument()">+</button>
+            <button
+              type="button"
+              aria-label="新建文件"
+              title="新建文件"
+              @click="createNarrativeDocument()"
+            >
+              +
+            </button>
             <button type="button" aria-label="目录设置">☰</button>
           </div>
         </header>
@@ -57,7 +67,9 @@
               class="catalog-tree-item"
               @click="selectNarrativeDocument(row.id)"
             >
-              <span class="catalog-tree-caret" aria-hidden="true">{{ row.children.length ? '⌄' : '' }}</span>
+              <span class="catalog-tree-caret" aria-hidden="true">{{
+                row.children.length ? '⌄' : ''
+              }}</span>
               <span class="catalog-tree-title">{{ row.title }}</span>
             </button>
             <button
@@ -95,14 +107,17 @@
     <section class="narrative-main">
       <div class="format-toolbar" role="toolbar" aria-label="文本编辑工具栏">
         <div class="toolbar-group toolbar-group-primary">
-          <button type="button" class="toolbar-add-btn" aria-label="新增文件" @click="createNarrativeDocument()">+</button>
+          <button
+            type="button"
+            class="toolbar-add-btn"
+            aria-label="新增文件"
+            @click="createNarrativeDocument()"
+          >
+            +
+          </button>
         </div>
 
-        <div
-          v-for="(group, groupIndex) in toolbarGroups"
-          :key="groupIndex"
-          class="toolbar-group"
-        >
+        <div v-for="(group, groupIndex) in toolbarGroups" :key="groupIndex" class="toolbar-group">
           <button
             v-for="item in group"
             :key="item.label"
@@ -123,10 +138,25 @@
           >
             {{ narrativeSaveHint }}
           </span>
+          <button
+            type="button"
+            class="toolbar-tool ai-panel-toggle"
+            :class="{ active: showNarrativeAiPanel }"
+            :aria-pressed="showNarrativeAiPanel"
+            aria-label="打开 AI 对话侧边栏"
+            title="AI 对话"
+            @click="toggleNarrativeAiPanel"
+          >
+            AI
+          </button>
         </div>
       </div>
 
-      <main v-if="entityDetail" class="editor-workspace">
+      <main
+        v-if="entityDetail"
+        class="editor-workspace"
+        :class="{ 'ai-panel-open': showNarrativeAiPanel }"
+      >
         <WorldRichTextAppearancePanel
           v-if="showAppearancePanel"
           v-model="characterEditorAppearance"
@@ -162,7 +192,21 @@
           <span class="document-word-count">{{ characterEditorStats.characters }}字</span>
         </section>
 
-        <aside class="outline-panel">
+        <div
+          v-if="showNarrativeAiPanel"
+          class="narrative-ai-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整 AI 对话宽度"
+          title="调整 AI 对话宽度"
+          @mousedown="startNarrativeAiPanelResize"
+        />
+
+        <aside v-if="showNarrativeAiPanel" class="narrative-ai-panel">
+          <CompactAIChatPanel @close="showNarrativeAiPanel = false" />
+        </aside>
+
+        <aside v-else class="outline-panel">
           <h2>大纲</h2>
           <div v-if="outlineItems.length === 0" class="outline-empty">暂无标题</div>
           <button
@@ -177,9 +221,7 @@
         </aside>
       </main>
 
-      <main v-else class="editor-loading">
-        正在读取文本编辑页面
-      </main>
+      <main v-else class="editor-loading">正在读取文本编辑页面</main>
     </section>
 
     <ConfirmDialog
@@ -206,6 +248,7 @@ import { worldbuildingClientService } from '../services/worldbuildingClientServi
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 import { useAppTitleBar } from '../composables/useAppTitleBar'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import CompactAIChatPanel from '../features/chat/components/CompactAIChatPanel.vue'
 import WorldRichTextAppearancePanel from '../features/worldbuilding/editor/components/WorldRichTextAppearancePanel.vue'
 import WorldRichTextEditor from '../features/worldbuilding/editor/components/WorldRichTextEditor.vue'
 import {
@@ -228,10 +271,15 @@ type NarrativeTreeNode = CharacterNarrativeDocumentPayload & {
 
 type NarrativeDropPosition = 'before' | 'after' | 'inside'
 
-const NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY = 'worldedit.characterNarrative.sidebarWidthRatio.v1'
+const NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY =
+  'worldedit.characterNarrative.sidebarWidthRatio.v1'
+const NARRATIVE_AI_PANEL_WIDTH_STORAGE_KEY = 'worldedit.characterNarrative.aiPanelWidth.v1'
 const DEFAULT_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.185
 const MIN_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.1
 const MAX_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.2
+const DEFAULT_NARRATIVE_AI_PANEL_WIDTH = 420
+const MIN_NARRATIVE_AI_PANEL_WIDTH = 320
+const MAX_NARRATIVE_AI_PANEL_WIDTH = 640
 
 const entityDetail = ref<WorldEntityDetailPayload | null>(null)
 const narrativeDocuments = ref<CharacterNarrativeDocumentPayload[]>([])
@@ -252,6 +300,9 @@ const draggingDocumentId = ref('')
 const dropTarget = ref<{ documentId: string; position: NarrativeDropPosition } | null>(null)
 const narrativeSidebarWidth = ref(356)
 const resizingNarrativeSidebar = ref(false)
+const showNarrativeAiPanel = ref(false)
+const narrativeAiPanelWidth = ref(DEFAULT_NARRATIVE_AI_PANEL_WIDTH)
+const resizingNarrativeAiPanel = ref(false)
 
 let syncingFromDetail = false
 let narrativeAutosaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -262,7 +313,8 @@ const worldId = computed(() => String(route.params.worldId || ''))
 const entityId = computed(() => String(route.params.entityId || ''))
 const titleBarCharacterName = computed(() => entityDetail.value?.entity.name?.trim() || '人物文本')
 const narrativeSidebarStyle = computed(() => ({
-  '--narrative-sidebar-width': `${narrativeSidebarWidth.value}px`
+  '--narrative-sidebar-width': `${narrativeSidebarWidth.value}px`,
+  '--narrative-ai-panel-width': `${narrativeAiPanelWidth.value}px`
 }))
 const activeDocument = computed(
   () => narrativeDocuments.value.find((document) => document.id === activeDocumentId.value) ?? null
@@ -409,6 +461,12 @@ const clampNarrativeSidebarRatio = (ratio: number): number =>
 const getNarrativeViewportWidth = (): number =>
   typeof window === 'undefined' ? 1920 : Math.max(1, window.innerWidth)
 
+const clampNarrativeAiPanelWidth = (width: number): number => {
+  const viewportWidth = getNarrativeViewportWidth()
+  const maxWidth = Math.min(MAX_NARRATIVE_AI_PANEL_WIDTH, Math.round(viewportWidth * 0.46))
+  return Math.min(maxWidth, Math.max(MIN_NARRATIVE_AI_PANEL_WIDTH, Math.round(width)))
+}
+
 const loadNarrativeSidebarWidth = (): void => {
   if (typeof window === 'undefined') {
     narrativeSidebarWidth.value = clampNarrativeSidebarWidth(
@@ -424,15 +482,38 @@ const loadNarrativeSidebarWidth = (): void => {
   narrativeSidebarWidth.value = clampNarrativeSidebarWidth(getNarrativeViewportWidth() * ratio)
 }
 
+const loadNarrativeAiPanelWidth = (): void => {
+  if (typeof window === 'undefined') {
+    narrativeAiPanelWidth.value = DEFAULT_NARRATIVE_AI_PANEL_WIDTH
+    return
+  }
+  const stored = Number(window.localStorage.getItem(NARRATIVE_AI_PANEL_WIDTH_STORAGE_KEY))
+  narrativeAiPanelWidth.value = clampNarrativeAiPanelWidth(
+    Number.isFinite(stored) ? stored : DEFAULT_NARRATIVE_AI_PANEL_WIDTH
+  )
+}
+
+const persistNarrativeAiPanelWidth = (): void => {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(
+    NARRATIVE_AI_PANEL_WIDTH_STORAGE_KEY,
+    String(clampNarrativeAiPanelWidth(narrativeAiPanelWidth.value))
+  )
+}
+
 const persistNarrativeSidebarWidth = (): void => {
   if (typeof window === 'undefined') return
-  const ratio = clampNarrativeSidebarRatio(narrativeSidebarWidth.value / getNarrativeViewportWidth())
+  const ratio = clampNarrativeSidebarRatio(
+    narrativeSidebarWidth.value / getNarrativeViewportWidth()
+  )
   window.localStorage.setItem(NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY, ratio.toFixed(4))
 }
 
 const syncNarrativeSidebarWidthBounds = (): void => {
   narrativeSidebarWidth.value = clampNarrativeSidebarWidth(narrativeSidebarWidth.value)
   persistNarrativeSidebarWidth()
+  narrativeAiPanelWidth.value = clampNarrativeAiPanelWidth(narrativeAiPanelWidth.value)
+  persistNarrativeAiPanelWidth()
 }
 
 const handleNarrativeSidebarResizeMove = (event: MouseEvent): void => {
@@ -455,6 +536,34 @@ const startNarrativeSidebarResize = (event: MouseEvent): void => {
   document.body.classList.add('narrative-sidebar-resizing')
   window.addEventListener('mousemove', handleNarrativeSidebarResizeMove)
   window.addEventListener('mouseup', stopNarrativeSidebarResize)
+}
+
+const handleNarrativeAiPanelResizeMove = (event: MouseEvent): void => {
+  if (!resizingNarrativeAiPanel.value) return
+  narrativeAiPanelWidth.value = clampNarrativeAiPanelWidth(
+    getNarrativeViewportWidth() - event.clientX
+  )
+}
+
+const stopNarrativeAiPanelResize = (): void => {
+  if (!resizingNarrativeAiPanel.value) return
+  resizingNarrativeAiPanel.value = false
+  persistNarrativeAiPanelWidth()
+  document.body.classList.remove('narrative-ai-panel-resizing')
+  window.removeEventListener('mousemove', handleNarrativeAiPanelResizeMove)
+  window.removeEventListener('mouseup', stopNarrativeAiPanelResize)
+}
+
+const startNarrativeAiPanelResize = (event: MouseEvent): void => {
+  event.preventDefault()
+  resizingNarrativeAiPanel.value = true
+  document.body.classList.add('narrative-ai-panel-resizing')
+  window.addEventListener('mousemove', handleNarrativeAiPanelResizeMove)
+  window.addEventListener('mouseup', stopNarrativeAiPanelResize)
+}
+
+const toggleNarrativeAiPanel = (): void => {
+  showNarrativeAiPanel.value = !showNarrativeAiPanel.value
 }
 
 useAppTitleBar(
@@ -490,13 +599,21 @@ const handleNarrativeTitleBlur = (): void => {
 }
 
 const getLegacyNarrativeHtml = (): string => {
-  const profile = getCharacterComponentByType<CharacterProfileData>(entityDetail.value, 'character_profile')
+  const profile = getCharacterComponentByType<CharacterProfileData>(
+    entityDetail.value,
+    'character_profile'
+  )
   return String(profile?.data?.description || '')
 }
 
 const syncAppearanceFromDetail = (): void => {
-  const profile = getCharacterComponentByType<CharacterProfileData>(entityDetail.value, 'character_profile')
-  characterEditorAppearance.value = normalizeWorldRichTextAppearance(profile?.data?.editorAppearance)
+  const profile = getCharacterComponentByType<CharacterProfileData>(
+    entityDetail.value,
+    'character_profile'
+  )
+  characterEditorAppearance.value = normalizeWorldRichTextAppearance(
+    profile?.data?.editorAppearance
+  )
 }
 
 const syncNarrativeFromDocument = (document: CharacterNarrativeDocumentPayload | null): void => {
@@ -519,7 +636,9 @@ const createSortKeyForIndex = (index: number): string => String(index + 1).padSt
 const getNarrativeDocument = (documentId: string): CharacterNarrativeDocumentPayload | null =>
   narrativeDocumentById.value.get(documentId) ?? null
 
-const getNarrativeChildren = (parentDocumentId: string | null): CharacterNarrativeDocumentPayload[] =>
+const getNarrativeChildren = (
+  parentDocumentId: string | null
+): CharacterNarrativeDocumentPayload[] =>
   narrativeDocuments.value
     .filter((document) => (document.parentDocumentId || null) === parentDocumentId)
     .sort((a, b) => {
@@ -556,7 +675,9 @@ const canMoveNarrativeDocumentToParent = (
 const applyNarrativeDocumentUpdates = (updates: CharacterNarrativeDocumentPayload[]): void => {
   if (updates.length === 0) return
   const updateMap = new Map(updates.map((document) => [document.id, document]))
-  narrativeDocuments.value = narrativeDocuments.value.map((document) => updateMap.get(document.id) ?? document)
+  narrativeDocuments.value = narrativeDocuments.value.map(
+    (document) => updateMap.get(document.id) ?? document
+  )
 }
 
 const moveDocumentsIntoOrderedSiblings = async (
@@ -620,7 +741,8 @@ const handleNarrativeDragOver = (documentId: string, event: DragEvent): void => 
   const position = getNarrativeDropPosition(event)
   const targetDocument = getNarrativeDocument(documentId)
   if (!targetDocument) return
-  const parentDocumentId = position === 'inside' ? targetDocument.id : targetDocument.parentDocumentId || null
+  const parentDocumentId =
+    position === 'inside' ? targetDocument.id : targetDocument.parentDocumentId || null
   if (!canMoveNarrativeDocumentToParent(draggedId, parentDocumentId)) {
     dropTarget.value = null
     return
@@ -668,28 +790,31 @@ const handleNarrativeDrop = async (): Promise<void> => {
   clearNarrativeDragState()
 }
 
-const ensureInitialNarrativeDocument = async (): Promise<CharacterNarrativeDocumentPayload | null> => {
-  if (!entityDetail.value) return null
+const ensureInitialNarrativeDocument =
+  async (): Promise<CharacterNarrativeDocumentPayload | null> => {
+    if (!entityDetail.value) return null
 
-  narrativeDocumentsLoading.value = true
-  try {
-    let documents = await worldbuildingClientService.listCharacterNarrativeDocuments(entityDetail.value.entity.id)
+    narrativeDocumentsLoading.value = true
+    try {
+      let documents = await worldbuildingClientService.listCharacterNarrativeDocuments(
+        entityDetail.value.entity.id
+      )
 
-    if (documents.length === 0) {
-      const created = await worldbuildingClientService.createCharacterNarrativeDocument({
-        characterEntityId: entityDetail.value.entity.id,
-        title: '新建文件',
-        contentHtml: getLegacyNarrativeHtml()
-      })
-      documents = [created]
+      if (documents.length === 0) {
+        const created = await worldbuildingClientService.createCharacterNarrativeDocument({
+          characterEntityId: entityDetail.value.entity.id,
+          title: '新建文件',
+          contentHtml: getLegacyNarrativeHtml()
+        })
+        documents = [created]
+      }
+
+      narrativeDocuments.value = documents
+      return documents[0] ?? null
+    } finally {
+      narrativeDocumentsLoading.value = false
     }
-
-    narrativeDocuments.value = documents
-    return documents[0] ?? null
-  } finally {
-    narrativeDocumentsLoading.value = false
   }
-}
 
 const loadEntityDetail = async (): Promise<void> => {
   if (!entityId.value) {
@@ -714,7 +839,8 @@ const selectNarrativeDocument = async (documentId: string): Promise<void> => {
   if (documentId === activeDocumentId.value) return
   clearNarrativeAutosave()
   await saveNarrative(true, { fallbackBlankTitle: true })
-  const nextDocument = narrativeDocuments.value.find((document) => document.id === documentId) ?? null
+  const nextDocument =
+    narrativeDocuments.value.find((document) => document.id === documentId) ?? null
   syncNarrativeFromDocument(nextDocument)
 }
 
@@ -843,7 +969,8 @@ const scheduleNarrativeAutosave = (delay = 700): void => {
   if (syncingFromDetail || !entityDetail.value) return
   clearNarrativeAutosave()
   if (narrativeTitleFocused.value) return
-  if (!canSaveNarrative.value || narrativeAutosaveSignature.value === lastSavedNarrativeSignature) return
+  if (!canSaveNarrative.value || narrativeAutosaveSignature.value === lastSavedNarrativeSignature)
+    return
   narrativeSaveState.value = 'idle'
   narrativeAutosaveTimer = setTimeout(() => {
     narrativeAutosaveTimer = null
@@ -853,6 +980,7 @@ const scheduleNarrativeAutosave = (delay = 700): void => {
 
 onMounted(async () => {
   loadNarrativeSidebarWidth()
+  loadNarrativeAiPanelWidth()
   window.addEventListener('resize', syncNarrativeSidebarWidthBounds)
   await loadEntityDetail()
 })
@@ -864,6 +992,7 @@ watch(narrativeAutosaveSignature, () => {
 onBeforeUnmount(() => {
   clearNarrativeAutosave()
   stopNarrativeSidebarResize()
+  stopNarrativeAiPanelResize()
   window.removeEventListener('resize', syncNarrativeSidebarWidthBounds)
 })
 
@@ -887,18 +1016,24 @@ useKeyboardShortcut(
   --narrative-sidebar-resizer-width: 6px;
   --narrative-editor-left: 76px;
   --narrative-outline-width: 150px;
+  --narrative-ai-panel-width: 420px;
+  --narrative-ai-resizer-width: 6px;
 
   width: 100vw;
   height: 100%;
   display: grid;
-  grid-template-columns: var(--narrative-sidebar-width) var(--narrative-sidebar-resizer-width) minmax(0, 1fr);
+  grid-template-columns:
+    var(--narrative-sidebar-width) var(--narrative-sidebar-resizer-width)
+    minmax(0, 1fr);
   overflow: hidden;
   background: var(--wb-narrative-bg);
   color: var(--wb-narrative-text);
 }
 
 .narrative-editor-page.resizing-sidebar,
-:global(body.narrative-sidebar-resizing) {
+.narrative-editor-page.resizing-ai-panel,
+:global(body.narrative-sidebar-resizing),
+:global(body.narrative-ai-panel-resizing) {
   cursor: col-resize;
   user-select: none;
 }
@@ -1236,6 +1371,19 @@ useKeyboardShortcut(
   color: #315cff;
 }
 
+.ai-panel-toggle {
+  min-width: 30px;
+  margin-left: 2px;
+  border: 1px solid transparent;
+  font-weight: 800;
+}
+
+.ai-panel-toggle.active {
+  border-color: rgba(49, 92, 255, 0.22);
+  background: rgba(49, 92, 255, 0.09);
+  color: #315cff;
+}
+
 .editor-counts,
 .autosave-hint {
   color: var(--wb-narrative-text-faint);
@@ -1258,6 +1406,13 @@ useKeyboardShortcut(
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--narrative-outline-width);
   overflow: hidden;
+}
+
+.editor-workspace.ai-panel-open {
+  grid-template-columns:
+    minmax(360px, 1fr)
+    var(--narrative-ai-resizer-width)
+    var(--narrative-ai-panel-width);
 }
 
 .document-canvas {
@@ -1312,6 +1467,40 @@ useKeyboardShortcut(
   border-left: 0;
   background: #ffffff;
   padding: 62px 10px 0 0;
+}
+
+.narrative-ai-resizer {
+  position: relative;
+  min-width: var(--narrative-ai-resizer-width);
+  height: 100%;
+  border-left: 1px solid var(--wb-narrative-border);
+  border-right: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.narrative-ai-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: transparent;
+}
+
+.narrative-ai-resizer:hover::before,
+.narrative-editor-page.resizing-ai-panel .narrative-ai-resizer::before {
+  background: var(--wb-narrative-accent);
+}
+
+.narrative-ai-panel {
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #ffffff;
 }
 
 .outline-panel h2 {
@@ -1443,7 +1632,13 @@ useKeyboardShortcut(
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .outline-panel {
+  .editor-workspace.ai-panel-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .outline-panel,
+  .narrative-ai-resizer,
+  .narrative-ai-panel {
     display: none;
   }
 
