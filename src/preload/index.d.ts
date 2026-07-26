@@ -36,6 +36,7 @@ import type {
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
   UpdateWorldEntityDocumentInput,
+  WorldEntityDocumentOwnerRef,
   WorldEntityDocumentPayload
 } from '../share/cache/worldbuilding/worldEntityDocument'
 import type {
@@ -157,7 +158,9 @@ declare global {
       input: CreateWorldEntityRelationInput
     ) => Promise<WorldEntityRelationPayload>
 
-    listWorldEntityDocuments: (ownerEntityId: string) => Promise<WorldEntityDocumentPayload[]>
+    listWorldEntityDocuments: (
+      owner: WorldEntityDocumentOwnerRef
+    ) => Promise<WorldEntityDocumentPayload[]>
     getWorldEntityDocument: (documentId: string) => Promise<WorldEntityDocumentPayload | null>
     createWorldEntityDocument: (
       input: CreateWorldEntityDocumentInput

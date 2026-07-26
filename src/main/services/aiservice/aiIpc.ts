@@ -46,7 +46,8 @@ import type {
   CreateWorldEntityDocumentInput,
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
-  UpdateWorldEntityDocumentInput
+  UpdateWorldEntityDocumentInput,
+  WorldEntityDocumentOwnerRef
 } from '@share/cache/worldbuilding/worldEntityDocument'
 import type { UpsertCharacterImpressionInput } from '@share/cache/worldbuilding/characterImpression'
 import { taskService } from '../task/taskService'
@@ -458,8 +459,8 @@ export function initializeAIEndpoints(): void {
     }
   )
 
-  ipcMain.handle('worldEntityDocument:list', async (_event, ownerEntityId: string) => {
-    return worldEntityDocumentService.listDocuments(ownerEntityId)
+  ipcMain.handle('worldEntityDocument:list', async (_event, owner: WorldEntityDocumentOwnerRef) => {
+    return worldEntityDocumentService.listDocuments(owner)
   })
 
   ipcMain.handle('worldEntityDocument:get', async (_event, documentId: string) => {

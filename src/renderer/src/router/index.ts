@@ -27,7 +27,7 @@ const routes = [
     component: () => import('../views/CharacterPortraitEditorView.vue')
   },
   {
-    path: '/world/:worldId/entity/:entityId/narrative',
+    path: '/world/:worldId/documents/:entityId?',
     name: 'WorldEntityDocumentEditor',
     component: () => import('../views/WorldEntityDocumentEditorView.vue')
   },

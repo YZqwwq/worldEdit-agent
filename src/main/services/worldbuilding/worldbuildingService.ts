@@ -19,6 +19,10 @@ import type {
   WorldPayload
 } from '@share/cache/worldbuilding/worldbuilding'
 import {
+  WORLD_INSTANCE_ENTITY_TYPES,
+  isWorldInstanceEntityType
+} from '@share/cache/worldbuilding/worldbuilding'
+import {
   buildWorldbuildingSchemaCatalog,
   buildStarterComponentSeeds,
   ensureComponentAllowedForEntityType,
@@ -285,6 +289,9 @@ class WorldbuildingService {
     const name = String(input.name || '').trim()
     if (!worldId) throw new Error('worldId is required')
     if (!name) throw new Error('Entity name is required')
+    if (!isWorldInstanceEntityType(input.type)) {
+      throw new Error(`World entity type "${input.type}" is not available for instance creation`)
+    }
 
     const world = await this.worldRepo.findOneBy({ id: worldId })
     if (!world) throw new Error(`World not found: ${worldId}`)
@@ -684,7 +691,10 @@ class WorldbuildingService {
   }
 
   listEntityDefinitions() {
-    return listWorldbuildingEntityDefinitions()
+    const allowedTypes = new Set<WorldEntityPayload['type']>(WORLD_INSTANCE_ENTITY_TYPES)
+    return listWorldbuildingEntityDefinitions().filter((definition) =>
+      allowedTypes.has(definition.entityType)
+    )
   }
 
   listComponentDefinitions(entityType?: WorldEntityPayload['type']) {

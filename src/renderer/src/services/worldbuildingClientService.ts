@@ -20,6 +20,7 @@ import type {
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
   UpdateWorldEntityDocumentInput,
+  WorldEntityDocumentOwnerRef,
   WorldEntityDocumentPayload
 } from '@share/cache/worldbuilding/worldEntityDocument'
 
@@ -89,8 +90,10 @@ export const worldbuildingClientService = {
     return window.api.createWorldEntityRelation(input)
   },
 
-  listWorldEntityDocuments(ownerEntityId: string): Promise<WorldEntityDocumentPayload[]> {
-    return window.api.listWorldEntityDocuments(ownerEntityId)
+  listWorldEntityDocuments(
+    owner: WorldEntityDocumentOwnerRef
+  ): Promise<WorldEntityDocumentPayload[]> {
+    return window.api.listWorldEntityDocuments(owner)
   },
 
   getWorldEntityDocument(documentId: string): Promise<WorldEntityDocumentPayload | null> {

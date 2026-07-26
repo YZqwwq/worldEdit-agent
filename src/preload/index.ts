@@ -37,6 +37,7 @@ import type {
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
   UpdateWorldEntityDocumentInput,
+  WorldEntityDocumentOwnerRef,
   WorldEntityDocumentPayload
 } from '../share/cache/worldbuilding/worldEntityDocument'
 import type {
@@ -160,7 +161,9 @@ type Api = {
     input: CreateWorldEntityRelationInput
   ) => Promise<WorldEntityRelationPayload>
 
-  listWorldEntityDocuments: (ownerEntityId: string) => Promise<WorldEntityDocumentPayload[]>
+  listWorldEntityDocuments: (
+    owner: WorldEntityDocumentOwnerRef
+  ) => Promise<WorldEntityDocumentPayload[]>
   getWorldEntityDocument: (documentId: string) => Promise<WorldEntityDocumentPayload | null>
   createWorldEntityDocument: (
     input: CreateWorldEntityDocumentInput
@@ -232,8 +235,8 @@ const api: Api = {
   getWorldEntityDetail: (entityId) => ipcRenderer.invoke('world:getEntityDetail', entityId),
   upsertWorldEntityComponent: (input) => ipcRenderer.invoke('world:upsertComponent', input),
   createWorldEntityRelation: (input) => ipcRenderer.invoke('world:createRelation', input),
-  listWorldEntityDocuments: (ownerEntityId) =>
-    ipcRenderer.invoke('worldEntityDocument:list', ownerEntityId),
+  listWorldEntityDocuments: (owner) =>
+    ipcRenderer.invoke('worldEntityDocument:list', owner),
   getWorldEntityDocument: (documentId) =>
     ipcRenderer.invoke('worldEntityDocument:get', documentId),
   createWorldEntityDocument: (input) =>

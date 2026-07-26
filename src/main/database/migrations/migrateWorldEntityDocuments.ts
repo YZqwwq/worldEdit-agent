@@ -3,12 +3,13 @@ import { existsSync, unlinkSync, writeFileSync } from 'node:fs'
 
 const LEGACY_TABLE_NAME = 'character_narrative_document_record'
 const TARGET_TABLE_NAME = 'world_entity_document_record'
+const UPGRADE_TABLE_NAME = 'world_entity_document_record_v2'
 
 type SqliteRow = Record<string, unknown>
 
 interface WorldEntityDocumentBackup {
-  migration: 'world-entity-document-v1'
-  sourceTable: typeof LEGACY_TABLE_NAME
+  migration: 'world-entity-document-v1' | 'world-entity-document-owner-v2'
+  sourceTable: string
   createdAt: string
   rows: SqliteRow[]
 }
@@ -59,10 +60,15 @@ const assertMigratedRowsMatch = (
   }
 }
 
-const writeBackup = (backupPath: string, rows: SqliteRow[]): void => {
+const writeBackup = (
+  backupPath: string,
+  migration: WorldEntityDocumentBackup['migration'],
+  sourceTable: string,
+  rows: SqliteRow[]
+): void => {
   const backup: WorldEntityDocumentBackup = {
-    migration: 'world-entity-document-v1',
-    sourceTable: LEGACY_TABLE_NAME,
+    migration,
+    sourceTable,
     createdAt: new Date().toISOString(),
     rows
   }
@@ -71,9 +77,102 @@ const writeBackup = (backupPath: string, rows: SqliteRow[]): void => {
 
 const assertTargetSchema = (database: Database.Database): void => {
   const columns = new Set(getTableColumns(database, TARGET_TABLE_NAME))
-  if (!columns.has('ownerEntityId') || columns.has('characterEntityId')) {
+  if (
+    !columns.has('ownerKind') ||
+    !columns.has('worldId') ||
+    !columns.has('ownerEntityId') ||
+    columns.has('characterEntityId')
+  ) {
     throw new Error('World entity document table exists with an unexpected owner column')
   }
+}
+
+const upgradeDocumentOwnerSchema = (
+  database: Database.Database,
+  backupPath: string
+): void => {
+  const columns = new Set(getTableColumns(database, TARGET_TABLE_NAME))
+  if (columns.has('ownerKind') && columns.has('worldId')) {
+    assertTargetSchema(database)
+    return
+  }
+  if (!columns.has('ownerEntityId')) {
+    throw new Error('Cannot upgrade world entity documents without ownerEntityId')
+  }
+
+  const missingWorldRows = database
+    .prepare(
+      `SELECT d.id
+       FROM ${quoteIdentifier(TARGET_TABLE_NAME)} d
+       LEFT JOIN ${quoteIdentifier('world_entity_record')} e ON e.id = d.ownerEntityId
+       WHERE e.worldId IS NULL
+       LIMIT 1`
+    )
+    .get()
+  if (missingWorldRows) {
+    throw new Error('Cannot resolve the world for one or more existing entity documents')
+  }
+
+  const rows = readRows(database, TARGET_TABLE_NAME)
+  writeBackup(
+    backupPath,
+    'world-entity-document-owner-v2',
+    TARGET_TABLE_NAME,
+    rows
+  )
+
+  database.transaction(() => {
+    database.prepare(`DROP TABLE IF EXISTS ${quoteIdentifier(UPGRADE_TABLE_NAME)}`).run()
+    database
+      .prepare(
+        `CREATE TABLE ${quoteIdentifier(UPGRADE_TABLE_NAME)} (
+          id text PRIMARY KEY NOT NULL,
+          ownerKind text NOT NULL DEFAULT 'entity',
+          worldId text NOT NULL,
+          ownerEntityId text,
+          parentDocumentId text,
+          title text NOT NULL DEFAULT '新建文件',
+          contentHtml text NOT NULL DEFAULT '',
+          contentFormat text NOT NULL DEFAULT 'html',
+          sortKey text NOT NULL DEFAULT '',
+          schemaVersion integer NOT NULL DEFAULT 1,
+          createdAt datetime NOT NULL DEFAULT (datetime('now')),
+          updatedAt datetime NOT NULL DEFAULT (datetime('now'))
+        )`
+      )
+      .run()
+    database
+      .prepare(
+        `INSERT INTO ${quoteIdentifier(UPGRADE_TABLE_NAME)} (
+          id, ownerKind, worldId, ownerEntityId, parentDocumentId, title,
+          contentHtml, contentFormat, sortKey, schemaVersion, createdAt, updatedAt
+        )
+        SELECT
+          d.id, 'entity', e.worldId, d.ownerEntityId, d.parentDocumentId, d.title,
+          d.contentHtml, d.contentFormat, d.sortKey, d.schemaVersion, d.createdAt, d.updatedAt
+        FROM ${quoteIdentifier(TARGET_TABLE_NAME)} d
+        INNER JOIN ${quoteIdentifier('world_entity_record')} e ON e.id = d.ownerEntityId`
+      )
+      .run()
+    database.prepare(`DROP TABLE ${quoteIdentifier(TARGET_TABLE_NAME)}`).run()
+    database
+      .prepare(
+        `ALTER TABLE ${quoteIdentifier(UPGRADE_TABLE_NAME)} RENAME TO ${quoteIdentifier(TARGET_TABLE_NAME)}`
+      )
+      .run()
+  })()
+
+  assertTargetSchema(database)
+  const migratedCount = readRows(database, TARGET_TABLE_NAME).length
+  if (migratedCount !== rows.length) {
+    throw new Error(
+      `World entity document owner migration validation failed: expected ${rows.length} rows, received ${migratedCount}`
+    )
+  }
+  unlinkSync(backupPath)
+  console.log(
+    `World entity document owner migration completed: ${rows.length} rows upgraded and temporary backup removed.`
+  )
 }
 
 export const migrateWorldEntityDocuments = (databasePath: string): void => {
@@ -87,7 +186,7 @@ export const migrateWorldEntityDocuments = (databasePath: string): void => {
     const targetExists = tableExists(database, TARGET_TABLE_NAME)
 
     if (!legacyExists) {
-      if (targetExists) assertTargetSchema(database)
+      if (targetExists) upgradeDocumentOwnerSchema(database, backupPath)
       if (existsSync(backupPath)) unlinkSync(backupPath)
       return
     }
@@ -99,7 +198,12 @@ export const migrateWorldEntityDocuments = (databasePath: string): void => {
     }
 
     const legacyRows = readRows(database, LEGACY_TABLE_NAME)
-    writeBackup(backupPath, legacyRows)
+    writeBackup(
+      backupPath,
+      'world-entity-document-v1',
+      LEGACY_TABLE_NAME,
+      legacyRows
+    )
 
     database.transaction(() => {
       database
@@ -114,12 +218,11 @@ export const migrateWorldEntityDocuments = (databasePath: string): void => {
         .run()
     })()
 
-    assertTargetSchema(database)
     assertMigratedRowsMatch(legacyRows, readRows(database, TARGET_TABLE_NAME))
-    unlinkSync(backupPath)
     console.log(
-      `World entity document migration completed: ${legacyRows.length} rows migrated and temporary backup removed.`
+      `World entity document migration completed: ${legacyRows.length} rows migrated.`
     )
+    upgradeDocumentOwnerSchema(database, backupPath)
   } finally {
     database.close()
   }

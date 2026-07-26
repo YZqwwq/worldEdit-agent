@@ -27,7 +27,11 @@
         <div class="catalog-scope">
           <label class="catalog-type-select">
             <span class="sr-only">选择实体类型</span>
-            <select v-model="selectedEntityType" aria-label="选择实体类型">
+            <select
+              v-model="selectedEntityType"
+              aria-label="选择文本分类"
+              @change="handleDocumentScopeChange"
+            >
               <option
                 v-for="option in entityTypeOptions"
                 :key="option.value"
@@ -39,6 +43,7 @@
             <span class="catalog-select-caret" aria-hidden="true">⌄</span>
           </label>
           <input
+            v-if="!isBasicSettingsScope"
             v-model="entitySearchQuery"
             class="catalog-search"
             type="search"
@@ -56,8 +61,8 @@
             <button
               type="button"
               aria-label="在当前实体中新建文件"
-              title="在当前实体中新建文件"
-              :disabled="!entityDetail"
+              :title="isBasicSettingsScope ? '新建一级基础设定' : '在当前实体中新建文件'"
+              :disabled="!canCreateNarrativeDocument"
               @click="createNarrativeDocument()"
             >
               +
@@ -66,7 +71,65 @@
           </div>
         </header>
 
-        <div v-if="worldEntitiesLoading" class="catalog-empty">正在读取世界实体</div>
+        <div v-if="worldEntitiesLoading || narrativeDocumentsLoading" class="catalog-empty">
+          正在读取文档
+        </div>
+        <div
+          v-else-if="isBasicSettingsScope && narrativeTreeRows.length === 0"
+          class="catalog-empty"
+        >
+          暂无基础设定，点击上方 + 新建
+        </div>
+        <div v-else-if="isBasicSettingsScope" class="catalog-tree basic-settings-tree">
+          <div
+            v-for="row in narrativeTreeRows"
+            :key="row.id"
+            class="catalog-tree-row"
+            :class="{
+              active: row.id === activeDocumentId,
+              dragging: row.id === draggingDocumentId,
+              'drop-before': dropTarget?.documentId === row.id && dropTarget.position === 'before',
+              'drop-after': dropTarget?.documentId === row.id && dropTarget.position === 'after',
+              'drop-inside': dropTarget?.documentId === row.id && dropTarget.position === 'inside'
+            }"
+            :style="{ '--tree-depth': row.depth }"
+            draggable="true"
+            @dragstart="handleNarrativeDragStart(row.id, $event)"
+            @dragover.prevent="handleNarrativeDragOver(row.id, $event)"
+            @dragleave="handleNarrativeDragLeave(row.id)"
+            @drop.prevent="handleNarrativeDrop"
+            @dragend="clearNarrativeDragState"
+          >
+            <button
+              type="button"
+              class="catalog-tree-item"
+              @click="selectNarrativeDocument(row.id)"
+            >
+              <span class="catalog-tree-caret" aria-hidden="true">{{
+                row.children.length ? '⌄' : ''
+              }}</span>
+              <span class="catalog-tree-title">{{ row.title }}</span>
+            </button>
+            <button
+              type="button"
+              class="catalog-row-action"
+              aria-label="新建子文件"
+              title="新建子文件"
+              @click.stop="createNarrativeDocument(row.id)"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              class="catalog-row-action danger"
+              aria-label="删除文件"
+              title="删除文件"
+              @click.stop="openNarrativeDeleteConfirm(row.id)"
+            >
+              ×
+            </button>
+          </div>
+        </div>
         <div v-else-if="catalogEntities.length === 0" class="catalog-empty">当前分类暂无实体</div>
         <div v-else class="catalog-tree entity-catalog-tree">
           <template v-for="entity in catalogEntities" :key="entity.id">
@@ -227,7 +290,7 @@
       </div>
 
       <main
-        v-if="entityDetail && activeDocument"
+        v-if="activeDocument"
         class="editor-workspace"
         :class="{ 'ai-panel-open': showNarrativeAiPanel }"
       >
@@ -295,9 +358,9 @@
         </aside>
       </main>
 
-      <main v-else-if="entityDetail" class="editor-empty-state">
-        <strong>{{ entityDetail.entity.name }}</strong>
-        <span>这个实体还没有文档</span>
+      <main v-else-if="canCreateNarrativeDocument" class="editor-empty-state">
+        <strong>{{ currentDocumentOwnerLabel }}</strong>
+        <span>{{ isBasicSettingsScope ? '这个世界还没有基础设定' : '这个实体还没有文档' }}</span>
         <button type="button" @click="createNarrativeDocument()">新建文档</button>
       </main>
 
@@ -333,6 +396,7 @@ import type {
 import {
   WORLD_ENTITY_DOCUMENT_OWNER_TYPES,
   isWorldEntityDocumentOwnerType,
+  type WorldEntityDocumentOwnerRef,
   type WorldEntityDocumentOwnerType,
   type WorldEntityDocumentPayload
 } from '@share/cache/worldbuilding/worldEntityDocument'
@@ -363,6 +427,7 @@ type NarrativeTreeNode = WorldEntityDocumentPayload & {
 }
 
 type NarrativeDropPosition = 'before' | 'after' | 'inside'
+type DocumentCatalogScope = WorldEntityDocumentOwnerType | 'all' | 'basic_settings'
 
 const NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY =
   'worldedit.worldEntityDocuments.sidebarWidthRatio.v1'
@@ -389,7 +454,7 @@ const savingNarrative = ref(false)
 const narrativeSaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const narrativeDocumentsLoading = ref(false)
 const worldEntitiesLoading = ref(false)
-const selectedEntityType = ref<WorldEntityDocumentOwnerType | 'all'>('all')
+const selectedEntityType = ref<DocumentCatalogScope>('all')
 const entitySearchQuery = ref('')
 const expandedEntityId = ref('')
 const narrativeTitleFocused = ref(false)
@@ -413,6 +478,7 @@ const worldId = computed(() => String(route.params.worldId || ''))
 const entityId = computed(() => String(route.params.entityId || ''))
 const titleBarWorldName = computed(() => worldDetail.value?.name?.trim() || '世界文档库')
 const titleBarEntityContext = computed(() => {
+  if (isBasicSettingsScope.value) return '基础设定'
   const entity = entityDetail.value?.entity
   return entity ? `${getEntityTypeLabel(entity.type)} / ${entity.name}` : '文本'
 })
@@ -421,8 +487,9 @@ const narrativeSidebarStyle = computed(() => ({
   '--narrative-ai-panel-width': `${narrativeAiPanelWidth.value}px`
 }))
 
-const entityTypeOptions: Array<{ value: WorldEntityDocumentOwnerType | 'all'; label: string }> = [
+const entityTypeOptions: Array<{ value: DocumentCatalogScope; label: string }> = [
   { value: 'all', label: '全部文本' },
+  { value: 'basic_settings', label: '基础设定' },
   { value: 'character', label: '人物' },
   { value: 'race', label: '种族' },
   { value: 'faction', label: '势力' },
@@ -438,6 +505,8 @@ const entityTypeOrder = new Map<WorldEntityType, number>(
 
 const getEntityTypeLabel = (type: WorldEntityType): string =>
   entityTypeOptions.find((option) => option.value === type)?.label || type
+
+const isBasicSettingsScope = computed(() => selectedEntityType.value === 'basic_settings')
 
 const catalogEntities = computed(() => {
   const query = entitySearchQuery.value.trim().toLocaleLowerCase()
@@ -464,6 +533,9 @@ const documentPlaceholderByType: Record<WorldEntityDocumentOwnerType, string> = 
 }
 
 const documentPlaceholder = computed(() => {
+  if (isBasicSettingsScope.value) {
+    return '写下世界的力量层级、现实贴近程度、普遍规律与基础约束。'
+  }
   const entityType = entityDetail.value?.entity.type
   return entityType && isWorldEntityDocumentOwnerType(entityType)
     ? documentPlaceholderByType[entityType]
@@ -471,6 +543,23 @@ const documentPlaceholder = computed(() => {
 })
 const activeDocument = computed(
   () => narrativeDocuments.value.find((document) => document.id === activeDocumentId.value) ?? null
+)
+const activeDocumentOwner = computed<WorldEntityDocumentOwnerRef | null>(() => {
+  if (!worldId.value) return null
+  if (isBasicSettingsScope.value) {
+    return { kind: 'world', worldId: worldId.value }
+  }
+  const entity = entityDetail.value?.entity
+  return entity
+    ? { kind: 'entity', worldId: worldId.value, entityId: entity.id }
+    : null
+})
+
+const canCreateNarrativeDocument = computed(() => Boolean(activeDocumentOwner.value))
+const currentDocumentOwnerLabel = computed(() =>
+  isBasicSettingsScope.value
+    ? '基础设定'
+    : entityDetail.value?.entity.name || '世界文档'
 )
 const narrativeTree = computed<NarrativeTreeNode[]>(() => {
   const byParent = new Map<string, WorldEntityDocumentPayload[]>()
@@ -569,7 +658,7 @@ const toolbarGroups = [
   ]
 ] as const
 
-const canSaveNarrative = computed(() => Boolean(entityDetail.value && activeDocument.value))
+const canSaveNarrative = computed(() => Boolean(activeDocument.value))
 
 const pendingDeleteDocument = computed(() =>
   pendingDeleteDocumentId.value ? getNarrativeDocument(pendingDeleteDocumentId.value) : null
@@ -727,7 +816,13 @@ useAppTitleBar(
 
 const narrativeAutosaveSignature = computed(() =>
   JSON.stringify({
-    entityId: entityDetail.value?.entity.id || '',
+    owner: activeDocument.value
+      ? {
+          kind: activeDocument.value.ownerKind,
+          worldId: activeDocument.value.worldId,
+          entityId: activeDocument.value.ownerEntityId
+        }
+      : activeDocumentOwner.value,
     documentId: activeDocumentId.value,
     title: activeDocumentTitle.value,
     description: characterDescriptionInput.value,
@@ -933,17 +1028,18 @@ const handleNarrativeDrop = async (): Promise<void> => {
 }
 
 const ensureInitialNarrativeDocument = async (): Promise<WorldEntityDocumentPayload | null> => {
-  if (!entityDetail.value) return null
+  const owner = activeDocumentOwner.value
+  if (!owner) return null
 
   narrativeDocumentsLoading.value = true
   try {
-    let documents = await worldbuildingClientService.listWorldEntityDocuments(entityDetail.value.entity.id)
+    let documents = await worldbuildingClientService.listWorldEntityDocuments(owner)
 
     const legacyNarrativeHtml =
-      entityDetail.value.entity.type === 'character' ? getLegacyNarrativeHtml() : ''
+      entityDetail.value?.entity.type === 'character' ? getLegacyNarrativeHtml() : ''
     if (documents.length === 0 && legacyNarrativeHtml.trim()) {
       const created = await worldbuildingClientService.createWorldEntityDocument({
-        ownerEntityId: entityDetail.value.entity.id,
+        owner,
         title: '新建文件',
         contentHtml: legacyNarrativeHtml
       })
@@ -954,6 +1050,33 @@ const ensureInitialNarrativeDocument = async (): Promise<WorldEntityDocumentPayl
     return documents[0] ?? null
   } finally {
     narrativeDocumentsLoading.value = false
+  }
+}
+
+const loadBasicSettings = async (): Promise<void> => {
+  if (!worldId.value) return
+  clearNarrativeAutosave()
+  await saveNarrative(true, { fallbackBlankTitle: true })
+  syncingFromDetail = true
+  narrativeDocumentsLoading.value = true
+  try {
+    entityDetail.value = null
+    expandedEntityId.value = ''
+    characterEditorAppearance.value = DEFAULT_WORLD_RICH_TEXT_APPEARANCE
+    const documents = await worldbuildingClientService.listWorldEntityDocuments({
+      kind: 'world',
+      worldId: worldId.value
+    })
+    narrativeDocuments.value = documents
+    syncNarrativeFromDocument(documents[0] ?? null)
+    await router.replace({
+      name: 'WorldEntityDocumentEditor',
+      params: { worldId: worldId.value },
+      query: { scope: 'basic_settings' }
+    })
+  } finally {
+    narrativeDocumentsLoading.value = false
+    syncingFromDetail = false
   }
 }
 
@@ -993,6 +1116,12 @@ const loadDocumentWorkspace = async (): Promise<void> => {
     worldDetail.value = worlds.find((world) => world.id === worldId.value) ?? null
     worldEntities.value = entities
 
+    if (route.query.scope === 'basic_settings' || !entityId.value) {
+      selectedEntityType.value = 'basic_settings'
+      await loadBasicSettings()
+      return
+    }
+
     const documentEntities = entities.filter((entity) =>
       isWorldEntityDocumentOwnerType(entity.type)
     )
@@ -1013,6 +1142,22 @@ const loadDocumentWorkspace = async (): Promise<void> => {
   }
 }
 
+const handleDocumentScopeChange = async (): Promise<void> => {
+  if (isBasicSettingsScope.value) {
+    await loadBasicSettings()
+    return
+  }
+
+  const nextEntity = catalogEntities.value[0] ?? null
+  if (nextEntity) {
+    await activateCatalogEntity(nextEntity)
+    return
+  }
+  entityDetail.value = null
+  narrativeDocuments.value = []
+  syncNarrativeFromDocument(null)
+}
+
 const activateCatalogEntity = async (entity: WorldEntityPayload): Promise<void> => {
   if (entity.id === entityDetail.value?.entity.id) {
     expandedEntityId.value = entity.id
@@ -1026,7 +1171,8 @@ const activateCatalogEntity = async (entity: WorldEntityPayload): Promise<void> 
   expandedEntityId.value = entity.id
   await router.replace({
     name: 'WorldEntityDocumentEditor',
-    params: { worldId: worldId.value, entityId: entity.id }
+    params: { worldId: worldId.value, entityId: entity.id },
+    query: {}
   })
   await loadEntityDetail(entity.id)
 }
@@ -1068,11 +1214,12 @@ const selectNarrativeDocument = async (documentId: string): Promise<void> => {
 }
 
 const createNarrativeDocument = async (parentDocumentId: string | null = null): Promise<void> => {
-  if (!entityDetail.value) return
+  const owner = activeDocumentOwner.value
+  if (!owner) return
   clearNarrativeAutosave()
   await saveNarrative(true, { fallbackBlankTitle: true })
   const created = await worldbuildingClientService.createWorldEntityDocument({
-    ownerEntityId: entityDetail.value.entity.id,
+    owner,
     parentDocumentId,
     title: '新建文件',
     contentHtml: ''
@@ -1140,7 +1287,7 @@ const saveNarrative = async (
   force = false,
   options: { fallbackBlankTitle?: boolean } = {}
 ): Promise<void> => {
-  if (!canSaveNarrative.value || !entityDetail.value || !activeDocument.value) return
+  if (!canSaveNarrative.value || !activeDocument.value) return
   if (!force && narrativeAutosaveSignature.value === lastSavedNarrativeSignature) return
   if (savingNarrative.value) {
     narrativeSaveQueued = true
@@ -1185,7 +1332,7 @@ const clearNarrativeAutosave = (): void => {
 }
 
 const scheduleNarrativeAutosave = (delay = 700): void => {
-  if (syncingFromDetail || !entityDetail.value) return
+  if (syncingFromDetail || !activeDocument.value) return
   clearNarrativeAutosave()
   if (narrativeTitleFocused.value) return
   if (!canSaveNarrative.value || narrativeAutosaveSignature.value === lastSavedNarrativeSignature) return

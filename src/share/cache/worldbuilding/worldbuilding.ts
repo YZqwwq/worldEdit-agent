@@ -14,6 +14,23 @@ export type WorldEntityType =
   | 'rule'
   | 'custom'
 
+export const WORLD_INSTANCE_ENTITY_TYPES = [
+  'character',
+  'race',
+  'faction',
+  'nation',
+  'city',
+  'region',
+  'map'
+] as const satisfies readonly WorldEntityType[]
+
+export type WorldInstanceEntityType = (typeof WORLD_INSTANCE_ENTITY_TYPES)[number]
+
+export const isWorldInstanceEntityType = (
+  value: WorldEntityType
+): value is WorldInstanceEntityType =>
+  (WORLD_INSTANCE_ENTITY_TYPES as readonly WorldEntityType[]).includes(value)
+
 export type RelationDirection = 'directed' | 'undirected'
 
 export type WorldbuildingFieldKind =

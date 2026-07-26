@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { IsNull } from 'typeorm'
 import { AppDataSource } from '../../database'
+import { WorldRecord } from '../../../share/entity/database/WorldRecord'
 import { WorldEntityRecord } from '../../../share/entity/database/WorldEntityRecord'
 import { WorldEntityDocumentRecord } from '../../../share/entity/database/WorldEntityDocumentRecord'
 import type {
@@ -7,6 +9,7 @@ import type {
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
   UpdateWorldEntityDocumentInput,
+  WorldEntityDocumentOwnerRef,
   WorldEntityDocumentPayload
 } from '@share/cache/worldbuilding/worldEntityDocument'
 import { isWorldEntityDocumentOwnerType } from '@share/cache/worldbuilding/worldEntityDocument'
@@ -24,6 +27,8 @@ const createSortKey = (): string => `${Date.now().toString(36)}-${randomUUID().s
 
 const toPayload = (record: WorldEntityDocumentRecord): WorldEntityDocumentPayload => ({
   id: record.id,
+  ownerKind: record.ownerKind,
+  worldId: record.worldId,
   ownerEntityId: record.ownerEntityId,
   parentDocumentId: record.parentDocumentId ?? null,
   title: record.title || DEFAULT_DOCUMENT_TITLE,
@@ -36,6 +41,10 @@ const toPayload = (record: WorldEntityDocumentRecord): WorldEntityDocumentPayloa
 })
 
 class WorldEntityDocumentService {
+  private get worldRepo() {
+    return AppDataSource.getRepository(WorldRecord)
+  }
+
   private get entityRepo() {
     return AppDataSource.getRepository(WorldEntityRecord)
   }
@@ -44,20 +53,40 @@ class WorldEntityDocumentService {
     return AppDataSource.getRepository(WorldEntityDocumentRecord)
   }
 
-  private async assertOwnerEntity(ownerEntityId: string): Promise<WorldEntityRecord> {
-    const normalizedId = String(ownerEntityId || '').trim()
-    if (!normalizedId) throw new Error('ownerEntityId is required')
+  private async normalizeOwner(owner: WorldEntityDocumentOwnerRef): Promise<{
+    ownerKind: 'world' | 'entity'
+    worldId: string
+    ownerEntityId: string | null
+  }> {
+    const worldId = String(owner?.worldId || '').trim()
+    if (!worldId) throw new Error('worldId is required')
 
-    const entity = await this.entityRepo.findOneBy({ id: normalizedId })
-    if (!entity) throw new Error(`World entity not found: ${normalizedId}`)
+    const world = await this.worldRepo.findOneBy({ id: worldId })
+    if (!world) throw new Error(`World not found: ${worldId}`)
+
+    if (owner.kind === 'world') {
+      return { ownerKind: 'world', worldId, ownerEntityId: null }
+    }
+
+    const entityId = String(owner.entityId || '').trim()
+    if (!entityId) throw new Error('entityId is required')
+    const entity = await this.entityRepo.findOneBy({ id: entityId })
+    if (!entity) throw new Error(`World entity not found: ${entityId}`)
+    if (entity.worldId !== worldId) {
+      throw new Error('Document owner entity must belong to the selected world')
+    }
     if (!isWorldEntityDocumentOwnerType(entity.type)) {
       throw new Error(`World entity type "${entity.type}" cannot own documents`)
     }
-    return entity
+    return { ownerKind: 'entity', worldId, ownerEntityId: entity.id }
   }
 
   private async assertParentDocument(
-    ownerEntityId: string,
+    owner: {
+      ownerKind: 'world' | 'entity'
+      worldId: string
+      ownerEntityId: string | null
+    },
     parentDocumentId: string | null | undefined
   ): Promise<string | null> {
     const normalizedParentId = String(parentDocumentId || '').trim()
@@ -65,8 +94,12 @@ class WorldEntityDocumentService {
 
     const parent = await this.documentRepo.findOneBy({ id: normalizedParentId })
     if (!parent) throw new Error(`Parent document not found: ${normalizedParentId}`)
-    if (parent.ownerEntityId !== ownerEntityId) {
-      throw new Error('Parent document must belong to the same world entity')
+    if (
+      parent.ownerKind !== owner.ownerKind ||
+      parent.worldId !== owner.worldId ||
+      parent.ownerEntityId !== owner.ownerEntityId
+    ) {
+      throw new Error('Parent document must belong to the same document owner')
     }
     return parent.id
   }
@@ -89,10 +122,14 @@ class WorldEntityDocumentService {
     return descendants
   }
 
-  async listDocuments(ownerEntityId: string): Promise<WorldEntityDocumentPayload[]> {
-    const owner = await this.assertOwnerEntity(ownerEntityId)
+  async listDocuments(ownerRef: WorldEntityDocumentOwnerRef): Promise<WorldEntityDocumentPayload[]> {
+    const owner = await this.normalizeOwner(ownerRef)
     const documents = await this.documentRepo.find({
-      where: { ownerEntityId: owner.id },
+      where: {
+        ownerKind: owner.ownerKind,
+        worldId: owner.worldId,
+        ownerEntityId: owner.ownerEntityId ?? IsNull()
+      },
       order: { parentDocumentId: 'ASC', sortKey: 'ASC', createdAt: 'ASC' }
     })
     return documents.map(toPayload)
@@ -106,11 +143,11 @@ class WorldEntityDocumentService {
   }
 
   async createDocument(input: CreateWorldEntityDocumentInput): Promise<WorldEntityDocumentPayload> {
-    const owner = await this.assertOwnerEntity(input.ownerEntityId)
-    const parentDocumentId = await this.assertParentDocument(owner.id, input.parentDocumentId)
+    const owner = await this.normalizeOwner(input.owner)
+    const parentDocumentId = await this.assertParentDocument(owner, input.parentDocumentId)
     const record = this.documentRepo.create({
       id: randomUUID(),
-      ownerEntityId: owner.id,
+      ...owner,
       parentDocumentId,
       title: normalizeDocumentTitle(input.title),
       contentHtml: normalizeContentHtml(input.contentHtml),
@@ -144,7 +181,11 @@ class WorldEntityDocumentService {
     if (!document) throw new Error(`Document not found: ${normalizedDocumentId}`)
 
     const nextParentId = await this.assertParentDocument(
-      document.ownerEntityId,
+      {
+        ownerKind: document.ownerKind,
+        worldId: document.worldId,
+        ownerEntityId: document.ownerEntityId
+      },
       input.parentDocumentId
     )
     if (nextParentId === document.id) throw new Error('Document cannot be moved under itself')
