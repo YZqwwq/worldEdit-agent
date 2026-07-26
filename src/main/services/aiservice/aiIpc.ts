@@ -31,6 +31,7 @@ import type {
 } from '../../../share/cache/render/aiagent/chatAvatarProfile'
 import { worldbuildingService } from '../worldbuilding/worldbuildingService'
 import { worldEntityDocumentService } from '../worldbuilding/worldEntityDocumentService'
+import { worldEntityDocumentChangePublisher } from '../worldbuilding/worldEntityDocumentChangePublisher'
 import { characterImpressionService } from '../worldbuilding/characterImpressionService'
 import type {
   CreateWorldEntityInput,
@@ -469,29 +470,64 @@ export function initializeAIEndpoints(): void {
 
   ipcMain.handle(
     'worldEntityDocument:create',
-    async (_event, input: CreateWorldEntityDocumentInput) => {
-      return worldEntityDocumentService.createDocument(input)
+    async (event, input: CreateWorldEntityDocumentInput) => {
+      const document = await worldEntityDocumentService.createDocument(input)
+      worldEntityDocumentChangePublisher.publish(
+        {
+          changeType: 'created',
+          documentId: document.id,
+          revision: document.revision
+        },
+        { excludeWebContentsId: event.sender.id }
+      )
+      return document
     }
   )
 
   ipcMain.handle(
     'worldEntityDocument:update',
-    async (_event, input: UpdateWorldEntityDocumentInput) => {
-      return worldEntityDocumentService.updateDocument(input)
+    async (event, input: UpdateWorldEntityDocumentInput) => {
+      const document = await worldEntityDocumentService.updateDocument(input)
+      worldEntityDocumentChangePublisher.publish(
+        {
+          changeType: 'updated',
+          documentId: document.id,
+          revision: document.revision
+        },
+        { excludeWebContentsId: event.sender.id }
+      )
+      return document
     }
   )
 
   ipcMain.handle(
     'worldEntityDocument:move',
-    async (_event, input: MoveWorldEntityDocumentInput) => {
-      return worldEntityDocumentService.moveDocument(input)
+    async (event, input: MoveWorldEntityDocumentInput) => {
+      const document = await worldEntityDocumentService.moveDocument(input)
+      worldEntityDocumentChangePublisher.publish(
+        {
+          changeType: 'moved',
+          documentId: document.id,
+          revision: document.revision
+        },
+        { excludeWebContentsId: event.sender.id }
+      )
+      return document
     }
   )
 
   ipcMain.handle(
     'worldEntityDocument:delete',
-    async (_event, input: DeleteWorldEntityDocumentInput) => {
-      return worldEntityDocumentService.deleteDocument(input)
+    async (event, input: DeleteWorldEntityDocumentInput) => {
+      const deletedDocumentIds = await worldEntityDocumentService.deleteDocument(input)
+      worldEntityDocumentChangePublisher.publish(
+        {
+          changeType: 'deleted',
+          documentId: input.documentId,
+          deletedDocumentIds
+        },
+        { excludeWebContentsId: event.sender.id }
+      )
     }
   )
 

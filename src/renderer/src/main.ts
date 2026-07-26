@@ -13,6 +13,7 @@ import { config as mdConfig } from 'md-editor-v3'
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
+import { agentWorkspaceContextService } from './services/agentWorkspaceContextService'
 
 const app = createApp(App)
 
@@ -26,5 +27,8 @@ mdConfig({
   }
 })
 
+router.afterEach((to) => {
+  agentWorkspaceContextService.setFromRoute(to)
+})
 app.use(router)
 app.mount('#app')

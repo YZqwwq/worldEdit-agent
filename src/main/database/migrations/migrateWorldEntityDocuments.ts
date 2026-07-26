@@ -81,10 +81,22 @@ const assertTargetSchema = (database: Database.Database): void => {
     !columns.has('ownerKind') ||
     !columns.has('worldId') ||
     !columns.has('ownerEntityId') ||
+    !columns.has('revision') ||
     columns.has('characterEntityId')
   ) {
     throw new Error('World entity document table exists with an unexpected owner column')
   }
+}
+
+const ensureDocumentRevisionSchema = (database: Database.Database): void => {
+  const columns = new Set(getTableColumns(database, TARGET_TABLE_NAME))
+  if (columns.has('revision')) return
+  database
+    .prepare(
+      `ALTER TABLE ${quoteIdentifier(TARGET_TABLE_NAME)}
+       ADD COLUMN revision integer NOT NULL DEFAULT 1`
+    )
+    .run()
 }
 
 const upgradeDocumentOwnerSchema = (
@@ -135,6 +147,7 @@ const upgradeDocumentOwnerSchema = (
           contentHtml text NOT NULL DEFAULT '',
           contentFormat text NOT NULL DEFAULT 'html',
           sortKey text NOT NULL DEFAULT '',
+          revision integer NOT NULL DEFAULT 1,
           schemaVersion integer NOT NULL DEFAULT 1,
           createdAt datetime NOT NULL DEFAULT (datetime('now')),
           updatedAt datetime NOT NULL DEFAULT (datetime('now'))
@@ -145,11 +158,11 @@ const upgradeDocumentOwnerSchema = (
       .prepare(
         `INSERT INTO ${quoteIdentifier(UPGRADE_TABLE_NAME)} (
           id, ownerKind, worldId, ownerEntityId, parentDocumentId, title,
-          contentHtml, contentFormat, sortKey, schemaVersion, createdAt, updatedAt
+          contentHtml, contentFormat, sortKey, revision, schemaVersion, createdAt, updatedAt
         )
         SELECT
           d.id, 'entity', e.worldId, d.ownerEntityId, d.parentDocumentId, d.title,
-          d.contentHtml, d.contentFormat, d.sortKey, d.schemaVersion, d.createdAt, d.updatedAt
+          d.contentHtml, d.contentFormat, d.sortKey, d.revision, d.schemaVersion, d.createdAt, d.updatedAt
         FROM ${quoteIdentifier(TARGET_TABLE_NAME)} d
         INNER JOIN ${quoteIdentifier('world_entity_record')} e ON e.id = d.ownerEntityId`
       )
@@ -186,7 +199,10 @@ export const migrateWorldEntityDocuments = (databasePath: string): void => {
     const targetExists = tableExists(database, TARGET_TABLE_NAME)
 
     if (!legacyExists) {
-      if (targetExists) upgradeDocumentOwnerSchema(database, backupPath)
+      if (targetExists) {
+        ensureDocumentRevisionSchema(database)
+        upgradeDocumentOwnerSchema(database, backupPath)
+      }
       if (existsSync(backupPath)) unlinkSync(backupPath)
       return
     }
@@ -222,6 +238,7 @@ export const migrateWorldEntityDocuments = (databasePath: string): void => {
     console.log(
       `World entity document migration completed: ${legacyRows.length} rows migrated.`
     )
+    ensureDocumentRevisionSchema(database)
     upgradeDocumentOwnerSchema(database, backupPath)
   } finally {
     database.close()

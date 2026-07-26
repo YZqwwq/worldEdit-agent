@@ -8,6 +8,7 @@ import type {
 import type { ExpressionPromptProfileState } from '@share/cache/AItype/states/expressionPromptProfile'
 import type { WorldEntityType } from '@share/cache/worldbuilding/worldbuilding'
 import type { AgentToolContextRetention } from '../../ai-utils/core/agentTool'
+import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
 
 export type ToolContextSourceRef = {
   type: 'message' | 'url' | 'entity' | 'task' | 'tool' | 'unknown'
@@ -134,6 +135,10 @@ export const MessagesState = Annotation.Root({
     default: () => undefined
   }),
   instantPerception: Annotation<InstantPerceptionSnapshot | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  workspaceContext: Annotation<AgentWorkspaceContext | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),

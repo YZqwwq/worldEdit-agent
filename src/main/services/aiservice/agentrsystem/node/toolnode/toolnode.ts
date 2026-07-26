@@ -250,7 +250,12 @@ const getToolStageLabel = (
       ? (
           tool as {
             agentMetadata?: {
-              uiStage?: { label?: string; doneLabel?: string; errorLabel?: string }
+              uiStage?: {
+                label?: string
+                runningLabel?: string
+                doneLabel?: string
+                errorLabel?: string
+              }
             }
           }
         ).agentMetadata
@@ -259,7 +264,7 @@ const getToolStageLabel = (
 
   if (status === 'done') return uiStage?.doneLabel || `已完成 ${toolName}`
   if (status === 'error') return uiStage?.errorLabel || `${toolName} 执行失败`
-  return uiStage?.label || `正在执行 ${toolName}`
+  return uiStage?.runningLabel || uiStage?.label || `正在执行 ${toolName}`
 }
 
 export async function toolNode(
@@ -314,7 +319,7 @@ export async function toolNode(
     })
     emitAgentStage({
       stageId,
-      label: `正在执行 ${toolCall.name}`,
+      label: getToolStageLabel(tools[toolCall.name], toolCall.name, 'start'),
       status: 'start'
     })
 

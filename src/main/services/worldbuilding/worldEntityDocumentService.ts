@@ -25,6 +25,21 @@ const normalizeDocumentTitle = (value: unknown): string => {
 const normalizeContentHtml = (value: unknown): string => String(value ?? '').slice(0, 40000)
 const createSortKey = (): string => `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
 
+export class WorldEntityDocumentRevisionConflictError extends Error {
+  readonly code = 'DOCUMENT_REVISION_CONFLICT'
+
+  constructor(
+    readonly documentId: string,
+    readonly expectedRevision: number,
+    readonly currentRevision: number
+  ) {
+    super(
+      `Document revision conflict: expected ${expectedRevision}, current ${currentRevision}`
+    )
+    this.name = 'WorldEntityDocumentRevisionConflictError'
+  }
+}
+
 const toPayload = (record: WorldEntityDocumentRecord): WorldEntityDocumentPayload => ({
   id: record.id,
   ownerKind: record.ownerKind,
@@ -35,6 +50,7 @@ const toPayload = (record: WorldEntityDocumentRecord): WorldEntityDocumentPayloa
   contentHtml: record.contentHtml || '',
   contentFormat: 'html',
   sortKey: record.sortKey || '',
+  revision: record.revision ?? 1,
   schemaVersion: record.schemaVersion ?? DEFAULT_SCHEMA_VERSION,
   createdAt: record.createdAt?.toISOString(),
   updatedAt: record.updatedAt?.toISOString()
@@ -153,6 +169,7 @@ class WorldEntityDocumentService {
       contentHtml: normalizeContentHtml(input.contentHtml),
       contentFormat: 'html',
       sortKey: String(input.sortKey || '').trim() || createSortKey(),
+      revision: 1,
       schemaVersion: DEFAULT_SCHEMA_VERSION
     })
     return toPayload(await this.documentRepo.save(record))
@@ -163,15 +180,46 @@ class WorldEntityDocumentService {
     if (!normalizedDocumentId) throw new Error('documentId is required')
     const document = await this.documentRepo.findOneBy({ id: normalizedDocumentId })
     if (!document) throw new Error(`Document not found: ${normalizedDocumentId}`)
+    const expectedRevision = Number(input.expectedRevision)
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+      throw new Error('expectedRevision must be a positive integer')
+    }
+    if (document.revision !== expectedRevision) {
+      throw new WorldEntityDocumentRevisionConflictError(
+        document.id,
+        expectedRevision,
+        document.revision
+      )
+    }
 
-    if (input.title !== undefined) document.title = normalizeDocumentTitle(input.title)
-    if (input.contentHtml !== undefined)
-      document.contentHtml = normalizeContentHtml(input.contentHtml)
     if (input.contentFormat !== undefined && input.contentFormat !== 'html') {
       throw new Error(`Unsupported document content format: ${input.contentFormat}`)
     }
-    document.contentFormat = 'html'
-    return toPayload(await this.documentRepo.save(document))
+    const updateResult = await this.documentRepo.update(
+      { id: document.id, revision: expectedRevision },
+      {
+        title:
+          input.title !== undefined
+            ? normalizeDocumentTitle(input.title)
+            : document.title,
+        contentHtml:
+          input.contentHtml !== undefined
+            ? normalizeContentHtml(input.contentHtml)
+            : document.contentHtml,
+        contentFormat: 'html',
+        revision: expectedRevision + 1
+      }
+    )
+    if (updateResult.affected !== 1) {
+      const current = await this.documentRepo.findOneBy({ id: document.id })
+      throw new WorldEntityDocumentRevisionConflictError(
+        document.id,
+        expectedRevision,
+        current?.revision ?? expectedRevision
+      )
+    }
+    const updated = await this.documentRepo.findOneByOrFail({ id: document.id })
+    return toPayload(updated)
   }
 
   async moveDocument(input: MoveWorldEntityDocumentInput): Promise<WorldEntityDocumentPayload> {
@@ -179,6 +227,17 @@ class WorldEntityDocumentService {
     if (!normalizedDocumentId) throw new Error('documentId is required')
     const document = await this.documentRepo.findOneBy({ id: normalizedDocumentId })
     if (!document) throw new Error(`Document not found: ${normalizedDocumentId}`)
+    const expectedRevision = Number(input.expectedRevision)
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+      throw new Error('expectedRevision must be a positive integer')
+    }
+    if (document.revision !== expectedRevision) {
+      throw new WorldEntityDocumentRevisionConflictError(
+        document.id,
+        expectedRevision,
+        document.revision
+      )
+    }
 
     const nextParentId = await this.assertParentDocument(
       {
@@ -196,12 +255,26 @@ class WorldEntityDocumentService {
       }
     }
 
-    document.parentDocumentId = nextParentId
-    document.sortKey = String(input.sortKey || '').trim() || document.sortKey || createSortKey()
-    return toPayload(await this.documentRepo.save(document))
+    const updateResult = await this.documentRepo.update(
+      { id: document.id, revision: expectedRevision },
+      {
+        parentDocumentId: nextParentId,
+        sortKey: String(input.sortKey || '').trim() || document.sortKey || createSortKey(),
+        revision: expectedRevision + 1
+      }
+    )
+    if (updateResult.affected !== 1) {
+      const current = await this.documentRepo.findOneBy({ id: document.id })
+      throw new WorldEntityDocumentRevisionConflictError(
+        document.id,
+        expectedRevision,
+        current?.revision ?? expectedRevision
+      )
+    }
+    return toPayload(await this.documentRepo.findOneByOrFail({ id: document.id }))
   }
 
-  async deleteDocument(input: DeleteWorldEntityDocumentInput): Promise<void> {
+  async deleteDocument(input: DeleteWorldEntityDocumentInput): Promise<string[]> {
     const normalizedDocumentId = String(input.documentId || '').trim()
     if (!normalizedDocumentId) throw new Error('documentId is required')
     const document = await this.documentRepo.findOneBy({ id: normalizedDocumentId })
@@ -217,6 +290,7 @@ class WorldEntityDocumentService {
       .delete()
       .where('id IN (:...idsToDelete)', { idsToDelete })
       .execute()
+    return idsToDelete
   }
 }
 

@@ -170,6 +170,37 @@ const buildInstantPerceptionPrompt = (state: typeof MessagesState.State): string
   return lines.join('\n')
 }
 
+const buildWorkspaceContextPrompt = (state: typeof MessagesState.State): string => {
+  const context = state.workspaceContext
+  if (!context) return ''
+
+  const pageLabels: Record<typeof context.pageKind, string> = {
+    home: '首页',
+    world: '世界观实例页',
+    entity: '世界观实体页',
+    document: '文档编辑页',
+    chat: 'AI 对话页',
+    other: '其他页面'
+  }
+  const lines = [
+    '当前应用工作区：',
+    `页面：${pageLabels[context.pageKind]}（${context.routeName}）`,
+    context.world
+      ? `世界观：${context.world.name || '未命名'}（worldId=${context.world.id}）`
+      : '',
+    context.entity
+      ? `当前页面实体：${context.entity.type || '未知类型'} / ${context.entity.name || '未命名'}（entityId=${context.entity.id}）`
+      : '',
+    context.document
+      ? `当前文档：${context.document.title || '未命名'}（documentId=${context.document.id}${context.document.revision ? `，revision=${context.document.revision}` : ''}）`
+      : '',
+    `页面快照时间：${context.capturedAt}`,
+    '使用规则：这是用户发送本轮消息时正在查看的应用页面，是可靠的界面定位信息，但不等同于用户正在讨论的语义焦点。需要编辑“当前文档”时可使用这里的 documentId；若用户明确谈论其他对象，以用户消息和本轮世界观聚焦为准。'
+  ]
+
+  return lines.filter(Boolean).join('\n')
+}
+
 /**
  * ContextNode: 负责构建全局上下文，包括 Persona、Memory 等。
  * 它作为图的入口节点，确保 LLM 在处理用户输入前拥有完整的背景信息。
@@ -186,8 +217,16 @@ export async function contextNode(
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
   const currentTimeContext = formatCurrentContextTime()
   const currentUserMessageCreatedAt = getCurrentUserMessageCreatedAt(state)
+  const contextualToolsets =
+    state.workspaceContext?.pageKind === 'document'
+      ? ['world_document_editor']
+      : []
   const toolActivationState = await resolveMainAgentToolActivationState({
     ...state,
+    activeToolsets: [
+      ...(state.activeToolsets ?? []),
+      ...contextualToolsets
+    ],
     suppressedTools: []
   })
 
@@ -213,6 +252,11 @@ export async function contextNode(
         `当前用户消息时间：${getDetailTime(currentUserMessageCreatedAt)}。这是你“看到”本轮用户发来这条消息时的聊天时间戳；理解“刚刚/这条消息/用户现在说”时优先参考它。`
       )
     )
+  }
+
+  const workspaceContextPrompt = buildWorkspaceContextPrompt(state)
+  if (workspaceContextPrompt) {
+    messages.push(new SystemMessage(workspaceContextPrompt))
   }
 
   // 当前活跃任务
@@ -314,6 +358,7 @@ export async function contextNode(
   }
 
   if (state.taskLifecycle?.activeTask) injectedSections.push('activeTask')
+  if (workspaceContextPrompt) injectedSections.push('workspaceContext')
   if (toolUsagePrompt) injectedSections.push('toolUsage')
   if (actionPolicyPrompt) injectedSections.push('actionPolicy')
   if (instantPerceptionPrompt) injectedSections.push('instantPerception')
@@ -368,6 +413,7 @@ export async function contextNode(
 
   return {
     messages: messages,
+    activeToolsets: contextualToolsets,
     quickToolsets: toolActivationState.quickToolsets ?? [],
     quickTools: toolActivationState.quickTools ?? [],
     suppressedTools: []

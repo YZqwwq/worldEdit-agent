@@ -37,6 +37,7 @@ export interface WorldEntityDocumentPayload {
   contentHtml: string
   contentFormat: WorldEntityDocumentContentFormat
   sortKey: string
+  revision: number
   schemaVersion: number
   createdAt?: string
   updatedAt?: string
@@ -52,6 +53,7 @@ export interface CreateWorldEntityDocumentInput {
 
 export interface UpdateWorldEntityDocumentInput {
   documentId: string
+  expectedRevision: number
   title?: string
   contentHtml?: string
   contentFormat?: WorldEntityDocumentContentFormat
@@ -59,6 +61,7 @@ export interface UpdateWorldEntityDocumentInput {
 
 export interface MoveWorldEntityDocumentInput {
   documentId: string
+  expectedRevision: number
   parentDocumentId?: string | null
   sortKey?: string
 }
@@ -66,4 +69,11 @@ export interface MoveWorldEntityDocumentInput {
 export interface DeleteWorldEntityDocumentInput {
   documentId: string
   recursive?: boolean
+}
+
+export interface WorldEntityDocumentChangeEvent {
+  changeType: 'created' | 'updated' | 'moved' | 'deleted'
+  documentId: string
+  revision?: number
+  deletedDocumentIds?: string[]
 }

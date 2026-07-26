@@ -15,10 +15,15 @@ import {
   normalizeMainAgentMessageContent,
   type MainAgentMessageContentPart
 } from '@share/cache/AItype/states/mainAgentMessageContent'
+import {
+  normalizeAgentWorkspaceContext,
+  type AgentWorkspaceContext
+} from '@share/cache/AItype/states/agentWorkspaceContext'
 
 type PersistedUserPayload = {
   messageId: number
   content: MainAgentMessageContentPart[]
+  workspaceContext?: AgentWorkspaceContext
 }
 
 type PersistedTaskPayload = {
@@ -56,7 +61,8 @@ const toUserMessageEvent = (
   dedupeKey: row.dedupeKey || undefined,
   payload: {
     messageId: payload.messageId,
-    content: payload.content
+    content: payload.content,
+    workspaceContext: payload.workspaceContext
   }
 })
 
@@ -68,10 +74,12 @@ const normalizePersistedUserPayload = (
   }
 
   const content = normalizeMainAgentMessageContent(payloadRaw.content)
+  const workspaceContext = normalizeAgentWorkspaceContext(payloadRaw.workspaceContext)
   if (content.length > 0) {
     return {
       messageId: payloadRaw.messageId,
-      content
+      content,
+      workspaceContext
     }
   }
 
@@ -83,7 +91,8 @@ const normalizePersistedUserPayload = (
     messageId: payloadRaw.messageId,
     content: buildMainAgentMessageContent({
       text: payloadRaw.text
-    })
+    }),
+    workspaceContext
   }
 }
 

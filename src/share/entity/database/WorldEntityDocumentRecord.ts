@@ -36,6 +36,9 @@ export class WorldEntityDocumentRecord {
   sortKey!: string
 
   @Column({ type: 'integer', nullable: false, default: 1 })
+  revision!: number
+
+  @Column({ type: 'integer', nullable: false, default: 1 })
   schemaVersion!: number
 
   @CreateDateColumn()

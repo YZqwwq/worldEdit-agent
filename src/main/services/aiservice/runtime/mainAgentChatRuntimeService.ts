@@ -6,6 +6,7 @@ import type {
   MainAgentBackgroundPersonaStagePayload,
   TaskLifecycleState
 } from '@share/cache/AItype/states/taskLifecycleState'
+import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
 import { agent } from '../agentrsystem/agentReactSystem'
 import {
   attachMainAgentContentPartsMetadata,
@@ -29,6 +30,7 @@ class MainAgentChatRuntimeService {
     turnId: number,
     userMessageId: number,
     content: MainAgentMessageContentPart[],
+    workspaceContext?: AgentWorkspaceContext,
     onChunk?: (chunk: StreamChunk) => void,
     taskLifecycle?: TaskLifecycleState
   ): Promise<MainAgentChatRuntimeResult> {
@@ -59,7 +61,8 @@ class MainAgentChatRuntimeService {
                 )
               })
             ],
-            taskLifecycle
+            taskLifecycle,
+            workspaceContext
           },
           { version: 'v2', signal: controller.signal } as {
             version: 'v2'

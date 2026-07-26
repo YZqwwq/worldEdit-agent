@@ -86,12 +86,21 @@ class MainAgentEntryService {
       },
       controlUserMessage: (userEvent, runtimeOnChunk) =>
         mainAgentLifecycleControlService.controlUserMessage(userEvent, runtimeOnChunk),
-      runUserMessage: (eventId, turnId, userMessageId, content, onChunk, taskLifecycle) =>
+      runUserMessage: (
+        eventId,
+        turnId,
+        userMessageId,
+        content,
+        workspaceContext,
+        onChunk,
+        taskLifecycle
+      ) =>
         mainAgentChatRuntimeService.runUserMessage(
           eventId,
           turnId,
           userMessageId,
           content,
+          workspaceContext,
           onChunk,
           taskLifecycle
         ),

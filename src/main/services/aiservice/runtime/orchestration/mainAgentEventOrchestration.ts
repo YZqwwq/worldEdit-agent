@@ -29,6 +29,7 @@ export type MainAgentEventOrchestrationDependencies = {
     turnId: number,
     userMessageId: number,
     content: MainAgentUserMessageEvent['payload']['content'],
+    workspaceContext: MainAgentUserMessageEvent['payload']['workspaceContext'],
     onChunk?: (chunk: StreamChunk) => void,
     taskLifecycle?: TaskLifecycleState
   ) => Promise<{ fullText: string; interrupted: boolean }>
@@ -263,6 +264,7 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
         prepared.turnId,
         event.payload.messageId,
         event.payload.content,
+        event.payload.workspaceContext,
         runtime?.onChunk,
         prepared.taskLifecycle
       )

@@ -38,6 +38,15 @@ import { listWorldsTool } from '../tools/world/listWorlds'
 import { resolveWorldByNameTool } from '../tools/world/resolveWorldByName'
 import { searchEntitiesTool } from '../tools/world/searchEntities'
 import { upsertWorldEntityManualMentionTool } from '../tools/world/upsertWorldEntityManualMention'
+import {
+  createWorldDocumentTool,
+  deleteWorldDocumentTool,
+  listWorldDocumentsTool,
+  moveWorldDocumentTool,
+  readWorldDocumentTool,
+  renameWorldDocumentTool,
+  updateWorldDocumentTool
+} from '../tools/document/worldDocumentTools'
 
 export const mainAgentToolsets: ToolsetRegistryEntry[] = [
   {
@@ -86,6 +95,27 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     whenNotToUse: ['问题不涉及本地世界观数据库，或用户已经提供了完整内容。'],
     quickAccessEligible: true,
     quickAccessScope: 'tool'
+  },
+  {
+    id: 'world_document_editor',
+    title: '世界观文档编辑工具集',
+    summary:
+      '读取并编辑世界观基础设定或实体文档，支持目录、正文、创建、更新、重命名、移动和删除，并通过 revision 防止覆盖并发修改。',
+    tags: ['world', 'document', 'editor', 'write', '世界观', '文档', '文本编辑'],
+    activationHints: [
+      '用户要求读取或编辑当前文档时激活。',
+      '用户要求创建、重命名、移动或删除世界观文档时激活。'
+    ],
+    whenToUse: [
+      '需要基于当前文档正文回答或修改内容',
+      '需要维护世界观基础设定或实体下的文档树'
+    ],
+    whenNotToUse: [
+      '用户只是在闲聊或创作共想，尚未要求读取本地文档',
+      '目标是人物结构化资料组件而不是文档正文'
+    ],
+    quickAccessEligible: true,
+    quickAccessScope: 'toolset'
   },
   {
     id: 'world_focus_index_maintenance',
@@ -467,6 +497,57 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     enabled: true,
     quickAccessEligible: true
   },
+  ...[
+    {
+      tool: listWorldDocumentsTool,
+      access: 'read' as const,
+      summary: '读取世界观或实体的文档树目录。'
+    },
+    {
+      tool: readWorldDocumentTool,
+      access: 'read' as const,
+      summary: '读取指定文档的 HTML 正文和 revision。'
+    },
+    {
+      tool: createWorldDocumentTool,
+      access: 'write' as const,
+      summary: '创建世界级或实体级文档。'
+    },
+    {
+      tool: updateWorldDocumentTool,
+      access: 'write' as const,
+      summary: '按 revision 更新文档标题或完整正文。'
+    },
+    {
+      tool: renameWorldDocumentTool,
+      access: 'write' as const,
+      summary: '按 revision 重命名文档。'
+    },
+    {
+      tool: moveWorldDocumentTool,
+      access: 'write' as const,
+      summary: '按 revision 调整文档父级和顺序。'
+    },
+    {
+      tool: deleteWorldDocumentTool,
+      access: 'write' as const,
+      summary: '在高风险确认后永久删除文档或子树。'
+    }
+  ].map(({ tool, access, summary }) => ({
+    key: tool.name,
+    tool,
+    toolsetId: 'world_document_editor',
+    category: 'world_document',
+    capabilityLayer: 'domain' as const,
+    capabilityGroup: '世界观文档编辑',
+    capabilitySummary: summary,
+    audience: 'main_agent' as const,
+    access,
+    activationMode: 'manual' as const,
+    enabled: true,
+    quickAccessEligible: true,
+    quickAccessScope: 'toolset' as const
+  })),
   {
     key: listWorldEntityManualMentionsTool.name,
     tool: listWorldEntityManualMentionsTool,

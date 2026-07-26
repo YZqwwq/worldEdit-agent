@@ -37,6 +37,7 @@ import type {
   MoveWorldEntityDocumentInput,
   UpdateWorldEntityDocumentInput,
   WorldEntityDocumentOwnerRef,
+  WorldEntityDocumentChangeEvent,
   WorldEntityDocumentPayload
 } from '../share/cache/worldbuilding/worldEntityDocument'
 import type {
@@ -172,6 +173,9 @@ declare global {
       input: MoveWorldEntityDocumentInput
     ) => Promise<WorldEntityDocumentPayload>
     deleteWorldEntityDocument: (input: DeleteWorldEntityDocumentInput) => Promise<void>
+    onWorldEntityDocumentChanged: (
+      callback: (change: WorldEntityDocumentChangeEvent) => void
+    ) => () => void
     getCharacterImpression: (
       characterEntityId: string
     ) => Promise<CharacterImpressionPayload | null>

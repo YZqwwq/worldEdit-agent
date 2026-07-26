@@ -271,7 +271,10 @@
           <span class="editor-counts">{{ characterEditorStats.characters }} 字</span>
           <span
             class="autosave-hint"
-            :class="{ saving: savingNarrative, error: narrativeSaveState === 'error' }"
+            :class="{
+              saving: savingNarrative,
+              error: narrativeSaveState === 'error' || externalDocumentConflict
+            }"
           >
             {{ narrativeSaveHint }}
           </span>
@@ -398,9 +401,11 @@ import {
   isWorldEntityDocumentOwnerType,
   type WorldEntityDocumentOwnerRef,
   type WorldEntityDocumentOwnerType,
+  type WorldEntityDocumentChangeEvent,
   type WorldEntityDocumentPayload
 } from '@share/cache/worldbuilding/worldEntityDocument'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
+import { agentWorkspaceContextService } from '../services/agentWorkspaceContextService'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 import { useAppTitleBar } from '../composables/useAppTitleBar'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -452,6 +457,7 @@ const characterEditorStats = ref({ words: 0, characters: 0 })
 const showAppearancePanel = ref(false)
 const savingNarrative = ref(false)
 const narrativeSaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
+const externalDocumentConflict = ref(false)
 const narrativeDocumentsLoading = ref(false)
 const worldEntitiesLoading = ref(false)
 const selectedEntityType = ref<DocumentCatalogScope>('all')
@@ -473,6 +479,7 @@ let syncingFromDetail = false
 let narrativeAutosaveTimer: ReturnType<typeof setTimeout> | null = null
 let narrativeSaveQueued = false
 let lastSavedNarrativeSignature = ''
+let removeDocumentChangeListener: (() => void) | null = null
 
 const worldId = computed(() => String(route.params.worldId || ''))
 const entityId = computed(() => String(route.params.entityId || ''))
@@ -554,6 +561,40 @@ const activeDocumentOwner = computed<WorldEntityDocumentOwnerRef | null>(() => {
     ? { kind: 'entity', worldId: worldId.value, entityId: entity.id }
     : null
 })
+
+watch(
+  [worldDetail, entityDetail, activeDocument],
+  ([world, detail, document]) => {
+    const entity = detail?.entity
+    agentWorkspaceContextService.update({
+      pageKind: 'document',
+      routeName: 'WorldEntityDocumentEditor',
+      world: worldId.value
+        ? {
+            id: worldId.value,
+            name: world?.name
+          }
+        : undefined,
+      entity: entity
+        ? {
+            id: entity.id,
+            type: isWorldEntityDocumentOwnerType(entity.type) ? entity.type : undefined,
+            name: entity.name
+          }
+        : undefined,
+      document: document
+        ? {
+            id: document.id,
+            title: document.title,
+            ownerKind: document.ownerKind,
+            parentDocumentId: document.parentDocumentId,
+            revision: document.revision
+          }
+        : undefined
+    })
+  },
+  { immediate: true }
+)
 
 const canCreateNarrativeDocument = computed(() => Boolean(activeDocumentOwner.value))
 const currentDocumentOwnerLabel = computed(() =>
@@ -678,6 +719,7 @@ const narrativeDeleteConfirmMessage = computed(() => {
 })
 
 const narrativeSaveHint = computed(() => {
+  if (externalDocumentConflict.value) return '检测到外部更新'
   if (narrativeSaveState.value === 'saving') return '自动保存中...'
   if (narrativeSaveState.value === 'saved') return '已自动保存'
   if (narrativeSaveState.value === 'error') return '自动保存失败'
@@ -864,6 +906,7 @@ const syncNarrativeFromDocument = (document: WorldEntityDocumentPayload | null):
   characterDescriptionInput.value = document?.contentHtml || ''
   lastSavedNarrativeSignature = narrativeAutosaveSignature.value
   narrativeSaveState.value = 'saved'
+  externalDocumentConflict.value = false
 }
 
 const replaceNarrativeDocument = (nextDocument: WorldEntityDocumentPayload): void => {
@@ -927,6 +970,8 @@ const moveDocumentsIntoOrderedSiblings = async (
     uniqueSiblingIds.map((documentId, index) =>
       worldbuildingClientService.moveWorldEntityDocument({
         documentId,
+        expectedRevision:
+          narrativeDocumentById.value.get(documentId)?.revision ?? 1,
         parentDocumentId,
         sortKey: createSortKeyForIndex(index)
       })
@@ -1305,6 +1350,7 @@ const saveNarrative = async (
   try {
     const updated = await worldbuildingClientService.updateWorldEntityDocument({
       documentId: activeDocument.value.id,
+      expectedRevision: activeDocument.value.revision,
       ...(titleForSave ? { title: titleForSave } : {}),
       contentHtml: characterDescriptionInput.value,
       contentFormat: 'html'
@@ -1314,6 +1360,13 @@ const saveNarrative = async (
     narrativeSaveState.value = 'saved'
   } catch (error) {
     narrativeSaveState.value = 'error'
+    if (
+      error instanceof Error &&
+      error.message.toLocaleLowerCase().includes('revision conflict')
+    ) {
+      externalDocumentConflict.value = true
+      clearNarrativeAutosave()
+    }
     throw error
   } finally {
     savingNarrative.value = false
@@ -1332,7 +1385,7 @@ const clearNarrativeAutosave = (): void => {
 }
 
 const scheduleNarrativeAutosave = (delay = 700): void => {
-  if (syncingFromDetail || !activeDocument.value) return
+  if (syncingFromDetail || externalDocumentConflict.value || !activeDocument.value) return
   clearNarrativeAutosave()
   if (narrativeTitleFocused.value) return
   if (!canSaveNarrative.value || narrativeAutosaveSignature.value === lastSavedNarrativeSignature) return
@@ -1343,10 +1396,67 @@ const scheduleNarrativeAutosave = (delay = 700): void => {
   }, delay)
 }
 
+const belongsToActiveOwner = (document: WorldEntityDocumentPayload): boolean => {
+  const owner = activeDocumentOwner.value
+  if (!owner) return false
+  return owner.kind === 'world'
+    ? document.ownerKind === 'world' && document.worldId === owner.worldId
+    : document.ownerKind === 'entity' &&
+        document.worldId === owner.worldId &&
+        document.ownerEntityId === owner.entityId
+}
+
+const hasUnsavedNarrativeChanges = (): boolean =>
+  savingNarrative.value ||
+  narrativeAutosaveSignature.value !== lastSavedNarrativeSignature
+
+const handleExternalDocumentChange = async (
+  change: WorldEntityDocumentChangeEvent
+): Promise<void> => {
+  if (change.changeType === 'deleted') {
+    const deletedIds = new Set(change.deletedDocumentIds ?? [change.documentId])
+    const affectsCurrentOwner = narrativeDocuments.value.some((document) =>
+      deletedIds.has(document.id)
+    )
+    if (!affectsCurrentOwner) return
+    if (deletedIds.has(activeDocumentId.value) && hasUnsavedNarrativeChanges()) {
+      externalDocumentConflict.value = true
+      clearNarrativeAutosave()
+      return
+    }
+    narrativeDocuments.value = narrativeDocuments.value.filter(
+      (document) => !deletedIds.has(document.id)
+    )
+    if (deletedIds.has(activeDocumentId.value)) {
+      syncNarrativeFromDocument(narrativeDocuments.value[0] ?? null)
+    }
+    return
+  }
+
+  const document = await worldbuildingClientService.getWorldEntityDocument(
+    change.documentId
+  )
+  if (!document || !belongsToActiveOwner(document)) return
+  if (document.id === activeDocumentId.value) {
+    if (hasUnsavedNarrativeChanges()) {
+      externalDocumentConflict.value = true
+      clearNarrativeAutosave()
+      return
+    }
+    replaceNarrativeDocument(document)
+    syncNarrativeFromDocument(document)
+    return
+  }
+  replaceNarrativeDocument(document)
+}
+
 onMounted(async () => {
   loadNarrativeSidebarWidth()
   loadNarrativeAiPanelWidth()
   window.addEventListener('resize', syncNarrativeSidebarWidthBounds)
+  removeDocumentChangeListener = window.api.onWorldEntityDocumentChanged((change) => {
+    void handleExternalDocumentChange(change)
+  })
   await loadDocumentWorkspace()
 })
 
@@ -1359,6 +1469,8 @@ onBeforeUnmount(() => {
   stopNarrativeSidebarResize()
   stopNarrativeAiPanelResize()
   window.removeEventListener('resize', syncNarrativeSidebarWidthBounds)
+  removeDocumentChangeListener?.()
+  removeDocumentChangeListener = null
 })
 
 useKeyboardShortcut(

@@ -1,5 +1,6 @@
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type { MainAgentMessageContentPart } from './mainAgentMessageContent'
+import type { AgentWorkspaceContext } from './agentWorkspaceContext'
 import type { SubAgentProtocolPayload } from './taskCommunication'
 import type { TaskExecutionInspectionSection } from './taskExecutionInspection'
 import type {
@@ -145,6 +146,7 @@ export interface TaskDispatchSnapshot {
 export interface MainAgentUserMessagePayload {
   messageId: number
   content: MainAgentMessageContentPart[]
+  workspaceContext?: AgentWorkspaceContext
 }
 
 export interface MainAgentTaskNotificationPayload {

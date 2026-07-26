@@ -18,6 +18,8 @@ import { mainAgentEntryService } from './runtime/mainAgentEntryService'
 import { mainAgentRunControlService } from './runtime/mainAgentRunControlService'
 import { mainAgentTurnService, type RevertLastTurnResult } from './runtime/mainAgentTurnService'
 import { interactionObservationService } from './agentrsystem/manager/personal/interactionObservationService'
+import { resolveAgentWorkspaceContext } from './runtime/agentWorkspaceContextResolver'
+import { normalizeAgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
 
 const DEFAULT_SESSION_ID = 'default'
 
@@ -61,6 +63,9 @@ class AIService {
     onChunk?: (chunk: StreamChunk) => void
   ): Promise<void> {
     const normalizedInput = normalizeMainAgentUserInput(input)
+    const workspaceContext = await resolveAgentWorkspaceContext(
+      normalizedInput.workspaceContext
+    )
     const content = buildMainAgentMessageContent(normalizedInput)
     const messageText = await parseMainAgentContentForStorage(content)
     if (!messageText.trim()) {
@@ -86,6 +91,17 @@ class AIService {
               existingEvent.status === 'processing' ||
               existingEvent.status === 'completed')
           ) {
+            let persistedWorkspaceContext = workspaceContext
+            try {
+              const persistedPayload = JSON.parse(existingEvent.payloadJson) as {
+                workspaceContext?: unknown
+              }
+              persistedWorkspaceContext =
+                normalizeAgentWorkspaceContext(persistedPayload.workspaceContext) ??
+                persistedWorkspaceContext
+            } catch {
+              // Keep the newly validated snapshot for legacy event payloads.
+            }
             return {
               event: {
                 id: existingEvent.id,
@@ -97,7 +113,8 @@ class AIService {
                 dedupeKey: existingEvent.dedupeKey || undefined,
                 payload: {
                   messageId: existingMessage.id,
-                  content
+                  content,
+                  workspaceContext: persistedWorkspaceContext
                 }
               },
               dispatchMode:
@@ -139,7 +156,8 @@ class AIService {
         dedupeKey: eventDedupeKey,
         payloadJson: JSON.stringify({
           messageId: savedMessage.id,
-          content
+          content,
+          workspaceContext
         }),
         status: 'queued',
         consumer: null,
@@ -164,7 +182,8 @@ class AIService {
           dedupeKey: eventDedupeKey || undefined,
           payload: {
             messageId: savedMessage.id,
-            content
+            content,
+            workspaceContext
           }
         },
         dispatchMode: 'enqueue'

@@ -38,6 +38,7 @@ import type {
   MoveWorldEntityDocumentInput,
   UpdateWorldEntityDocumentInput,
   WorldEntityDocumentOwnerRef,
+  WorldEntityDocumentChangeEvent,
   WorldEntityDocumentPayload
 } from '../share/cache/worldbuilding/worldEntityDocument'
 import type {
@@ -175,6 +176,9 @@ type Api = {
     input: MoveWorldEntityDocumentInput
   ) => Promise<WorldEntityDocumentPayload>
   deleteWorldEntityDocument: (input: DeleteWorldEntityDocumentInput) => Promise<void>
+  onWorldEntityDocumentChanged: (
+    callback: (change: WorldEntityDocumentChangeEvent) => void
+  ) => () => void
   getCharacterImpression: (characterEntityId: string) => Promise<CharacterImpressionPayload | null>
   upsertCharacterImpression: (
     input: UpsertCharacterImpressionInput
@@ -247,6 +251,16 @@ const api: Api = {
     ipcRenderer.invoke('worldEntityDocument:move', input),
   deleteWorldEntityDocument: (input) =>
     ipcRenderer.invoke('worldEntityDocument:delete', input),
+  onWorldEntityDocumentChanged: (callback) => {
+    const subscription = (
+      _event: IpcRendererEvent,
+      change: WorldEntityDocumentChangeEvent
+    ) => callback(change)
+    ipcRenderer.on('worldEntityDocument:changed', subscription)
+    return () => {
+      ipcRenderer.removeListener('worldEntityDocument:changed', subscription)
+    }
+  },
   getCharacterImpression: (characterEntityId) =>
     ipcRenderer.invoke('characterImpression:get', characterEntityId),
   upsertCharacterImpression: (input) =>

@@ -860,6 +860,7 @@
 <script setup lang="ts">
 import { computed, ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAIChatService } from '../services/aiClientService'
+import { agentWorkspaceContextService } from '../services/agentWorkspaceContextService'
 import { isFilePickerCancelled } from '../utils/filePicker'
 import AILogPanel from '../components/AILogPanel.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -1520,6 +1521,7 @@ const handleSend = async (): Promise<void> => {
   shouldFollowMessages.value = true
   const input: MainAgentUserMessageInput = {
     text: userInput.value,
+    workspaceContext: agentWorkspaceContextService.snapshot(),
     files: uploadedFiles.value
       .filter((file) => file.status === 'uploaded' && file.resourceUrl)
       .map((file) => ({

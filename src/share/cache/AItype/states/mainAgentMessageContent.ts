@@ -1,3 +1,6 @@
+import type { AgentWorkspaceContext } from './agentWorkspaceContext'
+import { normalizeAgentWorkspaceContext } from './agentWorkspaceContext'
+
 export type MainAgentMessageFileMediaType = 'image' | 'audio' | 'video' | 'document' | 'file'
 
 export interface MainAgentUserInputFile {
@@ -13,6 +16,7 @@ export interface MainAgentUserMessageInput {
   requestId?: string
   text?: string
   files?: MainAgentUserInputFile[]
+  workspaceContext?: AgentWorkspaceContext
 }
 
 export interface MainAgentTextContentPart {
@@ -215,10 +219,12 @@ export const normalizeMainAgentUserInput = (
     requestId?: unknown
     text?: unknown
     files?: unknown
+    workspaceContext?: unknown
   }
 
   const requestId = normalizeText(raw.requestId) || undefined
   const text = typeof raw.text === 'string' ? raw.text : undefined
+  const workspaceContext = normalizeAgentWorkspaceContext(raw.workspaceContext)
   const files = Array.isArray(raw.files)
     ? raw.files.flatMap((item) => {
         if (!item || typeof item !== 'object') {
@@ -269,7 +275,8 @@ export const normalizeMainAgentUserInput = (
   return {
     requestId,
     text,
-    files
+    files,
+    workspaceContext
   }
 }
 
