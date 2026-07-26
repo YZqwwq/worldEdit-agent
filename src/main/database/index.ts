@@ -20,10 +20,11 @@ import { WorldEntityRecord } from '../../share/entity/database/WorldEntityRecord
 import { WorldEntityComponentRecord } from '../../share/entity/database/WorldEntityComponentRecord'
 import { WorldEntityRelationRecord } from '../../share/entity/database/WorldEntityRelationRecord'
 import { ToolUsageStatsRecord } from '../../share/entity/database/ToolUsageStatsRecord'
-import { CharacterNarrativeDocumentRecord } from '../../share/entity/database/CharacterNarrativeDocumentRecord'
+import { WorldEntityDocumentRecord } from '../../share/entity/database/WorldEntityDocumentRecord'
 import { CharacterImpressionRecord } from '../../share/entity/database/CharacterImpressionRecord'
 import { WorldEntityMentionIndexRecord } from '../../share/entity/database/WorldEntityMentionIndexRecord'
 import { WorldEntityManualMentionRecord } from '../../share/entity/database/WorldEntityManualMentionRecord'
+import { migrateWorldEntityDocuments } from './migrations/migrateWorldEntityDocuments'
 
 // 数据库文件路径：UserData/database.sqlite
 const dbPath = join(app.getPath('userData'), 'database.sqlite')
@@ -54,7 +55,7 @@ export const AppDataSource = new DataSource({
     WorldEntityRelationRecord,
     WorldEntityManualMentionRecord,
     WorldEntityMentionIndexRecord,
-    CharacterNarrativeDocumentRecord,
+    WorldEntityDocumentRecord,
     CharacterImpressionRecord,
     ToolUsageStatsRecord
   ],
@@ -65,6 +66,7 @@ export const AppDataSource = new DataSource({
 export const initDatabase = async (): Promise<void> => {
   try {
     if (!AppDataSource.isInitialized) {
+      migrateWorldEntityDocuments(dbPath)
       await AppDataSource.initialize()
       console.log('Data Source has been initialized!')
       console.log('Database path:', dbPath)

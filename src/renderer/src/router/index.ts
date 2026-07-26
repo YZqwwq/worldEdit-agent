@@ -28,8 +28,8 @@ const routes = [
   },
   {
     path: '/world/:worldId/entity/:entityId/narrative',
-    name: 'CharacterNarrativeEditor',
-    component: () => import('../views/CharacterNarrativeEditorView.vue')
+    name: 'WorldEntityDocumentEditor',
+    component: () => import('../views/WorldEntityDocumentEditorView.vue')
   },
   {
     path: '/chat',

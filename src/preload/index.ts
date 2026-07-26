@@ -33,12 +33,12 @@ import type {
   WorldbuildingSchemaCatalogPayload
 } from '../share/cache/worldbuilding/worldbuilding'
 import type {
-  CharacterNarrativeDocumentPayload,
-  CreateCharacterNarrativeDocumentInput,
-  DeleteCharacterNarrativeDocumentInput,
-  MoveCharacterNarrativeDocumentInput,
-  UpdateCharacterNarrativeDocumentInput
-} from '../share/cache/worldbuilding/characterNarrativeDocument'
+  CreateWorldEntityDocumentInput,
+  DeleteWorldEntityDocumentInput,
+  MoveWorldEntityDocumentInput,
+  UpdateWorldEntityDocumentInput,
+  WorldEntityDocumentPayload
+} from '../share/cache/worldbuilding/worldEntityDocument'
 import type {
   CharacterImpressionPayload,
   UpsertCharacterImpressionInput
@@ -160,24 +160,18 @@ type Api = {
     input: CreateWorldEntityRelationInput
   ) => Promise<WorldEntityRelationPayload>
 
-  listCharacterNarrativeDocuments: (
-    characterEntityId: string
-  ) => Promise<CharacterNarrativeDocumentPayload[]>
-  getCharacterNarrativeDocument: (
-    documentId: string
-  ) => Promise<CharacterNarrativeDocumentPayload | null>
-  createCharacterNarrativeDocument: (
-    input: CreateCharacterNarrativeDocumentInput
-  ) => Promise<CharacterNarrativeDocumentPayload>
-  updateCharacterNarrativeDocument: (
-    input: UpdateCharacterNarrativeDocumentInput
-  ) => Promise<CharacterNarrativeDocumentPayload>
-  moveCharacterNarrativeDocument: (
-    input: MoveCharacterNarrativeDocumentInput
-  ) => Promise<CharacterNarrativeDocumentPayload>
-  deleteCharacterNarrativeDocument: (
-    input: DeleteCharacterNarrativeDocumentInput
-  ) => Promise<void>
+  listWorldEntityDocuments: (ownerEntityId: string) => Promise<WorldEntityDocumentPayload[]>
+  getWorldEntityDocument: (documentId: string) => Promise<WorldEntityDocumentPayload | null>
+  createWorldEntityDocument: (
+    input: CreateWorldEntityDocumentInput
+  ) => Promise<WorldEntityDocumentPayload>
+  updateWorldEntityDocument: (
+    input: UpdateWorldEntityDocumentInput
+  ) => Promise<WorldEntityDocumentPayload>
+  moveWorldEntityDocument: (
+    input: MoveWorldEntityDocumentInput
+  ) => Promise<WorldEntityDocumentPayload>
+  deleteWorldEntityDocument: (input: DeleteWorldEntityDocumentInput) => Promise<void>
   getCharacterImpression: (characterEntityId: string) => Promise<CharacterImpressionPayload | null>
   upsertCharacterImpression: (
     input: UpsertCharacterImpressionInput
@@ -238,18 +232,18 @@ const api: Api = {
   getWorldEntityDetail: (entityId) => ipcRenderer.invoke('world:getEntityDetail', entityId),
   upsertWorldEntityComponent: (input) => ipcRenderer.invoke('world:upsertComponent', input),
   createWorldEntityRelation: (input) => ipcRenderer.invoke('world:createRelation', input),
-  listCharacterNarrativeDocuments: (characterEntityId) =>
-    ipcRenderer.invoke('characterNarrative:listDocuments', characterEntityId),
-  getCharacterNarrativeDocument: (documentId) =>
-    ipcRenderer.invoke('characterNarrative:getDocument', documentId),
-  createCharacterNarrativeDocument: (input) =>
-    ipcRenderer.invoke('characterNarrative:createDocument', input),
-  updateCharacterNarrativeDocument: (input) =>
-    ipcRenderer.invoke('characterNarrative:updateDocument', input),
-  moveCharacterNarrativeDocument: (input) =>
-    ipcRenderer.invoke('characterNarrative:moveDocument', input),
-  deleteCharacterNarrativeDocument: (input) =>
-    ipcRenderer.invoke('characterNarrative:deleteDocument', input),
+  listWorldEntityDocuments: (ownerEntityId) =>
+    ipcRenderer.invoke('worldEntityDocument:list', ownerEntityId),
+  getWorldEntityDocument: (documentId) =>
+    ipcRenderer.invoke('worldEntityDocument:get', documentId),
+  createWorldEntityDocument: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:create', input),
+  updateWorldEntityDocument: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:update', input),
+  moveWorldEntityDocument: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:move', input),
+  deleteWorldEntityDocument: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:delete', input),
   getCharacterImpression: (characterEntityId) =>
     ipcRenderer.invoke('characterImpression:get', characterEntityId),
   upsertCharacterImpression: (input) =>

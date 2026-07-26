@@ -9,7 +9,16 @@
         返回世界实例
       </router-link>
 
-      <router-link to="/chat" class="assistant-link">AI 助手</router-link>
+      <nav class="entity-workspace-links" aria-label="实体工作区">
+        <router-link
+          v-if="supportsDocumentWorkspace"
+          :to="{ name: 'WorldEntityDocumentEditor', params: { worldId, entityId } }"
+          class="workspace-link"
+        >
+          文本编辑
+        </router-link>
+        <router-link to="/chat" class="assistant-link">AI 助手</router-link>
+      </nav>
     </header>
 
     <main v-if="entityDetail" class="entity-main">
@@ -67,6 +76,7 @@ import type {
   WorldEntityDetailPayload,
   WorldEntityType
 } from '@share/cache/worldbuilding/worldbuilding'
+import { isWorldEntityDocumentOwnerType } from '@share/cache/worldbuilding/worldEntityDocument'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import { toPlainIpcPayload } from '../utils/ipcPayload'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
@@ -122,6 +132,11 @@ const editableComponentType = computed(
 )
 
 const canSaveDescription = computed(() => Boolean(entityDetail.value && editableComponentType.value))
+const supportsDocumentWorkspace = computed(
+  () =>
+    Boolean(entityDetail.value) &&
+    isWorldEntityDocumentOwnerType(entityDetail.value!.entity.type)
+)
 
 const descriptionSaveHint = computed(() => {
   if (descriptionSaveState.value === 'saving') return '自动保存中...'
@@ -287,6 +302,7 @@ useKeyboardShortcut(
 }
 
 .back-link,
+.workspace-link,
 .assistant-link {
   display: inline-flex;
   align-items: center;
@@ -300,6 +316,17 @@ useKeyboardShortcut(
   line-height: 1;
   text-decoration: none;
   font: inherit;
+}
+
+.entity-workspace-links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.workspace-link {
+  color: #ffffff;
+  background: rgba(46, 52, 62, 0.96);
 }
 
 .entity-main {

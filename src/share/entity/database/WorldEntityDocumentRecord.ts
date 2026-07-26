@@ -1,22 +1,15 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  PrimaryColumn,
-  UpdateDateColumn
-} from 'typeorm'
-import type { CharacterNarrativeContentFormat } from '@share/cache/worldbuilding/characterNarrativeDocument'
+import { Column, CreateDateColumn, Entity, Index, PrimaryColumn, UpdateDateColumn } from 'typeorm'
+import type { WorldEntityDocumentContentFormat } from '@share/cache/worldbuilding/worldEntityDocument'
 
-@Entity('character_narrative_document_record')
-@Index(['characterEntityId', 'parentDocumentId', 'sortKey'])
-@Index(['characterEntityId', 'updatedAt'])
-export class CharacterNarrativeDocumentRecord {
+@Entity('world_entity_document_record')
+@Index(['ownerEntityId', 'parentDocumentId', 'sortKey'])
+@Index(['ownerEntityId', 'updatedAt'])
+export class WorldEntityDocumentRecord {
   @PrimaryColumn({ type: 'text' })
   id!: string
 
   @Column({ type: 'text', nullable: false })
-  characterEntityId!: string
+  ownerEntityId!: string
 
   @Column({ type: 'text', nullable: true })
   parentDocumentId!: string | null
@@ -28,7 +21,7 @@ export class CharacterNarrativeDocumentRecord {
   contentHtml!: string
 
   @Column({ type: 'text', nullable: false, default: 'html' })
-  contentFormat!: CharacterNarrativeContentFormat
+  contentFormat!: WorldEntityDocumentContentFormat
 
   @Column({ type: 'text', nullable: false, default: '' })
   sortKey!: string

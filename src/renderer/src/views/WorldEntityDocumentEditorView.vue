@@ -1,5 +1,5 @@
 <template>
-  <!-- 人物叙事编辑器 -->
+  <!-- 世界实体文档工作台 -->
   <div
     class="worldbuilding-white-theme narrative-editor-page"
     :class="{
@@ -10,18 +10,43 @@
   >
     <aside class="narrative-sidebar">
       <header class="sidebar-home">
-        <router-link
-          :to="{ name: 'CharacterProfileEditor', params: { worldId, entityId } }"
+        <button
+          type="button"
           class="sidebar-home-link"
-          aria-label="返回人物资料"
-          title="返回人物资料"
+          aria-label="返回当前实体"
+          title="返回当前实体"
+          @click="navigateToEntityHome"
         >
           <span class="sidebar-icon back-icon" aria-hidden="true">‹</span>
-        </router-link>
+        </button>
+        <span class="sidebar-world-name" :title="worldDetail?.name">{{ worldDetail?.name || '世界文档库' }}</span>
         <button type="button" class="sidebar-menu-btn" aria-label="更多">...</button>
       </header>
 
       <section class="catalog-panel">
+        <div class="catalog-scope">
+          <label class="catalog-type-select">
+            <span class="sr-only">选择实体类型</span>
+            <select v-model="selectedEntityType" aria-label="选择实体类型">
+              <option
+                v-for="option in entityTypeOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+            <span class="catalog-select-caret" aria-hidden="true">⌄</span>
+          </label>
+          <input
+            v-model="entitySearchQuery"
+            class="catalog-search"
+            type="search"
+            placeholder="查找实体"
+            aria-label="查找实体"
+          />
+        </div>
+
         <header class="catalog-head">
           <div class="catalog-title">
             <span class="sidebar-icon" aria-hidden="true">☷</span>
@@ -30,8 +55,9 @@
           <div class="catalog-actions">
             <button
               type="button"
-              aria-label="新建文件"
-              title="新建文件"
+              aria-label="在当前实体中新建文件"
+              title="在当前实体中新建文件"
+              :disabled="!entityDetail"
               @click="createNarrativeDocument()"
             >
               +
@@ -40,36 +66,86 @@
           </div>
         </header>
 
-        <div v-if="narrativeDocumentsLoading" class="catalog-empty">正在读取目录</div>
-        <div v-else-if="narrativeTreeRows.length === 0" class="catalog-empty">暂无文件</div>
-        <div v-else class="catalog-tree">
-          <div
-            v-for="row in narrativeTreeRows"
-            :key="row.id"
-            class="catalog-tree-row"
-            :class="{
-              active: row.id === activeDocumentId,
-              dragging: row.id === draggingDocumentId,
-              'drop-before': dropTarget?.documentId === row.id && dropTarget.position === 'before',
-              'drop-after': dropTarget?.documentId === row.id && dropTarget.position === 'after',
-              'drop-inside': dropTarget?.documentId === row.id && dropTarget.position === 'inside'
-            }"
-            :style="{ '--tree-depth': row.depth }"
-            draggable="true"
-            @dragstart="handleNarrativeDragStart(row.id, $event)"
-            @dragover.prevent="handleNarrativeDragOver(row.id, $event)"
-            @dragleave="handleNarrativeDragLeave(row.id)"
-            @drop.prevent="handleNarrativeDrop"
-            @dragend="clearNarrativeDragState"
-          >
+        <div v-if="worldEntitiesLoading" class="catalog-empty">正在读取世界实体</div>
+        <div v-else-if="catalogEntities.length === 0" class="catalog-empty">当前分类暂无实体</div>
+        <div v-else class="catalog-tree entity-catalog-tree">
+          <template v-for="entity in catalogEntities" :key="entity.id">
+            <div
+              class="catalog-entity-row"
+              :class="{ active: entity.id === entityDetail?.entity.id }"
+            >
+              <button
+                type="button"
+                class="catalog-entity-toggle"
+                :aria-label="expandedEntityId === entity.id ? '收起实体文档' : '展开实体文档'"
+                @click="toggleEntityRoot(entity)"
+              >
+                {{ expandedEntityId === entity.id ? '⌄' : '›' }}
+              </button>
+              <button
+                type="button"
+                class="catalog-entity-name"
+                :title="entity.name"
+                @click="activateCatalogEntity(entity)"
+              >
+                <span>{{ entity.name }}</span>
+                <small v-if="selectedEntityType === 'all'">{{ getEntityTypeLabel(entity.type) }}</small>
+              </button>
+              <button
+                type="button"
+                class="catalog-entity-add"
+                aria-label="为该实体新建文件"
+                title="为该实体新建文件"
+                @click.stop="createNarrativeDocumentForEntity(entity)"
+              >
+                +
+              </button>
+            </div>
+
+            <div
+              v-if="expandedEntityId === entity.id && narrativeDocumentsLoading"
+              class="catalog-empty catalog-entity-empty"
+            >
+              正在读取文档
+            </div>
+            <div
+              v-else-if="
+                expandedEntityId === entity.id &&
+                entity.id === entityDetail?.entity.id &&
+                narrativeTreeRows.length === 0
+              "
+              class="catalog-empty catalog-entity-empty"
+            >
+              暂无文档
+            </div>
+
+            <div
+              v-for="row in expandedEntityId === entity.id && entity.id === entityDetail?.entity.id
+                ? narrativeTreeRows
+                : []"
+              :key="row.id"
+              class="catalog-tree-row"
+              :class="{
+                active: row.id === activeDocumentId,
+                dragging: row.id === draggingDocumentId,
+                'drop-before': dropTarget?.documentId === row.id && dropTarget.position === 'before',
+                'drop-after': dropTarget?.documentId === row.id && dropTarget.position === 'after',
+                'drop-inside': dropTarget?.documentId === row.id && dropTarget.position === 'inside'
+              }"
+              :style="{ '--tree-depth': row.depth + 1 }"
+              draggable="true"
+              @dragstart="handleNarrativeDragStart(row.id, $event)"
+              @dragover.prevent="handleNarrativeDragOver(row.id, $event)"
+              @dragleave="handleNarrativeDragLeave(row.id)"
+              @drop.prevent="handleNarrativeDrop"
+              @dragend="clearNarrativeDragState"
+            >
             <button
               type="button"
               class="catalog-tree-item"
               @click="selectNarrativeDocument(row.id)"
             >
-              <span class="catalog-tree-caret" aria-hidden="true">{{
-                row.children.length ? '⌄' : ''
-              }}</span>
+              <span class="catalog-tree-caret" aria-hidden="true">{{ row.children.length ? '⌄' : '' }}</span>
               <span class="catalog-tree-title">{{ row.title }}</span>
             </button>
             <button
@@ -90,7 +166,8 @@
             >
               ×
             </button>
-          </div>
+            </div>
+          </template>
         </div>
       </section>
     </aside>
@@ -107,17 +184,14 @@
     <section class="narrative-main">
       <div class="format-toolbar" role="toolbar" aria-label="文本编辑工具栏">
         <div class="toolbar-group toolbar-group-primary">
-          <button
-            type="button"
-            class="toolbar-add-btn"
-            aria-label="新增文件"
-            @click="createNarrativeDocument()"
-          >
-            +
-          </button>
+          <button type="button" class="toolbar-add-btn" aria-label="新增文件" @click="createNarrativeDocument()">+</button>
         </div>
 
-        <div v-for="(group, groupIndex) in toolbarGroups" :key="groupIndex" class="toolbar-group">
+        <div
+          v-for="(group, groupIndex) in toolbarGroups"
+          :key="groupIndex"
+          class="toolbar-group"
+        >
           <button
             v-for="item in group"
             :key="item.label"
@@ -153,7 +227,7 @@
       </div>
 
       <main
-        v-if="entityDetail"
+        v-if="entityDetail && activeDocument"
         class="editor-workspace"
         :class="{ 'ai-panel-open': showNarrativeAiPanel }"
       >
@@ -181,7 +255,7 @@
             :key="activeDocumentId"
             v-model="characterDescriptionInput"
             class="narrative-editor"
-            placeholder="写下人物介绍、经历、关系、秘密与转折。"
+            :placeholder="documentPlaceholder"
             :appearance="characterEditorAppearance"
             :show-toolbar-meta="false"
             :show-toolbar="false"
@@ -221,7 +295,15 @@
         </aside>
       </main>
 
-      <main v-else class="editor-loading">正在读取文本编辑页面</main>
+      <main v-else-if="entityDetail" class="editor-empty-state">
+        <strong>{{ entityDetail.entity.name }}</strong>
+        <span>这个实体还没有文档</span>
+        <button type="button" @click="createNarrativeDocument()">新建文档</button>
+      </main>
+
+      <main v-else class="editor-loading">
+        从左侧选择一个实体以打开文档
+      </main>
     </section>
 
     <ConfirmDialog
@@ -241,9 +323,19 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import type { WorldEntityDetailPayload } from '@share/cache/worldbuilding/worldbuilding'
-import type { CharacterNarrativeDocumentPayload } from '@share/cache/worldbuilding/characterNarrativeDocument'
+import { useRoute, useRouter } from 'vue-router'
+import type {
+  WorldEntityDetailPayload,
+  WorldEntityPayload,
+  WorldEntityType,
+  WorldPayload
+} from '@share/cache/worldbuilding/worldbuilding'
+import {
+  WORLD_ENTITY_DOCUMENT_OWNER_TYPES,
+  isWorldEntityDocumentOwnerType,
+  type WorldEntityDocumentOwnerType,
+  type WorldEntityDocumentPayload
+} from '@share/cache/worldbuilding/worldEntityDocument'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 import { useAppTitleBar } from '../composables/useAppTitleBar'
@@ -263,8 +355,9 @@ import {
 import '../styles/worldbuildingWhiteTheme.css'
 
 const route = useRoute()
+const router = useRouter()
 
-type NarrativeTreeNode = CharacterNarrativeDocumentPayload & {
+type NarrativeTreeNode = WorldEntityDocumentPayload & {
   children: NarrativeTreeNode[]
   depth: number
 }
@@ -272,8 +365,9 @@ type NarrativeTreeNode = CharacterNarrativeDocumentPayload & {
 type NarrativeDropPosition = 'before' | 'after' | 'inside'
 
 const NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY =
-  'worldedit.characterNarrative.sidebarWidthRatio.v1'
-const NARRATIVE_AI_PANEL_WIDTH_STORAGE_KEY = 'worldedit.characterNarrative.aiPanelWidth.v1'
+  'worldedit.worldEntityDocuments.sidebarWidthRatio.v1'
+const NARRATIVE_AI_PANEL_WIDTH_STORAGE_KEY =
+  'worldedit.worldEntityDocuments.aiPanelWidth.v1'
 const DEFAULT_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.185
 const MIN_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.1
 const MAX_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.2
@@ -281,8 +375,10 @@ const DEFAULT_NARRATIVE_AI_PANEL_WIDTH = 420
 const MIN_NARRATIVE_AI_PANEL_WIDTH = 320
 const MAX_NARRATIVE_AI_PANEL_WIDTH = 640
 
+const worldDetail = ref<WorldPayload | null>(null)
+const worldEntities = ref<WorldEntityPayload[]>([])
 const entityDetail = ref<WorldEntityDetailPayload | null>(null)
-const narrativeDocuments = ref<CharacterNarrativeDocumentPayload[]>([])
+const narrativeDocuments = ref<WorldEntityDocumentPayload[]>([])
 const activeDocumentId = ref('')
 const activeDocumentTitle = ref('新建文件')
 const characterDescriptionInput = ref('')
@@ -292,6 +388,10 @@ const showAppearancePanel = ref(false)
 const savingNarrative = ref(false)
 const narrativeSaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const narrativeDocumentsLoading = ref(false)
+const worldEntitiesLoading = ref(false)
+const selectedEntityType = ref<WorldEntityDocumentOwnerType | 'all'>('all')
+const entitySearchQuery = ref('')
+const expandedEntityId = ref('')
 const narrativeTitleFocused = ref(false)
 const showNarrativeDeleteConfirm = ref(false)
 const deletingNarrativeDocument = ref(false)
@@ -311,16 +411,69 @@ let lastSavedNarrativeSignature = ''
 
 const worldId = computed(() => String(route.params.worldId || ''))
 const entityId = computed(() => String(route.params.entityId || ''))
-const titleBarCharacterName = computed(() => entityDetail.value?.entity.name?.trim() || '人物文本')
+const titleBarWorldName = computed(() => worldDetail.value?.name?.trim() || '世界文档库')
+const titleBarEntityContext = computed(() => {
+  const entity = entityDetail.value?.entity
+  return entity ? `${getEntityTypeLabel(entity.type)} / ${entity.name}` : '文本'
+})
 const narrativeSidebarStyle = computed(() => ({
   '--narrative-sidebar-width': `${narrativeSidebarWidth.value}px`,
   '--narrative-ai-panel-width': `${narrativeAiPanelWidth.value}px`
 }))
+
+const entityTypeOptions: Array<{ value: WorldEntityDocumentOwnerType | 'all'; label: string }> = [
+  { value: 'all', label: '全部文本' },
+  { value: 'character', label: '人物' },
+  { value: 'race', label: '种族' },
+  { value: 'faction', label: '势力' },
+  { value: 'nation', label: '国家' },
+  { value: 'city', label: '城市' },
+  { value: 'region', label: '地域' },
+  { value: 'map', label: '地图' }
+]
+
+const entityTypeOrder = new Map<WorldEntityType, number>(
+  WORLD_ENTITY_DOCUMENT_OWNER_TYPES.map((entityType, index) => [entityType, index])
+)
+
+const getEntityTypeLabel = (type: WorldEntityType): string =>
+  entityTypeOptions.find((option) => option.value === type)?.label || type
+
+const catalogEntities = computed(() => {
+  const query = entitySearchQuery.value.trim().toLocaleLowerCase()
+  return worldEntities.value
+    .filter((entity) => isWorldEntityDocumentOwnerType(entity.type))
+    .filter((entity) => selectedEntityType.value === 'all' || entity.type === selectedEntityType.value)
+    .filter((entity) => !query || entity.name.toLocaleLowerCase().includes(query))
+    .sort((a, b) => {
+      const typeCompare =
+        (entityTypeOrder.get(a.type) ?? Number.MAX_SAFE_INTEGER) -
+        (entityTypeOrder.get(b.type) ?? Number.MAX_SAFE_INTEGER)
+      return typeCompare || a.name.localeCompare(b.name, 'zh-CN')
+    })
+})
+
+const documentPlaceholderByType: Record<WorldEntityDocumentOwnerType, string> = {
+  character: '写下人物介绍、经历、关系、秘密与转折。',
+  race: '写下种族特征、文化、分支、分布与历史。',
+  faction: '写下组织目标、结构、成员、行动与关系。',
+  nation: '写下国家历史、制度、疆域、社会与冲突。',
+  city: '写下城市区域、居民、建筑、事件与风貌。',
+  region: '写下地域地貌、生态、聚落、资源与历史。',
+  map: '写下地图范围、地理结构、图例与设定。'
+}
+
+const documentPlaceholder = computed(() => {
+  const entityType = entityDetail.value?.entity.type
+  return entityType && isWorldEntityDocumentOwnerType(entityType)
+    ? documentPlaceholderByType[entityType]
+    : '写下这个实体的设定与关联信息。'
+})
 const activeDocument = computed(
   () => narrativeDocuments.value.find((document) => document.id === activeDocumentId.value) ?? null
 )
 const narrativeTree = computed<NarrativeTreeNode[]>(() => {
-  const byParent = new Map<string, CharacterNarrativeDocumentPayload[]>()
+  const byParent = new Map<string, WorldEntityDocumentPayload[]>()
 
   for (const document of narrativeDocuments.value) {
     const parentKey = document.parentDocumentId || ''
@@ -503,9 +656,7 @@ const persistNarrativeAiPanelWidth = (): void => {
 
 const persistNarrativeSidebarWidth = (): void => {
   if (typeof window === 'undefined') return
-  const ratio = clampNarrativeSidebarRatio(
-    narrativeSidebarWidth.value / getNarrativeViewportWidth()
-  )
+  const ratio = clampNarrativeSidebarRatio(narrativeSidebarWidth.value / getNarrativeViewportWidth())
   window.localStorage.setItem(NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY, ratio.toFixed(4))
 }
 
@@ -568,8 +719,8 @@ const toggleNarrativeAiPanel = (): void => {
 
 useAppTitleBar(
   computed(() => ({
-    title: titleBarCharacterName.value,
-    subtitle: '▧',
+    title: titleBarWorldName.value,
+    subtitle: titleBarEntityContext.value,
     meta: narrativeSaveHint.value
   }))
 )
@@ -599,24 +750,20 @@ const handleNarrativeTitleBlur = (): void => {
 }
 
 const getLegacyNarrativeHtml = (): string => {
-  const profile = getCharacterComponentByType<CharacterProfileData>(
-    entityDetail.value,
-    'character_profile'
-  )
+  const profile = getCharacterComponentByType<CharacterProfileData>(entityDetail.value, 'character_profile')
   return String(profile?.data?.description || '')
 }
 
 const syncAppearanceFromDetail = (): void => {
-  const profile = getCharacterComponentByType<CharacterProfileData>(
-    entityDetail.value,
-    'character_profile'
-  )
-  characterEditorAppearance.value = normalizeWorldRichTextAppearance(
-    profile?.data?.editorAppearance
-  )
+  if (entityDetail.value?.entity.type !== 'character') {
+    characterEditorAppearance.value = DEFAULT_WORLD_RICH_TEXT_APPEARANCE
+    return
+  }
+  const profile = getCharacterComponentByType<CharacterProfileData>(entityDetail.value, 'character_profile')
+  characterEditorAppearance.value = normalizeWorldRichTextAppearance(profile?.data?.editorAppearance)
 }
 
-const syncNarrativeFromDocument = (document: CharacterNarrativeDocumentPayload | null): void => {
+const syncNarrativeFromDocument = (document: WorldEntityDocumentPayload | null): void => {
   activeDocumentId.value = document?.id ?? ''
   activeDocumentTitle.value = document?.title || '新建文件'
   characterDescriptionInput.value = document?.contentHtml || ''
@@ -624,7 +771,7 @@ const syncNarrativeFromDocument = (document: CharacterNarrativeDocumentPayload |
   narrativeSaveState.value = 'saved'
 }
 
-const replaceNarrativeDocument = (nextDocument: CharacterNarrativeDocumentPayload): void => {
+const replaceNarrativeDocument = (nextDocument: WorldEntityDocumentPayload): void => {
   narrativeDocuments.value = [
     ...narrativeDocuments.value.filter((document) => document.id !== nextDocument.id),
     nextDocument
@@ -633,12 +780,10 @@ const replaceNarrativeDocument = (nextDocument: CharacterNarrativeDocumentPayloa
 
 const createSortKeyForIndex = (index: number): string => String(index + 1).padStart(6, '0')
 
-const getNarrativeDocument = (documentId: string): CharacterNarrativeDocumentPayload | null =>
+const getNarrativeDocument = (documentId: string): WorldEntityDocumentPayload | null =>
   narrativeDocumentById.value.get(documentId) ?? null
 
-const getNarrativeChildren = (
-  parentDocumentId: string | null
-): CharacterNarrativeDocumentPayload[] =>
+const getNarrativeChildren = (parentDocumentId: string | null): WorldEntityDocumentPayload[] =>
   narrativeDocuments.value
     .filter((document) => (document.parentDocumentId || null) === parentDocumentId)
     .sort((a, b) => {
@@ -672,12 +817,10 @@ const canMoveNarrativeDocumentToParent = (
   return !getNarrativeDescendantIds(documentId).includes(parentDocumentId)
 }
 
-const applyNarrativeDocumentUpdates = (updates: CharacterNarrativeDocumentPayload[]): void => {
+const applyNarrativeDocumentUpdates = (updates: WorldEntityDocumentPayload[]): void => {
   if (updates.length === 0) return
   const updateMap = new Map(updates.map((document) => [document.id, document]))
-  narrativeDocuments.value = narrativeDocuments.value.map(
-    (document) => updateMap.get(document.id) ?? document
-  )
+  narrativeDocuments.value = narrativeDocuments.value.map((document) => updateMap.get(document.id) ?? document)
 }
 
 const moveDocumentsIntoOrderedSiblings = async (
@@ -687,7 +830,7 @@ const moveDocumentsIntoOrderedSiblings = async (
   const uniqueSiblingIds = [...new Set(orderedSiblingIds)]
   const updates = await Promise.all(
     uniqueSiblingIds.map((documentId, index) =>
-      worldbuildingClientService.moveCharacterNarrativeDocument({
+      worldbuildingClientService.moveWorldEntityDocument({
         documentId,
         parentDocumentId,
         sortKey: createSortKeyForIndex(index)
@@ -741,8 +884,7 @@ const handleNarrativeDragOver = (documentId: string, event: DragEvent): void => 
   const position = getNarrativeDropPosition(event)
   const targetDocument = getNarrativeDocument(documentId)
   if (!targetDocument) return
-  const parentDocumentId =
-    position === 'inside' ? targetDocument.id : targetDocument.parentDocumentId || null
+  const parentDocumentId = position === 'inside' ? targetDocument.id : targetDocument.parentDocumentId || null
   if (!canMoveNarrativeDocumentToParent(draggedId, parentDocumentId)) {
     dropTarget.value = null
     return
@@ -790,34 +932,33 @@ const handleNarrativeDrop = async (): Promise<void> => {
   clearNarrativeDragState()
 }
 
-const ensureInitialNarrativeDocument =
-  async (): Promise<CharacterNarrativeDocumentPayload | null> => {
-    if (!entityDetail.value) return null
+const ensureInitialNarrativeDocument = async (): Promise<WorldEntityDocumentPayload | null> => {
+  if (!entityDetail.value) return null
 
-    narrativeDocumentsLoading.value = true
-    try {
-      let documents = await worldbuildingClientService.listCharacterNarrativeDocuments(
-        entityDetail.value.entity.id
-      )
+  narrativeDocumentsLoading.value = true
+  try {
+    let documents = await worldbuildingClientService.listWorldEntityDocuments(entityDetail.value.entity.id)
 
-      if (documents.length === 0) {
-        const created = await worldbuildingClientService.createCharacterNarrativeDocument({
-          characterEntityId: entityDetail.value.entity.id,
-          title: '新建文件',
-          contentHtml: getLegacyNarrativeHtml()
-        })
-        documents = [created]
-      }
-
-      narrativeDocuments.value = documents
-      return documents[0] ?? null
-    } finally {
-      narrativeDocumentsLoading.value = false
+    const legacyNarrativeHtml =
+      entityDetail.value.entity.type === 'character' ? getLegacyNarrativeHtml() : ''
+    if (documents.length === 0 && legacyNarrativeHtml.trim()) {
+      const created = await worldbuildingClientService.createWorldEntityDocument({
+        ownerEntityId: entityDetail.value.entity.id,
+        title: '新建文件',
+        contentHtml: legacyNarrativeHtml
+      })
+      documents = [created]
     }
-  }
 
-const loadEntityDetail = async (): Promise<void> => {
-  if (!entityId.value) {
+    narrativeDocuments.value = documents
+    return documents[0] ?? null
+  } finally {
+    narrativeDocumentsLoading.value = false
+  }
+}
+
+const loadEntityDetail = async (targetEntityId = entityId.value): Promise<void> => {
+  if (!targetEntityId) {
     entityDetail.value = null
     narrativeDocuments.value = []
     syncNarrativeFromDocument(null)
@@ -826,7 +967,13 @@ const loadEntityDetail = async (): Promise<void> => {
 
   syncingFromDetail = true
   try {
-    entityDetail.value = await worldbuildingClientService.getEntityDetail(entityId.value)
+    entityDetail.value = await worldbuildingClientService.getEntityDetail(targetEntityId)
+    if (!entityDetail.value) {
+      narrativeDocuments.value = []
+      syncNarrativeFromDocument(null)
+      return
+    }
+    expandedEntityId.value = entityDetail.value.entity.id
     syncAppearanceFromDetail()
     const document = await ensureInitialNarrativeDocument()
     syncNarrativeFromDocument(document)
@@ -835,12 +982,88 @@ const loadEntityDetail = async (): Promise<void> => {
   }
 }
 
+const loadDocumentWorkspace = async (): Promise<void> => {
+  if (!worldId.value) return
+  worldEntitiesLoading.value = true
+  try {
+    const [worlds, entities] = await Promise.all([
+      worldbuildingClientService.listWorlds(),
+      worldbuildingClientService.listEntities(worldId.value)
+    ])
+    worldDetail.value = worlds.find((world) => world.id === worldId.value) ?? null
+    worldEntities.value = entities
+
+    const documentEntities = entities.filter((entity) =>
+      isWorldEntityDocumentOwnerType(entity.type)
+    )
+    const initialEntity =
+      documentEntities.find((entity) => entity.id === entityId.value) ??
+      documentEntities[0] ??
+      null
+    if (!initialEntity) {
+      await loadEntityDetail('')
+      return
+    }
+    selectedEntityType.value = isWorldEntityDocumentOwnerType(initialEntity.type)
+      ? initialEntity.type
+      : 'all'
+    await loadEntityDetail(initialEntity.id)
+  } finally {
+    worldEntitiesLoading.value = false
+  }
+}
+
+const activateCatalogEntity = async (entity: WorldEntityPayload): Promise<void> => {
+  if (entity.id === entityDetail.value?.entity.id) {
+    expandedEntityId.value = entity.id
+    return
+  }
+
+  clearNarrativeAutosave()
+  await saveNarrative(true, { fallbackBlankTitle: true })
+  narrativeDocuments.value = []
+  syncNarrativeFromDocument(null)
+  expandedEntityId.value = entity.id
+  await router.replace({
+    name: 'WorldEntityDocumentEditor',
+    params: { worldId: worldId.value, entityId: entity.id }
+  })
+  await loadEntityDetail(entity.id)
+}
+
+const toggleEntityRoot = async (entity: WorldEntityPayload): Promise<void> => {
+  if (expandedEntityId.value === entity.id) {
+    expandedEntityId.value = ''
+    return
+  }
+  expandedEntityId.value = entity.id
+  await activateCatalogEntity(entity)
+}
+
+const createNarrativeDocumentForEntity = async (entity: WorldEntityPayload): Promise<void> => {
+  await activateCatalogEntity(entity)
+  await createNarrativeDocument()
+}
+
+const navigateToEntityHome = async (): Promise<void> => {
+  const entity = entityDetail.value?.entity
+  if (!entity) {
+    await router.push({ name: 'WorldEditor', params: { worldId: worldId.value } })
+    return
+  }
+  clearNarrativeAutosave()
+  await saveNarrative(true, { fallbackBlankTitle: true }).catch(() => undefined)
+  await router.push({
+    name: entity.type === 'character' ? 'CharacterProfileEditor' : 'WorldEntityEditor',
+    params: { worldId: worldId.value, entityId: entity.id }
+  })
+}
+
 const selectNarrativeDocument = async (documentId: string): Promise<void> => {
   if (documentId === activeDocumentId.value) return
   clearNarrativeAutosave()
   await saveNarrative(true, { fallbackBlankTitle: true })
-  const nextDocument =
-    narrativeDocuments.value.find((document) => document.id === documentId) ?? null
+  const nextDocument = narrativeDocuments.value.find((document) => document.id === documentId) ?? null
   syncNarrativeFromDocument(nextDocument)
 }
 
@@ -848,8 +1071,8 @@ const createNarrativeDocument = async (parentDocumentId: string | null = null): 
   if (!entityDetail.value) return
   clearNarrativeAutosave()
   await saveNarrative(true, { fallbackBlankTitle: true })
-  const created = await worldbuildingClientService.createCharacterNarrativeDocument({
-    characterEntityId: entityDetail.value.entity.id,
+  const created = await worldbuildingClientService.createWorldEntityDocument({
+    ownerEntityId: entityDetail.value.entity.id,
     parentDocumentId,
     title: '新建文件',
     contentHtml: ''
@@ -888,7 +1111,7 @@ const confirmDeleteNarrativeDocument = async (): Promise<void> => {
   clearNarrativeAutosave()
   try {
     await saveNarrative(true, { fallbackBlankTitle: true })
-    await worldbuildingClientService.deleteCharacterNarrativeDocument({
+    await worldbuildingClientService.deleteWorldEntityDocument({
       documentId,
       recursive
     })
@@ -907,11 +1130,7 @@ const confirmDeleteNarrativeDocument = async (): Promise<void> => {
       return
     }
 
-    if (entityDetail.value) {
-      await createNarrativeDocument()
-    } else {
-      syncNarrativeFromDocument(null)
-    }
+    syncNarrativeFromDocument(null)
   } finally {
     deletingNarrativeDocument.value = false
   }
@@ -937,7 +1156,7 @@ const saveNarrative = async (
   const signatureAtSave = narrativeAutosaveSignature.value
   const titleForSave = activeDocumentTitle.value.trim()
   try {
-    const updated = await worldbuildingClientService.updateCharacterNarrativeDocument({
+    const updated = await worldbuildingClientService.updateWorldEntityDocument({
       documentId: activeDocument.value.id,
       ...(titleForSave ? { title: titleForSave } : {}),
       contentHtml: characterDescriptionInput.value,
@@ -969,8 +1188,7 @@ const scheduleNarrativeAutosave = (delay = 700): void => {
   if (syncingFromDetail || !entityDetail.value) return
   clearNarrativeAutosave()
   if (narrativeTitleFocused.value) return
-  if (!canSaveNarrative.value || narrativeAutosaveSignature.value === lastSavedNarrativeSignature)
-    return
+  if (!canSaveNarrative.value || narrativeAutosaveSignature.value === lastSavedNarrativeSignature) return
   narrativeSaveState.value = 'idle'
   narrativeAutosaveTimer = setTimeout(() => {
     narrativeAutosaveTimer = null
@@ -982,7 +1200,7 @@ onMounted(async () => {
   loadNarrativeSidebarWidth()
   loadNarrativeAiPanelWidth()
   window.addEventListener('resize', syncNarrativeSidebarWidthBounds)
-  await loadEntityDetail()
+  await loadDocumentWorkspace()
 })
 
 watch(narrativeAutosaveSignature, () => {
@@ -1022,9 +1240,7 @@ useKeyboardShortcut(
   width: 100vw;
   height: 100%;
   display: grid;
-  grid-template-columns:
-    var(--narrative-sidebar-width) var(--narrative-sidebar-resizer-width)
-    minmax(0, 1fr);
+  grid-template-columns: var(--narrative-sidebar-width) var(--narrative-sidebar-resizer-width) minmax(0, 1fr);
   overflow: hidden;
   background: var(--wb-narrative-bg);
   color: var(--wb-narrative-text);
@@ -1100,9 +1316,13 @@ useKeyboardShortcut(
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  border: 0;
   border-radius: 7px;
+  background: transparent;
   font-size: 24px;
   color: var(--wb-narrative-text-muted);
+  cursor: pointer;
 }
 
 .sidebar-home-link:hover {
@@ -1148,10 +1368,87 @@ useKeyboardShortcut(
   color: var(--wb-narrative-text);
 }
 
+.sidebar-world-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--wb-narrative-text-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .catalog-panel {
   min-height: 0;
   padding: 0 4px;
   overflow: auto;
+}
+
+.catalog-scope {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 8px 6px 6px;
+  border-bottom: 1px solid var(--wb-narrative-border);
+}
+
+.catalog-type-select {
+  position: relative;
+  min-width: 0;
+}
+
+.catalog-type-select select,
+.catalog-search {
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+  border: 1px solid var(--wb-narrative-border);
+  border-radius: 6px;
+  outline: 0;
+  background: var(--wb-narrative-toolbar-bg);
+  color: var(--wb-narrative-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.catalog-type-select select {
+  padding: 0 30px 0 10px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.catalog-search {
+  padding: 0 10px;
+}
+
+.catalog-search::placeholder {
+  color: var(--wb-narrative-text-faint);
+}
+
+.catalog-type-select select:focus,
+.catalog-search:focus {
+  border-color: var(--wb-narrative-accent);
+}
+
+.catalog-select-caret {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  color: var(--wb-narrative-text-muted);
+  pointer-events: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .catalog-head {
@@ -1183,10 +1480,97 @@ useKeyboardShortcut(
   font-size: 12px;
 }
 
+.catalog-actions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .catalog-tree {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.entity-catalog-tree {
+  gap: 1px;
+}
+
+.catalog-entity-row {
+  min-width: 0;
+  height: 36px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 26px;
+  align-items: center;
+  border-radius: 7px;
+}
+
+.catalog-entity-row:hover {
+  background: var(--wb-narrative-hover);
+}
+
+.catalog-entity-row.active {
+  background: var(--wb-narrative-active);
+}
+
+.catalog-entity-toggle,
+.catalog-entity-name,
+.catalog-entity-add {
+  border: 0;
+  background: transparent;
+  color: var(--wb-narrative-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.catalog-entity-toggle {
+  height: 30px;
+  padding: 0;
+  color: var(--wb-narrative-text-muted);
+  font-size: 18px;
+}
+
+.catalog-entity-name {
+  min-width: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 4px;
+  text-align: left;
+}
+
+.catalog-entity-name span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalog-entity-name small {
+  flex-shrink: 0;
+  color: var(--wb-narrative-text-faint);
+  font-size: 11px;
+}
+
+.catalog-entity-add {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--wb-narrative-text-muted);
+  opacity: 0;
+}
+
+.catalog-entity-row:hover .catalog-entity-add {
+  opacity: 1;
+}
+
+.catalog-entity-add:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--wb-narrative-text);
+}
+
+.catalog-entity-empty {
+  padding-left: 34px;
 }
 
 .catalog-tree-row {
@@ -1552,6 +1936,38 @@ useKeyboardShortcut(
   align-items: center;
   justify-content: center;
   color: var(--wb-narrative-text-muted);
+}
+
+.editor-empty-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--wb-narrative-text-muted);
+}
+
+.editor-empty-state strong {
+  color: var(--wb-narrative-text);
+  font-size: 18px;
+}
+
+.editor-empty-state button {
+  height: 32px;
+  margin-top: 6px;
+  padding: 0 14px;
+  border: 1px solid var(--wb-narrative-border);
+  border-radius: 6px;
+  background: var(--wb-narrative-toolbar-bg);
+  color: var(--wb-narrative-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.editor-empty-state button:hover {
+  border-color: var(--wb-narrative-accent);
 }
 
 .narrative-editor :deep(.editor-shell) {

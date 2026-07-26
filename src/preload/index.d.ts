@@ -32,12 +32,12 @@ import type {
   WorldPayload
 } from '../share/cache/worldbuilding/worldbuilding'
 import type {
-  CharacterNarrativeDocumentPayload,
-  CreateCharacterNarrativeDocumentInput,
-  DeleteCharacterNarrativeDocumentInput,
-  MoveCharacterNarrativeDocumentInput,
-  UpdateCharacterNarrativeDocumentInput
-} from '../share/cache/worldbuilding/characterNarrativeDocument'
+  CreateWorldEntityDocumentInput,
+  DeleteWorldEntityDocumentInput,
+  MoveWorldEntityDocumentInput,
+  UpdateWorldEntityDocumentInput,
+  WorldEntityDocumentPayload
+} from '../share/cache/worldbuilding/worldEntityDocument'
 import type {
   CharacterImpressionPayload,
   UpsertCharacterImpressionInput
@@ -157,24 +157,18 @@ declare global {
       input: CreateWorldEntityRelationInput
     ) => Promise<WorldEntityRelationPayload>
 
-    listCharacterNarrativeDocuments: (
-      characterEntityId: string
-    ) => Promise<CharacterNarrativeDocumentPayload[]>
-    getCharacterNarrativeDocument: (
-      documentId: string
-    ) => Promise<CharacterNarrativeDocumentPayload | null>
-    createCharacterNarrativeDocument: (
-      input: CreateCharacterNarrativeDocumentInput
-    ) => Promise<CharacterNarrativeDocumentPayload>
-    updateCharacterNarrativeDocument: (
-      input: UpdateCharacterNarrativeDocumentInput
-    ) => Promise<CharacterNarrativeDocumentPayload>
-    moveCharacterNarrativeDocument: (
-      input: MoveCharacterNarrativeDocumentInput
-    ) => Promise<CharacterNarrativeDocumentPayload>
-    deleteCharacterNarrativeDocument: (
-      input: DeleteCharacterNarrativeDocumentInput
-    ) => Promise<void>
+    listWorldEntityDocuments: (ownerEntityId: string) => Promise<WorldEntityDocumentPayload[]>
+    getWorldEntityDocument: (documentId: string) => Promise<WorldEntityDocumentPayload | null>
+    createWorldEntityDocument: (
+      input: CreateWorldEntityDocumentInput
+    ) => Promise<WorldEntityDocumentPayload>
+    updateWorldEntityDocument: (
+      input: UpdateWorldEntityDocumentInput
+    ) => Promise<WorldEntityDocumentPayload>
+    moveWorldEntityDocument: (
+      input: MoveWorldEntityDocumentInput
+    ) => Promise<WorldEntityDocumentPayload>
+    deleteWorldEntityDocument: (input: DeleteWorldEntityDocumentInput) => Promise<void>
     getCharacterImpression: (
       characterEntityId: string
     ) => Promise<CharacterImpressionPayload | null>

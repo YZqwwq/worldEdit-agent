@@ -75,7 +75,7 @@
             <button
               type="button"
               class="workspace-entry-tab"
-              @click="navigateFromProfile('CharacterNarrativeEditor')"
+              @click="navigateFromProfile('WorldEntityDocumentEditor')"
             >
               文本编辑
             </button>
@@ -684,7 +684,7 @@ const navigateFromProfile = async (
     | 'WorldEditor'
     | 'AIChat'
     | 'CharacterPortraitEditor'
-    | 'CharacterNarrativeEditor'
+    | 'WorldEntityDocumentEditor'
 ): Promise<void> => {
   clearProfileAutosave()
   await saveProfile(true).catch(() => undefined)

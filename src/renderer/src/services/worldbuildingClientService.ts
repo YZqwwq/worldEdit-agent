@@ -16,12 +16,12 @@ import type {
   WorldPayload
 } from '@share/cache/worldbuilding/worldbuilding'
 import type {
-  CharacterNarrativeDocumentPayload,
-  CreateCharacterNarrativeDocumentInput,
-  DeleteCharacterNarrativeDocumentInput,
-  MoveCharacterNarrativeDocumentInput,
-  UpdateCharacterNarrativeDocumentInput
-} from '@share/cache/worldbuilding/characterNarrativeDocument'
+  CreateWorldEntityDocumentInput,
+  DeleteWorldEntityDocumentInput,
+  MoveWorldEntityDocumentInput,
+  UpdateWorldEntityDocumentInput,
+  WorldEntityDocumentPayload
+} from '@share/cache/worldbuilding/worldEntityDocument'
 
 export const worldbuildingClientService = {
   listWorlds(): Promise<WorldPayload[]> {
@@ -89,37 +89,33 @@ export const worldbuildingClientService = {
     return window.api.createWorldEntityRelation(input)
   },
 
-  listCharacterNarrativeDocuments(
-    characterEntityId: string
-  ): Promise<CharacterNarrativeDocumentPayload[]> {
-    return window.api.listCharacterNarrativeDocuments(characterEntityId)
+  listWorldEntityDocuments(ownerEntityId: string): Promise<WorldEntityDocumentPayload[]> {
+    return window.api.listWorldEntityDocuments(ownerEntityId)
   },
 
-  getCharacterNarrativeDocument(
-    documentId: string
-  ): Promise<CharacterNarrativeDocumentPayload | null> {
-    return window.api.getCharacterNarrativeDocument(documentId)
+  getWorldEntityDocument(documentId: string): Promise<WorldEntityDocumentPayload | null> {
+    return window.api.getWorldEntityDocument(documentId)
   },
 
-  createCharacterNarrativeDocument(
-    input: CreateCharacterNarrativeDocumentInput
-  ): Promise<CharacterNarrativeDocumentPayload> {
-    return window.api.createCharacterNarrativeDocument(input)
+  createWorldEntityDocument(
+    input: CreateWorldEntityDocumentInput
+  ): Promise<WorldEntityDocumentPayload> {
+    return window.api.createWorldEntityDocument(input)
   },
 
-  updateCharacterNarrativeDocument(
-    input: UpdateCharacterNarrativeDocumentInput
-  ): Promise<CharacterNarrativeDocumentPayload> {
-    return window.api.updateCharacterNarrativeDocument(input)
+  updateWorldEntityDocument(
+    input: UpdateWorldEntityDocumentInput
+  ): Promise<WorldEntityDocumentPayload> {
+    return window.api.updateWorldEntityDocument(input)
   },
 
-  moveCharacterNarrativeDocument(
-    input: MoveCharacterNarrativeDocumentInput
-  ): Promise<CharacterNarrativeDocumentPayload> {
-    return window.api.moveCharacterNarrativeDocument(input)
+  moveWorldEntityDocument(
+    input: MoveWorldEntityDocumentInput
+  ): Promise<WorldEntityDocumentPayload> {
+    return window.api.moveWorldEntityDocument(input)
   },
 
-  deleteCharacterNarrativeDocument(input: DeleteCharacterNarrativeDocumentInput): Promise<void> {
-    return window.api.deleteCharacterNarrativeDocument(input)
+  deleteWorldEntityDocument(input: DeleteWorldEntityDocumentInput): Promise<void> {
+    return window.api.deleteWorldEntityDocument(input)
   }
 }

@@ -30,7 +30,7 @@ import type {
   SaveChatAvatarInput
 } from '../../../share/cache/render/aiagent/chatAvatarProfile'
 import { worldbuildingService } from '../worldbuilding/worldbuildingService'
-import { characterNarrativeDocumentService } from '../worldbuilding/characterNarrativeDocumentService'
+import { worldEntityDocumentService } from '../worldbuilding/worldEntityDocumentService'
 import { characterImpressionService } from '../worldbuilding/characterImpressionService'
 import type {
   CreateWorldEntityInput,
@@ -43,11 +43,11 @@ import type {
   WorldbuildingSchemaCatalogPayload
 } from '@share/cache/worldbuilding/worldbuilding'
 import type {
-  CreateCharacterNarrativeDocumentInput,
-  DeleteCharacterNarrativeDocumentInput,
-  MoveCharacterNarrativeDocumentInput,
-  UpdateCharacterNarrativeDocumentInput
-} from '@share/cache/worldbuilding/characterNarrativeDocument'
+  CreateWorldEntityDocumentInput,
+  DeleteWorldEntityDocumentInput,
+  MoveWorldEntityDocumentInput,
+  UpdateWorldEntityDocumentInput
+} from '@share/cache/worldbuilding/worldEntityDocument'
 import type { UpsertCharacterImpressionInput } from '@share/cache/worldbuilding/characterImpression'
 import { taskService } from '../task/taskService'
 import { createConfiguredModelRuntime } from './model-adapters/modelProviderAdapter'
@@ -458,39 +458,39 @@ export function initializeAIEndpoints(): void {
     }
   )
 
-  ipcMain.handle('characterNarrative:listDocuments', async (_event, characterEntityId: string) => {
-    return characterNarrativeDocumentService.listDocuments(characterEntityId)
+  ipcMain.handle('worldEntityDocument:list', async (_event, ownerEntityId: string) => {
+    return worldEntityDocumentService.listDocuments(ownerEntityId)
   })
 
-  ipcMain.handle('characterNarrative:getDocument', async (_event, documentId: string) => {
-    return characterNarrativeDocumentService.getDocument(documentId)
+  ipcMain.handle('worldEntityDocument:get', async (_event, documentId: string) => {
+    return worldEntityDocumentService.getDocument(documentId)
   })
 
   ipcMain.handle(
-    'characterNarrative:createDocument',
-    async (_event, input: CreateCharacterNarrativeDocumentInput) => {
-      return characterNarrativeDocumentService.createDocument(input)
+    'worldEntityDocument:create',
+    async (_event, input: CreateWorldEntityDocumentInput) => {
+      return worldEntityDocumentService.createDocument(input)
     }
   )
 
   ipcMain.handle(
-    'characterNarrative:updateDocument',
-    async (_event, input: UpdateCharacterNarrativeDocumentInput) => {
-      return characterNarrativeDocumentService.updateDocument(input)
+    'worldEntityDocument:update',
+    async (_event, input: UpdateWorldEntityDocumentInput) => {
+      return worldEntityDocumentService.updateDocument(input)
     }
   )
 
   ipcMain.handle(
-    'characterNarrative:moveDocument',
-    async (_event, input: MoveCharacterNarrativeDocumentInput) => {
-      return characterNarrativeDocumentService.moveDocument(input)
+    'worldEntityDocument:move',
+    async (_event, input: MoveWorldEntityDocumentInput) => {
+      return worldEntityDocumentService.moveDocument(input)
     }
   )
 
   ipcMain.handle(
-    'characterNarrative:deleteDocument',
-    async (_event, input: DeleteCharacterNarrativeDocumentInput) => {
-      return characterNarrativeDocumentService.deleteDocument(input)
+    'worldEntityDocument:delete',
+    async (_event, input: DeleteWorldEntityDocumentInput) => {
+      return worldEntityDocumentService.deleteDocument(input)
     }
   )
 

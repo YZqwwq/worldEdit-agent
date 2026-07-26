@@ -1,5 +1,5 @@
 import { AppDataSource } from '../../database'
-import { CharacterNarrativeDocumentRecord } from '../../../share/entity/database/CharacterNarrativeDocumentRecord'
+import { WorldEntityDocumentRecord } from '../../../share/entity/database/WorldEntityDocumentRecord'
 import { WorldEntityRecord } from '../../../share/entity/database/WorldEntityRecord'
 
 export interface CharacterNarrativeReadingChunk {
@@ -148,7 +148,7 @@ export interface CharacterNarrativeFreshnessSnapshot {
   latestDocumentUpdatedAt?: string
 }
 
-type TreeNode = CharacterNarrativeDocumentRecord & {
+type TreeNode = WorldEntityDocumentRecord & {
   children: TreeNode[]
 }
 
@@ -267,7 +267,7 @@ class CharacterNarrativeReadingService {
   }
 
   private get documentRepo() {
-    return AppDataSource.getRepository(CharacterNarrativeDocumentRecord)
+    return AppDataSource.getRepository(WorldEntityDocumentRecord)
   }
 
   private async assertCharacterEntity(characterEntityId: string): Promise<WorldEntityRecord> {
@@ -289,7 +289,7 @@ class CharacterNarrativeReadingService {
   }> {
     const character = await this.assertCharacterEntity(characterEntityId)
     const documents = await this.documentRepo.find({
-      where: { characterEntityId: character.id }
+      where: { ownerEntityId: character.id }
     })
     const nodeById = new Map<string, TreeNode>()
     for (const document of documents) {
@@ -366,7 +366,7 @@ class CharacterNarrativeReadingService {
   ): Promise<CharacterNarrativeFreshnessSnapshot> {
     const character = await this.assertCharacterEntity(characterEntityId)
     const documents = await this.documentRepo.find({
-      where: { characterEntityId: character.id }
+      where: { ownerEntityId: character.id }
     })
     const latestUpdatedAt = documents.reduce<Date | null>((latest, document) => {
       if (!document.updatedAt) return latest
