@@ -17,6 +17,7 @@ import { clamp } from './personaMath'
 import { getObservationText } from './personaObservationUtils'
 import { inferSignals } from './personaSignalInference'
 import type { PersonaSignal, SignalCategory } from './personaTypes'
+import type { RecentDialogueMessage } from '../instantperceptionnode/instantPerceptionContext'
 
 const cloneMetrics = (input: PersonaMetrics): PersonaMetrics => ({ ...input })
 
@@ -125,6 +126,10 @@ export const reconcilePersonaState = async (input: {
   observations: InteractionObservationSnapshot[]
   slots: MemorySlotSnapshot
   config: PersonaConfig
+  signalContext?: {
+    observationId: number
+    recentDialogue: RecentDialogueMessage[]
+  }
 }): Promise<{
   state: PersonaState
   appliedSignals: PersonaSignal[]
@@ -152,7 +157,13 @@ export const reconcilePersonaState = async (input: {
   for (const observation of input.observations) {
     if (observation.type === 'user_message') {
       const text = getObservationText(observation)
-      const signals = await inferSignals(text, next.metrics)
+      const signals = await inferSignals(
+        text,
+        next.metrics,
+        observation.id === input.signalContext?.observationId
+          ? input.signalContext.recentDialogue
+          : []
+      )
       for (const signal of signals) {
         addStableMetric(
           next.stable_preferences,

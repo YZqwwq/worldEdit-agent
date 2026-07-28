@@ -6,6 +6,7 @@ import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import { roundTo } from '../../manager/personal/personalManager'
 import { extractJsonObject } from './personaJsonUtils'
 import type { PersonaSignal, SignalCategory } from './personaTypes'
+import type { RecentDialogueMessage } from '../instantperceptionnode/instantPerceptionContext'
 
 const PERSONA_SIGNAL_CATEGORIES = ['自主性', '详略度', '探索性', '正式度'] as const
 
@@ -54,7 +55,8 @@ const normalizeModelSignals = (
 // 识别用户对“助手行为风格”的元偏好，只产出人格参数信号，不处理任务内容本身。
 const buildPersonaInferencePrompt = (
   userInput: string,
-  metrics: PersonaMetrics
+  metrics: PersonaMetrics,
+  recentDialogue: RecentDialogueMessage[]
 ): string => `你是一个人格参数调节器。
 
 任务：根据“用户最新一句话”里体现出的元偏好，只判断是否需要调整以下四个人格参数：
@@ -69,6 +71,9 @@ ${JSON.stringify(metrics, null, 2)}
 用户最新输入：
 ${userInput}
 
+最近对话背景：
+${recentDialogue.length > 0 ? JSON.stringify(recentDialogue, null, 2) : '(none)'}
+
 请只输出 JSON，不要输出解释，不要使用 Markdown 代码块。格式如下：
 {
   "signals": [
@@ -81,15 +86,17 @@ ${userInput}
 }
 
 规则：
-1. 只根据用户对助手行为风格的偏好来调参，不要因为任务主题本身就误判。
-2. 没有明显偏好时返回 {"signals":[]}
-3. 每个分类最多返回一条。
-4. delta 必须在 -0.12 到 0.12 之间。
-5. user_signal 使用简短 snake_case 标签。`
+1. 只判断“用户最新输入”表达的新偏好；最近对话只用于理解指代、承接和这句话针对的助手行为。
+2. 不要从最近对话中的旧消息重复提取偏好，也不要因为任务主题本身就误判。
+3. 没有明显偏好时返回 {"signals":[]}
+4. 每个分类最多返回一条。
+5. delta 必须在 -0.12 到 0.12 之间。
+6. user_signal 使用简短 snake_case 标签。`
 
 const inferSignalsWithModel = async (
   userInput: string,
-  metrics: PersonaMetrics
+  metrics: PersonaMetrics,
+  recentDialogue: RecentDialogueMessage[]
 ): Promise<{
   signals: PersonaSignal[]
   parsedResponse: z.infer<typeof personaSignalResponseSchema>
@@ -98,7 +105,7 @@ const inferSignalsWithModel = async (
   const response = await quickModel.invoke(
     [
       new SystemMessage('你只负责返回合法 JSON。'),
-      new HumanMessage(buildPersonaInferencePrompt(userInput, metrics))
+      new HumanMessage(buildPersonaInferencePrompt(userInput, metrics, recentDialogue))
     ],
     { signal: AbortSignal.timeout(8000) } as Record<string, unknown>
   )
@@ -117,10 +124,11 @@ const inferSignalsWithModel = async (
 
 export const inferSignals = async (
   userInput: string,
-  metrics: PersonaMetrics
+  metrics: PersonaMetrics,
+  recentDialogue: RecentDialogueMessage[] = []
 ): Promise<PersonaSignal[]> => {
   try {
-    const result = await inferSignalsWithModel(userInput, metrics)
+    const result = await inferSignalsWithModel(userInput, metrics, recentDialogue)
     return result.signals
   } catch {
     return []

@@ -28,7 +28,6 @@ const defaultState = (): StateData => ({
   last_archive_time: '',
   archive_strategy: 'stage_based',
   api_status: 'healthy',
-  anchors: [],
   archive_threshold: 6,
   archive_min_interval_ms: 0,
   short_term_limit: SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
@@ -76,7 +75,6 @@ export class MemoryManager {
     row.lastArchiveTime = this.state.last_archive_time
     row.archiveStrategy = this.state.archive_strategy
     row.apiStatus = this.state.api_status
-    row.anchorsJson = JSON.stringify(this.state.anchors ?? [])
     row.archiveThreshold = this.state.archive_threshold ?? 6
     row.archiveMinIntervalMs = this.state.archive_min_interval_ms ?? 0
     row.shortTermLimit = this.state.short_term_limit ?? SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
@@ -154,16 +152,6 @@ export class MemoryManager {
     if (this.state.short_term_limit == null) {
       this.state.short_term_limit = SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
     }
-    if (!Array.isArray(this.state.anchors)) this.state.anchors = []
-  }
-
-  private parseAnchors(json: string): string[] {
-    try {
-      const parsed = JSON.parse(json)
-      return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : []
-    } catch {
-      return []
-    }
   }
 
   private mapRowToState(row: MemoryStateRecord): StateData {
@@ -178,7 +166,6 @@ export class MemoryManager {
       last_archive_time: row.lastArchiveTime || '',
       archive_strategy: row.archiveStrategy || 'stage_based',
       api_status: row.apiStatus || 'healthy',
-      anchors: this.parseAnchors(row.anchorsJson || '[]'),
       archive_threshold: row.archiveThreshold ?? 6,
       archive_min_interval_ms: row.archiveMinIntervalMs ?? 0,
       short_term_limit: row.shortTermLimit ?? SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
@@ -223,11 +210,12 @@ export class MemoryManager {
       const parsed = JSON.parse(input)
       return Array.isArray(parsed)
         ? parsed
-            .filter((item) => item && typeof item === "object")
+            .filter((item) => item && typeof item === 'object')
             .map((item) => ({
               role: typeof item.role === 'string' ? item.role : 'user',
               content: typeof item.content === 'string' ? item.content : '',
-              timestamp: typeof item.timestamp === 'string' ? item.timestamp : new Date().toISOString(),
+              timestamp:
+                typeof item.timestamp === 'string' ? item.timestamp : new Date().toISOString(),
               sequence:
                 typeof item.sequence === 'number' && Number.isFinite(item.sequence)
                   ? Math.max(0, Math.round(item.sequence))
@@ -313,13 +301,27 @@ export class MemoryManager {
   }
 
   // 获取内存快照
-  public async getSnapshot(): Promise<MemorySnapshot> {
+  public async getSnapshot(options?: { recentStageLimit?: number }): Promise<MemorySnapshot> {
     await this.initialize()
     return this.withLock(async () => {
-      const recentStages = await memoryStageService.listRecent(this.state.session_id, 5)
+      const recentStageLimit = Math.max(
+        1,
+        Math.min(500, Math.round(options?.recentStageLimit ?? 5))
+      )
+      const recentStages = await memoryStageService.listRecent(
+        this.state.session_id,
+        recentStageLimit
+      )
       return {
-        anchors: this.state.anchors ? [...this.state.anchors] : [],
         shortTerm: this.shortTerm.map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          sequence: msg.sequence,
+          compressed: msg.compressed,
+          compressed_at: msg.compressed_at
+        })),
+        pendingArchive: this.archiveBuffer.map((msg) => ({
           role: msg.role,
           content: msg.content,
           timestamp: msg.timestamp,

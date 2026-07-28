@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages'
+import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
 import type { SceneDomain, ScenePerceptionSlot } from '@share/cache/AItype/states/memorySlots'
 import { contentToText } from '../../../messageoutput/transformRespones'
@@ -7,6 +7,10 @@ import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import { MessagesState } from '../../state/messageState'
 import { buildConversationStateFromScenePerception } from '../../state/sceneContextAdapter'
 import { traceArtifact, traceDecision, traceError } from '../../../../log/trace/agentTraceEmitter'
+import type {
+  InstantPerceptionContext,
+  RecentDialogueMessage
+} from '../instantperceptionnode/instantPerceptionContext'
 
 const SCENE_DOMAINS = [
   'app_worldbuilding',
@@ -41,11 +45,6 @@ const scenePerceptionResponseSchema = z.object({
   evidence: z.array(z.string().trim().min(1).max(120)).max(6).default([])
 })
 
-type RecentMessagePreview = {
-  role: 'user' | 'assistant'
-  text: string
-}
-
 const extractJsonObject = (text: string): string | null => {
   const trimmed = text.trim()
   if (!trimmed) return null
@@ -64,41 +63,9 @@ const extractJsonObject = (text: string): string | null => {
   return trimmed.slice(start, end + 1)
 }
 
-const compact = (value: string, max = 500): string => {
-  const normalized = String(value || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-  if (normalized.length <= max) return normalized
-  return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`
-}
-
-const getCurrentUserText = (state: typeof MessagesState.State): string => {
-  const message = state.messages
-    .slice()
-    .reverse()
-    .find((item) => item instanceof HumanMessage && !item.additional_kwargs?.isHistory)
-  return message ? contentToText(message.content).trim() : ''
-}
-
-const buildRecentMessagePreview = (
-  state: typeof MessagesState.State,
-  limit = 6
-): RecentMessagePreview[] =>
-  state.messages
-    .filter((message) => message instanceof HumanMessage || message instanceof AIMessage)
-    .filter((message) => !message.additional_kwargs?.isHistory)
-    .slice(-limit)
-    .map(
-      (message): RecentMessagePreview => ({
-        role: message instanceof HumanMessage ? 'user' : 'assistant',
-        text: compact(contentToText(message.content), 360)
-      })
-    )
-    .filter((item) => item.text.length > 0)
-
 const buildScenePrompt = (input: {
   currentUserText: string
-  recentMessages: RecentMessagePreview[]
+  recentMessages: RecentDialogueMessage[]
   previousScene?: ScenePerceptionSlot
   memoryWorldFocus?: {
     status?: string
@@ -246,9 +213,10 @@ const buildFallbackScenePerception = (input: {
 })
 
 export async function sceneNode(
-  state: typeof MessagesState.State
+  state: typeof MessagesState.State,
+  perceptionContext: InstantPerceptionContext
 ): Promise<Partial<typeof MessagesState.State>> {
-  const currentUserText = getCurrentUserText(state)
+  const currentUserText = perceptionContext.currentUserText
   const slots = await memorySlotService.getSnapshot()
   const primaryWorldFocus =
     slots.world_focus.focuses.find(
@@ -277,7 +245,7 @@ export async function sceneNode(
         new HumanMessage(
           buildScenePrompt({
             currentUserText,
-            recentMessages: buildRecentMessagePreview(state),
+            recentMessages: perceptionContext.recentDialogue,
             previousScene: slots.scene_perception,
             memoryWorldFocus,
             activeTask: state.taskLifecycle?.activeTask

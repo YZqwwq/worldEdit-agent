@@ -12,10 +12,16 @@ import {
 } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import { MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY } from '../../../messagecontent/mainAgentMessageContentService'
 import {
-  buildPersonaAssemblyPrompt,
+  buildPersonaAssemblyPromptParts,
   loadCharacterPrompt,
   loadExpressionPromptProfile
 } from '../../../prompt/main_agent/agentPromptService'
+import {
+  definePromptSection,
+  promptSectionToSystemMessage,
+  toPromptSectionManifestItem,
+  type PromptSection
+} from '../../../prompt/main_agent/shared/promptSections'
 import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEmitter'
 import { getCurrentDetailTime, getDetailTime } from '../../../../../utils/getDetailTime'
 import { applyScenePerceptionToMemorySlots } from '../../state/sceneContextAdapter'
@@ -57,14 +63,21 @@ const compactLongText = (value: string, max = 8000): string => {
   return `${text.slice(0, max).trimEnd()}\n\n[已截断：完整人物印象仍保存在人物关联表中。]`
 }
 
+type SplitPrompt = {
+  context: string
+  instruction: string
+}
+
 const buildWorldFocusPrompt = (
   state: typeof MessagesState.State,
   slotSnapshot: MemorySlotSnapshot
-): string => {
+): SplitPrompt => {
   const focus = state.worldFocusContext
-  if (!focus) return ''
-  if (slotSnapshot.scene_perception.shouldRunWorldFocus !== true) return ''
-  if (focus.focuses.length === 0) return ''
+  if (!focus) return { context: '', instruction: '' }
+  if (slotSnapshot.scene_perception.shouldRunWorldFocus !== true) {
+    return { context: '', instruction: '' }
+  }
+  if (focus.focuses.length === 0) return { context: '', instruction: '' }
   const focuses = focus.focuses
   const primaryFocus =
     focuses.find((item) => item.entityId === focus.primaryFocusId) ??
@@ -81,8 +94,10 @@ const buildWorldFocusPrompt = (
           .map((item) => `${item.role}:${item.worldName}/${item.entityName}(${item.entityId})`)
           .join('；')}`
       : '',
-    `识别置信度：${focus.confidence.toFixed(2)}`,
-    '使用规则：这是一份本轮内部上下文。回答用户时可以自然承接该对象的信息，但不要主动暴露“我先去读取/聚焦了这个对象”之类过程性表述。'
+    `识别置信度：${focus.confidence.toFixed(2)}`
+  ]
+  const instructionLines = [
+    '世界观焦点使用规则：这是一份本轮内部上下文。回答用户时可以自然承接该对象的信息，但不要主动暴露“我先去读取/聚焦了这个对象”之类过程性表述。'
   ]
 
   for (const item of focuses) {
@@ -115,18 +130,20 @@ const buildWorldFocusPrompt = (
       (!item.impression?.found || item.impression.status !== 'available')
   )
   if (hasUnavailableCharacterImpression) {
-    lines.push(
-      '',
+    instructionLines.push(
       '人物理解使用规则：当前焦点组中存在人物印象缺失或过期；如果用户问题需要深入判断人物的性格、动机、生平、关系、事件影响或要求重新评价，应优先激活 character_narrative_reader 工具集，按人物文本目录创建阅读任务并在必要时保存新的 save_character_narrative_impression。若不阅读，请明确保持谨慎，不要对文本未支持的内容做强断言。'
     )
   }
 
-  return lines.filter(Boolean).join('\n')
+  return {
+    context: lines.filter(Boolean).join('\n'),
+    instruction: instructionLines.filter(Boolean).join('\n')
+  }
 }
 
-const buildScenePrompt = (slotSnapshot: MemorySlotSnapshot): string => {
+const buildScenePrompt = (slotSnapshot: MemorySlotSnapshot): SplitPrompt => {
   const scene = slotSnapshot.scene_perception
-  if (!scene) return ''
+  if (!scene) return { context: '', instruction: '' }
 
   const lines = [
     '本轮场景连续性判断：',
@@ -140,11 +157,14 @@ const buildScenePrompt = (slotSnapshot: MemorySlotSnapshot): string => {
     `是否允许使用历史世界观焦点：${scene.shouldInjectHistoricalWorldFocus ? '是' : '否'}`,
     `判断置信度：${scene.confidence.toFixed(2)}`,
     `判断理由：${scene.reason}`,
-    scene.evidence.length > 0 ? `判断证据：${scene.evidence.join('；')}` : '',
-    '使用规则：这是内部路由上下文。若连续性为 temporary_reference，用户提到的外部作品/现实对象只是参考或类比，不要把它当作应用内世界观焦点。若不允许使用历史世界观焦点，不要主动把旧人物/世界观对象带入回答。'
+    scene.evidence.length > 0 ? `判断证据：${scene.evidence.join('；')}` : ''
   ]
 
-  return lines.filter(Boolean).join('\n')
+  return {
+    context: lines.filter(Boolean).join('\n'),
+    instruction:
+      '场景上下文使用规则：若连续性为 temporary_reference，用户提到的外部作品或现实对象只是参考或类比，不要把它当作应用内世界观焦点。若不允许使用历史世界观焦点，不要主动把旧人物或世界观对象带入回答。'
+  }
 }
 
 const buildInstantPerceptionPrompt = (state: typeof MessagesState.State): string => {
@@ -170,9 +190,9 @@ const buildInstantPerceptionPrompt = (state: typeof MessagesState.State): string
   return lines.join('\n')
 }
 
-const buildWorkspaceContextPrompt = (state: typeof MessagesState.State): string => {
+const buildWorkspaceContextPrompt = (state: typeof MessagesState.State): SplitPrompt => {
   const context = state.workspaceContext
-  if (!context) return ''
+  if (!context) return { context: '', instruction: '' }
 
   const pageLabels: Record<typeof context.pageKind, string> = {
     home: '首页',
@@ -185,20 +205,21 @@ const buildWorkspaceContextPrompt = (state: typeof MessagesState.State): string 
   const lines = [
     '当前应用工作区：',
     `页面：${pageLabels[context.pageKind]}（${context.routeName}）`,
-    context.world
-      ? `世界观：${context.world.name || '未命名'}（worldId=${context.world.id}）`
-      : '',
+    context.world ? `世界观：${context.world.name || '未命名'}（worldId=${context.world.id}）` : '',
     context.entity
       ? `当前页面实体：${context.entity.type || '未知类型'} / ${context.entity.name || '未命名'}（entityId=${context.entity.id}）`
       : '',
     context.document
       ? `当前文档：${context.document.title || '未命名'}（documentId=${context.document.id}${context.document.revision ? `，revision=${context.document.revision}` : ''}）`
       : '',
-    `页面快照时间：${context.capturedAt}`,
-    '使用规则：这是用户发送本轮消息时正在查看的应用页面，是可靠的界面定位信息，但不等同于用户正在讨论的语义焦点。需要编辑“当前文档”时可使用这里的 documentId；若用户明确谈论其他对象，以用户消息和本轮世界观聚焦为准。'
+    `页面快照时间：${context.capturedAt}`
   ]
 
-  return lines.filter(Boolean).join('\n')
+  return {
+    context: lines.filter(Boolean).join('\n'),
+    instruction:
+      '工作区上下文使用规则：这是用户发送本轮消息时正在查看的应用页面，是可靠的界面定位信息，但不等同于用户正在讨论的语义焦点。需要编辑“当前文档”时可使用这里的 documentId；若用户明确谈论其他对象，以用户消息和本轮世界观聚焦为准。'
+  }
 }
 
 /**
@@ -209,6 +230,12 @@ export async function contextNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
   const messages: BaseMessage[] = []
+  const promptSections: PromptSection[] = []
+  const appendPromptSection = (input: PromptSection): void => {
+    const section = definePromptSection(input)
+    promptSections.push(section)
+    messages.push(promptSectionToSystemMessage(section))
+  }
 
   const slotSnapshot = await memorySlotService.reconcileFromObservations()
   const effectiveSlotSnapshot = applyScenePerceptionToMemorySlots(slotSnapshot)
@@ -218,65 +245,131 @@ export async function contextNode(
   const currentTimeContext = formatCurrentContextTime()
   const currentUserMessageCreatedAt = getCurrentUserMessageCreatedAt(state)
   const contextualToolsets =
-    state.workspaceContext?.pageKind === 'document'
-      ? ['world_document_editor']
-      : []
+    state.workspaceContext?.pageKind === 'document' ? ['world_document_editor'] : []
   const toolActivationState = await resolveMainAgentToolActivationState({
     ...state,
-    activeToolsets: [
-      ...(state.activeToolsets ?? []),
-      ...contextualToolsets
-    ],
+    activeToolsets: [...(state.activeToolsets ?? []), ...contextualToolsets],
     suppressedTools: []
   })
 
-  // 人格组装提示
-  const personaAssemblyPrompt = buildPersonaAssemblyPrompt({
+  const personaParts = buildPersonaAssemblyPromptParts({
     characterPrompt,
     expressionPrompt: expressionProfile.prompt,
     moodAssessment: effectiveSlotSnapshot.ai_mood.current
   })
-  if (personaAssemblyPrompt) {
-    messages.push(new SystemMessage(personaAssemblyPrompt))
-  }
+  appendPromptSection({
+    id: 'persona-anchor',
+    duty: 'identity',
+    kind: 'persona_anchor',
+    source: 'characterPromptStore',
+    content: personaParts.identity
+  })
+  appendPromptSection({
+    id: 'agent-mood',
+    duty: 'context',
+    kind: 'agent_internal_state',
+    source: 'personaNode',
+    content: personaParts.moodContext,
+    capturedAt: effectiveSlotSnapshot.ai_mood.updatedAt
+  })
+  appendPromptSection({
+    id: 'persona-expression',
+    duty: 'instruction',
+    kind: 'expression_style',
+    source: 'personaAssemblyPrompt',
+    content: personaParts.instruction
+  })
 
-  messages.push(
-    new SystemMessage(
-      `当前时间锚点：${currentTimeContext}\n默认以此作为“现在/今天/最近”之类相对时间表达的解释基准；除非用户明确提供其他时间背景，否则不要自行假设年份或日期。`
-    )
-  )
+  appendPromptSection({
+    id: 'current-time',
+    duty: 'context',
+    kind: 'time_context',
+    source: 'systemClock',
+    content: `当前时间锚点：${currentTimeContext}`
+  })
+  appendPromptSection({
+    id: 'relative-time-rule',
+    duty: 'instruction',
+    kind: 'time_interpretation_rule',
+    source: 'contextNode',
+    content:
+      '默认以当前时间锚点作为“现在/今天/最近”等相对时间表达的解释基准；除非用户明确提供其他时间背景，否则不要自行假设年份或日期。'
+  })
 
   if (currentUserMessageCreatedAt) {
-    messages.push(
-      new SystemMessage(
-        `当前用户消息时间：${getDetailTime(currentUserMessageCreatedAt)}。这是你“看到”本轮用户发来这条消息时的聊天时间戳；理解“刚刚/这条消息/用户现在说”时优先参考它。`
-      )
-    )
+    appendPromptSection({
+      id: 'current-user-message-time',
+      duty: 'context',
+      kind: 'message_time_context',
+      source: 'persistedUserMessage',
+      content: `当前用户消息时间：${getDetailTime(currentUserMessageCreatedAt)}`,
+      capturedAt: currentUserMessageCreatedAt
+    })
+    appendPromptSection({
+      id: 'message-time-rule',
+      duty: 'instruction',
+      kind: 'time_interpretation_rule',
+      source: 'contextNode',
+      content:
+        '当前用户消息时间是你看到本轮用户消息时的聊天时间戳；理解“刚刚/这条消息/用户现在说”时优先参考它。'
+    })
   }
 
-  const workspaceContextPrompt = buildWorkspaceContextPrompt(state)
-  if (workspaceContextPrompt) {
-    messages.push(new SystemMessage(workspaceContextPrompt))
+  const workspacePrompt = buildWorkspaceContextPrompt(state)
+  if (workspacePrompt.context) {
+    appendPromptSection({
+      id: 'workspace-state',
+      duty: 'context',
+      kind: 'workspace_state',
+      source: 'agentWorkspaceContextResolver',
+      content: workspacePrompt.context,
+      capturedAt: state.workspaceContext?.capturedAt
+    })
+  }
+  if (workspacePrompt.instruction) {
+    appendPromptSection({
+      id: 'workspace-rule',
+      duty: 'instruction',
+      kind: 'context_usage_rule',
+      source: 'contextNode',
+      content: workspacePrompt.instruction
+    })
   }
 
-  // 当前活跃任务
   if (state.taskLifecycle?.activeTask) {
-    messages.push(
-      new SystemMessage(
-        `当前活跃任务:\n标题：${state.taskLifecycle.activeTask.title}\n目标：${state.taskLifecycle.activeTask.goal}\n状态：${state.taskLifecycle.activeTask.status}\n摘要：${state.taskLifecycle.activeTask.summary}`
-      )
-    )
+    appendPromptSection({
+      id: 'active-task',
+      duty: 'execution',
+      kind: 'active_task',
+      source: 'taskLifecycle',
+      content: `当前活跃任务:\n标题：${state.taskLifecycle.activeTask.title}\n目标：${state.taskLifecycle.activeTask.goal}\n状态：${state.taskLifecycle.activeTask.status}\n摘要：${state.taskLifecycle.activeTask.summary}`
+    })
   }
 
-  // 任务注册列表
   if (state.taskLifecycle?.notice?.type === 'task_registration_blocked') {
-    messages.push(
-      new SystemMessage(
-        `任务注册限制：${state.taskLifecycle.notice.message}\n请明确告诉用户：当前没有可用的对应子 agent 能力工具，因此不能注册该任务；如果用户希望继续，请先为系统加载对应能力工具。`
-      )
-    )
+    appendPromptSection({
+      id: 'task-registration-status',
+      duty: 'execution',
+      kind: 'task_registration_blocked',
+      source: 'taskLifecycle',
+      content: `任务注册限制：${state.taskLifecycle.notice.message}`
+    })
+    appendPromptSection({
+      id: 'task-registration-blocked-rule',
+      duty: 'instruction',
+      kind: 'task_rule',
+      source: 'taskLifecycle',
+      content:
+        '请明确告诉用户：当前没有可用的对应子 Agent 能力工具，因此不能注册该任务；如果用户希望继续，请先为系统加载对应能力工具。'
+    })
   } else if (state.taskLifecycle?.notice?.message) {
-    messages.push(new SystemMessage(`任务生命周期提示：${state.taskLifecycle.notice.message}`))
+    appendPromptSection({
+      id: 'task-lifecycle-notice',
+      duty: 'execution',
+      kind: 'task_notice',
+      source: 'taskLifecycle',
+      content: `任务生命周期提示：${state.taskLifecycle.notice.message}`
+    })
   }
 
   if (
@@ -284,14 +377,15 @@ export async function contextNode(
     state.taskLifecycle?.decision?.type === 'create_task' &&
     state.taskLifecycle?.capability?.available
   ) {
-    messages.push(
-      new SystemMessage(
-        `本轮输入被识别为适合委派给子 agent 的复杂任务。` +
-          ` 如果判断确实成立，请优先调用工具 ${state.taskLifecycle.capability.requiredToolName}，` +
-          ' 让工具在同一条应用流程里原子地完成任务登记与首轮 execution 启动。' +
-          ' 在工具成功之前，不要口头声称任务已经创建或已经开始执行。'
-      )
-    )
+    appendPromptSection({
+      id: 'task-delegation-rule',
+      duty: 'instruction',
+      kind: 'task_rule',
+      source: 'taskLifecycle',
+      content:
+        `本轮输入被识别为适合委派给子 Agent 的复杂任务。如果判断确实成立，请优先调用工具 ${state.taskLifecycle.capability.requiredToolName}，` +
+        '让工具在同一条应用流程里原子地完成任务登记与首轮 execution 启动。在工具成功之前，不要口头声称任务已经创建或已经开始执行。'
+    })
   }
 
   const toolUsagePrompt = buildToolUsageSystemPrompt(
@@ -299,44 +393,96 @@ export async function contextNode(
     toolActivationState
   )
   if (toolUsagePrompt) {
-    messages.push(new SystemMessage(toolUsagePrompt))
+    appendPromptSection({
+      id: 'tool-usage',
+      duty: 'instruction',
+      kind: 'tool_rule',
+      source: 'mainAgentToolRegistry',
+      content: toolUsagePrompt
+    })
   }
 
   const actionPolicyPrompt = buildActionPolicyPrompt(state.personaPolicy?.action)
   if (actionPolicyPrompt) {
-    messages.push(new SystemMessage(actionPolicyPrompt))
+    appendPromptSection({
+      id: 'action-policy',
+      duty: 'instruction',
+      kind: 'behavior_tendency',
+      source: 'personaPolicyCompiler',
+      content: actionPolicyPrompt,
+      capturedAt: state.personaPolicy?.generatedAt
+    })
   }
 
   const instantPerceptionPrompt = buildInstantPerceptionPrompt(state)
   if (instantPerceptionPrompt) {
-    messages.push(new SystemMessage(instantPerceptionPrompt))
+    appendPromptSection({
+      id: 'instant-perception-status',
+      duty: 'execution',
+      kind: 'perception_runtime_status',
+      source: 'instantPerceptionNode',
+      content: instantPerceptionPrompt,
+      capturedAt: state.instantPerception?.completedAt
+    })
   }
 
   const scenePrompt = buildScenePrompt(effectiveSlotSnapshot)
-  if (scenePrompt) {
-    messages.push(new SystemMessage(scenePrompt))
+  if (scenePrompt.context) {
+    appendPromptSection({
+      id: 'scene-state',
+      duty: 'context',
+      kind: 'scene_inference',
+      source: 'sceneNode',
+      content: scenePrompt.context,
+      confidence: effectiveSlotSnapshot.scene_perception.confidence,
+      capturedAt: effectiveSlotSnapshot.scene_perception.updatedAt
+    })
+  }
+  if (scenePrompt.instruction) {
+    appendPromptSection({
+      id: 'scene-rule',
+      duty: 'instruction',
+      kind: 'context_usage_rule',
+      source: 'sceneNode',
+      content: scenePrompt.instruction
+    })
   }
 
   const worldFocusPrompt = buildWorldFocusPrompt(state, effectiveSlotSnapshot)
-  if (worldFocusPrompt) {
-    messages.push(new SystemMessage(worldFocusPrompt))
+  if (worldFocusPrompt.context) {
+    appendPromptSection({
+      id: 'world-focus-state',
+      duty: 'context',
+      kind: 'world_focus',
+      source: 'worldFocusNode',
+      content: worldFocusPrompt.context,
+      confidence: state.worldFocusContext?.confidence
+    })
   }
-  // 短期窗口记忆
-  const snapshot = await memoryManager.getSnapshot()
-  if (snapshot.anchors.length > 0) {
-    messages.push(new SystemMessage(snapshot.anchors.join('\n')))
+  if (worldFocusPrompt.instruction) {
+    appendPromptSection({
+      id: 'world-focus-rule',
+      duty: 'instruction',
+      kind: 'impression_usage_rule',
+      source: 'worldFocusNode',
+      content: worldFocusPrompt.instruction
+    })
   }
 
-  // 记忆系统
+  const snapshot = await memoryManager.getSnapshot()
+
   const memoryPromptPlan = buildMemoryPromptPlan(snapshot, effectiveSlotSnapshot, {
     includeWorldFocus: effectiveSlotSnapshot.scene_perception.shouldInjectHistoricalWorldFocus
   })
-  const injectedSections: string[] = ['personaAssemblyPrompt', 'currentTimeContext']
 
-  // 记忆槽位
   if (memoryPromptPlan.slotPrompt) {
-    injectedSections.push('slotPrompt')
-    messages.push(new SystemMessage(memoryPromptPlan.slotPrompt))
+    appendPromptSection({
+      id: 'memory-slots',
+      duty: 'context',
+      kind: 'short_lived_state',
+      source: 'memorySlotService',
+      content: memoryPromptPlan.slotPrompt
+    })
   }
 
   for (const msg of snapshot.shortTerm) {
@@ -357,15 +503,11 @@ export async function contextNode(
     }
   }
 
-  if (state.taskLifecycle?.activeTask) injectedSections.push('activeTask')
-  if (workspaceContextPrompt) injectedSections.push('workspaceContext')
-  if (toolUsagePrompt) injectedSections.push('toolUsage')
-  if (actionPolicyPrompt) injectedSections.push('actionPolicy')
-  if (instantPerceptionPrompt) injectedSections.push('instantPerception')
-  if (scenePrompt) injectedSections.push('scene')
-  if (worldFocusPrompt) injectedSections.push('worldFocus')
-  if (snapshot.anchors.length > 0) injectedSections.push('anchors')
-  if (snapshot.shortTerm.length > 0) injectedSections.push('shortTermHistory')
+  const promptSectionManifest = promptSections.map(toPromptSectionManifestItem)
+  const injectedSections = [
+    ...promptSectionManifest.map((section) => section.id),
+    ...(snapshot.shortTerm.length > 0 ? ['short-term-history'] : [])
+  ]
 
   traceDecision('contextNode', {
     title: '决策: contextNode 注入计划',
@@ -379,8 +521,8 @@ export async function contextNode(
         summary: expressionProfile.summary
       },
       injectedSections,
+      promptSections: promptSectionManifest,
       shortTermCount: snapshot.shortTerm.length,
-      anchorCount: snapshot.anchors.length,
       hasActiveTask: Boolean(state.taskLifecycle?.activeTask),
       hasLongTermMemory: false,
       longTermMemoryMode: 'recall_tool_only',
@@ -400,6 +542,14 @@ export async function contextNode(
     data: {
       systemMessageCount: messages.filter((message) => message instanceof SystemMessage).length,
       historyMessageCount: snapshot.shortTerm.length,
+      promptSections: promptSectionManifest,
+      promptSectionCountsByDuty: promptSectionManifest.reduce<Record<string, number>>(
+        (counts, section) => {
+          counts[section.duty] = (counts[section.duty] ?? 0) + 1
+          return counts
+        },
+        {}
+      ),
       estimatedPromptChars: messages.reduce((total, message) => {
         const content =
           typeof message.content === 'string' ? message.content : JSON.stringify(message.content)

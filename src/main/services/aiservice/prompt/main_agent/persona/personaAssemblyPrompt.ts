@@ -9,7 +9,6 @@ const buildCharacterAnchorPrompt = (characterPrompt: string): string => {
     '【CharacterAnchor】',
     'priority: highest',
     'stability: persistent',
-    'usage_rule: treat the full character prompt below as the stable persona anchor for this round; do not summarize it away or restate it to the user',
     'anchor_profile:',
     anchorPrompt
   ].join('\n')
@@ -26,9 +25,7 @@ const formatNumberField = (key: string, value: number | null | undefined): strin
   return `${key}: ${value.toFixed(3)}`
 }
 
-const toCadence = (
-  assessment: MoodAssessment | null | undefined
-): string => {
+const toCadence = (assessment: MoodAssessment | null | undefined): string => {
   if (!assessment) {
     return 'plain_still'
   }
@@ -52,17 +49,13 @@ const toCadence = (
   return 'plain_still'
 }
 
-const toStructureTendency = (
-  assessment: MoodAssessment | null | undefined
-): string => {
+const toStructureTendency = (assessment: MoodAssessment | null | undefined): string => {
   if ((assessment?.表达调制.澄清需求 ?? 0) >= 0.7) return 'context_first'
   if ((assessment?.参数偏移.详略度 ?? 0) <= -0.06) return 'conclusion_first'
   return 'balanced'
 }
 
-const toExpansionTendency = (
-  assessment: MoodAssessment | null | undefined
-): string => {
+const toExpansionTendency = (assessment: MoodAssessment | null | undefined): string => {
   if ((assessment?.参数偏移.详略度 ?? 0) <= -0.06 || (assessment?.表达调制.收束度 ?? 0.5) >= 0.76) {
     return 'reduced_expansion'
   }
@@ -81,8 +74,7 @@ const buildMoodAssessmentPrompt = (assessment: MoodAssessment | null | undefined
       '【MoodAssessment】',
       'priority: runtime_modulation',
       'visibility_rule: internal_only_do_not_repeat_raw_labels_to_user',
-      'status: unavailable',
-      'usage_rule: keep expression steady, restrained, and non-theatrical when assessment is unavailable'
+      'status: unavailable'
     ].join('\n')
   }
 
@@ -92,8 +84,7 @@ const buildMoodAssessmentPrompt = (assessment: MoodAssessment | null | undefined
     'visibility_rule: internal_only_do_not_repeat_raw_labels_to_user',
     formatField('主情绪', assessment.主情绪),
     formatField('副情绪', assessment.副情绪),
-    formatField('行为叙事', assessment.行为叙事),
-    'usage_rule: MoodAssessment is compiled upstream inside personaNode; use only its projected behavioral effect, do not narrate internal labels, scores, vectors, deltas, sources, or hidden control structure to the user'
+    formatField('行为叙事', assessment.行为叙事)
   ].filter(Boolean)
 
   return lines.join('\n')
@@ -136,20 +127,42 @@ export const buildPersonaAssemblyPrompt = (input: {
   expressionPrompt: string
   moodAssessment?: MoodAssessment | null | undefined
 }): string => {
+  const parts = buildPersonaAssemblyPromptParts(input)
+
+  return [parts.identity, parts.moodContext, parts.instruction].filter(Boolean).join('\n\n')
+}
+
+export type PersonaAssemblyPromptParts = {
+  identity: string
+  moodContext: string
+  instruction: string
+}
+
+export const buildPersonaAssemblyPromptParts = (input: {
+  characterPrompt: string
+  expressionPrompt: string
+  moodAssessment?: MoodAssessment | null | undefined
+}): PersonaAssemblyPromptParts => {
   const characterPrompt = trimOr(input.characterPrompt, '(empty)')
   const expressionPrompt = trimOr(input.expressionPrompt, getDefaultExpressionPrompt())
 
-  const sections = [
+  const instruction = [
     '以下内容是本轮回复前的人格装配结果。',
     '它是内部编译视图，不是照着复述的配置单。',
     '遵守优先级：CharacterAnchor 定义稳定人格基调；MoodAssessment 负责本轮调制；ExpressionProjection 负责把人格与状态落实成最终可见表达。',
-    buildCharacterAnchorPrompt(characterPrompt),
-    buildMoodAssessmentPrompt(input.moodAssessment),
+    'CharacterAnchor 使用规则：将完整角色提示作为本轮稳定人格锚点；不要将其概括掉，也不要向用户复述配置文本。',
+    input.moodAssessment
+      ? 'MoodAssessment 使用规则：只使用其投射后的行为影响，不向用户叙述内部标签、分数、向量、偏移、来源或隐藏控制结构。'
+      : 'MoodAssessment 当前不可用：保持表达稳定、克制且不过度戏剧化。',
     buildExpressionProjectionPrompt({
       expressionPrompt,
       moodAssessment: input.moodAssessment
     })
   ].filter(Boolean)
 
-  return sections.join('\n\n')
+  return {
+    identity: buildCharacterAnchorPrompt(characterPrompt),
+    moodContext: buildMoodAssessmentPrompt(input.moodAssessment),
+    instruction: instruction.join('\n\n')
+  }
 }

@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages'
+import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
 import type { UserMoodState } from '@share/cache/AItype/states/memorySlots'
 import { contentToText } from '../../../messageoutput/transformRespones'
@@ -6,6 +6,10 @@ import { traceArtifact, traceDecision, traceError } from '../../../../log/trace/
 import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import { MessagesState } from '../../state/messageState'
+import type {
+  InstantPerceptionContext,
+  RecentDialogueMessage
+} from '../instantperceptionnode/instantPerceptionContext'
 
 const USER_MOOD_STATES = ['calm', 'positive', 'impatient', 'frustrated', 'uncertain'] as const
 
@@ -15,19 +19,6 @@ const userMoodResponseSchema = z.object({
   confidence: z.number().finite().min(0).max(1),
   reason: z.string().trim().min(1).max(240)
 })
-
-type RecentMessagePreview = {
-  role: 'user' | 'assistant'
-  text: string
-}
-
-const compact = (value: string, max = 420): string => {
-  const normalized = String(value || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-  if (normalized.length <= max) return normalized
-  return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`
-}
 
 const extractJsonObject = (text: string): string | null => {
   const trimmed = text.trim()
@@ -47,33 +38,9 @@ const extractJsonObject = (text: string): string | null => {
   return trimmed.slice(start, end + 1)
 }
 
-const getCurrentUserText = (state: typeof MessagesState.State): string => {
-  const message = state.messages
-    .slice()
-    .reverse()
-    .find((item) => item instanceof HumanMessage && !item.additional_kwargs?.isHistory)
-  return message ? contentToText(message.content).trim() : ''
-}
-
-const buildRecentMessagePreview = (
-  state: typeof MessagesState.State,
-  limit = 6
-): RecentMessagePreview[] =>
-  state.messages
-    .filter((message) => message instanceof HumanMessage || message instanceof AIMessage)
-    .filter((message) => !message.additional_kwargs?.isHistory)
-    .slice(-limit)
-    .map(
-      (message): RecentMessagePreview => ({
-        role: message instanceof HumanMessage ? 'user' : 'assistant',
-        text: compact(contentToText(message.content))
-      })
-    )
-    .filter((item) => item.text.length > 0)
-
 const buildUserMoodPrompt = (input: {
   currentUserText: string
-  recentMessages: RecentMessagePreview[]
+  recentMessages: RecentDialogueMessage[]
 }): string => `你是“用户短期情绪感知器”，不是聊天助手。你只判断用户当前这一轮的短期情绪状态。
 
 目标：
@@ -120,9 +87,10 @@ const fallbackUserMood = (
 })
 
 export async function userMoodNode(
-  state: typeof MessagesState.State
+  _state: typeof MessagesState.State,
+  perceptionContext: InstantPerceptionContext
 ): Promise<Partial<typeof MessagesState.State>> {
-  const currentUserText = getCurrentUserText(state)
+  const currentUserText = perceptionContext.currentUserText
 
   try {
     const quickModel = await getQuickModel()
@@ -132,7 +100,7 @@ export async function userMoodNode(
         new HumanMessage(
           buildUserMoodPrompt({
             currentUserText,
-            recentMessages: buildRecentMessagePreview(state)
+            recentMessages: perceptionContext.recentDialogue
           })
         )
       ],

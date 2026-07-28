@@ -15,6 +15,8 @@ import { applyCharacterMoodBoundary, FAMILA_CHARACTER_MOOD_BOUNDARY } from './ch
 import { inferMoodAssessment } from './moodAssessmentService'
 import { reconcilePersonaState } from './personaEvolutionService'
 import { applyMoodDeltaToMetrics, buildPolicy } from './personaPolicyCompiler'
+import type { InstantPerceptionContext } from '../instantperceptionnode/instantPerceptionContext'
+import { getObservationText } from './personaObservationUtils'
 
 /**
  * 人格总控节点。
@@ -26,7 +28,8 @@ import { applyMoodDeltaToMetrics, buildPolicy } from './personaPolicyCompiler'
  * - personaPolicyCompiler: 编译本轮采样、工具、行动和记忆策略。
  */
 export async function personaNode(
-  _state: typeof MessagesState.State
+  _state: typeof MessagesState.State,
+  perceptionContext: InstantPerceptionContext
 ): Promise<Partial<typeof MessagesState.State>> {
   const personaState = await loadPersonaState()
   if (!personaState) {
@@ -59,11 +62,26 @@ export async function personaNode(
     }
   })
 
+  const contextualUserObservation = observations
+    .slice()
+    .reverse()
+    .find(
+      (observation) =>
+        observation.type === 'user_message' &&
+        getObservationText(observation).trim() === perceptionContext.currentUserText.trim()
+    )
+
   const reconciled = await reconcilePersonaState({
     state: personaState,
     observations,
     slots: effectiveSlots,
-    config
+    config,
+    signalContext: contextualUserObservation
+      ? {
+          observationId: contextualUserObservation.id,
+          recentDialogue: perceptionContext.recentDialogue
+        }
+      : undefined
   })
 
   await savePersonaState(reconciled.state)
@@ -72,6 +90,7 @@ export async function personaNode(
   const rawMoodAssessment = await inferMoodAssessment({
     moodPrompt,
     observations,
+    recentDialogue: perceptionContext.recentDialogue,
     previousMood: effectiveSlots.ai_mood.current,
     state: reconciled.state,
     slots: effectiveSlots,

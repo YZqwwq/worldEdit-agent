@@ -3,7 +3,6 @@
  * 提供代理提示词的加载、保存、默认提示词获取等功能
  */
 
-
 export {
   getDefaultCharacterPrompt,
   initializeAgentPromptStorage,
@@ -16,3 +15,4 @@ export {
 export { resolveExpressionPromptProfile } from './persona/expressionPromptProfiles'
 export { buildMemorySlotPrompt } from './memory/memorySlotPrompt'
 export { buildPersonaAssemblyPrompt } from './persona/personaAssemblyPrompt'
+export { buildPersonaAssemblyPromptParts } from './persona/personaAssemblyPrompt'

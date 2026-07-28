@@ -17,7 +17,6 @@ import { getActiveTaskContextTool } from '../tools/task/getActiveTaskContext'
 import { getTaskDetailTool } from '../tools/task/getTaskDetail'
 import { recallAgentMemoryTool } from '../tools/memory/recallAgentMemory'
 import { officialWebSearchTool } from '../tools/network/officialWebSearch'
-import { searchRecentChineseConversationTool } from '../tools/conversation/searchRecentChineseConversation'
 import { createCharacterNarrativeReadingTaskTool } from '../tools/character/createCharacterNarrativeReadingTask'
 import { getCharacterImpressionTool } from '../tools/character/getCharacterImpression'
 import { inspectCharacterNarrativeCatalogTool } from '../tools/character/inspectCharacterNarrativeCatalog'
@@ -312,25 +311,12 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     capabilityLayer: 'core',
     capabilityGroup: '核心运行',
     capabilitySummary:
-      '按需回忆静默长期记忆和最近阶段归档；长期记忆默认不直接注入上下文，需要时主动调用。',
+      '统一回忆待归档消息、阶段记忆与更早原始对话；长期摘要只作为方向提示。',
     audience: 'main_agent',
     access: 'read',
     activationMode: 'always',
     enabled: true,
     turnCallLimit: 1
-  },
-  {
-    key: searchRecentChineseConversationTool.name,
-    tool: searchRecentChineseConversationTool,
-    toolsetId: 'core_runtime',
-    category: 'conversation_memory',
-    capabilityLayer: 'core',
-    capabilityGroup: '核心运行',
-    capabilitySummary: '在最近对话中做中文 BM25 回忆，用于消解“上次/刚才/那个”等指代。',
-    audience: 'main_agent',
-    access: 'read',
-    activationMode: 'always',
-    enabled: true
   },
   {
     key: continueActiveChildAgentTool.name,

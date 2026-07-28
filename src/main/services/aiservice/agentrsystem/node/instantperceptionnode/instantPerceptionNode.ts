@@ -5,6 +5,7 @@ import { personaNode } from '../personanode/personanode'
 import { sceneNode } from '../scenenode/sceneNode'
 import { userMoodNode } from '../usermoodnode/userMoodNode'
 import { worldFocusNode } from '../worldfocusnode/worldFocusNode'
+import { buildInstantPerceptionContext } from './instantPerceptionContext'
 
 type DetectorName = 'scene' | 'userMood' | 'worldFocus' | 'persona'
 
@@ -92,9 +93,10 @@ export async function instantPerceptionNode(
 ): Promise<Partial<typeof MessagesState.State>> {
   const startedAtMs = now()
   const startedAt = new Date(startedAtMs).toISOString()
+  const perceptionContext = await buildInstantPerceptionContext(state)
 
-  const scene = await runDetector('scene', () => sceneNode(state))
-  const userMood = await runDetector('userMood', () => userMoodNode(state))
+  const scene = await runDetector('scene', () => sceneNode(state, perceptionContext))
+  const userMood = await runDetector('userMood', () => userMoodNode(state, perceptionContext))
   const slotsAfterScene = await memorySlotService.getSnapshot()
   const scenePerception = slotsAfterScene.scene_perception
   const shouldRunWorldFocus = scenePerception.shouldRunWorldFocus === true
@@ -102,9 +104,9 @@ export async function instantPerceptionNode(
 
   const [worldFocus, persona] = await Promise.all([
     shouldRunWorldFocus
-      ? runDetector('worldFocus', () => worldFocusNode(state))
+      ? runDetector('worldFocus', () => worldFocusNode(state, perceptionContext))
       : Promise.resolve(skippedDetector('worldFocus', worldFocusSkipReason)),
-    runDetector('persona', () => personaNode(state))
+    runDetector('persona', () => personaNode(state, perceptionContext))
   ])
 
   const merged: Partial<typeof MessagesState.State> = {}

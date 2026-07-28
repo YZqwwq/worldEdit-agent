@@ -11,6 +11,7 @@ import { getObservationText } from './personaObservationUtils'
 import type { PersonaSignal } from './personaTypes'
 import { 默认情绪向量, normalizeEmotionVector, projectMoodLabels } from './characterMoodBoundary'
 import { roundSigned, roundUnit } from './personaMath'
+import type { RecentDialogueMessage } from '../instantperceptionnode/instantPerceptionContext'
 
 const moodAssessmentResponseSchema = z.object({
   情绪向量: z.object({
@@ -71,6 +72,7 @@ const buildPreviousMoodDigest = (mood: MoodAssessment | null | undefined): strin
 const buildMoodInferencePrompt = (input: {
   moodPrompt: string
   observations: InteractionObservationSnapshot[]
+  recentDialogue: RecentDialogueMessage[]
   slots: MemorySlotSnapshot
   state: PersonaState
   signals: PersonaSignal[]
@@ -111,6 +113,11 @@ ${input.moodPrompt.trim() || '(empty)'}
 
 近期观测：
 ${observationDigest}
+
+最近对话背景：
+${input.recentDialogue.length > 0 ? JSON.stringify(input.recentDialogue, null, 2) : '(none)'}
+
+最近对话只用于理解本轮互动、指代和情绪变化，不表示这些旧消息产生了新的观测或人格信号。
 
 用户侧状态：
 ${userState}
@@ -236,6 +243,7 @@ const buildFallbackMoodAssessment = (input: {
 const inferMoodAssessmentWithModel = async (input: {
   moodPrompt: string
   observations: InteractionObservationSnapshot[]
+  recentDialogue: RecentDialogueMessage[]
   slots: MemorySlotSnapshot
   state: PersonaState
   signals: PersonaSignal[]
@@ -250,6 +258,7 @@ const inferMoodAssessmentWithModel = async (input: {
         buildMoodInferencePrompt({
           moodPrompt: input.moodPrompt,
           observations: input.observations,
+          recentDialogue: input.recentDialogue,
           slots: input.slots,
           state: input.state,
           signals: input.signals,
@@ -277,6 +286,7 @@ const inferMoodAssessmentWithModel = async (input: {
 export const inferMoodAssessment = async (input: {
   moodPrompt: string
   observations: InteractionObservationSnapshot[]
+  recentDialogue: RecentDialogueMessage[]
   slots: MemorySlotSnapshot
   state: PersonaState
   signals: PersonaSignal[]

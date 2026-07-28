@@ -19,8 +19,6 @@ export interface StateData {
   archive_strategy: string
   // API 健康状态（healthy/down/skipped）
   api_status: string
-  // 锚点：必须注入的系统提示
-  anchors?: string[]
   // 触发归档的轮次阈值
   archive_threshold?: number
   // 两次归档之间的最小间隔（毫秒）
@@ -74,12 +72,12 @@ export interface MemoryArchiveStatus {
   apiStatus: string
 }
 
-// 记忆快照：用于注入上下文
+// 记忆读取快照：各字段由 Context 或 recall 策略决定是否进入模型上下文
 export interface MemorySnapshot {
-  // 锚点集合
-  anchors: string[]
   // 短期窗口消息
   shortTerm: MessageData[]
+  // 已离开短期窗口、尚未形成正式阶段摘要的待归档消息
+  pendingArchive: MessageData[]
   // 长期稳定记忆
   longTerm: MemoryLongTermSnapshot
   // 最近阶段记忆

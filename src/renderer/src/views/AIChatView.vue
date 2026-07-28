@@ -196,20 +196,6 @@
           </section>
 
           <section class="rounded-lg border border-gray-200 p-4">
-            <h4 class="mb-2 text-sm font-semibold text-gray-800">锚点记忆 (Anchors)</h4>
-            <div v-if="memorySnapshotData.memory.anchors.length" class="flex flex-wrap gap-2">
-              <span
-                v-for="(anchor, index) in memorySnapshotData.memory.anchors"
-                :key="`anchor-${index}`"
-                class="rounded bg-blue-50 px-2 py-1 text-xs text-blue-700 border border-blue-100"
-              >
-                {{ anchor }}
-              </span>
-            </div>
-            <div v-else class="text-sm text-gray-500">（暂无锚点）</div>
-          </section>
-
-          <section class="rounded-lg border border-gray-200 p-4">
             <h4 class="mb-2 text-sm font-semibold text-gray-800">短期滑动窗口（{{ memorySnapshotData.memory.shortTerm.length }} 条）</h4>
             <div v-if="memorySnapshotData.memory.shortTerm.length" class="space-y-2">
               <div

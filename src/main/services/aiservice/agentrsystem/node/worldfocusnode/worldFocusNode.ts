@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages'
+import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
 import type {
   WorldFocusItem,
@@ -31,6 +31,10 @@ import {
   type WorldFocusContext,
   type WorldFocusImpressionContext
 } from '../../state/messageState'
+import type {
+  InstantPerceptionContext,
+  RecentDialogueMessage
+} from '../instantperceptionnode/instantPerceptionContext'
 
 type ResolvedFocus = {
   world: WorldPayload
@@ -119,27 +123,6 @@ const worldFocusResolutionSchema = z.object({
   })
 })
 
-const getCurrentUserText = (state: typeof MessagesState.State): string => {
-  const message = state.messages
-    .slice()
-    .reverse()
-    .find((item) => item instanceof HumanMessage && !item.additional_kwargs?.isHistory)
-  return message ? contentToText(message.content).trim() : ''
-}
-
-type RecentMessagePreview = {
-  role: 'user' | 'assistant'
-  text: string
-}
-
-const compact = (value: string, max = 420): string => {
-  const normalized = String(value || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-  if (normalized.length <= max) return normalized
-  return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`
-}
-
 const extractJsonObject = (text: string): string | null => {
   const trimmed = text.trim()
   if (!trimmed) return null
@@ -157,22 +140,6 @@ const extractJsonObject = (text: string): string | null => {
 
   return trimmed.slice(start, end + 1)
 }
-
-const buildRecentMessagePreview = (
-  state: typeof MessagesState.State,
-  limit = 6
-): RecentMessagePreview[] =>
-  state.messages
-    .filter((message) => message instanceof HumanMessage || message instanceof AIMessage)
-    .filter((message) => !message.additional_kwargs?.isHistory)
-    .slice(-limit)
-    .map(
-      (message): RecentMessagePreview => ({
-        role: message instanceof HumanMessage ? 'user' : 'assistant',
-        text: compact(contentToText(message.content), 360)
-      })
-    )
-    .filter((item) => item.text.length > 0)
 
 const toFocusCandidate = (
   candidate: WorldEntityMentionSearchCandidate,
@@ -244,7 +211,7 @@ const mergeFocusCandidates = (
 
 const buildFocusResolutionPrompt = (input: {
   currentUserText: string
-  recentMessages: RecentMessagePreview[]
+  recentMessages: RecentDialogueMessage[]
   candidates: FocusCandidate[]
 }): string => `你是“应用内世界观焦点组裁决器”，不是聊天助手。你只判断用户最新输入真正指向哪些候选人物，以及这些人物在本轮任务中的角色。
 
@@ -308,7 +275,7 @@ ${JSON.stringify(
 
 const resolveFocusWithModel = async (input: {
   text: string
-  recentMessages: RecentMessagePreview[]
+  recentMessages: RecentDialogueMessage[]
   candidates: FocusCandidate[]
 }): Promise<z.infer<typeof worldFocusResolutionSchema>['decision']> => {
   if (input.candidates.length === 0) {
@@ -401,7 +368,7 @@ const buildResolvedFocus = async (input: {
 
 const resolveFocus = async (
   text: string,
-  recentMessages: RecentMessagePreview[]
+  recentMessages: RecentDialogueMessage[]
 ): Promise<FocusResolutionResult> => {
   if (!text.trim()) {
     return {
@@ -611,12 +578,13 @@ const toWorldFocusSlotItem = (focus: ResolvedFocus): WorldFocusItem => ({
 })
 
 export async function worldFocusNode(
-  state: typeof MessagesState.State
+  _state: typeof MessagesState.State,
+  perceptionContext: InstantPerceptionContext
 ): Promise<Partial<typeof MessagesState.State>> {
-  const text = getCurrentUserText(state)
+  const text = perceptionContext.currentUserText
 
   try {
-    const resolution = await resolveFocus(text, buildRecentMessagePreview(state))
+    const resolution = await resolveFocus(text, perceptionContext.recentDialogue)
     if (resolution.type !== 'resolved') {
       await memorySlotService.replaceWorldFocus({
         status: resolution.type,

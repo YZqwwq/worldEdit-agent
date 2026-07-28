@@ -38,10 +38,6 @@ export class MemoryStateRecord {
   @Column({ type: 'text', default: 'healthy' })
   apiStatus!: string
 
-  // 锚点数组（JSON 字符串）
-  @Column({ type: 'text', default: '[]' })
-  anchorsJson!: string
-
   // 触发归档的最小轮次阈值
   @Column({ type: 'integer', default: 6 })
   archiveThreshold!: number
