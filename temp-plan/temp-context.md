@@ -72,27 +72,31 @@
 
 ### 进行中
 
-| 编号 | 优先级 | 问题 | 当前状态 |
-| --- | --- | --- | --- |
-| P0-4 | P0 | 统一 Recall 已落地，但最近轮排除和自然指代兜底尚未通过验收 | 主体完成，待验收修正 |
-| P0-5 | P0 | 工具完整结果可能在模型消费前被压缩 | 已讨论，待实施 |
-| P1-1 | P1 | 感知系统运行诊断进入主模型 Prompt | 待讨论 |
-| P1-2 | P1 | Context 在多个节点分散装配，缺少完整最终清单 | 部分改善 |
-| P1-3 | P1 | 没有总量保护、去重和分段大小治理 | 部分改善 |
-| P1-4 | P1 | 长期记忆是滚动摘要，不是独立重要事件 | 待讨论 |
-| P1-5 | P1 | `userProfile` 主要来自临时场景和情绪 | 待讨论 |
-| P1-6 | P1 | Scene 低置信度时直接屏蔽历史世界焦点 | 待讨论 |
+
+| 编号   | 优先级 | 问题                                                                                  | 当前状态       |
+| ---- | --- | ----------------------------------------------------------------------------------- | ---------- |
+| P0-4 | P0  | 统一 Recall 已落地，但最近轮排除和自然指代兜底尚未通过验收                                                   | 主体完成，待验收修正 |
+| P0-5 | P0  | 工具完整结果可能在模型消费前被压缩                                                                   | 已实施，待对话验收  |
+| P1-1 | P1  | 感知系统运行诊断进入主模型 Prompt                                                                | 已实施，待对话验收 |
+| P1-2 | P1  | Context 在多个节点分散装配，缺少完整最终清单引入轻量 `ContextProvider`，先统一当前由 ContextNode 装配的派生 Context。 | 部分改善       |
+| P1-3 | P1  | 没有总量保护、去重和分段大小治理                                                                    | 部分改善       |
+| P1-4 | P1  | 长期记忆是滚动摘要，不是独立重要事件                                                                  | 待讨论        |
+| P1-5 | P1  | `userProfile` 主要来自临时场景和情绪                                                           | 待讨论        |
+| P1-6 | P1  | Scene 低置信度时直接屏蔽历史世界焦点                                                               | 待讨论        |
+
 
 “部分改善”表示当前改造已经提供了基础观测能力，但问题本身尚未闭环，不应视为完成。
 
 ### 已完成
 
-| 编号 | 原问题 | 处理结果 |
-| --- | --- | --- |
+
+| 编号   | 原问题                                 | 处理结果                                                                      |
+| ---- | ----------------------------------- | ------------------------------------------------------------------------- |
 | P0-1 | 派生上下文虽然都使用 SystemMessage，但职责和来源没有边界 | 引入 PromptSection，区分 identity、instruction、context、execution，并拆分主要混合 Prompt |
-| P0-2 | 瞬时场景、情绪和人格调制只看到当前用户消息 | 统一读取最近两轮对话，供 Scene、UserMood、WorldFocus、PersonaSignal 和 AI Mood 共享 |
-| P0-3 | 消息离开短期窗口后，在形成 Stage 前没有读取出口 | 将 archiveBuffer 暴露为待归档记忆层，并由 recall 默认返回原始消息 |
-| P2-1 | Memory anchors 没有管理入口且与长期记忆按需查询方向冲突 | 已从状态、持久化、Context 注入和调试界面中移除 |
+| P0-2 | 瞬时场景、情绪和人格调制只看到当前用户消息               | 统一读取最近两轮对话，供 Scene、UserMood、WorldFocus、PersonaSignal 和 AI Mood 共享         |
+| P0-3 | 消息离开短期窗口后，在形成 Stage 前没有读取出口         | 将 archiveBuffer 暴露为待归档记忆层，并由 recall 默认返回原始消息                              |
+| P2-1 | Memory anchors 没有管理入口且与长期记忆按需查询方向冲突 | 已从状态、持久化、Context 注入和调试界面中移除                                               |
+
 
 ## 已实施事项与验收状态
 
@@ -125,12 +129,14 @@ type PromptSection = {
 - 一个模块可以输出多个 Section，把状态和使用规则分开。
 - 短期对话历史继续使用 HumanMessage/AIMessage，不转换为 Section。
 
-| Duty | 职责 | 典型内容 |
-| --- | --- | --- |
-| identity | Agent 是谁 | Character Prompt、稳定人格基调 |
-| instruction | 应如何理解、表达和行动 | Expression Profile、工具规则、Scene 使用规则 |
-| context | 当前知道、感知、记得或认为发生了什么 | Workspace、Scene 结果、AI Mood、人物印象、工具证据 |
-| execution | 当前运行到哪里 | Active Task、工具进度、失败和临时执行状态 |
+
+| Duty        | 职责                 | 典型内容                                 |
+| ----------- | ------------------ | ------------------------------------ |
+| identity    | Agent 是谁           | Character Prompt、稳定人格基调              |
+| instruction | 应如何理解、表达和行动        | Expression Profile、工具规则、Scene 使用规则   |
+| context     | 当前知道、感知、记得或认为发生了什么 | Workspace、Scene 结果、AI Mood、人物印象、工具证据 |
+| execution   | 当前运行到哪里            | Active Task、工具进度、失败和临时执行状态           |
+
 
 #### 已实施
 
@@ -220,22 +226,17 @@ type PromptSection = {
 #### 尚未闭环的问题
 
 1. 原始对话的最近轮排除存在一轮偏移。
-
-   - Recall 固定向内部原始对话搜索传入 `excludeRecentTurns: 2`。
-   - Recall 执行时，当前用户消息已经持久化、当前 Turn 已创建，而且当前用户消息已经绑定当前 `turnId`。
-   - 因此数据库最新两个 turn key 实际是“当前未完成 Turn + 上一个已完成 Turn”，不是直接进入短期 Context 的“最近两个已完成 Turn”。
-   - 结果是上上个已完成 Turn 仍可能作为 raw_message 被召回，同时又已经作为短期历史进入主模型，造成重复和排序放大。
-
+  - Recall 固定向内部原始对话搜索传入 `excludeRecentTurns: 2`。
+  - Recall 执行时，当前用户消息已经持久化、当前 Turn 已创建，而且当前用户消息已经绑定当前 `turnId`。
+  - 因此数据库最新两个 turn key 实际是“当前未完成 Turn + 上一个已完成 Turn”，不是直接进入短期 Context 的“最近两个已完成 Turn”。
+  - 结果是上上个已完成 Turn 仍可能作为 raw_message 被召回，同时又已经作为短期历史进入主模型，造成重复和排序放大。
 2. 自然历史指代可能被字符 n-gram 误判为有效主题 query。
-
-   - 单独的“刚才”“之前”“上次”“继续”会被停用词过滤，可以进入近期兜底。
-   - “刚才那个”“之前说的”“按之前那个”等更自然的表达会生成“才那”“前说”“之前那”等 n-gram token。
-   - 这些 token 会阻止近期兜底，却通常没有稳定主题意义，可能导致空结果或偶然字面误命中。
-
+  - 单独的“刚才”“之前”“上次”“继续”会被停用词过滤，可以进入近期兜底。
+  - “刚才那个”“之前说的”“按之前那个”等更自然的表达会生成“才那”“前说”“之前那”等 n-gram token。
+  - 这些 token 会阻止近期兜底，却通常没有稳定主题意义，可能导致空结果或偶然字面误命中。
 3. 当前没有统一 Recall 的自动化验收测试。
-
-   - `npm run typecheck:node` 已通过，只能证明类型和编译链路成立。
-   - 尚无测试证明三类来源覆盖、窗口排除、跨来源排序、pending/raw 去重、指代兜底、空命中和结果上限在真实数据库状态下符合预期。
+  - `npm run typecheck:node` 已通过，只能证明类型和编译链路成立。
+  - 尚无测试证明三类来源覆盖、窗口排除、跨来源排序、pending/raw 去重、指代兜底、空命中和结果上限在真实数据库状态下符合预期。
 
 #### 修正目标
 
@@ -303,6 +304,43 @@ Persona 的 CharacterAnchor 是稳定人格身份结构，不属于已移除的 
 3. 优先覆盖文档读取、实体/人物详情、叙事批次、Recall、联网搜索和任务详情等读取工具；写工具通常只需返回 receipt、对象 ID、新 revision 和变更摘要，不必回显整篇正文。
 4. 对超过上下文安全范围的结果补充分页、范围读取或明确引用；禁止静默截断后把结果表现为完整内容。
 
+### 保留策略的决策权
+
+工具结果保留多久不应由调用工具的主 AI 单独决定，也不需要为此增加一个分类 AI。采用“工具声明边界、主 AI 表达意图、Runtime 强制执行”的分工：
+
+
+| 参与方       | 职责                                                              |
+| --------- | --------------------------------------------------------------- |
+| 工具作者      | 声明默认和最长保留期、模型消费版结果格式、是否可按稳定引用重新读取                               |
+| 调用工具的主 AI | 可以在工具允许范围内表达 `release` 或 `retain_for_turn` 意图，不得延长到工具声明的最长保留期之外 |
+| Runtime   | 保证首次完整消费，执行保留上限、Context 预算、回合结束清理和异常兜底                          |
+| 长期记忆系统    | 独立判断本次经历是否形成长期人格或关系记忆，不直接持久化工具 transcript                       |
+
+
+概念策略保持轻量：
+
+```ts
+type ToolContextPolicy = {
+  defaultRetention: 'next_llm' | 'turn'
+  maxRetention: 'next_llm' | 'turn'
+  modelResultMode: 'full' | 'projected' | 'paged'
+  reloadable: boolean
+}
+```
+
+最终保留期由“工具默认值 + 主 AI 在允许范围内的意图 + Runtime 预算和清理约束”共同得出。P0-5 首版不要求主 AI 动态选择：读取/检索类工具默认保留到 `turn`，激活、状态和轻量动作结果默认保留到 `next_llm`，所有完整结果在当前用户回合结束时清理，不引入额外 AI 判断器。
+
+### 已实施
+
+- Tool envelope 新增独立 `modelResult`；工具可以通过 `buildModelResult` 定义模型消费版结果。
+- 未提供专用投影时，只读工具默认完整交付校验后的 `data`，写工具默认只交付 message、receipt 和 nextSuggestions，避免回显整篇修改结果。
+- ToolMessage 不再只返回执行状态，也不在下一次 LLM 前被 ReloadNode 清除；非标准工具结果同样完整交付，不再生成 300 字符预览。
+- 下一次 LLM 成功完成后才认定首次消费完成，并删除对应 AI tool-call 与 ToolMessage transcript；模型调用失败或中断时不会提前提交清理状态。
+- `evidence` 在首次消费后转为本用户回合的工具证据，`ephemeral`、`none` 和失败结果在首次消费后释放。
+- 只读工具未显式声明策略时默认 `evidence`，写工具默认 `ephemeral`；工具已有显式声明继续生效。
+- 取消证据区最多 6 条的静默淘汰；在 P1-3 建立显式预算、分页和可恢复省略之前，不把被删除的结果表现为本回合完整证据。
+- 每次主 Agent 图运行使用新 State，因此本回合 evidence 不跨用户回合保留。
+
 ### 后续待确认
 
 - 当前主要模型可用于单次工具结果和整轮工具证据的安全 Context 上限。
@@ -327,15 +365,26 @@ Instant Perception Prompt 会向主模型描述：
 - 给人格 Agent 暴露不必要的工程实现细节。
 - 可能让主模型过度关注内部节点状态，而不是用户表达。
 
-### 候选最小方向，待讨论
+### 最终决策
 
-- 正常健康信息只进入 Trace。
-- 只有失败确实影响主模型判断时，才注入简短的语义降级说明。
+主 Agent 只接收有效的感知结果，不接收感知系统的运行状态，也不接收失败、跳过或低置信度结果的语义化降级说明。信息缺失时直接不注入对应 Section，主 Agent 依据用户原文和其他有效 Context 判断。
 
-### 待确认
+### 已实施
 
-- 哪些 detector 失败必须让主 Agent 知道？
-- 降级信息应该描述技术失败，还是只描述可使用信息的边界？
+- 删除 `execution/perception_runtime_status`，detector 状态、耗时、输出 state key、World Focus 路由、skip reason 和 warnings 不再进入主模型 Prompt。
+- `InstantPerceptionSnapshot` 及 detector 原始错误继续保留在 State 和 Trace，供开发诊断使用。
+- Scene 只有 `confidence >= 0.6` 且 `primaryDomain !== 'unknown'` 时才生成场景 Context 和使用规则；失败占位与低置信度判断只用于内部保守路由。
+- AI Mood 只有本轮 persona detector 成功产出 Persona Policy 时才注入；缺失或失败时不复用旧 Mood，也不生成 `status: unavailable` Context。
+- World Focus 继续只在存在实际 resolved focus 时注入；跳过、无候选和失败不会形成可见 Context。
+- 不新增 `perception_availability` 或 `perception_fallback` Section。
+
+### 验收标准
+
+1. 最终 Prompt 和 Manifest 中不存在 `instant-perception-status` 或 `perception_runtime_status`。
+2. detector 失败、跳过、耗时、异常和 warning 只可在 Trace 中观察到。
+3. Scene 失败、`unknown` 或置信度低于 0.6 时，不注入 `scene-state` 和 `scene-rule`。
+4. persona detector 本轮未产出有效 Policy 时，不注入 `agent-mood`，Prompt 中也不出现 `status: unavailable`。
+5. 有效的 Scene、AI Mood 和 resolved World Focus 仍按原结构进入 Context。
 
 ## P1-2：Context 分散装配，缺少最终清单
 
@@ -359,10 +408,47 @@ Instant Perception Prompt 会向主模型描述：
 - 不改变现有节点职责，在每次 llmCall 排序完成后输出最终 Context Manifest。
 - Manifest 汇总首次 Context、工具循环 Section、历史消息和当前交互，并记录来源、字符数和最终顺序。
 
+### 补充讨论：是否规范 Context Provider 接口
+
+参考 [uu201/character-arc](https://github.com/uu201/character-arc) 的 Runtime v2：每种数据源实现 `ContextProvider`，统一产出带 provider、优先级、标题、正文和 token 估算的 `ContextSlice`；Builder 再按当前 Surface 选择 Provider、隔离单个 Provider 失败、执行预算控制并拼装最终 Prompt。
+
+我们也需要规范不同来源进入 Context Engine 时的交付结构，但只统一 Provider 的调用边界和输出信封，不统一各来源的底层业务数据模型。人物印象、场景感知、工作区、长期记忆和任务状态仍保留各自的数据结构，由各自 Provider 转换为已有的 `PromptSection[]`：
+
+```ts
+type ContextProviderRequest = {
+  phase: 'initial' | 'tool_loop'
+  state: MainAgentState
+  budget?: ContextBudget
+}
+
+type ContextProviderResult = {
+  sections: PromptSection[]
+  diagnostics?: ContextProviderDiagnostics
+}
+
+type ContextProvider = {
+  id: string
+  isApplicable?(request: ContextProviderRequest): boolean
+  provide(request: ContextProviderRequest): Promise<ContextProviderResult>
+}
+```
+
+`PromptSection` 已经承担统一输出信封的主体职责，Provider 是来源获取、适用性判断和转换的适配边界，不代表现在要建设完整 Typed Context Planner。后续确有预算治理需求时，可为 Section 增加彼此独立的 `priority`、`estimatedTokens`、`retention`、`reloadRef` 和压缩状态；不能用一个字段同时表达 Prompt 职责、来源激活、保留时长、预算优先级、可信度和可重载性。
+
+以下内容不应为了统一 Provider 而强行转成 Section：
+
+- 最近 HumanMessage/AIMessage 继续作为原生对话历史，由最终装配阶段纳入 Manifest。
+- 工具结果首次消费继续使用原生 ToolMessage/transcript，并遵循 P0-5 生命周期；消费后如需保留，才投影为 `context/tool_evidence` 或 `execution/tool_progress`。
+- Provider 的 diagnostics 默认进入 Trace，只有确实改变模型可用信息边界时才形成面向模型的降级 Section。
+
+CharacterArc 的优先级、token 预算、失败隔离和可恢复裁剪值得作为 P1-2/P1-3 的参考，但不直接复制其通用 head/tail 压缩。文档、人物详情、Recall 命中和叙事批次的关键内容可能位于中间，应该优先使用显式分页、范围读取或稳定引用；任何压缩或省略都必须对模型可见且可以恢复。稳定人格、当前用户请求、关系上下文和最近对话也不应成为第一批裁剪对象。
+
 ### 待确认
 
 - Manifest 只用于 Trace，还是也需要开发者调试界面？
 - 工具循环后的 Context 是否应与首次 Context 使用同一渲染入口？
+- Provider 首版只统一初始派生 Context，还是同时迁移工具消费后的 Section 生成？
+- Provider 输入应直接读取 `MainAgentState`，还是逐步收窄为显式的只读 Source Snapshot？
 
 ## P1-3：没有总量保护、去重和分段大小治理
 
@@ -483,14 +569,14 @@ Instant Perception Prompt 会向主模型描述：
 
 ### 第二组：收敛 Context 可观测性和噪声
 
-4. 移除不必要的运行诊断 Prompt。
-5. 将首次注入和工具循环汇入最终 Context Manifest。
-6. 基于现有分段统计观察重复信息，再决定是否设置保护线。
+1. 移除不必要的运行诊断 Prompt。
+2. 将首次注入和工具循环汇入最终 Context Manifest。
+3. 基于现有分段统计观察重复信息，再决定是否设置保护线。
 
 ### 第三组：推进人格化长期记忆
 
-7. 将重要事件与滚动摘要分离，并让 Agent 根据行为偏好选择值得记住的事件。
-8. 区分短期状态和 Agent 对用户的长期印象，梳理印象受质疑后的主动回忆与重新判断流程。
+1. 将重要事件与滚动摘要分离，并让 Agent 根据行为偏好选择值得记住的事件。
+2. 区分短期状态和 Agent 对用户的长期印象，梳理印象受质疑后的主动回忆与重新判断流程。
 
 ## 后续逐项讨论模板
 

@@ -36,6 +36,7 @@ export interface AgentToolMetadata {
 export type AgentToolResultEnvelope<TData> = {
   ok: boolean
   data: TData | null
+  modelResult: unknown
   error: {
     code: string
     message: string
@@ -72,6 +73,10 @@ type DefineAgentToolOptions<
     data: z.infer<TOutputSchema>,
     input: z.infer<TInputSchema>
   ) => AgentToolReceipt | undefined
+  buildModelResult?: (
+    data: z.infer<TOutputSchema>,
+    input: z.infer<TInputSchema>
+  ) => unknown
   nextSuggestions?: (
     data: z.infer<TOutputSchema>,
     input: z.infer<TInputSchema>
@@ -112,14 +117,17 @@ const logAgentToolTrace = (input: {
   void input
 }
 
-const normalizeMetadata = (metadata: AgentToolMetadata): AgentTool['agentMetadata'] => ({
-  ...metadata,
-  riskLevel: metadata.riskLevel ?? 'low',
-  readOnly: metadata.readOnly ?? false,
-  idempotent: metadata.idempotent ?? false,
-  completionSemantics: metadata.completionSemantics ?? 'definitive',
-  contextRetention: metadata.contextRetention ?? 'ephemeral'
-})
+const normalizeMetadata = (metadata: AgentToolMetadata): AgentTool['agentMetadata'] => {
+  const readOnly = metadata.readOnly ?? false
+  return {
+    ...metadata,
+    riskLevel: metadata.riskLevel ?? 'low',
+    readOnly,
+    idempotent: metadata.idempotent ?? false,
+    completionSemantics: metadata.completionSemantics ?? 'definitive',
+    contextRetention: metadata.contextRetention ?? (readOnly ? 'evidence' : 'ephemeral')
+  }
+}
 
 const toErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
@@ -178,10 +186,12 @@ const buildSuccessEnvelope = <TData>(
   data: TData,
   message: string,
   nextSuggestions: string[],
-  receipt?: AgentToolReceipt
+  receipt: AgentToolReceipt | undefined,
+  modelResult: unknown
 ): AgentToolResultEnvelope<TData> => ({
   ok: true,
   data,
+  modelResult,
   error: null,
   message,
   nextSuggestions,
@@ -206,6 +216,15 @@ const buildFailureEnvelope = (
 ): AgentToolResultEnvelope<null> => ({
   ok: false,
   data: null,
+  modelResult: {
+    ok: false,
+    toolName,
+    error: {
+      code,
+      message
+    },
+    nextSuggestions
+  },
   error: {
     code,
     message
@@ -281,6 +300,7 @@ export function parseAgentToolResultEnvelope<TData = unknown>(
   return {
     ok: parsed.ok,
     data: (parsed.data ?? null) as TData | null,
+    modelResult: parsed.modelResult ?? parsed.data ?? null,
     error,
     message: typeof parsed.message === 'string' ? parsed.message : '',
     nextSuggestions: Array.isArray(parsed.nextSuggestions)
@@ -380,6 +400,17 @@ export function defineAgentTool<
           `${options.name} completed successfully.`
         const nextSuggestions = options.nextSuggestions?.(parsedOutput.data, parsedInput.data) ?? []
         const receipt = options.buildReceipt?.(parsedOutput.data, parsedInput.data)
+        const modelResult = options.buildModelResult
+          ? options.buildModelResult(parsedOutput.data, parsedInput.data)
+          : metadata.readOnly
+            ? parsedOutput.data
+            : {
+                ok: true,
+                toolName: options.name,
+                message,
+                receipt: receipt ?? null,
+                nextSuggestions
+              }
 
         logAgentToolTrace({
           toolName: options.name,
@@ -399,7 +430,8 @@ export function defineAgentTool<
             parsedOutput.data,
             message,
             nextSuggestions,
-            receipt
+            receipt,
+            modelResult
           )
         )
       } catch (error) {

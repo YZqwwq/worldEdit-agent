@@ -4,7 +4,8 @@ import {
   SystemMessage,
   AIMessage,
   AIMessageChunk,
-  HumanMessage
+  HumanMessage,
+  RemoveMessage
 } from '@langchain/core/messages'
 import { getModelWithTool, normalizeModelResponse } from '../../modelwithtool/modelwithtool'
 import { MessagesState } from '../../state/messageState'
@@ -67,6 +68,14 @@ const renderToolContextItems = (title: string, items: ToolContextItem[]): string
     )
   }
   return lines.join('\n')
+}
+
+const uniqueToolContextItems = (items: ToolContextItem[]): ToolContextItem[] => {
+  const byKey = new Map<string, ToolContextItem>()
+  for (const item of items) {
+    byKey.set(`${item.toolName}:${item.argsSummary}:${item.resultSummary}`, item)
+  }
+  return [...byKey.values()]
 }
 
 const summarizeToolContextItem = (item: ToolContextItem, index: number): string => {
@@ -214,6 +223,7 @@ export async function llmCall(
   // 动态调整消息顺序：确保 SystemMessage 位于首位，历史消息位于中间，当前用户输入位于最后
   // ContextNode 可能将 SystemMessage 和历史消息追加到了末尾，这里进行一次重排序
   const messages = [...state.messages]
+  const pendingToolContext = state.pendingToolContext ?? []
 
   // 1. 提取所有派生上下文 System Message
   const systemMsgs = [
@@ -385,8 +395,40 @@ export async function llmCall(
     }
   })
 
+  const consumedTranscriptIds = [...new Set(state.activeToolTranscriptIds ?? [])]
+  if (consumedTranscriptIds.length > 0) {
+    traceDecision('llmCall', {
+      title: '决策: 工具结果首次消费完成',
+      summary:
+        `模型已完整消费 ${pendingToolContext.length} 个工具结果，` +
+        `清理 ${consumedTranscriptIds.length} 条 transcript 消息`,
+      data: {
+        consumedTranscriptIds,
+        retainedEvidenceCount: pendingToolContext.filter(
+          (item) => item.retention === 'evidence' && item.ok !== false
+        ).length,
+        releasedCount: pendingToolContext.filter(
+          (item) => item.retention !== 'evidence' || item.ok === false
+        ).length
+      }
+    })
+  }
+
   return {
-    messages: [response] as BaseMessage[], // ✅ 显式转换
-    llmCalls: (state.llmCalls ?? 0) + 1
+    messages: [
+      response,
+      ...consumedTranscriptIds.map((id) => new RemoveMessage({ id }))
+    ] as BaseMessage[],
+    llmCalls: (state.llmCalls ?? 0) + 1,
+    toolEvidenceContext: uniqueToolContextItems([
+      ...(state.toolEvidenceContext ?? []),
+      ...pendingToolContext.filter(
+        (item) => item.retention === 'evidence' && item.ok !== false
+      )
+    ]),
+    ephemeralToolContext: [],
+    pendingToolContext: [],
+    retainedToolTranscriptIds: [],
+    activeToolTranscriptIds: []
   }
 }

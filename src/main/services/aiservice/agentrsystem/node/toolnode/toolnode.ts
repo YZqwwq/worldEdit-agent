@@ -45,32 +45,30 @@ const buildToolMessageContent = (
   fallbackResult: unknown
 ): string => {
   if (!envelope) {
-    return JSON.stringify(
-      {
-        toolName,
-        message: 'Tool returned a non-standard result. A compact fallback is available.',
-        fallbackPreview: stringifyCompact(fallbackResult, 300)
-      },
-      null,
-      2
-    )
+    return serializeModelResult({
+      toolName,
+      message: 'Tool returned a non-standard result.',
+      result: fallbackResult
+    })
   }
 
-  const genericCompact = {
+  return serializeModelResult({
     ok: envelope.ok,
     toolName,
     message: envelope.message,
     error: envelope.error,
-    contextRetention: envelope.meta.contextRetention,
-    contextReloaded:
-      envelope.meta.contextRetention === 'evidence'
-        ? 'toolEvidenceContext'
-        : envelope.meta.contextRetention === 'ephemeral'
-          ? 'ephemeralToolContext'
-          : 'none'
-  }
+    result: envelope.modelResult,
+    nextSuggestions: envelope.nextSuggestions
+  })
+}
 
-  return JSON.stringify(genericCompact, null, 2)
+const serializeModelResult = (value: unknown): string => {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
 }
 
 const compact = (value: string, max = 900): string => {
@@ -504,6 +502,7 @@ export async function toolNode(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (tool as any).invoke(toolCall.args)
       const envelope = parseAgentToolResultEnvelope(result)
+      const modelResultContent = buildToolMessageContent(toolCall.name, envelope, result)
       const toolEntry = toolEntries[toolCall.name]
       if (toolEntry?.turnCallLimit === 1 && envelope?.ok !== false) {
         suppressedTools.push(toolEntry.tool.name)
@@ -601,7 +600,7 @@ export async function toolNode(
       toolMessages.push(
         (() => {
           const toolMessage = createToolMessage({
-            content: buildToolMessageContent(toolCall.name, envelope, result),
+            content: modelResultContent,
             toolCallId: toolCall.id,
             name: toolCall.name
           })
@@ -625,7 +624,10 @@ export async function toolNode(
               retention,
               ok: envelope?.ok ?? null,
               argsSummary: stringifyCompact(toolCall.args ?? {}),
-              resultSummary: buildResultSummary(toolCall.name, envelope, result),
+              resultSummary:
+                retention === 'evidence'
+                  ? modelResultContent
+                  : buildResultSummary(toolCall.name, envelope, result),
               createdAtLoop: state.llmCalls ?? 0,
               sourceRefs: buildSourceRefs(toolCall.name, data)
             })

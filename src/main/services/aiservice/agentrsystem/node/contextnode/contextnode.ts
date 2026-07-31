@@ -143,7 +143,9 @@ const buildWorldFocusPrompt = (
 
 const buildScenePrompt = (slotSnapshot: MemorySlotSnapshot): SplitPrompt => {
   const scene = slotSnapshot.scene_perception
-  if (!scene) return { context: '', instruction: '' }
+  if (!scene || scene.confidence < 0.6 || scene.primaryDomain === 'unknown') {
+    return { context: '', instruction: '' }
+  }
 
   const lines = [
     '本轮场景连续性判断：',
@@ -165,29 +167,6 @@ const buildScenePrompt = (slotSnapshot: MemorySlotSnapshot): SplitPrompt => {
     instruction:
       '场景上下文使用规则：若连续性为 temporary_reference，用户提到的外部作品或现实对象只是参考或类比，不要把它当作应用内世界观焦点。若不允许使用历史世界观焦点，不要主动把旧人物或世界观对象带入回答。'
   }
-}
-
-const buildInstantPerceptionPrompt = (state: typeof MessagesState.State): string => {
-  const perception = state.instantPerception
-  if (!perception) return ''
-
-  const lines = [
-    '本轮瞬时感知状态：',
-    `感知模式：${perception.mode}`,
-    `总耗时：${perception.durationMs}ms`,
-    `scene：${perception.detectors.scene.status} / ${perception.detectors.scene.durationMs}ms / 输出=${perception.detectors.scene.producedStateKeys.join(', ') || 'none'}`,
-    `userMood：${perception.detectors.userMood.status} / ${perception.detectors.userMood.durationMs}ms / 输出=${perception.detectors.userMood.producedStateKeys.join(', ') || 'none'}`,
-    `worldFocus：${perception.detectors.worldFocus.status} / ${perception.detectors.worldFocus.durationMs}ms / 输出=${perception.detectors.worldFocus.producedStateKeys.join(', ') || 'none'}`,
-    `persona：${perception.detectors.persona.status} / ${perception.detectors.persona.durationMs}ms / 输出=${perception.detectors.persona.producedStateKeys.join(', ') || 'none'}`,
-    `worldFocus 路由：${perception.routing.shouldRunWorldFocus ? 'run' : 'skip'}${perception.routing.worldFocusSkipReason ? ` / ${perception.routing.worldFocusSkipReason}` : ''}`,
-    '使用规则：这是内部感知层健康状态。不要向用户复述这些技术细节；若某项感知失败，只按已有上下文自然降级。'
-  ]
-
-  if (perception.warnings.length > 0) {
-    lines.push(`感知警告：${perception.warnings.join('；')}`)
-  }
-
-  return lines.join('\n')
 }
 
 const buildWorkspaceContextPrompt = (state: typeof MessagesState.State): SplitPrompt => {
@@ -255,7 +234,11 @@ export async function contextNode(
   const personaParts = buildPersonaAssemblyPromptParts({
     characterPrompt,
     expressionPrompt: expressionProfile.prompt,
-    moodAssessment: effectiveSlotSnapshot.ai_mood.current
+    moodAssessment:
+      state.instantPerception?.detectors.persona.status === 'fulfilled' &&
+      state.instantPerception.detectors.persona.producedStateKeys.includes('personaPolicy')
+        ? effectiveSlotSnapshot.ai_mood.current
+        : undefined
   })
   appendPromptSection({
     id: 'persona-anchor',
@@ -264,14 +247,16 @@ export async function contextNode(
     source: 'characterPromptStore',
     content: personaParts.identity
   })
-  appendPromptSection({
-    id: 'agent-mood',
-    duty: 'context',
-    kind: 'agent_internal_state',
-    source: 'personaNode',
-    content: personaParts.moodContext,
-    capturedAt: effectiveSlotSnapshot.ai_mood.updatedAt
-  })
+  if (personaParts.moodContext) {
+    appendPromptSection({
+      id: 'agent-mood',
+      duty: 'context',
+      kind: 'agent_internal_state',
+      source: 'personaNode',
+      content: personaParts.moodContext,
+      capturedAt: effectiveSlotSnapshot.ai_mood.updatedAt
+    })
+  }
   appendPromptSection({
     id: 'persona-expression',
     duty: 'instruction',
@@ -411,18 +396,6 @@ export async function contextNode(
       source: 'personaPolicyCompiler',
       content: actionPolicyPrompt,
       capturedAt: state.personaPolicy?.generatedAt
-    })
-  }
-
-  const instantPerceptionPrompt = buildInstantPerceptionPrompt(state)
-  if (instantPerceptionPrompt) {
-    appendPromptSection({
-      id: 'instant-perception-status',
-      duty: 'execution',
-      kind: 'perception_runtime_status',
-      source: 'instantPerceptionNode',
-      content: instantPerceptionPrompt,
-      capturedAt: state.instantPerception?.completedAt
     })
   }
 
