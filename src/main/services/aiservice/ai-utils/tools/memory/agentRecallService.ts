@@ -4,6 +4,7 @@ import {
   searchRecentChineseConversation,
   tokenizeChineseConversationText
 } from '../conversation/chineseConversationSearchService'
+import { analyzeConversationRecallQuery } from '../conversation/conversationRecallSemantics'
 
 const DEFAULT_MATCH_LIMIT = 8
 const MAX_MATCH_LIMIT = 12
@@ -92,10 +93,7 @@ const rankCandidates = (query: string, candidates: SearchCandidate[]): RankedCan
   }
   engine.consolidate()
 
-  const results = engine.search(
-    query,
-    Math.min(searchableCandidates.length, MAX_MATCH_LIMIT * 4)
-  )
+  const results = engine.search(query, Math.min(searchableCandidates.length, MAX_MATCH_LIMIT * 4))
   const maxScore = Math.max(...results.map(([, score]) => score), 0)
   const timestamps = searchableCandidates
     .map((candidate) => (candidate.occurredAt ? Date.parse(candidate.occurredAt) : Number.NaN))
@@ -124,9 +122,7 @@ const rankRawMessages = (
   matches: Awaited<ReturnType<typeof searchRecentChineseConversation>>['matches']
 ): RankedCandidate[] => {
   const maxScore = Math.max(...matches.map((match) => match.score), 0)
-  const timestamps = matches
-    .map((match) => Date.parse(match.createdAt))
-    .filter(Number.isFinite)
+  const timestamps = matches.map((match) => Date.parse(match.createdAt)).filter(Number.isFinite)
   return matches.flatMap((match): RankedCandidate[] => {
     if (match.score <= 0 || maxScore <= 0) return []
     const relevanceScore = match.score / maxScore
@@ -192,22 +188,27 @@ export const recallAgentMemory = async (input: {
   limit?: number
 }): Promise<RecallBundle> => {
   const query = normalizeText(input.query)
-  const limit = Math.max(1, Math.min(MAX_MATCH_LIMIT, Math.round(input.limit ?? DEFAULT_MATCH_LIMIT)))
-  const [snapshot, rawSearchResult] = await Promise.all([
-    memoryManager.getSnapshot({ recentStageLimit: MAX_STAGE_CANDIDATES }),
-    searchRecentChineseConversation({
-      query,
-      limit: MAX_MATCH_LIMIT,
-      maxTurns: 50,
-      excludeRecentTurns: 2
-    }).catch(() => ({
-      query,
-      queryTokens: [] as string[],
-      searchedTurnCount: 0,
-      searchedMessageCount: 0,
-      matches: []
+  const limit = Math.max(
+    1,
+    Math.min(MAX_MATCH_LIMIT, Math.round(input.limit ?? DEFAULT_MATCH_LIMIT))
+  )
+  const querySemantics = analyzeConversationRecallQuery(query)
+  const snapshot = await memoryManager.getSnapshot({ recentStageLimit: MAX_STAGE_CANDIDATES })
+  const rawSearchResult = await searchRecentChineseConversation({
+    query,
+    limit: MAX_MATCH_LIMIT,
+    maxTurns: 50,
+    excludedMessages: snapshot.shortTerm.map((message) => ({
+      role: message.role === 'ai' ? ('ai' as const) : ('user' as const),
+      content: message.content
     }))
-  ])
+  }).catch(() => ({
+    query,
+    queryTokens: [] as string[],
+    searchedTurnCount: 0,
+    searchedMessageCount: 0,
+    matches: []
+  }))
 
   const memoryCandidates: SearchCandidate[] = [
     ...snapshot.pendingArchive
@@ -230,10 +231,13 @@ export const recallAgentMemory = async (input: {
     }))
   ].filter((candidate) => normalizeText(candidate.content).length > 0)
 
-  const memoryMatches = rankCandidates(query, memoryCandidates)
+  const memoryMatches = rankCandidates(querySemantics.searchText, memoryCandidates)
   const rawMatches = rankRawMessages(rawSearchResult.matches)
-  const queryHasSearchTokens = tokenizeChineseConversationText(query).length > 0
-  const fallbackMatches = !queryHasSearchTokens ? buildRecencyFallback(memoryCandidates) : []
+  const queryHasSearchTokens = tokenizeChineseConversationText(querySemantics.searchText).length > 0
+  const fallbackMatches =
+    querySemantics.referenceOnly || !queryHasSearchTokens
+      ? buildRecencyFallback(memoryCandidates)
+      : []
 
   return {
     query,

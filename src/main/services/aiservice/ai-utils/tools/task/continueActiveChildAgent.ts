@@ -27,12 +27,11 @@ export const continueActiveChildAgentTool = defineAgentTool({
     inputSummary: '提供 userReply，也就是用户刚刚补充的缺失信息原文。',
     outputSummary:
       '返回 accepted、taskId、executionId、executorKind、status、summary、nextAction，表示当前 active 子 agent 已被续跑。',
-    examples: [
-      '当人物编辑子 agent 缺少 worldName，用户补充“方舟终章”后，调用本工具继续后台执行。'
-    ],
+    examples: ['当人物编辑子 agent 缺少 worldName，用户补充“方舟终章”后，调用本工具继续后台执行。'],
     riskLevel: 'medium',
     readOnly: false,
-    idempotent: false
+    idempotent: false,
+    completionSemantics: 'eventual'
   },
   async execute(input) {
     const result = await taskContinuationService.continueActiveTask(input.userReply)
@@ -45,6 +44,9 @@ export const continueActiveChildAgentTool = defineAgentTool({
       summary: `已接收补充信息并续跑 ${result.executorKind} 子 agent：${input.userReply.trim().slice(0, 160)}`,
       nextAction: 'await_subagent_result'
     })
+  },
+  resolveCompletionState() {
+    return 'running'
   },
   successMessage(data) {
     return `Active child-agent task #${data.taskId} has been resumed.`

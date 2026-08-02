@@ -33,10 +33,35 @@ export class WorldEntityDocumentRevisionConflictError extends Error {
     readonly expectedRevision: number,
     readonly currentRevision: number
   ) {
-    super(
-      `Document revision conflict: expected ${expectedRevision}, current ${currentRevision}`
-    )
+    super(`Document revision conflict: expected ${expectedRevision}, current ${currentRevision}`)
     this.name = 'WorldEntityDocumentRevisionConflictError'
+  }
+}
+
+export class WorldEntityDocumentNotFoundError extends Error {
+  readonly code = 'NOT_FOUND'
+  readonly retryable = false
+
+  constructor(
+    readonly resourceType: 'world' | 'entity' | 'document' | 'parent_document',
+    readonly resourceId: string
+  ) {
+    super(`${resourceType} not found: ${resourceId}`)
+    this.name = 'WorldEntityDocumentNotFoundError'
+  }
+}
+
+export class WorldEntityDocumentConstraintError extends Error {
+  readonly code = 'INVALID_TOOL_INPUT'
+  readonly retryable = true
+
+  constructor(
+    message: string,
+    readonly constraint: string,
+    readonly details?: Record<string, unknown>
+  ) {
+    super(message)
+    this.name = 'WorldEntityDocumentConstraintError'
   }
 }
 
@@ -78,7 +103,7 @@ class WorldEntityDocumentService {
     if (!worldId) throw new Error('worldId is required')
 
     const world = await this.worldRepo.findOneBy({ id: worldId })
-    if (!world) throw new Error(`World not found: ${worldId}`)
+    if (!world) throw new WorldEntityDocumentNotFoundError('world', worldId)
 
     if (owner.kind === 'world') {
       return { ownerKind: 'world', worldId, ownerEntityId: null }
@@ -87,12 +112,20 @@ class WorldEntityDocumentService {
     const entityId = String(owner.entityId || '').trim()
     if (!entityId) throw new Error('entityId is required')
     const entity = await this.entityRepo.findOneBy({ id: entityId })
-    if (!entity) throw new Error(`World entity not found: ${entityId}`)
+    if (!entity) throw new WorldEntityDocumentNotFoundError('entity', entityId)
     if (entity.worldId !== worldId) {
-      throw new Error('Document owner entity must belong to the selected world')
+      throw new WorldEntityDocumentConstraintError(
+        'Document owner entity must belong to the selected world',
+        'OWNER_WORLD_MISMATCH',
+        { entityId, worldId, entityWorldId: entity.worldId }
+      )
     }
     if (!isWorldEntityDocumentOwnerType(entity.type)) {
-      throw new Error(`World entity type "${entity.type}" cannot own documents`)
+      throw new WorldEntityDocumentConstraintError(
+        `World entity type "${entity.type}" cannot own documents`,
+        'UNSUPPORTED_OWNER_TYPE',
+        { entityId, entityType: entity.type }
+      )
     }
     return { ownerKind: 'entity', worldId, ownerEntityId: entity.id }
   }
@@ -109,13 +142,19 @@ class WorldEntityDocumentService {
     if (!normalizedParentId) return null
 
     const parent = await this.documentRepo.findOneBy({ id: normalizedParentId })
-    if (!parent) throw new Error(`Parent document not found: ${normalizedParentId}`)
+    if (!parent) {
+      throw new WorldEntityDocumentNotFoundError('parent_document', normalizedParentId)
+    }
     if (
       parent.ownerKind !== owner.ownerKind ||
       parent.worldId !== owner.worldId ||
       parent.ownerEntityId !== owner.ownerEntityId
     ) {
-      throw new Error('Parent document must belong to the same document owner')
+      throw new WorldEntityDocumentConstraintError(
+        'Parent document must belong to the same document owner',
+        'PARENT_OWNER_MISMATCH',
+        { parentDocumentId: normalizedParentId }
+      )
     }
     return parent.id
   }
@@ -138,7 +177,9 @@ class WorldEntityDocumentService {
     return descendants
   }
 
-  async listDocuments(ownerRef: WorldEntityDocumentOwnerRef): Promise<WorldEntityDocumentPayload[]> {
+  async listDocuments(
+    ownerRef: WorldEntityDocumentOwnerRef
+  ): Promise<WorldEntityDocumentPayload[]> {
     const owner = await this.normalizeOwner(ownerRef)
     const documents = await this.documentRepo.find({
       where: {
@@ -179,7 +220,7 @@ class WorldEntityDocumentService {
     const normalizedDocumentId = String(input.documentId || '').trim()
     if (!normalizedDocumentId) throw new Error('documentId is required')
     const document = await this.documentRepo.findOneBy({ id: normalizedDocumentId })
-    if (!document) throw new Error(`Document not found: ${normalizedDocumentId}`)
+    if (!document) throw new WorldEntityDocumentNotFoundError('document', normalizedDocumentId)
     const expectedRevision = Number(input.expectedRevision)
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
       throw new Error('expectedRevision must be a positive integer')
@@ -198,10 +239,7 @@ class WorldEntityDocumentService {
     const updateResult = await this.documentRepo.update(
       { id: document.id, revision: expectedRevision },
       {
-        title:
-          input.title !== undefined
-            ? normalizeDocumentTitle(input.title)
-            : document.title,
+        title: input.title !== undefined ? normalizeDocumentTitle(input.title) : document.title,
         contentHtml:
           input.contentHtml !== undefined
             ? normalizeContentHtml(input.contentHtml)
@@ -226,7 +264,7 @@ class WorldEntityDocumentService {
     const normalizedDocumentId = String(input.documentId || '').trim()
     if (!normalizedDocumentId) throw new Error('documentId is required')
     const document = await this.documentRepo.findOneBy({ id: normalizedDocumentId })
-    if (!document) throw new Error(`Document not found: ${normalizedDocumentId}`)
+    if (!document) throw new WorldEntityDocumentNotFoundError('document', normalizedDocumentId)
     const expectedRevision = Number(input.expectedRevision)
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
       throw new Error('expectedRevision must be a positive integer')
@@ -247,11 +285,20 @@ class WorldEntityDocumentService {
       },
       input.parentDocumentId
     )
-    if (nextParentId === document.id) throw new Error('Document cannot be moved under itself')
+    if (nextParentId === document.id) {
+      throw new WorldEntityDocumentConstraintError(
+        'Document cannot be moved under itself',
+        'SELF_PARENT'
+      )
+    }
     if (nextParentId) {
       const descendantIds = await this.collectDescendantIds(document.id)
       if (descendantIds.includes(nextParentId)) {
-        throw new Error('Document cannot be moved under one of its descendants')
+        throw new WorldEntityDocumentConstraintError(
+          'Document cannot be moved under one of its descendants',
+          'DESCENDANT_PARENT',
+          { parentDocumentId: nextParentId }
+        )
       }
     }
 
@@ -278,11 +325,15 @@ class WorldEntityDocumentService {
     const normalizedDocumentId = String(input.documentId || '').trim()
     if (!normalizedDocumentId) throw new Error('documentId is required')
     const document = await this.documentRepo.findOneBy({ id: normalizedDocumentId })
-    if (!document) throw new Error(`Document not found: ${normalizedDocumentId}`)
+    if (!document) throw new WorldEntityDocumentNotFoundError('document', normalizedDocumentId)
 
     const descendantIds = await this.collectDescendantIds(document.id)
     if (descendantIds.length > 0 && !input.recursive) {
-      throw new Error('Document has children; pass recursive=true to delete the subtree')
+      throw new WorldEntityDocumentConstraintError(
+        'Document has children; pass recursive=true to delete the subtree',
+        'RECURSIVE_DELETE_REQUIRED',
+        { descendantCount: descendantIds.length }
+      )
     }
     const idsToDelete = [document.id, ...descendantIds]
     await this.documentRepo

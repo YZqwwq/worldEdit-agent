@@ -164,10 +164,17 @@ export const queryToolCatalogTool = defineAgentTool({
   buildReceipt(data) {
     return {
       kind: 'tool_catalog_queried',
+      operation: '查询工具能力目录',
+      subject: {
+        type: 'capability',
+        label: data.intent || data.purpose || '未指定能力'
+      },
+      completion: data.count > 0 ? 'complete' : 'partial',
       summary:
         data.count > 0
           ? `已找到候选工具集：${data.toolsets.map((item) => item.id).join(', ')}`
           : '未找到候选工具集。',
+      retryable: false,
       payload: {
         toolsetIds: data.toolsets.map((item) => item.id)
       }

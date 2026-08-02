@@ -4,6 +4,7 @@ out
 .DS_Store
 .eslintcache
 *.log*
+.tmp-*.cjs
 .vscode
 .promptx
 .trae

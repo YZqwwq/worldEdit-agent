@@ -1,5 +1,14 @@
 import { MessagesState } from '../../state/messageState'
 import { traceArtifact } from '../../../../log/trace/agentTraceEmitter'
+import type { ToolContextItem } from '../../state/messageState'
+
+const uniqueToolContextItems = (items: ToolContextItem[]): ToolContextItem[] => {
+  const byKey = new Map<string, ToolContextItem>()
+  for (const item of items) {
+    byKey.set(item.toolCallId || item.id, item)
+  }
+  return [...byKey.values()]
+}
 
 export async function toolContextReloadNode(
   state: typeof MessagesState.State
@@ -25,7 +34,14 @@ export async function toolContextReloadNode(
   }
 
   return {
-    // The transcript is consumed by llmCall before any lifecycle migration or cleanup.
-    ephemeralToolContext: []
+    // Promote the result before the next model step. The native transcript remains in
+    // pendingToolContext until llmCall has consumed the paired AI/Tool messages.
+    toolEvidenceContext: uniqueToolContextItems([
+      ...(state.toolEvidenceContext ?? []),
+      ...pending.filter((item) => item.retention === 'evidence' && item.ok !== false)
+    ]),
+    ephemeralToolContext: uniqueToolContextItems(
+      pending.filter((item) => item.retention === 'ephemeral' || item.ok === false)
+    )
   }
 }

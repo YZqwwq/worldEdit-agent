@@ -76,10 +76,18 @@ export const recallAgentMemoryTool = defineAgentTool({
   buildReceipt(data) {
     return {
       kind: 'agent_memory_recalled',
+      operation: '回忆相关经历',
+      subject: {
+        type: 'memory_query',
+        label: data.query
+      },
+      completion: data.matches.length > 0 ? 'complete' : 'partial',
       summary:
         data.matches.length > 0
           ? `已回忆 ${data.matches.length} 条相关经历：${data.query}`
           : `未找到相关经历：${data.query}`,
+      retryable: false,
+      evidenceRef: `memory-query:${data.query}`,
       payload: {
         matchCount: data.matches.length,
         matchKinds: [...new Set(data.matches.map((match) => match.kind))],

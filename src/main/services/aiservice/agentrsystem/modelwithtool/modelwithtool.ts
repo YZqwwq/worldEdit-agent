@@ -34,6 +34,9 @@ export function bindToolsToModel(
   runtime: ConfiguredModelRuntime,
   toolRegistry: Record<string, DynamicStructuredTool>
 ): Runnable {
+  if (Object.keys(toolRegistry).length === 0) {
+    return runtime.model
+  }
   return new ModelWithTool(runtime, toolRegistry).getModel()
 }
 
@@ -43,8 +46,9 @@ export async function getModelWithTool(state?: ToolActivationState): Promise<{
 }> {
   const runtime = await getConfiguredModelRuntime()
   const resolvedState = await resolveMainAgentToolActivationState(state)
+  const tools = resolvedState.toolLoopFinalizing ? {} : getMainAgentTools(resolvedState)
   return {
-    runnable: bindToolsToModel(runtime, getMainAgentTools(resolvedState)),
+    runnable: bindToolsToModel(runtime, tools),
     runtime
   }
 }

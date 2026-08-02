@@ -39,10 +39,14 @@ export const delegateCharacterEditorTool = defineAgentTool({
     ],
     riskLevel: 'medium',
     readOnly: false,
-    idempotent: false
+    idempotent: false,
+    completionSemantics: 'eventual'
   },
   async execute(input) {
     return taskContinuationService.startCharacterEditorTask(input)
+  },
+  resolveCompletionState(data) {
+    return data.status === 'running' ? 'running' : 'accepted'
   },
   successMessage(data) {
     return `Character editing delegation accepted for task #${data.taskId}.`

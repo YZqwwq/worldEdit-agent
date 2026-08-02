@@ -12,7 +12,10 @@ const CAPABILITY_LAYER_DESCRIPTIONS: Record<string, string> = {
 const groupEntries = (
   entries: AgentToolRegistryEntry[]
 ): Array<{ layer: string; group: string; entries: AgentToolRegistryEntry[] }> => {
-  const groups = new Map<string, { layer: string; group: string; entries: AgentToolRegistryEntry[] }>()
+  const groups = new Map<
+    string,
+    { layer: string; group: string; entries: AgentToolRegistryEntry[] }
+  >()
   for (const entry of entries) {
     const key = `${entry.capabilityLayer}:${entry.capabilityGroup}`
     const group = groups.get(key) ?? {
@@ -64,12 +67,27 @@ export function buildToolUsageSystemPrompt(
             `不要使用：${metadata.whenNotToUse?.join('；') || '当问题不需要该工具时不要调用。'}`,
             `输入：${metadata.inputSummary}`,
             `输出：${metadata.outputSummary}`,
+            `完成语义：${metadata.completionSemantics === 'eventual' ? '异步阶段性结果' : '本次调用给出最终结果'}`,
             `结果保留：${metadata.contextRetention}`,
             `风险级别：${metadata.riskLevel}；只读：${metadata.readOnly ? '是' : '否'}；幂等：${metadata.idempotent ? '是' : '否'}`
           ]
 
           if (typeof entry.turnCallLimit === 'number') {
-            lines.push(`本轮调用上限：${entry.turnCallLimit} 次；成功后应基于工具证据回答，不要重复调用。`)
+            const callCount =
+              state?.toolCallCounts?.[entry.tool.name] ?? state?.toolCallCounts?.[entry.key] ?? 0
+            lines.push(
+              `本轮调用次数：${callCount}/${entry.turnCallLimit}；达到上限后必须使用已有结果继续。`
+            )
+          }
+
+          if (entry.activationMode === 'task_context') {
+            lines.push('激活来源：当前任务上下文；任务条件失效后该工具立即不可见，不能手动激活。')
+          }
+
+          if (metadata.completionSemantics === 'eventual') {
+            lines.push(
+              '完成约束：accepted、running、awaiting_input 都不是最终完成；只有 completion.state=completed 才能声称工作完成。'
+            )
           }
 
           if (metadata.usageContract?.length) {
@@ -100,6 +118,7 @@ export function buildToolUsageSystemPrompt(
     '7. 专门工具集默认不可见；需要本地领域、联网、后台或高成本能力时，如果当前可用工具里没有合适快捷工具，先调用 query_tool_catalog 查询工具底图，再用 activate_toolset 激活，不要假设隐藏工具已经可用。',
     '8. 长期记忆和阶段归档不会默认注入对话；当用户提到“之前、上次、刚才、继续、我们说过、你还记得吗”、用户曾明确纠正过事实，或当前问题需要旧结论/偏好/关系连续性时，优先调用 recall_agent_memory 回忆，不要只凭模型参数回答。',
     '9. 当没有合适工具时，再明确告诉用户当前能力边界。',
+    '10. completionSemantics=eventual 的工具返回成功只表示请求被接收或推进；必须读取 completion.state，只有 completed 才是最终完成。',
     '',
     '工具能力地图：',
     capabilityMap,

@@ -2,18 +2,15 @@ import { z } from 'zod'
 import { defineAgentTool } from '../../core/agentTool'
 import { worldEntityDocumentService } from '../../../../worldbuilding/worldEntityDocumentService'
 import { worldEntityDocumentChangePublisher } from '../../../../worldbuilding/worldEntityDocumentChangePublisher'
+import {
+  createWorldDocumentInputSchema,
+  listWorldDocumentsInputSchema
+} from './worldDocumentToolContracts'
 
-const ownerSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('world'),
-    worldId: z.string().trim().min(1)
-  }),
-  z.object({
-    kind: z.literal('entity'),
-    worldId: z.string().trim().min(1),
-    entityId: z.string().trim().min(1)
-  })
-])
+const toDocumentOwner = (input: { worldId: string; entityId?: string }) =>
+  input.entityId
+    ? ({ kind: 'entity' as const, worldId: input.worldId, entityId: input.entityId } as const)
+    : ({ kind: 'world' as const, worldId: input.worldId } as const)
 
 const documentSummarySchema = z.object({
   id: z.string(),
@@ -49,13 +46,25 @@ const toSummary = (document: z.infer<typeof documentSchema>) => ({
 export const listWorldDocumentsTool = defineAgentTool({
   name: 'list_world_documents',
   description: 'List the tree metadata of documents owned by a world or world entity.',
-  inputSchema: z.object({ owner: ownerSchema }),
+  inputSchema: listWorldDocumentsInputSchema,
   outputSchema: z.object({ documents: z.array(documentSummarySchema) }),
   metadata: {
-    whenToUse: ['需要查看世界观基础设定或某个实体下有哪些文档', '需要解析文档标题、层级或 documentId'],
+    whenToUse: [
+      '需要查看世界观基础设定或某个实体下有哪些文档',
+      '需要解析文档标题、层级或 documentId'
+    ],
     whenNotToUse: ['已经知道 documentId 且需要读取正文'],
-    inputSummary: '提供 world 或 entity owner。',
+    inputSummary: '提供 worldId；读取实体文档时再提供 entityId，不传 entityId 表示世界基础设定。',
     outputSummary: '返回文档目录元数据，不返回正文。',
+    usageContract: [
+      '参数必须直接放在调用顶层，不要把参数对象序列化成 JSON 字符串。',
+      '需要读取人物、国家等实体文档时，同时传入 worldId 和 entityId。',
+      '需要读取世界基础设定时只传 worldId。'
+    ],
+    examples: [
+      '{"worldId":"world-id","entityId":"entity-id"}',
+      '{"worldId":"world-id"}'
+    ],
     riskLevel: 'low',
     readOnly: true,
     idempotent: true,
@@ -67,11 +76,30 @@ export const listWorldDocumentsTool = defineAgentTool({
     }
   },
   async execute(input) {
-    const documents = await worldEntityDocumentService.listDocuments(input.owner)
+    const documents = await worldEntityDocumentService.listDocuments(toDocumentOwner(input))
     return { documents: documents.map(toSummary) }
   },
   successMessage(data) {
     return `Loaded ${data.documents.length} document catalog entries.`
+  },
+  buildReceipt(data, input) {
+    const ownerKind = input.entityId ? 'entity' : 'world'
+    const ownerId = input.entityId ?? input.worldId
+    return {
+      kind: 'world_document_catalog_loaded',
+      operation: '读取文档目录',
+      subject: {
+        type: ownerKind,
+        id: ownerId
+      },
+      completion: 'complete',
+      summary: `已读取 ${data.documents.length} 条文档目录记录。`,
+      retryable: false,
+      evidenceRef: `${ownerKind}:${ownerId}`,
+      payload: {
+        documentCount: data.documents.length
+      }
+    }
   }
 })
 
@@ -85,6 +113,11 @@ export const readWorldDocumentTool = defineAgentTool({
     whenNotToUse: ['尚不知道 documentId，应先列出文档目录'],
     inputSummary: '提供 documentId。',
     outputSummary: '返回文档正文、归属和 revision。',
+    usageContract: [
+      'documentId、归属字段和 revision 用于内部定位与后续写入，不应在普通内容讨论中主动展示。',
+      '读取成功后直接依据正文回答、概括或评价，不要向用户播报“已经读取文档”。',
+      '只有用户明确询问版本、调试信息或并发冲突时，才说明 revision 等内部状态。'
+    ],
     riskLevel: 'low',
     readOnly: true,
     idempotent: true,
@@ -103,24 +136,49 @@ export const readWorldDocumentTool = defineAgentTool({
     return data.found
       ? `Loaded document ${data.document?.title || input.documentId} at revision ${data.document?.revision}.`
       : `Document ${input.documentId} was not found.`
+  },
+  buildReceipt(data, input) {
+    return {
+      kind: 'world_document_read',
+      operation: '读取世界观文档',
+      subject: {
+        type: 'document',
+        id: input.documentId,
+        label: data.document?.title
+      },
+      completion: data.found ? 'complete' : 'partial',
+      summary: data.found
+        ? `已取得文档「${data.document?.title || input.documentId}」的完整正文。`
+        : '目标文档不存在，未取得正文。',
+      retryable: false,
+      evidenceRef: `document:${input.documentId}`,
+      payload: {
+        found: data.found,
+        revision: data.document?.revision
+      }
+    }
   }
 })
 
 export const createWorldDocumentTool = defineAgentTool({
   name: 'create_world_document',
   description: 'Create a world-level or entity-level document.',
-  inputSchema: z.object({
-    owner: ownerSchema,
-    parentDocumentId: z.string().trim().min(1).nullable().optional(),
-    title: z.string().trim().min(1).max(120),
-    contentHtml: z.string().max(40000).optional()
-  }),
+  inputSchema: createWorldDocumentInputSchema,
   outputSchema: z.object({ document: documentSchema }),
   metadata: {
     whenToUse: ['用户明确要求创建新的世界观或实体文档'],
     whenNotToUse: ['只是讨论文档内容，或目标文档已经存在'],
-    inputSummary: '提供 owner、标题，可选父文档和 HTML 正文。',
+    inputSummary:
+      '提供 worldId 和标题；创建实体文档时增加 entityId，可选父文档和 HTML 正文。',
     outputSummary: '返回新文档和初始 revision。',
+    usageContract: [
+      '参数必须直接放在调用顶层，不要传入 owner 嵌套对象或 JSON 字符串。',
+      '没有 entityId 时创建世界基础设定文档；存在 entityId 时创建该实体的文档。'
+    ],
+    examples: [
+      '{"worldId":"world-id","entityId":"entity-id","title":"人物志"}',
+      '{"worldId":"world-id","title":"力量体系"}'
+    ],
     riskLevel: 'medium',
     readOnly: false,
     idempotent: false,
@@ -132,7 +190,12 @@ export const createWorldDocumentTool = defineAgentTool({
     }
   },
   async execute(input) {
-    const document = await worldEntityDocumentService.createDocument(input)
+    const document = await worldEntityDocumentService.createDocument({
+      owner: toDocumentOwner(input),
+      parentDocumentId: input.parentDocumentId,
+      title: input.title,
+      contentHtml: input.contentHtml
+    })
     worldEntityDocumentChangePublisher.publish({
       changeType: 'created',
       documentId: document.id,
@@ -143,7 +206,16 @@ export const createWorldDocumentTool = defineAgentTool({
   buildReceipt(data) {
     return {
       kind: 'world_document_created',
+      operation: '创建世界观文档',
+      subject: {
+        type: 'document',
+        id: data.document.id,
+        label: data.document.title
+      },
+      completion: 'complete',
       summary: `创建文档「${data.document.title}」`,
+      retryable: false,
+      evidenceRef: `document:${data.document.id}`,
       payload: {
         documentId: data.document.id,
         revision: data.document.revision
@@ -155,15 +227,17 @@ export const createWorldDocumentTool = defineAgentTool({
 export const updateWorldDocumentTool = defineAgentTool({
   name: 'update_world_document',
   description: 'Update the title or complete HTML content of an existing world document.',
-  inputSchema: z.object({
-    documentId: z.string().trim().min(1),
-    expectedRevision: z.number().int().positive(),
-    title: z.string().trim().min(1).max(120).optional(),
-    contentHtml: z.string().max(40000).optional(),
-    changeSummary: z.string().trim().min(1).max(300)
-  }).refine((input) => input.title !== undefined || input.contentHtml !== undefined, {
-    message: 'title or contentHtml is required'
-  }),
+  inputSchema: z
+    .object({
+      documentId: z.string().trim().min(1),
+      expectedRevision: z.number().int().positive(),
+      title: z.string().trim().min(1).max(120).optional(),
+      contentHtml: z.string().max(40000).optional(),
+      changeSummary: z.string().trim().min(1).max(300)
+    })
+    .refine((input) => input.title !== undefined || input.contentHtml !== undefined, {
+      message: 'title or contentHtml is required'
+    }),
   outputSchema: z.object({ document: documentSchema, changeSummary: z.string() }),
   metadata: {
     whenToUse: ['用户明确要求修改当前文档或指定文档', '已经读取正文并持有匹配的 revision'],
@@ -198,7 +272,16 @@ export const updateWorldDocumentTool = defineAgentTool({
   buildReceipt(data) {
     return {
       kind: 'world_document_updated',
+      operation: '更新世界观文档',
+      subject: {
+        type: 'document',
+        id: data.document.id,
+        label: data.document.title
+      },
+      completion: 'complete',
       summary: data.changeSummary,
+      retryable: false,
+      evidenceRef: `document:${data.document.id}`,
       payload: {
         documentId: data.document.id,
         revision: data.document.revision
@@ -243,6 +326,24 @@ export const renameWorldDocumentTool = defineAgentTool({
       revision: document.revision
     })
     return { document }
+  },
+  buildReceipt(data) {
+    return {
+      kind: 'world_document_renamed',
+      operation: '重命名世界观文档',
+      subject: {
+        type: 'document',
+        id: data.document.id,
+        label: data.document.title
+      },
+      completion: 'complete',
+      summary: `文档已重命名为「${data.document.title}」。`,
+      retryable: false,
+      evidenceRef: `document:${data.document.id}`,
+      payload: {
+        revision: data.document.revision
+      }
+    }
   }
 })
 
@@ -279,6 +380,25 @@ export const moveWorldDocumentTool = defineAgentTool({
       revision: document.revision
     })
     return { document }
+  },
+  buildReceipt(data) {
+    return {
+      kind: 'world_document_moved',
+      operation: '调整世界观文档层级',
+      subject: {
+        type: 'document',
+        id: data.document.id,
+        label: data.document.title
+      },
+      completion: 'complete',
+      summary: '文档层级与顺序已更新。',
+      retryable: false,
+      evidenceRef: `document:${data.document.id}`,
+      payload: {
+        parentDocumentId: data.document.parentDocumentId,
+        revision: data.document.revision
+      }
+    }
   }
 })
 
@@ -317,7 +437,14 @@ export const deleteWorldDocumentTool = defineAgentTool({
   buildReceipt(data) {
     return {
       kind: 'world_document_deleted',
+      operation: '删除世界观文档',
+      subject: {
+        type: 'document',
+        id: data.documentId
+      },
+      completion: 'complete',
       summary: `删除文档 ${data.documentId}`,
+      retryable: false,
       payload: { documentId: data.documentId }
     }
   }

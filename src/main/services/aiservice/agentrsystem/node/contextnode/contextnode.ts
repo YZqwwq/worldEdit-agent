@@ -197,7 +197,7 @@ const buildWorkspaceContextPrompt = (state: typeof MessagesState.State): SplitPr
   return {
     context: lines.filter(Boolean).join('\n'),
     instruction:
-      '工作区上下文使用规则：这是用户发送本轮消息时正在查看的应用页面，是可靠的界面定位信息，但不等同于用户正在讨论的语义焦点。需要编辑“当前文档”时可使用这里的 documentId；若用户明确谈论其他对象，以用户消息和本轮世界观聚焦为准。'
+      '工作区上下文使用规则：这是用户发送本轮消息时正在查看的应用页面，是可靠的界面定位信息，但不等同于用户正在讨论的语义焦点。需要编辑“当前文档”时可使用这里的 documentId；若用户明确谈论其他对象，以用户消息和本轮世界观聚焦为准。回答位置问题时使用自然的页面、世界观、实体和文档名称；除非用户明确询问调试或版本信息，否则不要输出 routeName、内部 ID、revision 或页面快照时间。'
   }
 }
 
@@ -228,7 +228,7 @@ export async function contextNode(
   const toolActivationState = await resolveMainAgentToolActivationState({
     ...state,
     activeToolsets: [...(state.activeToolsets ?? []), ...contextualToolsets],
-    suppressedTools: []
+    toolCallCounts: state.toolCallCounts ?? {}
   })
 
   const personaParts = buildPersonaAssemblyPromptParts({
@@ -536,9 +536,10 @@ export async function contextNode(
 
   return {
     messages: messages,
+    promptSectionManifest,
     activeToolsets: contextualToolsets,
     quickToolsets: toolActivationState.quickToolsets ?? [],
     quickTools: toolActivationState.quickTools ?? [],
-    suppressedTools: []
+    toolCallCounts: {}
   }
 }

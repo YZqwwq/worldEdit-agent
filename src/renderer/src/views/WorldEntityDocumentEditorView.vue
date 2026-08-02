@@ -304,32 +304,33 @@
         />
 
         <section class="document-canvas">
-          <div class="document-content-column">
-            <input
-              v-model="activeDocumentTitle"
-              class="document-heading-input"
-              type="text"
-              aria-label="文件标题"
-              placeholder="新建文件"
-              @focus="handleNarrativeTitleFocus"
-              @blur="handleNarrativeTitleBlur"
+          <div class="document-scroll-region">
+            <div class="document-content-column">
+              <input
+                v-model="activeDocumentTitle"
+                class="document-heading-input"
+                type="text"
+                aria-label="文件标题"
+                placeholder="新建文件"
+                @focus="handleNarrativeTitleFocus"
+                @blur="handleNarrativeTitleBlur"
+              />
+            </div>
+
+            <WorldRichTextEditor
+              v-if="activeDocument"
+              :key="activeDocumentId"
+              v-model="characterDescriptionInput"
+              class="narrative-editor"
+              :placeholder="documentPlaceholder"
+              :appearance="characterEditorAppearance"
+              :show-toolbar-meta="false"
+              :show-toolbar="false"
+              theme="light"
+              @stats-change="characterEditorStats = $event"
             />
           </div>
 
-          <WorldRichTextEditor
-            v-if="activeDocument"
-            :key="activeDocumentId"
-            v-model="characterDescriptionInput"
-            class="narrative-editor"
-            :placeholder="documentPlaceholder"
-            :appearance="characterEditorAppearance"
-            :show-toolbar-meta="false"
-            :show-toolbar="false"
-            theme="light"
-            @stats-change="characterEditorStats = $event"
-          />
-
-          <span class="document-word-count">{{ characterEditorStats.characters }}字</span>
         </section>
 
         <div
@@ -442,7 +443,7 @@ const DEFAULT_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.185
 const MIN_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.1
 const MAX_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.2
 const DEFAULT_NARRATIVE_AI_PANEL_WIDTH = 420
-const MIN_NARRATIVE_AI_PANEL_WIDTH = 320
+const MIN_NARRATIVE_AI_PANEL_WIDTH = 240
 const MAX_NARRATIVE_AI_PANEL_WIDTH = 640
 
 const worldDetail = ref<WorldPayload | null>(null)
@@ -491,6 +492,7 @@ const titleBarEntityContext = computed(() => {
 })
 const narrativeSidebarStyle = computed(() => ({
   '--narrative-sidebar-width': `${narrativeSidebarWidth.value}px`,
+  '--narrative-outline-width': `${MIN_NARRATIVE_AI_PANEL_WIDTH}px`,
   '--narrative-ai-panel-width': `${narrativeAiPanelWidth.value}px`
 }))
 
@@ -1491,8 +1493,8 @@ useKeyboardShortcut(
 .narrative-editor-page {
   --narrative-sidebar-width: 356px;
   --narrative-sidebar-resizer-width: 6px;
-  --narrative-editor-left: 76px;
-  --narrative-outline-width: 150px;
+  --narrative-editor-left: 48px;
+  --narrative-outline-width: 240px;
   --narrative-ai-panel-width: 420px;
   --narrative-ai-resizer-width: 6px;
 
@@ -2066,8 +2068,22 @@ useKeyboardShortcut(
   background: #ffffff;
 }
 
+.document-scroll-region {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.document-scroll-region::-webkit-scrollbar {
+  display: none;
+}
+
 .document-content-column {
-  width: min(var(--wb-narrative-editor-width), calc(100% - var(--narrative-editor-left) - 24px));
+  width: calc(100% - var(--narrative-editor-left) - var(--narrative-editor-left));
   margin: 58px 0 0 var(--narrative-editor-left);
   color: var(--wb-narrative-text);
 }
@@ -2093,16 +2109,13 @@ useKeyboardShortcut(
 }
 
 .narrative-editor {
-  position: absolute;
-  inset: 144px 0 36px;
-}
-
-.document-word-count {
-  position: absolute;
-  left: 0;
-  bottom: 92px;
-  color: var(--wb-narrative-text-faint);
-  font-size: 12px;
+  position: relative;
+  height: auto;
+  min-height: calc(100% - 147px);
+  margin-top: 46px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .outline-panel {
@@ -2229,23 +2242,25 @@ useKeyboardShortcut(
   border-color: var(--wb-narrative-accent);
 }
 
-.narrative-editor :deep(.editor-shell) {
-  height: 100%;
-  gap: 0;
-}
-
 .narrative-editor :deep(.editor-frame) {
-  height: 100%;
+  height: auto;
+  min-height: inherit;
+  overflow: visible;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
 
+.narrative-editor :deep(.editor-content) {
+  height: auto;
+  min-height: inherit;
+}
+
 .narrative-editor :deep(.editor-content .tiptap) {
-  max-width: min(
-    var(--wb-content-width, var(--wb-narrative-editor-width)),
-    calc(100% - var(--narrative-editor-left) - 24px)
-  );
+  height: auto;
+  min-height: inherit;
+  overflow: visible;
+  max-width: calc(100% - var(--narrative-editor-left) - var(--narrative-editor-left));
   margin: 0 0 0 var(--narrative-editor-left);
   padding: 0 0 120px;
   color: var(--wb-narrative-text);
@@ -2300,7 +2315,7 @@ useKeyboardShortcut(
 @media (max-width: 980px) {
   .narrative-editor-page {
     --narrative-sidebar-width: 260px;
-    --narrative-editor-left: 38px;
+    --narrative-editor-left: 48px;
   }
 
   .editor-workspace {

@@ -7,7 +7,8 @@ import {
   listDiscoverableToolsets,
   listEnabledEntries,
   listVisibleEntries,
-  toToolMap
+  toToolMap,
+  validateToolRegistry
 } from './toolRegistryTypes'
 import { configureToolsetCatalogProvider, toToolsetCatalogItem } from './toolsetCatalog'
 import { toolUsageStatsService } from './toolUsageStatsService'
@@ -105,10 +106,7 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
       '用户要求读取或编辑当前文档时激活。',
       '用户要求创建、重命名、移动或删除世界观文档时激活。'
     ],
-    whenToUse: [
-      '需要基于当前文档正文回答或修改内容',
-      '需要维护世界观基础设定或实体下的文档树'
-    ],
+    whenToUse: ['需要基于当前文档正文回答或修改内容', '需要维护世界观基础设定或实体下的文档树'],
     whenNotToUse: [
       '用户只是在闲聊或创作共想，尚未要求读取本地文档',
       '目标是人物结构化资料组件而不是文档正文'
@@ -310,8 +308,7 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     category: 'agent_memory',
     capabilityLayer: 'core',
     capabilityGroup: '核心运行',
-    capabilitySummary:
-      '统一回忆待归档消息、阶段记忆与更早原始对话；长期摘要只作为方向提示。',
+    capabilitySummary: '统一回忆待归档消息、阶段记忆与更早原始对话；长期摘要只作为方向提示。',
     audience: 'main_agent',
     access: 'read',
     activationMode: 'always',
@@ -328,8 +325,13 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     capabilitySummary: '继续当前等待用户补参的子 agent 任务。',
     audience: 'main_agent',
     access: 'control',
-    activationMode: 'always',
-    enabled: true
+    activationMode: 'task_context',
+    enabled: true,
+    taskContext: {
+      match: 'active_task',
+      taskStatuses: ['awaiting_user_input']
+    },
+    turnCallLimit: 1
   },
   {
     key: delegateCharacterEditorTool.name,
@@ -341,8 +343,13 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     capabilitySummary: '委派复杂人物描述编辑任务给人物编辑子 agent。',
     audience: 'main_agent',
     access: 'delegate',
-    activationMode: 'always',
-    enabled: true
+    activationMode: 'task_context',
+    enabled: true,
+    taskContext: {
+      match: 'available_capability',
+      executorKinds: ['character_editor']
+    },
+    turnCallLimit: 1
   },
   {
     key: getActiveTaskContextTool.name,
@@ -354,8 +361,11 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     capabilitySummary: '读取当前 active task / 子 agent 协作上下文。',
     audience: 'main_agent',
     access: 'read',
-    activationMode: 'always',
-    enabled: true
+    activationMode: 'task_context',
+    enabled: true,
+    taskContext: {
+      match: 'active_task'
+    }
   },
   {
     key: addTool.name,
@@ -678,6 +688,13 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
   }
 ]
 
+validateToolRegistry({
+  registryName: 'main agent tool registry',
+  entries: mainAgentToolRegistry,
+  toolsets: mainAgentToolsets,
+  allowedAudiences: ['main_agent', 'shared']
+})
+
 const entriesByToolset = (toolsetId: string): AgentToolRegistryEntry[] =>
   mainAgentToolRegistry.filter((entry) => entry.enabled && entry.toolsetId === toolsetId)
 
@@ -692,6 +709,15 @@ export const getMainAgentToolEntries = (): AgentToolRegistryEntry[] =>
 
 export const hasMainAgentTool = (toolName: string): boolean =>
   getMainAgentToolEntries().some((entry) => entry.key === toolName || entry.tool.name === toolName)
+
+export const getMainAgentToolEntry = (toolName: string): AgentToolRegistryEntry | undefined => {
+  const normalizedName = toolName.trim().toLowerCase()
+  return getMainAgentToolEntries().find(
+    (entry) =>
+      entry.key.trim().toLowerCase() === normalizedName ||
+      entry.tool.name.trim().toLowerCase() === normalizedName
+  )
+}
 
 export const getVisibleMainAgentToolEntries = (
   state?: ToolActivationState
@@ -734,7 +760,7 @@ export const resolveQuickAccessState = async (
     if (slotCount >= limit) break
 
     const entry = entryByToolName.get(normalize(item.toolName))
-    if (!entry || !entry.enabled || entry.activationMode === 'always') continue
+    if (!entry || !entry.enabled || entry.activationMode !== 'manual') continue
     if (entry.quickAccessEligible === false) continue
 
     const toolset = toolsetById.get(normalize(entry.toolsetId))

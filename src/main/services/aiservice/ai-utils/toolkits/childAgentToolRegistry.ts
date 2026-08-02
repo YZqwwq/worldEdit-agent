@@ -1,8 +1,20 @@
 import type { TaskExecutorKind } from '@share/cache/AItype/states/taskLifecycleState'
-import type { ChildAgentToolRegistry } from './toolRegistryTypes'
-import { listEnabledEntries, toToolMap } from './toolRegistryTypes'
+import type { ChildAgentToolRegistry, ToolsetRegistryEntry } from './toolRegistryTypes'
+import { listEnabledEntries, toToolMap, validateToolRegistry } from './toolRegistryTypes'
 import { getCharacterDetailTool } from '../tools/character/getCharacterDetail'
 import { upsertCharacterDescriptionTool } from '../tools/character/upsertCharacterDescription'
+
+export const childAgentToolsets: ToolsetRegistryEntry[] = [
+  {
+    id: 'character_editor',
+    title: '人物编辑子 Agent 工具',
+    summary: '供人物编辑子 Agent 读取人物并写入人物描述。',
+    tags: ['character', 'child-agent', 'editor'],
+    activationHints: ['人物编辑子 Agent 启动时直接挂载。'],
+    whenToUse: ['执行人物描述编辑任务。'],
+    discoverable: false
+  }
+]
 
 export const childAgentToolRegistry: ChildAgentToolRegistry = {
   general_task_worker: [],
@@ -41,9 +53,15 @@ export const childAgentToolRegistry: ChildAgentToolRegistry = {
   general_research: []
 }
 
-export const getChildAgentToolEntries = (
-  executorKind: TaskExecutorKind
-) => listEnabledEntries(childAgentToolRegistry[executorKind] ?? [])
+validateToolRegistry({
+  registryName: 'child agent tool registry',
+  entries: Object.values(childAgentToolRegistry).flat(),
+  toolsets: childAgentToolsets,
+  allowedAudiences: ['child_agent', 'shared']
+})
+
+export const getChildAgentToolEntries = (executorKind: TaskExecutorKind) =>
+  listEnabledEntries(childAgentToolRegistry[executorKind] ?? [])
 
 export const getChildAgentTools = (executorKind: TaskExecutorKind) =>
   toToolMap(getChildAgentToolEntries(executorKind))

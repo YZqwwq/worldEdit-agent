@@ -120,6 +120,13 @@ type ToolConfirmationRejectedResult = {
 - 模型不会在只看到 700 字符摘要的情况下执行完整文档覆盖。
 - transcript 清理后，后续循环仍保留足够的证据摘要和来源引用。
 
+### 2026-08-01 实施状态
+
+- 核心结果协议已经落地：只读工具默认把完整校验结果放入 `modelResult`，写工具默认只交付状态与 receipt。
+- Tool transcript 会保留到紧接着的模型调用成功完成，再迁移为本轮 evidence 或释放。
+- 新增 `npm run test:tool-result`，已验证长正文不被静默截断，以及写工具不会回显整篇写入正文。
+- 最终 Context Manifest 已能在 Trace 中标识活跃 Tool transcript，便于继续做真实模型对话验收。
+
 ## P1：优化 Quick Access，而不是将其作为安全边界
 
 ### 当前问题
@@ -282,12 +289,12 @@ type AgentToolErrorCode =
 
 ### 当前阶段
 
-1. 修复工具完整结果在同轮推理前丢失的问题。
-2. 增加 registry 启动校验和关键单元测试。
-3. 优化 Quick Access 的相关性、作用域、时间衰减和统计逻辑。
-4. 落实 `completionSemantics`、`turnCallLimit` 和 `task_context` 语义。
-5. 引入结构化业务错误并完善工具结果恢复能力。
-6. 优化工具目录检索、上下文 token 预算和观测指标。
+1. [x] 修复工具完整结果在同轮推理前丢失的问题，并增加核心协议测试。
+2. [x] 增加 registry 启动校验和关键单元测试。
+3. [ ] 优化 Quick Access 的相关性、作用域、时间衰减和统计逻辑。
+4. [x] 落实 `completionSemantics`、`turnCallLimit` 和 `task_context` 语义。
+5. [x] 引入结构化业务错误并完善工具结果恢复能力。
+6. [ ] 优化工具目录检索、上下文 token 预算和观测指标。
 
 ### 后置阶段：危险工具确认场景
 

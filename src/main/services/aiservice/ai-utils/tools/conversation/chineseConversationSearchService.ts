@@ -3,10 +3,15 @@ import { Jieba } from '@node-rs/jieba'
 import { dict } from '@node-rs/jieba/dict'
 import { AppDataSource } from '../../../../../database'
 import { Message } from '@share/entity/database/Message'
+import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { VISIBLE_MAIN_AGENT_MESSAGE_STATUSES } from '@share/cache/AItype/states/mainAgentTurnState'
+import {
+  analyzeConversationRecallQuery,
+  excludeConversationMessages,
+  type ConversationMessageIdentity
+} from './conversationRecallSemantics'
 
 const DEFAULT_MAX_TURNS = 20
-const DEFAULT_EXCLUDE_RECENT_TURNS = 2
 const MAX_QUERY_TOKENS = 48
 const MAX_CONTENT_CHARS = 1200
 
@@ -74,8 +79,7 @@ const getJieba = (): Jieba => {
   return jieba
 }
 
-const normalizeWhitespace = (value: string): string =>
-  value.trim().replace(/\s+/g, ' ')
+const normalizeWhitespace = (value: string): string => value.trim().replace(/\s+/g, ' ')
 
 const uniqueTokens = (tokens: string[]): string[] => {
   const seen = new Set<string>()
@@ -113,8 +117,7 @@ const buildHanNgrams = (text: string): string[] => {
   return tokens
 }
 
-const buildAsciiTokens = (text: string): string[] =>
-  text.match(/[a-z0-9_][a-z0-9_.-]{1,}/gi) ?? []
+const buildAsciiTokens = (text: string): string[] => text.match(/[a-z0-9_][a-z0-9_.-]{1,}/gi) ?? []
 
 export const tokenizeChineseConversationText = (value: string): string[] => {
   const text = normalizeWhitespace(String(value || ''))
@@ -123,11 +126,7 @@ export const tokenizeChineseConversationText = (value: string): string[] => {
   }
 
   const jiebaTokens = getJieba().cutForSearch(text, true)
-  return uniqueTokens([
-    ...jiebaTokens,
-    ...buildHanNgrams(text),
-    ...buildAsciiTokens(text)
-  ])
+  return uniqueTokens([...jiebaTokens, ...buildHanNgrams(text), ...buildAsciiTokens(text)])
 }
 
 const getTurnKey = (message: Pick<Message, 'id' | 'turnId'>): string =>
@@ -143,11 +142,11 @@ const compactContent = (content: string): string => {
 
 const loadCandidateMessages = async (input: {
   maxTurns: number
-  excludeRecentTurns: number
+  excludedMessages: ConversationMessageIdentity[]
 }): Promise<{ messages: IndexedMessage[]; searchedTurnCount: number }> => {
   const repo = AppDataSource.getRepository(Message)
-  const take = Math.max(80, (input.maxTurns + input.excludeRecentTurns + 4) * 4)
-  const rows = await repo.find({
+  const take = Math.max(80, (input.maxTurns + 8) * 4)
+  const loadedRows = await repo.find({
     where: VISIBLE_MAIN_AGENT_MESSAGE_STATUSES.map((status) => ({ status })),
     order: {
       createdAt: 'DESC',
@@ -155,6 +154,33 @@ const loadCandidateMessages = async (input: {
     },
     take
   })
+
+  const turnIds = [
+    ...new Set(
+      loadedRows
+        .map((row) => row.turnId)
+        .filter((turnId): turnId is number => typeof turnId === 'number')
+    )
+  ]
+  const turns = turnIds.length
+    ? await AppDataSource.getRepository(MainAgentTurnRecord).find({
+        where: turnIds.map((id) => ({ id }))
+      })
+    : []
+  const eligibleTurnIds = new Set(
+    turns
+      .filter(
+        (turn) =>
+          turn.consumer === 'chat_runtime' &&
+          (turn.status === 'completed' || turn.status === 'interrupted')
+      )
+      .map((turn) => turn.id)
+  )
+  const historicalRows = loadedRows.filter((row) => {
+    if (row.consumer && row.consumer !== 'chat_runtime') return false
+    return typeof row.turnId !== 'number' || eligibleTurnIds.has(row.turnId)
+  })
+  const rows = excludeConversationMessages(historicalRows, input.excludedMessages)
 
   const turnKeys: string[] = []
   const seenTurnKeys = new Set<string>()
@@ -166,10 +192,7 @@ const loadCandidateMessages = async (input: {
     }
   }
 
-  const selectedTurnKeys = turnKeys.slice(
-    input.excludeRecentTurns,
-    input.excludeRecentTurns + input.maxTurns
-  )
+  const selectedTurnKeys = turnKeys.slice(0, input.maxTurns)
   const selectedSet = new Set(selectedTurnKeys)
   const messages = rows
     .filter((row) => selectedSet.has(getTurnKey(row)) && row.content.trim())
@@ -195,19 +218,16 @@ export const searchRecentChineseConversation = async (input: {
   query: string
   limit?: number
   maxTurns?: number
-  excludeRecentTurns?: number
+  excludedMessages?: ConversationMessageIdentity[]
 }): Promise<ChineseConversationSearchResult> => {
-  const query = normalizeWhitespace(input.query)
+  const querySemantics = analyzeConversationRecallQuery(input.query)
+  const query = querySemantics.normalizedQuery
   const limit = Math.max(1, Math.min(10, Math.round(input.limit ?? 5)))
   const maxTurns = Math.max(1, Math.min(50, Math.round(input.maxTurns ?? DEFAULT_MAX_TURNS)))
-  const excludeRecentTurns = Math.max(
-    0,
-    Math.min(10, Math.round(input.excludeRecentTurns ?? DEFAULT_EXCLUDE_RECENT_TURNS))
-  )
-  const queryTokens = tokenizeChineseConversationText(query)
+  const queryTokens = tokenizeChineseConversationText(querySemantics.searchText)
   const { messages, searchedTurnCount } = await loadCandidateMessages({
     maxTurns,
-    excludeRecentTurns
+    excludedMessages: input.excludedMessages ?? []
   })
 
   if (!query || queryTokens.length === 0 || messages.length === 0) {
@@ -246,7 +266,7 @@ export const searchRecentChineseConversation = async (input: {
   engine.consolidate()
 
   const matches = engine
-    .search(query, limit)
+    .search(querySemantics.searchText, limit)
     .map(([rawId, score]) => {
       const message = byId.get(String(rawId))
       if (!message) {
@@ -261,9 +281,7 @@ export const searchRecentChineseConversation = async (input: {
         score
       }
     })
-    .filter((item): item is ChineseConversationSearchResult['matches'][number] =>
-      Boolean(item)
-    )
+    .filter((item): item is ChineseConversationSearchResult['matches'][number] => Boolean(item))
 
   return {
     query,

@@ -1,12 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { ToolMessage } from '@langchain/core/messages'
-import { parseAgentToolResultEnvelope } from '../../../ai-utils/core/agentTool'
 import {
+  buildAgentToolModelMessage,
+  parseAgentToolResultEnvelope
+} from '../../../ai-utils/core/agentTool'
+import type { AgentToolErrorCode } from '../../../ai-utils/core/agentTool'
+import {
+  getMainAgentToolEntry,
   getMainAgentTools,
   getVisibleMainAgentToolEntryMap,
   resolveMainAgentToolActivationState
 } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import { toolUsageStatsService } from '../../../ai-utils/toolkits/toolUsageStatsService'
+import {
+  getToolTurnCallCount,
+  incrementToolTurnCallCount
+} from '../../../ai-utils/toolkits/toolRegistryTypes'
 import {
   emitAgentStage,
   traceArtifact,
@@ -16,6 +25,14 @@ import {
 } from '../../../../log/trace/agentTraceEmitter'
 import { MessagesState } from '../../state/messageState'
 import type { PendingToolContextItem, ToolContextSourceRef } from '../../state/messageState'
+import {
+  appendTurnExecutionAction,
+  createTurnExecutionAction,
+  createTurnExecutionLedger,
+  findBlockedUnchangedInvocation,
+  markTurnForFinalization,
+  shouldFinalizeToolLoop
+} from '../../execution/turnExecutionLifecycle'
 
 const isSensitiveToolByMetadata = (metadata?: {
   readOnly?: boolean
@@ -39,38 +56,6 @@ const isRiskyToolByMetadata = (metadata?: {
   )
 }
 
-const buildToolMessageContent = (
-  toolName: string,
-  envelope: ReturnType<typeof parseAgentToolResultEnvelope>,
-  fallbackResult: unknown
-): string => {
-  if (!envelope) {
-    return serializeModelResult({
-      toolName,
-      message: 'Tool returned a non-standard result.',
-      result: fallbackResult
-    })
-  }
-
-  return serializeModelResult({
-    ok: envelope.ok,
-    toolName,
-    message: envelope.message,
-    error: envelope.error,
-    result: envelope.modelResult,
-    nextSuggestions: envelope.nextSuggestions
-  })
-}
-
-const serializeModelResult = (value: unknown): string => {
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
 const compact = (value: string, max = 900): string => {
   const normalized = String(value || '')
     .trim()
@@ -86,6 +71,57 @@ const stringifyCompact = (value: unknown, max = 900): string => {
   } catch {
     return compact(String(value), max)
   }
+}
+
+const describeInvocationError = (
+  error: unknown,
+  inputSummary: string
+): {
+  code: 'INVALID_TOOL_INPUT' | 'INTERNAL_ERROR'
+  message: string
+  field?: string
+  retryable: boolean
+  retryCondition: 'change_arguments' | 'none'
+  guidance: string
+} => {
+  const message = error instanceof Error ? error.message : String(error)
+  const isInputError =
+    message.includes('did not match expected schema') ||
+    message.includes('INPUT_VALIDATION_FAILED') ||
+    message.includes('Invalid input')
+  const fieldMatch = message.match(/(?:→ at|at path)\s+([^\n]+)/i)
+
+  if (isInputError) {
+    return {
+      code: 'INVALID_TOOL_INPUT',
+      message,
+      field: fieldMatch?.[1]?.trim(),
+      retryable: true,
+      retryCondition: 'change_arguments',
+      guidance: `必须先修改参数再重试。正确输入要求：${inputSummary}`
+    }
+  }
+
+  return {
+    code: 'INTERNAL_ERROR',
+    message,
+    retryable: false,
+    retryCondition: 'none',
+    guidance: '不要原样重试；改用其他路径或向用户说明当前限制。'
+  }
+}
+
+const getErrorRetryCondition = (
+  code: AgentToolErrorCode | undefined
+): 'none' | 'change_arguments' | 'external_change' | 'transient' => {
+  if (code === 'INVALID_TOOL_INPUT') return 'change_arguments'
+  if (code === 'REVISION_CONFLICT' || code === 'CONFIRMATION_REQUIRED') {
+    return 'external_change'
+  }
+  if (code === 'RATE_LIMITED' || code === 'TIMEOUT' || code === 'TEMPORARY_UNAVAILABLE') {
+    return 'transient'
+  }
+  return 'none'
 }
 
 const buildSourceRefs = (
@@ -162,10 +198,8 @@ const buildResultSummary = (
           const role = typeof match.role === 'string' ? ` role=${match.role}` : ''
           const relevance =
             typeof match.relevance === 'number' ? ` relevance=${match.relevance.toFixed(3)}` : ''
-          const occurredAt =
-            typeof match.occurredAt === 'string' ? ` time=${match.occurredAt}` : ''
-          const sourceRef =
-            typeof match.sourceRef === 'string' ? ` source=${match.sourceRef}` : ''
+          const occurredAt = typeof match.occurredAt === 'string' ? ` time=${match.occurredAt}` : ''
+          const sourceRef = typeof match.sourceRef === 'string' ? ` source=${match.sourceRef}` : ''
           const content = typeof match.content === 'string' ? match.content : ''
           return `${index + 1}. [${kind}${role}${relevance}${occurredAt}${sourceRef}]\n${content}`
         })
@@ -323,10 +357,85 @@ export async function toolNode(
   const executedTools: Array<Record<string, unknown>> = []
   const activatedToolsets: string[] = []
   const activatedTools: string[] = []
-  const suppressedTools: string[] = []
+  let toolCallCounts = { ...(state.toolCallCounts ?? {}) }
+  let repeatedInvalidInvocationCount = 0
+  let executionLedger = state.turnExecutionLedger ?? createTurnExecutionLedger('处理当前用户请求')
+  const recordExecution = (input: Parameters<typeof createTurnExecutionAction>[0]): void => {
+    executionLedger = appendTurnExecutionAction(executionLedger, createTurnExecutionAction(input))
+  }
+
+  if (shouldFinalizeToolLoop(executionLedger)) {
+    const guardMessage =
+      '本轮工具行动已经超过正常连续决策范围。不要继续调用工具；请依据本轮执行账本和已有证据形成受限但诚实的最终回答。'
+    for (const toolCall of msg.tool_calls) {
+      const actionId = randomUUID()
+      const toolCallId = toolCall.id ?? actionId
+      if (toolCall.id) {
+        const toolMessage = createToolMessage({
+          content: JSON.stringify({
+            ok: false,
+            toolName: toolCall.name,
+            error: {
+              code: 'TOOL_LOOP_FINALIZATION',
+              message: guardMessage
+            }
+          }),
+          toolCallId,
+          name: toolCall.name,
+          status: 'error'
+        })
+        toolMessages.push(toolMessage)
+        if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
+        pendingToolContext.push({
+          id: randomUUID(),
+          toolCallId,
+          transcriptMessageIds: [lastMessage.id, toolMessage.id].filter(
+            (id): id is string => typeof id === 'string' && id.length > 0
+          ),
+          toolName: toolCall.name,
+          retention: 'ephemeral',
+          ok: false,
+          argsSummary: stringifyCompact(toolCall.args ?? {}),
+          resultSummary: guardMessage,
+          createdAtLoop: state.llmCalls ?? 0
+        })
+      }
+      recordExecution({
+        actionId,
+        toolCallId,
+        toolName: toolCall.name,
+        args: toolCall.args,
+        ok: false,
+        status: 'cancelled',
+        summary: '运行时取消了新的工具行动，并进入本轮异常收尾。',
+        startedAt: new Date().toISOString(),
+        fallbackRetryable: false
+      })
+    }
+    executionLedger = markTurnForFinalization(executionLedger)
+    traceDecision('toolNode', {
+      title: '决策: 工具循环进入异常收尾',
+      summary: `modelStep=${executionLedger.modelStep}，取消 ${msg.tool_calls.length} 个新工具调用`,
+      data: {
+        modelStep: executionLedger.modelStep,
+        actionCount: executionLedger.actions.length,
+        cancelledTools: msg.tool_calls.map((call: { name: string }) => call.name)
+      }
+    })
+    return {
+      messages: toolMessages,
+      pendingToolContext,
+      activeToolTranscriptIds: [...new Set(activeToolTranscriptIds)],
+      turnExecutionLedger: executionLedger,
+      toolLoopFinalizing: true
+    }
+  }
   // 遍历工具组执行调用
   for (const toolCall of msg.tool_calls) {
-    const toolEntryForPolicy = toolEntries[toolCall.name]
+    const actionId = randomUUID()
+    const actionStartedAt = new Date().toISOString()
+    const registeredEntry = getMainAgentToolEntry(toolCall.name)
+    const toolEntryForPolicy = toolEntries[toolCall.name] ?? registeredEntry
     const toolMetadataForPolicy = toolEntryForPolicy?.tool.agentMetadata
     const stageId = `tool-${toolCall.id ?? randomUUID()}-${toolCall.name}`
     traceState('toolNode', {
@@ -346,6 +455,7 @@ export async function toolNode(
 
     if (
       toolPolicy?.confirmBeforeSensitiveTools &&
+      Boolean(tools[toolCall.name]) &&
       isSensitiveToolByMetadata(toolMetadataForPolicy)
     ) {
       if (toolCall.id) {
@@ -389,10 +499,26 @@ export async function toolNode(
         label: `${toolCall.name} 等待用户确认`,
         status: 'error'
       })
+      recordExecution({
+        actionId,
+        toolCallId: toolCall.id ?? actionId,
+        toolName: toolCall.name,
+        args: toolCall.args,
+        ok: false,
+        status: 'partial',
+        summary: '当前策略要求用户确认后才能执行此操作。',
+        startedAt: actionStartedAt,
+        fallbackRetryable: true
+      })
       continue
     }
 
-    if (toolPolicy && !toolPolicy.allowRiskyTools && isRiskyToolByMetadata(toolMetadataForPolicy)) {
+    if (
+      toolPolicy &&
+      Boolean(tools[toolCall.name]) &&
+      !toolPolicy.allowRiskyTools &&
+      isRiskyToolByMetadata(toolMetadataForPolicy)
+    ) {
       if (toolCall.id) {
         const content =
           `Tool "${toolCall.name}" is blocked by current risk policy. ` +
@@ -434,14 +560,70 @@ export async function toolNode(
         label: `${toolCall.name} 已被当前策略拦截`,
         status: 'error'
       })
+      recordExecution({
+        actionId,
+        toolCallId: toolCall.id ?? actionId,
+        toolName: toolCall.name,
+        args: toolCall.args,
+        ok: false,
+        status: 'partial',
+        summary: '当前风险策略阻止了此操作，需要更安全的替代方案或用户明确授权。',
+        startedAt: actionStartedAt,
+        fallbackRetryable: true
+      })
       continue
     }
 
-    // ✅ 改进：工具不存在时返回错误消息，而不是静默跳过
     const tool = tools[toolCall.name]
     if (!tool) {
+      const normalizedToolName = registeredEntry?.tool.name ?? toolCall.name
+      const currentCallCount = registeredEntry
+        ? getToolTurnCallCount(registeredEntry, { toolCallCounts })
+        : 0
+      const callLimitReached =
+        registeredEntry?.turnCallLimit !== undefined &&
+        currentCallCount >= registeredEntry.turnCallLimit
+      const errorCode = registeredEntry
+        ? callLimitReached
+          ? 'CALL_LIMIT_REACHED'
+          : 'TOOL_NOT_AVAILABLE'
+        : 'NOT_FOUND'
+      const errorMessage = callLimitReached
+        ? `工具 ${normalizedToolName} 本轮最多调用 ${registeredEntry?.turnCallLimit} 次，当前已经达到上限。`
+        : registeredEntry?.activationMode === 'task_context'
+          ? `工具 ${normalizedToolName} 仅在匹配的任务上下文中可用，当前任务条件不满足。`
+          : registeredEntry
+            ? `工具 ${normalizedToolName} 当前尚未激活。`
+            : `工具 ${normalizedToolName} 未注册。`
+      const content = JSON.stringify(
+        {
+          ok: false,
+          toolName: normalizedToolName,
+          error: {
+            code: errorCode,
+            message: errorMessage,
+            retryable: false,
+            details: callLimitReached
+              ? {
+                  currentCallCount,
+                  turnCallLimit: registeredEntry?.turnCallLimit
+                }
+              : {
+                  activationMode: registeredEntry?.activationMode ?? null
+                }
+          },
+          nextSuggestions: callLimitReached
+            ? ['使用本轮已有结果继续回答，不要再次调用该工具。']
+            : registeredEntry?.activationMode === 'task_context'
+              ? ['等待或建立符合要求的任务上下文后再调用。']
+              : registeredEntry
+                ? ['先激活该工具所属工具集。']
+                : ['重新查询工具目录并选择已注册工具。']
+        },
+        null,
+        2
+      )
       if (toolCall.id) {
-        const content = `Tool "${toolCall.name}" not found. Available tools: ${Object.keys(tools).join(', ')}`
         const toolMessage = createToolMessage({
           content,
           toolCallId: toolCall.id,
@@ -464,20 +646,34 @@ export async function toolNode(
           createdAtLoop: state.llmCalls ?? 0
         })
       }
-      traceError('toolNode', new Error(`Tool "${toolCall.name}" not found.`), {
-        title: `异常: toolNode ${toolCall.name}`,
-        summary: `${toolCall.name} 不存在`,
+      traceDecision('toolNode', {
+        title: `决策: toolNode ${normalizedToolName} 不可调用`,
+        summary: errorMessage,
         data: {
-          toolName: toolCall.name,
+          toolName: normalizedToolName,
           toolCallId: toolCall.id ?? null,
           args: toolCall.args ?? {},
-          availableTools: Object.keys(tools)
+          errorCode,
+          currentCallCount,
+          turnCallLimit: registeredEntry?.turnCallLimit ?? null,
+          activationMode: registeredEntry?.activationMode ?? null
         }
       })
       emitAgentStage({
         stageId,
-        label: `${toolCall.name} 不可用`,
+        label: `${normalizedToolName} 不可用`,
         status: 'error'
+      })
+      recordExecution({
+        actionId,
+        toolCallId: toolCall.id ?? actionId,
+        toolName: toolCall.name,
+        args: toolCall.args,
+        ok: false,
+        summary: errorMessage,
+        startedAt: actionStartedAt,
+        fallbackRetryable: false,
+        retryCondition: 'none'
       })
       continue
     }
@@ -489,7 +685,95 @@ export async function toolNode(
         label: `${toolCall.name} 缺少调用标识`,
         status: 'error'
       })
+      recordExecution({
+        actionId,
+        toolCallId: actionId,
+        toolName: toolCall.name,
+        args: toolCall.args,
+        ok: false,
+        summary: '工具调用缺少 toolCallId，无法安全执行。',
+        startedAt: actionStartedAt,
+        fallbackRetryable: false
+      })
       continue
+    }
+
+    const blockedInvocation = findBlockedUnchangedInvocation(
+      executionLedger,
+      toolCall.name,
+      toolCall.args
+    )
+    if (blockedInvocation) {
+      repeatedInvalidInvocationCount += 1
+      const content = JSON.stringify(
+        {
+          ok: false,
+          toolName: toolCall.name,
+          error: {
+            code: 'UNCHANGED_INVALID_RETRY',
+            message: '相同工具参数已经发生确定性失败，不能原样重复调用。',
+            previousResult: blockedInvocation.summary,
+            requiredAction: '修改参数后再试，或依据已有证据结束本轮。'
+          }
+        },
+        null,
+        2
+      )
+      const toolMessage = createToolMessage({
+        content,
+        toolCallId: toolCall.id,
+        name: toolCall.name,
+        status: 'error'
+      })
+      toolMessages.push(toolMessage)
+      if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
+      pendingToolContext.push({
+        id: randomUUID(),
+        toolCallId: toolCall.id,
+        transcriptMessageIds: [lastMessage.id, toolMessage.id].filter(
+          (id): id is string => typeof id === 'string' && id.length > 0
+        ),
+        toolName: toolCall.name,
+        retention: 'ephemeral',
+        ok: false,
+        argsSummary: stringifyCompact(toolCall.args ?? {}),
+        resultSummary: content,
+        createdAtLoop: state.llmCalls ?? 0
+      })
+      traceDecision('toolNode', {
+        title: `决策: 阻止 ${toolCall.name} 原样重试`,
+        summary: '相同参数已经确定性失败，本次未再次执行',
+        data: {
+          toolName: toolCall.name,
+          toolCallId: toolCall.id,
+          args: toolCall.args ?? {},
+          previousActionId: blockedInvocation.actionId
+        }
+      })
+      emitAgentStage({
+        stageId,
+        label: `${toolCall.name} 参数需要修正`,
+        status: 'error',
+        detail: '相同参数已经失败，请修改参数后重试。'
+      })
+      recordExecution({
+        actionId,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        args: toolCall.args,
+        ok: false,
+        summary: '相同参数已经确定性失败，运行时阻止了原样重复调用。',
+        startedAt: actionStartedAt,
+        fallbackRetryable: false,
+        retryCondition: 'none'
+      })
+      continue
+    }
+
+    if (registeredEntry) {
+      toolCallCounts = incrementToolTurnCallCount(registeredEntry, toolCallCounts)
+    } else {
+      toolCallCounts[tool.name] = (toolCallCounts[tool.name] ?? 0) + 1
     }
 
     try {
@@ -502,11 +786,8 @@ export async function toolNode(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (tool as any).invoke(toolCall.args)
       const envelope = parseAgentToolResultEnvelope(result)
-      const modelResultContent = buildToolMessageContent(toolCall.name, envelope, result)
+      const modelResultContent = buildAgentToolModelMessage(toolCall.name, envelope, result)
       const toolEntry = toolEntries[toolCall.name]
-      if (toolEntry?.turnCallLimit === 1 && envelope?.ok !== false) {
-        suppressedTools.push(toolEntry.tool.name)
-      }
       if (toolEntry && toolEntry.activationMode !== 'always') {
         try {
           await toolUsageStatsService.recordToolUse({
@@ -538,12 +819,34 @@ export async function toolNode(
       activatedToolsets.push(...activatedToolsetsFromEnvelope)
       activatedTools.push(...activatedToolsFromEnvelope)
       const envelopeData =
-        envelope?.data && typeof envelope.data === 'object' ? envelope.data : undefined
+        envelope?.data && typeof envelope.data === 'object'
+          ? (envelope.data as Record<string, unknown>)
+          : undefined
+      const sourceRefs = buildSourceRefs(toolCall.name, envelopeData)
+      recordExecution({
+        actionId,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        args: toolCall.args,
+        ok: envelope?.ok !== false,
+        summary: buildResultSummary(toolCall.name, envelope, result),
+        receipt: envelope?.receipt,
+        completionState: envelope?.completion.state,
+        evidenceRefs: sourceRefs.map((ref) =>
+          [ref.type, ref.id, ref.url].filter(Boolean).join(':')
+        ),
+        startedAt: actionStartedAt,
+        fallbackRetryable: envelope?.error?.retryable ?? false,
+        retryCondition: getErrorRetryCondition(envelope?.error?.code)
+      })
       executedTools.push({
         name: toolCall.name,
         ok: envelope?.ok ?? null,
         message: envelope?.message ?? null,
         receipt: envelope?.receipt?.summary ?? null,
+        completionSemantics: envelope?.completion.semantics ?? null,
+        completionState: envelope?.completion.state ?? null,
+        completionFinal: envelope?.completion.final ?? null,
         searchMode:
           typeof envelope?.data === 'object' && envelope?.data && 'searchMode' in envelope.data
             ? (envelope.data as any).searchMode
@@ -569,8 +872,8 @@ export async function toolNode(
           activatedToolsetsFromEnvelope.length > 0 ? activatedToolsetsFromEnvelope : undefined,
         activatedTools:
           activatedToolsFromEnvelope.length > 0 ? activatedToolsFromEnvelope : undefined,
-        suppressedForRestOfTurn:
-          toolEntry?.turnCallLimit === 1 && envelope?.ok !== false ? true : undefined
+        turnCallCount: toolCallCounts[toolCall.name] ?? 0,
+        turnCallLimit: toolEntry?.turnCallLimit
       })
       traceArtifact('toolNode', {
         title: `产物: toolNode ${toolCall.name} 返回`,
@@ -586,6 +889,7 @@ export async function toolNode(
           message: envelope?.message ?? null,
           error: envelope?.error ?? null,
           receipt: envelope?.receipt ?? null,
+          completion: envelope?.completion ?? null,
           nextSuggestions: envelope?.nextSuggestions ?? [],
           meta: envelope?.meta ?? null,
           data: envelopeData ?? result
@@ -602,7 +906,8 @@ export async function toolNode(
           const toolMessage = createToolMessage({
             content: modelResultContent,
             toolCallId: toolCall.id,
-            name: toolCall.name
+            name: toolCall.name,
+            status: envelope?.ok === false ? 'error' : 'success'
           })
           if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
           const retention =
@@ -636,6 +941,7 @@ export async function toolNode(
         })()
       )
     } catch (error) {
+      const invocationError = describeInvocationError(error, tool.agentMetadata.inputSummary)
       // ✅ 错误信息返回给 LLM，而不是静默失败
       traceError('toolNode', error, {
         title: `异常: toolNode ${toolCall.name}`,
@@ -650,9 +956,23 @@ export async function toolNode(
         stageId,
         label: getToolStageLabel(tool, toolCall.name, 'error'),
         status: 'error',
-        detail: error instanceof Error ? error.message : String(error)
+        detail: invocationError.message
       })
-      const content = `Error executing tool "${toolCall.name}": ${error instanceof Error ? error.message : String(error)}`
+      const content = JSON.stringify(
+        {
+          ok: false,
+          toolName: toolCall.name,
+          error: {
+            code: invocationError.code,
+            message: invocationError.message,
+            field: invocationError.field,
+            retryCondition: invocationError.retryCondition,
+            guidance: invocationError.guidance
+          }
+        },
+        null,
+        2
+      )
       const toolMessage = createToolMessage({
         content,
         toolCallId: toolCall.id,
@@ -673,6 +993,20 @@ export async function toolNode(
         argsSummary: stringifyCompact(toolCall.args ?? {}),
         resultSummary: content,
         createdAtLoop: state.llmCalls ?? 0
+      })
+      recordExecution({
+        actionId,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        args: toolCall.args,
+        ok: false,
+        summary:
+          invocationError.code === 'INVALID_TOOL_INPUT'
+            ? `工具参数不符合要求${invocationError.field ? `（字段 ${invocationError.field}）` : ''}。${invocationError.guidance}`
+            : invocationError.message,
+        startedAt: actionStartedAt,
+        fallbackRetryable: invocationError.retryable,
+        retryCondition: invocationError.retryCondition
       })
     }
   }
@@ -713,12 +1047,20 @@ export async function toolNode(
     })
   }
 
+  const finalizeRepeatedInvalidInvocation =
+    repeatedInvalidInvocationCount > 0 && repeatedInvalidInvocationCount === msg.tool_calls.length
+  if (finalizeRepeatedInvalidInvocation) {
+    executionLedger = markTurnForFinalization(executionLedger, 'repeated_invalid_action')
+  }
+
   return {
     messages: toolMessages,
     pendingToolContext,
     activeToolTranscriptIds: [...new Set(activeToolTranscriptIds)],
     activeToolsets: [...new Set(activatedToolsets)],
     activeTools: [...new Set(activatedTools)],
-    suppressedTools: [...new Set([...(state.suppressedTools ?? []), ...suppressedTools])]
+    toolCallCounts,
+    turnExecutionLedger: executionLedger,
+    toolLoopFinalizing: finalizeRepeatedInvalidInvocation
   }
 }

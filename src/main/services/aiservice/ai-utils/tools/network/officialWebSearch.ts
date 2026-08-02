@@ -349,7 +349,15 @@ export const officialWebSearchTool = defineAgentTool({
   buildReceipt(data) {
     return {
       kind: 'official_web_search_completed',
+      operation: '执行联网搜索',
+      subject: {
+        type: 'web_query',
+        label: data.query
+      },
+      completion: data.summary.trim() ? 'complete' : 'partial',
       summary: `已完成官方联网搜索：${data.query}`,
+      retryable: false,
+      evidenceRef: `web-query:${data.query}`,
       payload: {
         usedSearch: data.usedSearch,
         searchMode: data.searchMode,

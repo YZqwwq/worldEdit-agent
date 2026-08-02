@@ -84,10 +84,20 @@ export const activateToolsetTool = defineAgentTool({
   buildReceipt(data) {
     return {
       kind: 'toolsets_activated',
+      operation: '激活工具集',
+      subject: {
+        type: 'toolset',
+        label: data.activatedToolsets.join(', ') || data.missingToolsets.join(', ')
+      },
+      completion:
+        data.activatedToolsets.length > 0 && data.missingToolsets.length === 0
+          ? 'complete'
+          : 'partial',
       summary:
         data.activatedToolsets.length > 0
           ? `已激活工具集：${data.activatedToolsets.join(', ')}`
           : '没有工具集被激活。',
+      retryable: data.missingToolsets.length > 0,
       payload: {
         activatedToolsets: data.activatedToolsets,
         activatedTools: data.activatedTools,

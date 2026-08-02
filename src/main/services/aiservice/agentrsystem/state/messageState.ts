@@ -9,6 +9,8 @@ import type { ExpressionPromptProfileState } from '@share/cache/AItype/states/ex
 import type { WorldEntityType } from '@share/cache/worldbuilding/worldbuilding'
 import type { AgentToolContextRetention } from '../../ai-utils/core/agentTool'
 import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
+import type { PromptSectionManifestItem } from '../../prompt/main_agent/shared/promptSections'
+import type { TurnExecutionLedger } from '../execution/turnExecutionLifecycle'
 
 export type ToolContextSourceRef = {
   type: 'message' | 'url' | 'entity' | 'task' | 'tool' | 'unknown'
@@ -19,6 +21,7 @@ export type ToolContextSourceRef = {
 
 export type ToolContextItem = {
   id: string
+  toolCallId?: string
   toolName: string
   retention: AgentToolContextRetention
   ok: boolean | null
@@ -142,6 +145,10 @@ export const MessagesState = Annotation.Root({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),
+  promptSectionManifest: Annotation<PromptSectionManifestItem[]>({
+    reducer: (_x, y) => y ?? [],
+    default: () => []
+  }),
   toolEvidenceContext: Annotation<ToolContextItem[]>({
     reducer: (_x, y) => y ?? [],
     default: () => []
@@ -151,10 +158,6 @@ export const MessagesState = Annotation.Root({
     default: () => []
   }),
   pendingToolContext: Annotation<PendingToolContextItem[]>({
-    reducer: (_x, y) => y ?? [],
-    default: () => []
-  }),
-  retainedToolTranscriptIds: Annotation<string[]>({
     reducer: (_x, y) => y ?? [],
     default: () => []
   }),
@@ -194,8 +197,16 @@ export const MessagesState = Annotation.Root({
     reducer: (_x, y) => y ?? [],
     default: () => []
   }),
-  suppressedTools: Annotation<string[]>({
-    reducer: (x, y) => y ?? x ?? [],
-    default: () => []
+  toolCallCounts: Annotation<Record<string, number>>({
+    reducer: (x, y) => y ?? x ?? {},
+    default: () => ({})
+  }),
+  turnExecutionLedger: Annotation<TurnExecutionLedger | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  toolLoopFinalizing: Annotation<boolean>({
+    reducer: (x, y) => y ?? x ?? false,
+    default: () => false
   })
 })

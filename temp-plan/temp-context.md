@@ -72,31 +72,28 @@
 
 ### 进行中
 
-
-| 编号   | 优先级 | 问题                                                                                  | 当前状态       |
-| ---- | --- | ----------------------------------------------------------------------------------- | ---------- |
-| P0-4 | P0  | 统一 Recall 已落地，但最近轮排除和自然指代兜底尚未通过验收                                                   | 主体完成，待验收修正 |
-| P0-5 | P0  | 工具完整结果可能在模型消费前被压缩                                                                   | 已实施，待对话验收  |
-| P1-1 | P1  | 感知系统运行诊断进入主模型 Prompt                                                                | 已实施，待对话验收 |
-| P1-2 | P1  | Context 在多个节点分散装配，缺少完整最终清单引入轻量 `ContextProvider`，先统一当前由 ContextNode 装配的派生 Context。 | 部分改善       |
-| P1-3 | P1  | 没有总量保护、去重和分段大小治理                                                                    | 部分改善       |
-| P1-4 | P1  | 长期记忆是滚动摘要，不是独立重要事件                                                                  | 待讨论        |
-| P1-5 | P1  | `userProfile` 主要来自临时场景和情绪                                                           | 待讨论        |
-| P1-6 | P1  | Scene 低置信度时直接屏蔽历史世界焦点                                                               | 待讨论        |
-
+| 编号 | 优先级 | 问题                                                                           | 当前状态                     |
+| ---- | ------ | ------------------------------------------------------------------------------ | ---------------------------- |
+| P0-4 | P0     | 统一 Recall 已落地，最近轮排除和自然指代已修正，三来源数据库集成案例尚待补齐   | 已修正，待集成验收           |
+| P0-5 | P0     | 工具完整结果可能在模型消费前被压缩                                             | 核心协议测试通过，待对话验收 |
+| P0-6 | P0     | 工具循环缺少权威的本轮执行账本，Agent 不能稳定承接“已经做过什么”                | 已实施，待真实对话验收       |
+| P1-1 | P1     | 感知系统运行诊断进入主模型 Prompt                                              | 已实施，待对话验收           |
+| P1-2 | P1     | Context 在多个节点分散装配，缺少完整最终清单；后续再讨论轻量 `ContextProvider` | 最终 Manifest 已实施         |
+| P1-3 | P1     | 没有总量保护、去重和分段大小治理                                               | 部分改善                     |
+| P1-4 | P1     | 长期记忆是滚动摘要，不是独立重要事件                                           | 待讨论                       |
+| P1-5 | P1     | `userProfile` 主要来自临时场景和情绪                                           | 待讨论                       |
+| P1-6 | P1     | Scene 低置信度时直接屏蔽历史世界焦点                                           | 待讨论                       |
 
 “部分改善”表示当前改造已经提供了基础观测能力，但问题本身尚未闭环，不应视为完成。
 
 ### 已完成
 
-
-| 编号   | 原问题                                 | 处理结果                                                                      |
-| ---- | ----------------------------------- | ------------------------------------------------------------------------- |
+| 编号 | 原问题                                                   | 处理结果                                                                                  |
+| ---- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | P0-1 | 派生上下文虽然都使用 SystemMessage，但职责和来源没有边界 | 引入 PromptSection，区分 identity、instruction、context、execution，并拆分主要混合 Prompt |
-| P0-2 | 瞬时场景、情绪和人格调制只看到当前用户消息               | 统一读取最近两轮对话，供 Scene、UserMood、WorldFocus、PersonaSignal 和 AI Mood 共享         |
-| P0-3 | 消息离开短期窗口后，在形成 Stage 前没有读取出口         | 将 archiveBuffer 暴露为待归档记忆层，并由 recall 默认返回原始消息                              |
-| P2-1 | Memory anchors 没有管理入口且与长期记忆按需查询方向冲突 | 已从状态、持久化、Context 注入和调试界面中移除                                               |
-
+| P0-2 | 瞬时场景、情绪和人格调制只看到当前用户消息               | 统一读取最近两轮对话，供 Scene、UserMood、WorldFocus、PersonaSignal 和 AI Mood 共享       |
+| P0-3 | 消息离开短期窗口后，在形成 Stage 前没有读取出口          | 将 archiveBuffer 暴露为待归档记忆层，并由 recall 默认返回原始消息                         |
+| P2-1 | Memory anchors 没有管理入口且与长期记忆按需查询方向冲突  | 已从状态、持久化、Context 注入和调试界面中移除                                            |
 
 ## 已实施事项与验收状态
 
@@ -129,14 +126,12 @@ type PromptSection = {
 - 一个模块可以输出多个 Section，把状态和使用规则分开。
 - 短期对话历史继续使用 HumanMessage/AIMessage，不转换为 Section。
 
-
-| Duty        | 职责                 | 典型内容                                 |
-| ----------- | ------------------ | ------------------------------------ |
-| identity    | Agent 是谁           | Character Prompt、稳定人格基调              |
-| instruction | 应如何理解、表达和行动        | Expression Profile、工具规则、Scene 使用规则   |
+| Duty        | 职责                                 | 典型内容                                           |
+| ----------- | ------------------------------------ | -------------------------------------------------- |
+| identity    | Agent 是谁                           | Character Prompt、稳定人格基调                     |
+| instruction | 应如何理解、表达和行动               | Expression Profile、工具规则、Scene 使用规则       |
 | context     | 当前知道、感知、记得或认为发生了什么 | Workspace、Scene 结果、AI Mood、人物印象、工具证据 |
-| execution   | 当前运行到哪里            | Active Task、工具进度、失败和临时执行状态           |
-
+| execution   | 当前运行到哪里                       | Active Task、工具进度、失败和临时执行状态          |
 
 #### 已实施
 
@@ -207,7 +202,7 @@ type PromptSection = {
 
 #### 当前结论
 
-统一 Recall 的主体架构已经落地，但根据 2026-07-28 的代码验收，不能按完整行为标准视为结束。当前应标记为“主体完成，待验收修正”：主 Agent 已只有一个回忆入口，query 也确实参与内容检索；但原始对话窗口排除和自然历史指代兜底仍存在可复现的语义偏差。
+统一 Recall 的主体架构已经落地。2026-08-01 已修正原始对话窗口排除和自然历史指代兜底；当前剩余工作是补齐依赖真实数据库状态的三来源集成验收，不再存在已知的固定窗口偏移。
 
 #### 已落地
 
@@ -223,20 +218,17 @@ type PromptSection = {
 - 无法形成有效检索 token 的 query 会采用近期 pending/Stage 兜底；有有效 token 的明确主题没有命中时返回空 matches，不塞入无关近期记忆。
 - ToolNode 按 `context/episodic_recall` 的语义回载 orientation、来源、时间、相关度和正文，单次证据上限为 8000 字符。
 
-#### 尚未闭环的问题
+#### 2026-08-01 已修正
 
-1. 原始对话的最近轮排除存在一轮偏移。
-  - Recall 固定向内部原始对话搜索传入 `excludeRecentTurns: 2`。
-  - Recall 执行时，当前用户消息已经持久化、当前 Turn 已创建，而且当前用户消息已经绑定当前 `turnId`。
-  - 因此数据库最新两个 turn key 实际是“当前未完成 Turn + 上一个已完成 Turn”，不是直接进入短期 Context 的“最近两个已完成 Turn”。
-  - 结果是上上个已完成 Turn 仍可能作为 raw_message 被召回，同时又已经作为短期历史进入主模型，造成重复和排序放大。
-2. 自然历史指代可能被字符 n-gram 误判为有效主题 query。
-  - 单独的“刚才”“之前”“上次”“继续”会被停用词过滤，可以进入近期兜底。
-  - “刚才那个”“之前说的”“按之前那个”等更自然的表达会生成“才那”“前说”“之前那”等 n-gram token。
-  - 这些 token 会阻止近期兜底，却通常没有稳定主题意义，可能导致空结果或偶然字面误命中。
-3. 当前没有统一 Recall 的自动化验收测试。
-  - `npm run typecheck:node` 已通过，只能证明类型和编译链路成立。
-  - 尚无测试证明三类来源覆盖、窗口排除、跨来源排序、pending/raw 去重、指代兜底、空命中和结果上限在真实数据库状态下符合预期。
+1. 删除固定的 `excludeRecentTurns: 2`，改为按 MemorySnapshot 中实际进入短期 Context 的消息进行计数式排除。
+2. 原始对话只纳入 `completed` 或 `interrupted` 的普通聊天 Turn；当前 `queued/processing` Turn、失败 Turn 和后台消费者不会进入候选集。
+3. 将历史指代语义从 BM25 分词中拆出；“刚才那个”“之前说的”“按之前那个”等无主题表达进入近期承接兜底。
+4. 带明确主题的历史指代只用主题部分检索，例如“刚才那个 Bun 迁移”以“Bun 迁移”参与 BM25，避免指代词 n-gram 污染。
+5. 新增 `npm run test:recall`，覆盖自然指代、主题保留、普通查询和重复消息计数式排除，共 4 个测试。
+
+#### 尚未闭环
+
+- 仍需增加真实数据库集成测试，证明 pending、Stage、raw_message 三种来源、跨来源排序、空命中和结果上限共同符合契约。
 
 #### 修正目标
 
@@ -308,14 +300,12 @@ Persona 的 CharacterAnchor 是稳定人格身份结构，不属于已移除的 
 
 工具结果保留多久不应由调用工具的主 AI 单独决定，也不需要为此增加一个分类 AI。采用“工具声明边界、主 AI 表达意图、Runtime 强制执行”的分工：
 
-
-| 参与方       | 职责                                                              |
-| --------- | --------------------------------------------------------------- |
-| 工具作者      | 声明默认和最长保留期、模型消费版结果格式、是否可按稳定引用重新读取                               |
+| 参与方          | 职责                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------ |
+| 工具作者        | 声明默认和最长保留期、模型消费版结果格式、是否可按稳定引用重新读取                               |
 | 调用工具的主 AI | 可以在工具允许范围内表达 `release` 或 `retain_for_turn` 意图，不得延长到工具声明的最长保留期之外 |
-| Runtime   | 保证首次完整消费，执行保留上限、Context 预算、回合结束清理和异常兜底                          |
-| 长期记忆系统    | 独立判断本次经历是否形成长期人格或关系记忆，不直接持久化工具 transcript                       |
-
+| Runtime         | 保证首次完整消费，执行保留上限、Context 预算、回合结束清理和异常兜底                             |
+| 长期记忆系统    | 独立判断本次经历是否形成长期人格或关系记忆，不直接持久化工具 transcript                          |
 
 概念策略保持轻量：
 
@@ -340,12 +330,218 @@ type ToolContextPolicy = {
 - 只读工具未显式声明策略时默认 `evidence`，写工具默认 `ephemeral`；工具已有显式声明继续生效。
 - 取消证据区最多 6 条的静默淘汰；在 P1-3 建立显式预算、分页和可恢复省略之前，不把被删除的结果表现为本回合完整证据。
 - 每次主 Agent 图运行使用新 State，因此本回合 evidence 不跨用户回合保留。
+- 新增 `npm run test:tool-result`：长正文只读工具的完整 `modelResult` 会进入模型消息，写工具只返回 receipt 投影而不回显整篇写入正文。
+- 成功工具的过程性 `message` 不再重复进入模型可见结果；失败信息仍保留，降低最终回复复述“已读取/已执行”的倾向。
 
 ### 后续待确认
 
 - 当前主要模型可用于单次工具结果和整轮工具证据的安全 Context 上限。
 - 哪些现有大结果工具需要新增分页或范围读取协议。
 - 工具 Context 的消费后清理放在新的后置节点，还是在现有图结构中调整节点职责。
+
+## P0-6：建立本轮执行生命周期
+
+### 当前问题
+
+当前系统已经有 `llmCalls`、`pendingToolContext`、`toolEvidenceContext`、`ephemeralToolContext` 和原生 Tool transcript，但这些信息还没有形成一份权威的本轮工作状态：
+
+- `llmCalls` 只能说明模型调用次数，不能说明已经完成了什么。
+- ToolMessage 能交付刚刚的工具结果，但它是一段待消费 transcript，不是稳定的执行认知。
+- 最新结果先进入 `pendingToolContext`，而当前 `turn progress` 只统计 evidence 和 ephemeral，导致下一次模型调用看到的进度摘要可能滞后一轮。
+- `AgentToolReceipt` 能表达摘要，但尚未统一表达操作对象、完成程度、是否可重试和证据引用。
+- `suppressedTools` 和 `turnCallLimit` 属于 Runtime 行为约束，不能替代 Agent 对本轮工作进度的理解。
+- `shouldContinue` 只判断最后一条 AIMessage 是否包含 tool call；只要模型持续产生工具调用，图就会一直运行到 LangGraph recursion limit。
+
+因此，递归错误的主要修复方向不是按参数阻止重复调用，也不是直接提高 `recursionLimit`，而是让主 Agent 在每次工具循环后可靠感知同一用户请求中已经发生的行动、已有证据和未解决事项。
+
+### 设计目标
+
+建立一份仅存在于当前用户回合的 `TurnExecutionLedger`：
+
+```ts
+type TurnExecutionPhase = 'understanding' | 'acting' | 'answering'
+
+type TurnExecutionAction = {
+  actionId: string
+  toolCallId: string
+  toolName: string
+  operation: string
+  subject?: {
+    type: string
+    id?: string
+    label?: string
+  }
+  status: 'planned' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  summary: string
+  retryable: boolean
+  evidenceRefs: string[]
+  startedAt: string
+  completedAt?: string
+}
+
+type TurnExecutionLedger = {
+  objective: string
+  phase: TurnExecutionPhase
+  modelStep: number
+  actions: TurnExecutionAction[]
+  unresolvedItems: string[]
+}
+```
+
+关键边界：
+
+- Ledger 记录“本轮做过什么”，不保存完整工具正文；完整结果继续由 Tool transcript 和 `toolEvidenceContext` 承担。
+- 工具回执中的 `completed` 只表示这次工具操作已完成，不等于用户总体目标已经完成。
+- 用户目标是否已经被满足，仍由主 Agent 结合 Ledger、工具证据和用户原始请求判断。
+- Ledger 每次图运行重新建立，默认不跨用户回合持久化，也不直接写入长期记忆。
+- 同一个工具可以在本轮针对不同对象合法调用多次；不能用“调用过这个工具”代替语义进度。
+
+### 工具回执协议
+
+扩展现有 `AgentToolReceipt`，使 Runtime 能在不理解具体业务正文的情况下生成一致的行动记录：
+
+```ts
+type AgentToolReceipt = {
+  kind: string
+  operation: string
+  subject?: {
+    type: string
+    id?: string
+    label?: string
+  }
+  completion: 'complete' | 'partial' | 'failed'
+  summary: string
+  retryable: boolean
+  evidenceRef?: string
+  payload?: Record<string, unknown>
+}
+```
+
+- 查询/读取工具应明确读到了什么对象、范围是否完整，以及结果对应的稳定引用。
+- 写入工具应明确修改了什么对象、操作是否提交成功，以及新的 revision 或对象 ID。
+- 工具失败时应区分参数错误、暂时失败、权限/确认阻塞和不可恢复失败。
+- 首版优先覆盖工具发现、工具集激活、世界观文档读取与编辑、Recall 和联网搜索；未迁移工具由 ToolNode 生成保守的兼容行动记录，但不伪造完成语义。
+
+### 本轮内生命周期
+
+#### 1. 首次模型调用
+
+- 从当前 HumanMessage 建立 `objective`。
+- `phase=understanding`，`modelStep=1`，actions 为空。
+- Context 中说明这是本轮初始状态，不额外要求模型输出计划或过程性旁白。
+
+#### 2. 模型产生工具调用
+
+- AIMessage 中的 tool call 本身视为一次行动决策。
+- ToolNode 在执行前写入 `planned/running` action，并保留 toolCallId、工具、操作和目标对象。
+- 不要求模型在用户可见正文中解释“我要先调用某工具”。
+
+#### 3. 工具完成
+
+- ToolNode 根据标准 envelope 和 receipt 将 action 更新为 `completed/partial/failed`。
+- 完整模型消费结果进入 ToolMessage。
+- 结果引用和简短完成摘要进入 Ledger；需要继续推理的完整证据进入 pending tool context。
+
+#### 4. 工具结果回载
+
+- `toolContextReloadNode` 在下一次 `llmCall` 前完成状态提升，而不是保持近似空节点。
+- 当前 pending 结果立即进入本轮 Ledger 可见进度；`evidence` 提升为本轮证据，`ephemeral` 进入紧接着一次模型调用的执行状态。
+- 原生 AI tool-call 与 ToolMessage transcript 仍保留到下一次模型完整消费结束，以满足模型供应商的工具消息配对协议。
+
+#### 5. 后续模型调用
+
+ModelNode 注入一个紧凑、权威的 `execution/turn_ledger` Section，例如：
+
+```text
+本轮用户目标：评价当前文档中的力量体系。
+当前阶段：acting；这是同一用户请求的第 2 次模型决策。
+
+已完成行动：
+1. 已读取《物质与能量》完整正文；结果可用；证据引用 document:123。
+
+失败或部分完成：无。
+未解决事项：无明确缺口。
+
+决策要求：先判断已有行动和证据是否足以满足用户目标；足够则直接形成回答，只有存在具体缺口时才选择新的行动。
+```
+
+- 该 Section 必须包含刚刚结束的 pending action，不能滞后一轮。
+- Ledger 是同轮连续性的权威状态；原始用户请求不能在每次循环中被重新理解成“尚未开始”。
+- 工具证据与 Ledger 分开注入，避免为了说明执行状态重复整段正文。
+
+#### 6. 结束与清理
+
+- 模型不再产生 tool call 时，进入 MemoryNode 和本轮结束流程。
+- 原始工具 transcript、Ledger 和本轮工具证据随图运行结束释放。
+- 长期记忆系统可以独立判断这次经历是否值得保留，但不能直接持久化整份 Ledger 或内部工具参数。
+
+#### 7. 异常兜底
+
+- 图级最大循环数仍应存在，但只作为模型异常、供应商异常或协议缺陷的最后保险。
+- 触发保险时应进入一次“依据已有 Ledger 和证据形成受限回答”的收尾阶段，而不是直接抛出 `GRAPH_RECURSION_LIMIT`，也不是伪装成任务已完成。
+- 参数完全相同的重复调用可以进入 Trace 诊断，但首版不把参数去重作为正常认知机制。
+
+### 与思维链的边界
+
+本轮执行账本确实是 Agent 思考架构的雏形，但它不等于逐字思维链，也不应演变为保存模型内部草稿。
+
+系统需要保留的是可审计的决策状态：
+
+- 当前目标是什么。
+- 已采取了哪些行动。
+- 每个行动得到了什么结果。
+- 证据在哪里。
+- 当前还缺少什么。
+- 下一步是继续行动还是形成回答。
+
+系统不应请求、保存或向用户展示：
+
+- 模型逐 token 的内心推演。
+- 大段自由形式 scratchpad。
+- 未经整理的候选想法和自我对话。
+- 仅用于生成答案但不具备外部可验证意义的隐式推理过程。
+
+推荐采用三层结构：
+
+1. **执行账本**：Runtime 根据工具调用和回执确定性生成，是本轮连续性的主体。
+2. **简短决策摘要**：只在复杂分支、部分失败或多步骤任务中记录“依据、缺口、下一步”，使用结构化短字段，不保存逐字推理。
+3. **模型内部推理**：由模型在单次调用内部完成，不进入数据库、Prompt 历史或调试 UI。
+
+首版只实施第 1 层。第 2 层需要在实际复杂任务证明仅靠执行账本无法稳定选择下一步后再引入；不为它增加独立 LLM 节点，也不让主 Agent 每轮额外生成一篇“思考过程”。
+
+### 实施步骤
+
+1. 定义 `TurnExecutionLedger`、Action 和扩展后的 Receipt 类型，明确只在当前图运行中存在。
+2. 优先迁移核心工具、文档工具、Recall 和联网搜索的 receipt，保证对象、范围、完成程度和可重试性清晰。
+3. ToolNode 在调用前后更新 action，并同时保持原生 ToolMessage 的首次完整消费协议。
+4. ToolContextReloadNode 将 pending action 和结果在下一次 LLM 前提升到 Ledger/evidence/ephemeral。
+5. ModelNode 用 Ledger 替换当前主要依赖计数的 `turn progress`，并在最终 Context Manifest 中单独标识 `execution/turn_ledger`。
+6. ShouldContinue 保持“模型产生工具调用才执行”的主体路由；另加只在异常循环时触发的可回答式收尾路径。
+7. 完成真实对话验收后，再删除已被 Ledger 替代的重复进度字段和过时提示，避免两套本轮状态并存。
+
+### 检查与验收方向
+
+1. `activate_toolset -> read_world_document -> answer`：每一轮都能看到先前行动，工具不会因忘记进度而重复发现或读取。
+2. 单次文档读取成功后，下一次模型调用的 Ledger 立即显示完成，不出现“成功 0 个”的滞后状态。
+3. 同一工具读取两个不同文档时，两次行动都保留，不能被粗粒度的工具抑制误伤。
+4. 工具返回 partial 时，Agent 能指出具体缺口并选择补充行动；返回 complete 时能进入回答。
+5. 工具失败且 `retryable=false` 时不反复重试；`retryable=true` 时允许基于明确调整再执行。
+6. Tool transcript 首次消费后即使被清理，Ledger 与本轮 evidence 仍能支撑后续模型调用。
+7. 最终 Context Manifest 能清楚区分用户请求、执行账本、工具证据和原生 Tool transcript。
+8. 模拟连续错误工具调用时不会把 Runtime 硬上限当成正常结束，异常收尾会基于已有信息给出受限回答。
+9. 用户可见回复不播报工具名、调用轮次、内部 ID、revision 或自由形式思维过程，除非用户明确询问调试信息。
+
+### 2026-08-01 已实施
+
+- 新增当前图运行内的 `TurnExecutionLedger`，记录用户目标、模型步骤、行动、对象、完成状态、可重试性、证据引用和明确缺口。
+- ModelNode 首次调用时从当前用户消息建立目标；每次模型调用后更新步骤与 `acting/answering` 阶段。
+- ToolNode 为正常执行、部分结果、策略拦截、工具不可用、缺失调用 ID 和执行异常统一写入 action。
+- ToolContextReloadNode 会在下一次模型调用前提升 pending evidence/ephemeral，账本不再滞后一轮。
+- 原生 Tool transcript 尚待首次消费时，ModelNode 不再重复注入对应 evidence/ephemeral 摘要；完整结果仍通过 ToolMessage 交付。
+- 原有计数式 `turn-progress` 已由 `execution/turn_ledger` 替换；最终 Context Manifest 可观察账本段的位置和大小。
+- `AgentToolReceipt` 已增加 operation、subject、completion、retryable 和 evidenceRef；首批覆盖工具发现、工具集激活、世界观文档、Recall 与联网搜索。
+- 连续模型决策达到 6 步仍要求新工具时，Runtime 会取消新行动、记录异常收尾、关闭工具绑定，并要求模型依据已有账本和证据生成受限回答；这只是最后保险，不参与正常任务判断。
+- 新增 `npm run test:turn-lifecycle`，覆盖同工具多对象、部分结果后成功消除缺口、pending 提升和异常收尾；已并入 `test:agent-core`。
 
 ## P1-1：内部运行诊断进入主模型 Prompt
 
@@ -395,7 +591,7 @@ Instant Perception Prompt 会向主模型描述：
 - ToolContextReloadNode 又负责移除 transcript 和重建摘要。
 - 最终消息顺序由 ModelNode 再次调整。
 - ContextNode 已通过 PromptSection Manifest 记录首次注入清单。
-- 工具循环追加的 Section 尚未汇入同一份最终清单，因此仍无法直接看到每次模型调用的完整输入结构。
+- 每次 `llmCall` 已在 provider 适配完成后输出最终 Context Manifest，首次 Context、工具循环 Section、历史消息、当前交互和原生 Tool transcript 均出现在同一有序清单中。
 
 ### 影响
 
@@ -403,10 +599,11 @@ Instant Perception Prompt 会向主模型描述：
 - 容易出现重复、遗漏或顺序改变。
 - 发生上下文问题时难以快速定位来源。
 
-### 候选最小方向，待讨论
+### 已实施的最小方向
 
-- 不改变现有节点职责，在每次 llmCall 排序完成后输出最终 Context Manifest。
-- Manifest 汇总首次 Context、工具循环 Section、历史消息和当前交互，并记录来源、字符数和最终顺序。
+- 不改变现有节点职责，在每次 `llmCall` 排序及 provider 适配完成后输出最终 Context Manifest。
+- Manifest 汇总首次 Context、工具循环 Section、历史消息、当前交互和 Tool transcript，记录最终顺序、来源、字符数、粗略 token 估算及 Section duty/kind。
+- Manifest 只进入 Trace，不进入主模型 Prompt。
 
 ### 补充讨论：是否规范 Context Provider 接口
 
@@ -443,10 +640,9 @@ type ContextProvider = {
 
 CharacterArc 的优先级、token 预算、失败隔离和可恢复裁剪值得作为 P1-2/P1-3 的参考，但不直接复制其通用 head/tail 压缩。文档、人物详情、Recall 命中和叙事批次的关键内容可能位于中间，应该优先使用显式分页、范围读取或稳定引用；任何压缩或省略都必须对模型可见且可以恢复。稳定人格、当前用户请求、关系上下文和最近对话也不应成为第一批裁剪对象。
 
-### 待确认
+### 后续待确认
 
-- Manifest 只用于 Trace，还是也需要开发者调试界面？
-- 工具循环后的 Context 是否应与首次 Context 使用同一渲染入口？
+- 是否需要在开发者调试界面展示 Trace 中的最终 Manifest？
 - Provider 首版只统一初始派生 Context，还是同时迁移工具消费后的 Section 生成？
 - Provider 输入应直接读取 `MainAgentState`，还是逐步收窄为显式的只读 Source Snapshot？
 
@@ -565,7 +761,8 @@ CharacterArc 的优先级、token 预算、失败隔离和可恢复裁剪值得�
 
 1. 完成 P0-4 的最近轮排除、自然指代兜底和统一 Recall 验收测试。
 2. 工具完整结果过早压缩。
-3. Scene 低置信度时保留必要的历史焦点背景。
+3. 建立本轮执行生命周期，让 Agent 能承接同轮工具行动和结果。
+4. Scene 低置信度时保留必要的历史焦点背景。
 
 ### 第二组：收敛 Context 可观测性和噪声
 

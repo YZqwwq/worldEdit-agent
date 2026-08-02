@@ -24,6 +24,18 @@ export async function shouldContinue(
   // If the LLM makes a tool call, then perform an action
   // 检查最后一条消息是否包含工具调用，如果不包含则结束。
   if (msg.tool_calls?.length) {
+    if (state.toolLoopFinalizing) {
+      traceDecision('shouldContinue', {
+        title: '决策: 异常收尾停止工具路由',
+        summary: '无工具模式仍收到工具调用，route=memoryNode',
+        data: {
+          toolCallCount: msg.tool_calls.length,
+          route: 'memoryNode',
+          reason: 'tool_loop_finalizing'
+        }
+      })
+      return 'memoryNode'
+    }
     traceDecision('shouldContinue', {
       title: '决策: shouldContinue 路由',
       summary: `route=toolNode，toolCalls=${msg.tool_calls.length}`,
