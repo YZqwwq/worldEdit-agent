@@ -25,12 +25,14 @@ const DEFAULT_CONFIG: ModelConfigInput = {
   streaming: true,
   useResponsesApi: false,
   mainAgentTimeoutMs: 60000,
+  mainAgentMaxTokens: 4096,
   childAgentTimeoutMs: 30000
 }
 
 const clampTemperature = (value: number): number => Math.min(2, Math.max(0, value))
 const clampChildAgentTimeoutMs = (value: number): number => Math.min(300000, Math.max(5000, value))
 const clampMainAgentTimeoutMs = (value: number): number => Math.min(300000, Math.max(10000, value))
+const clampMainAgentMaxTokens = (value: number): number => Math.min(65536, Math.max(256, value))
 
 const normalizeInput = (input: ModelConfigInput): ModelConfigInput => {
   const vendor = String(input.vendor || '').trim().toLowerCase() as ModelVendor
@@ -64,6 +66,10 @@ const normalizeInput = (input: ModelConfigInput): ModelConfigInput => {
   const mainAgentTimeoutMs = Number.isFinite(mainTimeoutRaw)
     ? clampMainAgentTimeoutMs(Math.round(mainTimeoutRaw))
     : DEFAULT_CONFIG.mainAgentTimeoutMs
+  const mainMaxTokensRaw = Number(input.mainAgentMaxTokens)
+  const mainAgentMaxTokens = Number.isFinite(mainMaxTokensRaw)
+    ? clampMainAgentMaxTokens(Math.round(mainMaxTokensRaw))
+    : DEFAULT_CONFIG.mainAgentMaxTokens
   const timeoutRaw = Number(input.childAgentTimeoutMs)
   const childAgentTimeoutMs = Number.isFinite(timeoutRaw)
     ? clampChildAgentTimeoutMs(Math.round(timeoutRaw))
@@ -85,6 +91,7 @@ const normalizeInput = (input: ModelConfigInput): ModelConfigInput => {
     streaming: Boolean(input.streaming),
     useResponsesApi: Boolean(input.useResponsesApi),
     mainAgentTimeoutMs,
+    mainAgentMaxTokens,
     childAgentTimeoutMs
   }
 }
@@ -111,6 +118,10 @@ const toPayload = (entity: ModelConfig): ModelConfigPayload => ({
     Number.isFinite(entity.mainagenttimeoutms) && entity.mainagenttimeoutms > 0
       ? entity.mainagenttimeoutms
       : DEFAULT_CONFIG.mainAgentTimeoutMs,
+  mainAgentMaxTokens:
+    Number.isFinite(entity.mainagentmaxtokens) && entity.mainagentmaxtokens > 0
+      ? entity.mainagentmaxtokens
+      : DEFAULT_CONFIG.mainAgentMaxTokens,
   childAgentTimeoutMs:
     Number.isFinite(entity.childagenttimeoutms) && entity.childagenttimeoutms > 0
       ? entity.childagenttimeoutms
@@ -151,6 +162,7 @@ class ModelConfigService {
         streaming: DEFAULT_CONFIG.streaming,
         useresponsesapi: DEFAULT_CONFIG.useResponsesApi,
         mainagenttimeoutms: DEFAULT_CONFIG.mainAgentTimeoutMs,
+        mainagentmaxtokens: DEFAULT_CONFIG.mainAgentMaxTokens,
         childagenttimeoutms: DEFAULT_CONFIG.childAgentTimeoutMs
       })
       config = await this.repo.save(config)
@@ -206,6 +218,10 @@ class ModelConfigService {
       config.mainagenttimeoutms = DEFAULT_CONFIG.mainAgentTimeoutMs
       changed = true
     }
+    if (!Number.isFinite(config.mainagentmaxtokens) || config.mainagentmaxtokens <= 0) {
+      config.mainagentmaxtokens = DEFAULT_CONFIG.mainAgentMaxTokens
+      changed = true
+    }
     if (changed) {
       config = await this.repo.save(config)
     }
@@ -237,6 +253,7 @@ class ModelConfigService {
     config.streaming = normalized.streaming
     config.useresponsesapi = normalized.useResponsesApi
     config.mainagenttimeoutms = normalized.mainAgentTimeoutMs
+    config.mainagentmaxtokens = normalized.mainAgentMaxTokens
     config.childagenttimeoutms = normalized.childAgentTimeoutMs
 
     const saved = await this.repo.save(config)
@@ -258,7 +275,8 @@ class ModelConfigService {
       baseURL: config.baseURL || undefined,
       streaming: config.streaming,
       useResponsesApi: config.useResponsesApi,
-      mainAgentTimeoutMs: config.mainAgentTimeoutMs
+      mainAgentTimeoutMs: config.mainAgentTimeoutMs,
+      mainAgentMaxTokens: config.mainAgentMaxTokens
     }
   }
 
@@ -286,7 +304,8 @@ class ModelConfigService {
       baseURL: config.baseURL || undefined,
       streaming: config.streaming,
       useResponsesApi: config.useResponsesApi,
-      mainAgentTimeoutMs: config.mainAgentTimeoutMs
+      mainAgentTimeoutMs: config.mainAgentTimeoutMs,
+      mainAgentMaxTokens: config.mainAgentMaxTokens
     }
   }
 

@@ -1,19 +1,12 @@
 import type { PersonaMetrics } from './personalState'
 
 export interface PersonaSamplingPolicy {
-  temperature: number
-  topP: number
-  maxTokens: number
+  temperatureOffset: number
 }
 
 export interface PersonaToolPolicy {
   confirmBeforeSensitiveTools: boolean
   allowRiskyTools: boolean
-}
-
-export interface PersonaMemoryPolicy {
-  archiveThreshold: number
-  shortTermLimit: number
 }
 
 export interface PersonaActionPolicy {
@@ -37,6 +30,5 @@ export interface PersonaPolicy {
   sampling: PersonaSamplingPolicy
   tool: PersonaToolPolicy
   action: PersonaActionPolicy
-  memory: PersonaMemoryPolicy
   signals: string[]
 }

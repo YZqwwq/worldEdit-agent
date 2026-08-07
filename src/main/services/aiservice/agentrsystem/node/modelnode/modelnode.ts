@@ -326,10 +326,14 @@ export async function llmCall(
     const callOptions: Record<string, unknown> = {
       signal: combinedSignal
     }
-    if (state.personaPolicy?.sampling) {
-      callOptions.temperature = state.personaPolicy.sampling.temperature
-      callOptions.topP = state.personaPolicy.sampling.topP
-      callOptions.maxTokens = state.personaPolicy.sampling.maxTokens
+    const runtimeTemperature = Number(runtime.effectiveOptions.temperature)
+    if (Number.isFinite(runtimeTemperature)) {
+      const temperatureOffset = state.personaPolicy?.sampling.temperatureOffset ?? 0
+      callOptions.temperature = Math.min(2, Math.max(0, runtimeTemperature + temperatureOffset))
+    }
+    const runtimeMaxTokens = Number(runtime.effectiveOptions.mainAgentMaxTokens)
+    if (Number.isFinite(runtimeMaxTokens) && runtimeMaxTokens > 0) {
+      callOptions.maxTokens = Math.round(runtimeMaxTokens)
     }
     traceState('llmCall', {
       title: '状态: llmCall 调用参数',
@@ -337,8 +341,9 @@ export async function llmCall(
       data: {
         sampling: {
           temperature: callOptions.temperature,
-          topP: callOptions.topP,
-          maxTokens: callOptions.maxTokens
+          temperatureOffset: state.personaPolicy?.sampling.temperatureOffset ?? 0,
+          maxTokens: callOptions.maxTokens,
+          maxTokensSource: 'runtime'
         },
         messageCounts: {
           system: systemMsgs.length,

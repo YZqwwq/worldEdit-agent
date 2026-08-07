@@ -536,6 +536,18 @@
           </label>
 
           <label class="flex flex-col gap-1 text-sm text-gray-700">
+            主 Agent 最大输出 Tokens
+            <input
+              v-model.number="modelConfigForm.mainAgentMaxTokens"
+              type="number"
+              min="256"
+              max="65536"
+              step="256"
+              class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500"
+            />
+          </label>
+
+          <label class="flex flex-col gap-1 text-sm text-gray-700">
             子 Agent 超时(ms)
             <input
               v-model.number="modelConfigForm.childAgentTimeoutMs"
@@ -1089,6 +1101,7 @@ const defaultModelConfig: ModelConfigInput = {
   streaming: true,
   useResponsesApi: false,
   mainAgentTimeoutMs: 60000,
+  mainAgentMaxTokens: 4096,
   childAgentTimeoutMs: 30000
 }
 
@@ -1161,6 +1174,10 @@ const applyModelConfig = (config: ModelConfigPayload): void => {
       Number.isFinite(config.mainAgentTimeoutMs) && config.mainAgentTimeoutMs > 0
         ? config.mainAgentTimeoutMs
         : 60000,
+    mainAgentMaxTokens:
+      Number.isFinite(config.mainAgentMaxTokens) && config.mainAgentMaxTokens > 0
+        ? config.mainAgentMaxTokens
+        : 4096,
     childAgentTimeoutMs:
       Number.isFinite(config.childAgentTimeoutMs) && config.childAgentTimeoutMs > 0
         ? config.childAgentTimeoutMs
@@ -1307,6 +1324,7 @@ const saveModelConfig = async (): Promise<void> => {
       quickBaseURL: modelConfigForm.value.quickBaseURL.trim(),
       quickTemperature: Number(modelConfigForm.value.quickTemperature),
       mainAgentTimeoutMs: Number(modelConfigForm.value.mainAgentTimeoutMs),
+      mainAgentMaxTokens: Number(modelConfigForm.value.mainAgentMaxTokens),
       childAgentTimeoutMs: Number(modelConfigForm.value.childAgentTimeoutMs)
     })
     applyModelConfig(saved)
@@ -1338,6 +1356,7 @@ const testModelSpeed = async (target: ModelSpeedTestTarget): Promise<void> => {
         quickBaseURL: modelConfigForm.value.quickBaseURL.trim(),
         quickTemperature: Number(modelConfigForm.value.quickTemperature),
         mainAgentTimeoutMs: Number(modelConfigForm.value.mainAgentTimeoutMs),
+        mainAgentMaxTokens: Number(modelConfigForm.value.mainAgentMaxTokens),
         childAgentTimeoutMs: Number(modelConfigForm.value.childAgentTimeoutMs)
       },
       target

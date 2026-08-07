@@ -9,6 +9,7 @@ export interface ModelOptions {
   streaming?: boolean
   useResponsesApi?: boolean
   mainAgentTimeoutMs?: number
+  mainAgentMaxTokens?: number
   modelKwargs?: Record<string, unknown>
   systemPrompt?: string
 }

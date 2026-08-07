@@ -98,7 +98,9 @@ const buildScenePrompt = (input: {
 - 如果用户明确或明显把主讨论目标切换到外部作品、现实工作、普通闲聊等，continuity=scene_shift。
 - appWorldbuildingInstanceRelated 只在用户指向本应用内已有世界观、人物、实体、人物文本、人物印象，或延续已识别的本地 world/entity 焦点时为 true。
 - 泛泛创作/新设定构思可以是 appWorldbuildingDiscussionRelated=true，但若没有指向本地已有实例，则 appWorldbuildingInstanceRelated=false。
-- 低置信度时保持保守：shouldRunWorldFocus=false，shouldInjectHistoricalWorldFocus=false。
+- 低置信度时不运行新的世界观聚焦：shouldRunWorldFocus=false。
+- 低置信度或 uncertain 时，如果存在历史世界观焦点，应让 shouldInjectHistoricalWorldFocus=true，但它只是“可能仍相关、本轮未确认”的背景。
+- 只有高置信度的 scene_shift 才必须退出历史焦点。
 
 字段含义：
 - primaryDomain: 本轮主讨论/主任务场景。
@@ -154,9 +156,13 @@ const normalizeScenePerception = (
 ): ScenePerceptionSlot => {
   const confidence = Math.max(0, Math.min(1, Number(parsed.confidence)))
   const conservative = confidence < 0.6 || parsed.continuity === 'uncertain'
+  const explicitSceneShift = confidence >= 0.6 && parsed.continuity === 'scene_shift'
   const shouldRunWorldFocus = !conservative && parsed.shouldRunWorldFocus === true
   const shouldInjectHistoricalWorldFocus =
-    !conservative && parsed.shouldInjectHistoricalWorldFocus === true
+    !explicitSceneShift &&
+    (conservative
+      ? Boolean(input.memoryWorldFocus)
+      : parsed.shouldInjectHistoricalWorldFocus === true)
 
   return {
     primaryDomain: parsed.primaryDomain,
@@ -198,7 +204,7 @@ const buildFallbackScenePerception = (input: {
   appWorldbuildingDiscussionRelated: false,
   appWorldbuildingInstanceRelated: false,
   shouldRunWorldFocus: false,
-  shouldInjectHistoricalWorldFocus: false,
+  shouldInjectHistoricalWorldFocus: Boolean(input.memoryWorldFocus),
   confidence: 0,
   reason: input.reason,
   evidence: ['轻量模型场景判断失败，采用保守降级。'],

@@ -105,6 +105,13 @@ export class ModelConfig {
   })
   mainagenttimeoutms!: number
 
+  // 主 agent 单次模型调用的最大输出 token 数
+  @Column({
+    type: 'integer',
+    default: 4096
+  })
+  mainagentmaxtokens!: number
+
   // 子 agent 单次模型调用超时（毫秒）
   @Column({
     type: 'integer',

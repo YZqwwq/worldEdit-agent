@@ -8,6 +8,7 @@ export type MemoryPromptPlan = {
 
 export type MemoryPromptPlanOptions = {
   includeWorldFocus?: boolean
+  worldFocusAsBackground?: boolean
 }
 
 export const buildMemoryPromptPlan = (
@@ -18,7 +19,8 @@ export const buildMemoryPromptPlan = (
   void memory
 
   const slotPrompt = buildMemorySlotPrompt(slots, {
-    includeWorldFocus: options.includeWorldFocus
+    includeWorldFocus: options.includeWorldFocus,
+    worldFocusAsBackground: options.worldFocusAsBackground
   })
 
   return {

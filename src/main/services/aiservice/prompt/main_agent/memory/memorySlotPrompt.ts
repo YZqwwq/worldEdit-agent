@@ -7,6 +7,7 @@ import {
 
 type BuildMemorySlotPromptOptions = {
   includeWorldFocus?: boolean
+  worldFocusAsBackground?: boolean
 }
 
 const buildMemorySlotLines = (
@@ -16,6 +17,7 @@ const buildMemorySlotLines = (
   if (!slots) return []
 
   const includeWorldFocus = options.includeWorldFocus ?? true
+  const worldFocusAsBackground = options.worldFocusAsBackground ?? false
   const lines: string[] = []
 
   if (slots.conversation_state.conversation_mode) {
@@ -36,12 +38,12 @@ const buildMemorySlotLines = (
     if (slots.world_focus.focuses.length === 1) {
       const focus = slots.world_focus.focuses[0]
       lines.push(
-        `当前世界观焦点：世界观「${focus.worldName}」，` +
+        `${worldFocusAsBackground ? '上一轮可能仍相关的世界观焦点背景（本轮未确认）' : '当前世界观焦点'}：世界观「${focus.worldName}」，` +
           `${describeWorldFocusType(focus.focusType)}「${focus.entityName}」。`
       )
     } else {
       lines.push(
-        `当前世界观焦点组：${slots.world_focus.focuses
+        `${worldFocusAsBackground ? '上一轮可能仍相关的世界观焦点组背景（本轮未确认）' : '当前世界观焦点组'}：${slots.world_focus.focuses
           .map(
             (focus) =>
               `${focus.role}:${focus.worldName}/${describeWorldFocusType(focus.focusType)}「${

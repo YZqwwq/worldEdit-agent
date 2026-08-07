@@ -13,7 +13,7 @@ export type InstantPerceptionContext = {
   recentDialogue: RecentDialogueMessage[]
 }
 
-const RECENT_DIALOGUE_MESSAGE_LIMIT = 4
+const RECENT_DIALOGUE_MESSAGE_LIMIT = 8
 
 const compact = (value: string, max = 420): string => {
   const normalized = String(value || '')

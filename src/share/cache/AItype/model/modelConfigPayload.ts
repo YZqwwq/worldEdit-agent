@@ -17,6 +17,7 @@ export interface ModelConfigPayload {
   streaming: boolean
   useResponsesApi: boolean
   mainAgentTimeoutMs: number
+  mainAgentMaxTokens: number
   childAgentTimeoutMs: number
   updatedAt?: string
 }

@@ -17,9 +17,14 @@ import {
   mergeStageIntoLongTermMemory,
   parseLongTermMemory
 } from './longTermMemoryService'
+import {
+  resolveArchivePlan,
+  RUNTIME_ARCHIVE_HARD_LIMIT,
+  RUNTIME_SHORT_TERM_LIMIT
+} from './memoryArchivePolicy'
+import { detectSemanticArchiveBoundary } from './memoryArchiveIntentService'
 
 const MEMORY_STATE_ROW_ID = 1
-const SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT = 4
 
 const defaultState = (): StateData => ({
   session_id: 'default',
@@ -28,9 +33,9 @@ const defaultState = (): StateData => ({
   last_archive_time: '',
   archive_strategy: 'stage_based',
   api_status: 'healthy',
-  archive_threshold: 6,
+  archive_threshold: RUNTIME_ARCHIVE_HARD_LIMIT,
   archive_min_interval_ms: 0,
-  short_term_limit: SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
+  short_term_limit: RUNTIME_SHORT_TERM_LIMIT
 })
 
 export type MemoryCheckpoint = {
@@ -75,9 +80,9 @@ export class MemoryManager {
     row.lastArchiveTime = this.state.last_archive_time
     row.archiveStrategy = this.state.archive_strategy
     row.apiStatus = this.state.api_status
-    row.archiveThreshold = this.state.archive_threshold ?? 6
+    row.archiveThreshold = RUNTIME_ARCHIVE_HARD_LIMIT
     row.archiveMinIntervalMs = this.state.archive_min_interval_ms ?? 0
-    row.shortTermLimit = this.state.short_term_limit ?? SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
+    row.shortTermLimit = RUNTIME_SHORT_TERM_LIMIT
     row.longTermJson = JSON.stringify(this.longTerm)
     row.archiveBufferJson = JSON.stringify(this.archiveBuffer)
     row.lastStageIndex = this.lastStageIndex
@@ -147,11 +152,9 @@ export class MemoryManager {
   }
 
   private normalizeState(): void {
-    if (this.state.archive_threshold == null) this.state.archive_threshold = 6
+    this.state.archive_threshold = RUNTIME_ARCHIVE_HARD_LIMIT
     if (this.state.archive_min_interval_ms == null) this.state.archive_min_interval_ms = 0
-    if (this.state.short_term_limit == null) {
-      this.state.short_term_limit = SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
-    }
+    this.state.short_term_limit = RUNTIME_SHORT_TERM_LIMIT
   }
 
   private mapRowToState(row: MemoryStateRecord): StateData {
@@ -166,9 +169,9 @@ export class MemoryManager {
       last_archive_time: row.lastArchiveTime || '',
       archive_strategy: row.archiveStrategy || 'stage_based',
       api_status: row.apiStatus || 'healthy',
-      archive_threshold: row.archiveThreshold ?? 6,
+      archive_threshold: RUNTIME_ARCHIVE_HARD_LIMIT,
       archive_min_interval_ms: row.archiveMinIntervalMs ?? 0,
-      short_term_limit: row.shortTermLimit ?? SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
+      short_term_limit: RUNTIME_SHORT_TERM_LIMIT
     }
   }
 
@@ -235,16 +238,11 @@ export class MemoryManager {
     return parsed
   }
 
-  private shouldArchiveNow(role: 'user' | 'ai'): boolean {
-    const threshold = this.state.archive_threshold ?? 6
-    if (role !== 'ai') return false
-    return this.archiveBuffer.length >= threshold
-  }
-
-  private async archiveBufferedMessages(triggerKind: string): Promise<void> {
+  private async archiveBufferedMessages(triggerKind: string, messageCount: number): Promise<void> {
     if (!this.archiveBuffer.length) return
 
-    const messages = this.archiveBuffer.map((item) => ({ ...item }))
+    const normalizedCount = Math.max(1, Math.min(this.archiveBuffer.length, messageCount))
+    const messages = this.archiveBuffer.slice(0, normalizedCount).map((item) => ({ ...item }))
     const slots = await memorySlotService.reconcileFromObservations()
     const startedAt = messages[0]?.timestamp || new Date().toISOString()
     const endedAt = messages[messages.length - 1]?.timestamp || startedAt
@@ -271,7 +269,7 @@ export class MemoryManager {
     }
 
     this.longTerm = mergeStageIntoLongTermMemory(this.longTerm, stageDraft, slots)
-    this.archiveBuffer = []
+    this.archiveBuffer = this.archiveBuffer.slice(normalizedCount)
     this.lastStageIndex = stageIndex
     this.lastArchivedAt = endedAt
     this.state.counters.since_last_archive = 0
@@ -420,7 +418,7 @@ export class MemoryManager {
       this.state.counters.total_turns = nextSequence
       this.state.counters.since_last_archive++
 
-      const limit = this.state.short_term_limit ?? SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
+      const limit = RUNTIME_SHORT_TERM_LIMIT
       if (this.shortTerm.length > limit) {
         const overflowCount = this.shortTerm.length - limit
         const overflow = this.shortTerm.splice(0, overflowCount)
@@ -435,11 +433,21 @@ export class MemoryManager {
         )
       }
 
-      if (this.shouldArchiveNow(role)) {
-        await this.archiveBufferedMessages('window_overflow')
-      } else {
-        await this.persistMemoryState()
+      if (role === 'ai' && this.archiveBuffer.length) {
+        let archivePlan = resolveArchivePlan(this.archiveBuffer)
+        if (!archivePlan) {
+          const semanticBoundarySequence = await detectSemanticArchiveBoundary(
+            this.archiveBuffer,
+            this.shortTerm
+          )
+          archivePlan = resolveArchivePlan(this.archiveBuffer, semanticBoundarySequence)
+        }
+        if (archivePlan) {
+          await this.archiveBufferedMessages(archivePlan.triggerKind, archivePlan.messageCount)
+          return
+        }
       }
+      await this.persistMemoryState()
     })
   }
 
@@ -454,53 +462,6 @@ export class MemoryManager {
       this.lastArchivedAt = ''
       this.state = defaultState()
       await this.persistMemoryState({ deleteStagesAfterIndex: 0 })
-    })
-  }
-
-  public async applyAdaptiveConfig(input: {
-    archiveThreshold?: number
-    shortTermLimit?: number
-  }): Promise<void> {
-    await this.initialize()
-    await this.withLock(async () => {
-      const threshold = input.archiveThreshold
-      const shortTermLimit = input.shortTermLimit
-      let changed = false
-
-      if (Number.isFinite(threshold)) {
-        const normalized = Math.max(2, Math.min(20, Math.round(Number(threshold))))
-        if (this.state.archive_threshold !== normalized) {
-          this.state.archive_threshold = normalized
-          changed = true
-        }
-      }
-
-      if (Number.isFinite(shortTermLimit)) {
-        const normalized = SHORT_TERM_RECENT_TWO_ROUNDS_LIMIT
-        if (this.state.short_term_limit !== normalized) {
-          this.state.short_term_limit = normalized
-          changed = true
-        }
-        if (this.shortTerm.length > normalized) {
-          const overflowCount = this.shortTerm.length - normalized
-          const overflow = this.shortTerm.splice(0, overflowCount)
-          this.archiveBuffer.push(
-            ...overflow.map((item) => ({
-              role: item.role,
-              content: item.content,
-              timestamp: item.timestamp,
-              sequence: item.sequence,
-              compressed: false
-            }))
-          )
-          this.state.counters.window_turns = this.shortTerm.length
-          changed = true
-        }
-      }
-
-      if (changed) {
-        await this.persistMemoryState()
-      }
     })
   }
 }

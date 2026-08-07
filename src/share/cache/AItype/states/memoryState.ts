@@ -19,11 +19,11 @@ export interface StateData {
   archive_strategy: string
   // API 健康状态（healthy/down/skipped）
   api_status: string
-  // 触发归档的轮次阈值
+  // Runtime 待归档缓冲硬上限（非正常归档频率）
   archive_threshold?: number
   // 两次归档之间的最小间隔（毫秒）
   archive_min_interval_ms?: number
-  // 短期窗口大小
+  // Runtime 短期窗口大小
   short_term_limit?: number
 }
 

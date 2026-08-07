@@ -38,7 +38,7 @@ export class MemoryStateRecord {
   @Column({ type: 'text', default: 'healthy' })
   apiStatus!: string
 
-  // 触发归档的最小轮次阈值
+  // Runtime 待归档缓冲硬上限（非正常归档频率）
   @Column({ type: 'integer', default: 6 })
   archiveThreshold!: number
 

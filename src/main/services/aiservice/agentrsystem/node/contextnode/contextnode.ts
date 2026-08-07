@@ -445,7 +445,11 @@ export async function contextNode(
   const snapshot = await memoryManager.getSnapshot()
 
   const memoryPromptPlan = buildMemoryPromptPlan(snapshot, effectiveSlotSnapshot, {
-    includeWorldFocus: effectiveSlotSnapshot.scene_perception.shouldInjectHistoricalWorldFocus
+    includeWorldFocus: effectiveSlotSnapshot.scene_perception.shouldInjectHistoricalWorldFocus,
+    worldFocusAsBackground:
+      effectiveSlotSnapshot.scene_perception.confidence < 0.6 ||
+      effectiveSlotSnapshot.scene_perception.primaryDomain === 'unknown' ||
+      effectiveSlotSnapshot.scene_perception.continuity === 'uncertain'
   })
 
   if (memoryPromptPlan.slotPrompt) {

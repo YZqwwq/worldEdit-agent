@@ -77,18 +77,15 @@ export const buildPolicy = (
   nowIso: string
 ): PersonaPolicy => {
   const action = buildActionPolicy(baseMetrics, moodAssessment)
-  const temperature = roundTo(
+  const temperatureOffset = roundTo(
     clamp(
-      0.45 +
-        effectiveMetrics.risk_tolerance * 0.4 +
-        effectiveMetrics.autonomy_level * 0.12 -
-        effectiveMetrics.formality_score * 0.1,
-      0.2,
-      1.2
+      (effectiveMetrics.risk_tolerance - 0.5) * 0.24 +
+        (effectiveMetrics.autonomy_level - 0.5) * 0.08 -
+        (effectiveMetrics.formality_score - 0.5) * 0.08,
+      -0.2,
+      0.2
     )
   )
-  const topP = roundTo(clamp(0.72 + effectiveMetrics.risk_tolerance * 0.24, 0.6, 0.98))
-  const maxTokens = Math.round(clamp(520 + effectiveMetrics.verbosity_index * 980, 420, 1800))
 
   return {
     generatedAt: nowIso,
@@ -97,9 +94,7 @@ export const buildPolicy = (
       effective: effectiveMetrics
     },
     sampling: {
-      temperature,
-      topP,
-      maxTokens
+      temperatureOffset
     },
     tool: {
       confirmBeforeSensitiveTools: action.caution >= 0.58 || action.writeConservatism >= 0.62,
@@ -107,10 +102,6 @@ export const buildPolicy = (
         baseMetrics.risk_tolerance >= 0.5 && action.caution < 0.66 && action.writeConservatism < 0.7
     },
     action,
-    memory: {
-      archiveThreshold: Math.round(clamp(8 - baseMetrics.verbosity_index * 4, 4, 8)),
-      shortTermLimit: 4
-    },
     signals: signals.map((signal) => signal.user_signal)
   }
 }

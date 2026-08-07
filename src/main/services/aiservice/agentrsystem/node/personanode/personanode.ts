@@ -1,5 +1,4 @@
 import { memorySlotService } from '../../manager/memory/memorySlotService'
-import { memoryManager } from '../../manager/memory/MemoryManager'
 import { interactionObservationService } from '../../manager/personal/interactionObservationService'
 import { personaConfigService } from '../../manager/personal/personaConfigService'
 import { loadPersonaState, savePersonaState } from '../../manager/personal/personalManager'
@@ -136,15 +135,11 @@ export async function personaNode(
     }
   })
 
-  await memoryManager.applyAdaptiveConfig({
-    archiveThreshold: policy.memory.archiveThreshold,
-    shortTermLimit: policy.memory.shortTermLimit
-  })
-
   traceArtifact('personaNode', {
     title: '行为倾向: personaNode',
     summary:
-      `表达方案=${expressionProfile.id}` + `，温度=${policy.sampling.temperature.toFixed(2)}`,
+      `表达方案=${expressionProfile.id}` +
+      `，温度偏移=${policy.sampling.temperatureOffset.toFixed(2)}`,
     data: {
       baseMetrics,
       effectiveMetrics,
@@ -155,8 +150,7 @@ export async function personaNode(
       },
       sampling: policy.sampling,
       action: policy.action,
-      tool: policy.tool,
-      memory: policy.memory
+      tool: policy.tool
     }
   })
 
