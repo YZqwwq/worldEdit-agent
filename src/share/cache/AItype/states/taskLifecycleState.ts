@@ -8,6 +8,7 @@ import type {
   MainAgentTurnRuntimeStatus,
   MainAgentTurnSnapshot
 } from './mainAgentTurnState'
+import type { MainAgentFinalResponse, TurnWorkspace } from './turnWorkspace'
 
 export type TaskStatus =
   | 'active'
@@ -252,6 +253,22 @@ export interface MainAgentStreamErrorEffect extends MainAgentEffectBase {
   message: string
 }
 
+export interface MainAgentCommitTurnEffect extends MainAgentEffectBase {
+  type: 'commit_turn'
+  turnId: number
+  consumer: MainAgentEventConsumer
+  status: 'completed' | 'interrupted' | 'failed'
+  finalResponse?: MainAgentFinalResponse
+  workspace?: TurnWorkspace
+  errorMessage?: string
+  observations?: Array<{
+    type: import('./interactionObservation').InteractionObservationType
+    source: import('./interactionObservation').InteractionObservationSource
+    summary?: string
+    payload?: Record<string, unknown>
+  }>
+}
+
 export interface MainAgentRecordInteractionObservationEffect extends MainAgentEffectBase {
   type: 'record_interaction_observation'
   observationType: import('./interactionObservation').InteractionObservationType
@@ -261,6 +278,7 @@ export interface MainAgentRecordInteractionObservationEffect extends MainAgentEf
 }
 
 export type MainAgentEffect =
+  | MainAgentCommitTurnEffect
   | MainAgentSaveMessageEffect
   | MainAgentUpdateChatTurnEffect
   | MainAgentSyncMemoryMessagesEffect
@@ -274,6 +292,7 @@ export interface MainAgentEventConsumptionResult {
   consumer: MainAgentEventConsumer
   summary: string
   effects: MainAgentEffect[]
+  eventCommitted?: boolean
 }
 
 export interface MainAgentTaskEvent {

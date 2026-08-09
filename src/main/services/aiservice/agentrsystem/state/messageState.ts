@@ -11,6 +11,10 @@ import type { AgentToolContextRetention } from '../../ai-utils/core/agentTool'
 import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
 import type { PromptSectionManifestItem } from '../../prompt/main_agent/shared/promptSections'
 import type { TurnExecutionLedger } from '../execution/turnExecutionLifecycle'
+import type {
+  MainAgentFinalResponse,
+  TurnWorkspace
+} from '@share/cache/AItype/states/turnWorkspace'
 
 export type ToolContextSourceRef = {
   type: 'message' | 'url' | 'entity' | 'task' | 'tool' | 'unknown'
@@ -208,5 +212,13 @@ export const MessagesState = Annotation.Root({
   toolLoopFinalizing: Annotation<boolean>({
     reducer: (x, y) => y ?? x ?? false,
     default: () => false
+  }),
+  turnWorkspace: Annotation<TurnWorkspace | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  finalResponse: Annotation<MainAgentFinalResponse | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
   })
 })

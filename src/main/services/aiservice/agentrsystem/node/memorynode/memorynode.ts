@@ -1,14 +1,18 @@
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
-import { memoryManager } from '../../manager/memory/MemoryManager'
 import { getMainAgentContentPartsFromMessage, parseMainAgentContentForPersistence } from '../../../messagecontent/mainAgentMessageContentService'
 import { contentToText } from '../../../messageoutput/transformRespones'
+import { withMemoryMessagesDraft } from '../../state/turnWorkspace'
 
 export async function memoryNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
   if (state.backgroundPersonaStage) {
     return {}
+  }
+
+  if (!state.turnWorkspace) {
+    throw new Error('memoryNode requires an initialized TurnWorkspace.')
   }
 
   const messages = state.messages
@@ -19,11 +23,10 @@ export async function memoryNode(
   const userMsg = messages.slice().reverse().find(
     m => m instanceof HumanMessage && !m.additional_kwargs?.isHistory
   )
+  const memoryMessages: Array<{ role: 'user' | 'ai'; content: string }> = []
   if (userMsg) {
     const userText = parseMainAgentContentForPersistence(getMainAgentContentPartsFromMessage(userMsg))
-    if (userText) {
-      await memoryManager.addMessage('user', userText)
-    }
+    if (userText) memoryMessages.push({ role: 'user', content: userText })
   }
 
   const aiMsg = messages.slice().reverse().find(
@@ -33,11 +36,11 @@ export async function memoryNode(
   )
   
   if (aiMsg) {
-    const contentStr = contentToText(aiMsg.content)
-    if (contentStr && contentStr.length > 0) {
-      await memoryManager.addMessage('ai', contentStr)
-    }
+    const contentStr = state.finalResponse?.content ?? contentToText(aiMsg.content)
+    if (contentStr) memoryMessages.push({ role: 'ai', content: contentStr })
   }
 
-  return {}
+  return {
+    turnWorkspace: withMemoryMessagesDraft(state.turnWorkspace, memoryMessages)
+  }
 }

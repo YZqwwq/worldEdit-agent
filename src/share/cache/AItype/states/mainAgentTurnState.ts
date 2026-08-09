@@ -38,7 +38,10 @@ export const REVERTIBLE_MAIN_AGENT_TURN_STATUSES = [
   'interrupted'
 ] as const
 
-export type MainAgentTurnConsumer = 'chat_runtime' | 'background_persona_stage_consumer'
+export type MainAgentTurnConsumer =
+  | 'chat_runtime'
+  | 'lifecycle_control'
+  | 'background_persona_stage_consumer'
 
 export interface MainAgentTurnSnapshot {
   id: number

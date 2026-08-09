@@ -15,8 +15,6 @@ import { taskNotificationConsumerService } from './notification/taskNotification
 import { taskNotificationDispatchBridge } from './queue/taskNotificationDispatchBridge'
 import { mainAgentTurnService } from './mainAgentTurnService'
 import { taskNotificationService } from '../../task/taskNotificationService'
-import { chatMessageService } from '../chat/chatMessageService'
-import { getMainAgentPersistenceTextFromPersistedMessage } from '../messagecontent/mainAgentMessageContentService'
 import { interactionObservationService } from '../agentrsystem/manager/personal/interactionObservationService'
 
 class MainAgentEntryService {
@@ -80,10 +78,6 @@ class MainAgentEntryService {
         await mainAgentTurnService.markProcessing(turn.id)
         return { turnId: turn.id }
       },
-      getPersistedUserMessageText: async (messageId) => {
-        const message = await chatMessageService.getMessageById(messageId)
-        return getMainAgentPersistenceTextFromPersistedMessage(message)
-      },
       controlUserMessage: (userEvent, runtimeOnChunk) =>
         mainAgentLifecycleControlService.controlUserMessage(userEvent, runtimeOnChunk),
       runUserMessage: (
@@ -104,8 +98,13 @@ class MainAgentEntryService {
           onChunk,
           taskLifecycle
         ),
-      runBackgroundPersonaStage: (eventId, turnId, payload) =>
-        mainAgentChatRuntimeService.runBackgroundPersonaStage(eventId, turnId, payload),
+      runBackgroundPersonaStage: (eventId, turnId, sessionId, payload) =>
+        mainAgentChatRuntimeService.runBackgroundPersonaStage(
+          eventId,
+          turnId,
+          sessionId,
+          payload
+        ),
       consumeTaskNotification: (taskEvent) =>
         this.consumeTaskNotificationEvent(taskEvent),
       applyEffects: (result) => mainAgentEffectApplierService.apply(result),

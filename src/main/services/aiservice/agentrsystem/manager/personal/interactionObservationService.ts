@@ -5,6 +5,7 @@ import type {
 } from '@share/cache/AItype/states/interactionObservation'
 import { AppDataSource } from '../../../../../database'
 import { InteractionObservationRecord } from '../../../../../../share/entity/database/InteractionObservationRecord'
+import type { EntityManager } from 'typeorm'
 
 const parseJsonObject = (input: string): Record<string, unknown> => {
   try {
@@ -37,14 +38,15 @@ class InteractionObservationService {
     source: InteractionObservationSource
     summary?: string
     payload?: Record<string, unknown>
-  }): Promise<InteractionObservationSnapshot> {
-    const row = this.repo.create({
+  }, manager?: EntityManager): Promise<InteractionObservationSnapshot> {
+    const repo = manager?.getRepository(InteractionObservationRecord) ?? this.repo
+    const row = repo.create({
       type: input.type,
       source: input.source,
       summary: input.summary?.trim() || '',
       payloadJson: JSON.stringify(input.payload ?? {})
     })
-    return toSnapshot(await this.repo.save(row))
+    return toSnapshot(await repo.save(row))
   }
 
   async listSince(lastObservationId: number, limit = 64): Promise<InteractionObservationSnapshot[]> {

@@ -375,6 +375,11 @@ class MainAgentEventLogService {
     return null
   }
 
+  async getStatus(eventId: string): Promise<MainAgentEventStatus | null> {
+    const row = await this.repo.findOneBy({ id: eventId })
+    return row?.status ?? null
+  }
+
   async listQueuedEvents(): Promise<MainAgentEvent[]> {
     const rows = await this.repo.find({
       where: { status: 'queued' },

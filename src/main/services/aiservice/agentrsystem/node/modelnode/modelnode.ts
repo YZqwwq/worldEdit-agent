@@ -25,6 +25,8 @@ import {
   renderTurnExecutionLedger,
   type TurnExecutionLedger
 } from '../../execution/turnExecutionLifecycle'
+import { createFinalResponse } from '../../state/turnWorkspace'
+import { contentToText } from '../../../messageoutput/transformRespones'
 
 function combineSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
   const validSignals = signals.filter((signal): signal is AbortSignal => Boolean(signal))
@@ -468,6 +470,14 @@ export async function llmCall(
   })
 
   const consumedTranscriptIds = [...new Set(state.activeToolTranscriptIds ?? [])]
+  const toolCallCount = (response as AIMessage).tool_calls?.length ?? 0
+  const finalResponse =
+    toolCallCount === 0
+      ? createFinalResponse({
+          messageId: response.id ?? `${state.turnWorkspace?.eventId ?? 'turn'}:final`,
+          content: contentToText(response.content)
+        })
+      : undefined
   if (consumedTranscriptIds.length > 0) {
     traceDecision('llmCall', {
       title: '决策: 工具结果首次消费完成',
@@ -502,6 +512,7 @@ export async function llmCall(
     ]),
     ephemeralToolContext: [],
     pendingToolContext: [],
-    activeToolTranscriptIds: []
+    activeToolTranscriptIds: [],
+    ...(finalResponse ? { finalResponse } : {})
   }
 }

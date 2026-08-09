@@ -7,6 +7,7 @@ import type {
   MainAgentUserMessageEvent,
   TaskLifecycleState
 } from '@share/cache/AItype/states/taskLifecycleState'
+import type { MainAgentGraphTurnResult } from '@share/cache/AItype/states/turnWorkspace'
 import type { MainAgentLifecycleControlResult } from '../lifecycle/mainAgentLifecycleControlService'
 import {
   MAIN_AGENT_FLOW_RULES,
@@ -19,7 +20,6 @@ export type MainAgentEventOrchestrationDependencies = {
     sessionId: string
     userMessageId: number
   }) => Promise<{ turnId: number }>
-  getPersistedUserMessageText: (messageId: number) => Promise<string>
   controlUserMessage: (
     event: MainAgentUserMessageEvent,
     onChunk?: (chunk: StreamChunk) => void
@@ -32,7 +32,7 @@ export type MainAgentEventOrchestrationDependencies = {
     workspaceContext: MainAgentUserMessageEvent['payload']['workspaceContext'],
     onChunk?: (chunk: StreamChunk) => void,
     taskLifecycle?: TaskLifecycleState
-  ) => Promise<{ fullText: string; interrupted: boolean }>
+  ) => Promise<{ fullText: string; interrupted: boolean; graphResult?: MainAgentGraphTurnResult }>
   createBackgroundPersonaStageTurn: (input: {
     eventId: string
     sessionId: string
@@ -40,8 +40,9 @@ export type MainAgentEventOrchestrationDependencies = {
   runBackgroundPersonaStage: (
     eventId: string,
     turnId: number,
+    sessionId: string,
     payload: MainAgentBackgroundPersonaStageEvent['payload']
-  ) => Promise<{ fullText: string; interrupted: boolean }>
+  ) => Promise<{ fullText: string; interrupted: boolean; graphResult?: MainAgentGraphTurnResult }>
   consumeTaskNotification: (
     event: MainAgentTaskNotificationEvent
   ) => Promise<MainAgentEventConsumptionResult>
@@ -98,7 +99,6 @@ const createEffectContext = (event: MainAgentEvent) => ({
 const buildInterruptedResult = (
   event: MainAgentUserMessageEvent,
   turnId: number,
-  userText: string,
   fullText: string,
   onChunk?: (chunk: StreamChunk) => void
 ): MainAgentEventConsumptionResult => {
@@ -106,27 +106,13 @@ const buildInterruptedResult = (
   const effects: MainAgentEventConsumptionResult['effects'] = [
     {
       ...effectContext,
-      type: 'sync_memory_messages',
-      messages: [
-        {
-          role: 'user',
-          content: userText
-        },
-        ...(fullText.trim()
-          ? ([
-              {
-                role: 'ai' as const,
-                content: fullText
-              }
-            ] satisfies Array<{ role: 'user' | 'ai'; content: string }>)
-          : [])
-      ]
-    },
-    {
-      ...effectContext,
-      type: 'update_chat_turn',
+      type: 'commit_turn',
       turnId,
-      status: 'interrupted'
+      status: 'interrupted',
+      consumer: 'chat_runtime',
+      finalResponse: fullText.trim()
+        ? { messageId: `${event.id}:interrupted`, content: fullText }
+        : undefined
     },
     {
       ...effectContext,
@@ -136,34 +122,25 @@ const buildInterruptedResult = (
     }
   ]
 
-  if (fullText.trim()) {
-    effects.unshift({
-      ...effectContext,
-      type: 'save_message',
-      role: 'ai',
-      content: fullText,
-      turnId,
-      messageStatus: 'interrupted',
-      eventIdRef: event.id,
-      consumer: 'chat_runtime'
-    })
-  }
-
   return {
     handled: true,
     consumer: 'chat_runtime',
     summary: 'user_message_interrupted',
-    effects
+    effects,
+    eventCommitted: true
   }
 }
 
 const buildCompletedResult = (
   event: MainAgentUserMessageEvent,
   turnId: number,
-  fullText: string,
+  graphResult: MainAgentGraphTurnResult,
   onChunk?: (chunk: StreamChunk) => void
 ): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(event)
+  if (!graphResult.finalResponse?.content.trim()) {
+    throw new Error('Agent graph completed without a canonical final response')
+  }
   return {
     handled: true,
     consumer: 'chat_runtime',
@@ -171,27 +148,21 @@ const buildCompletedResult = (
     effects: [
       {
         ...effectContext,
-        type: 'save_message',
-        role: 'ai',
-        content: fullText,
+        type: 'commit_turn',
         turnId,
-        messageStatus: 'committed',
-        eventIdRef: event.id,
-        consumer: 'chat_runtime'
-      },
-      {
-        ...effectContext,
-        type: 'update_chat_turn',
-        turnId,
-        status: 'completed'
+        status: 'completed',
+        consumer: 'chat_runtime',
+        finalResponse: graphResult.finalResponse,
+        workspace: graphResult.workspace
       },
       {
         ...effectContext,
         type: 'stream_done',
         onChunk,
-        fullText
+        fullText: graphResult.finalResponse.content
       }
-    ]
+    ],
+    eventCommitted: true
   }
 }
 
@@ -212,9 +183,10 @@ const buildFailedUserMessageResult = (
         ? ([
             {
               ...effectContext,
-              type: 'update_chat_turn',
+              type: 'commit_turn',
               turnId,
               status: 'failed',
+              consumer: 'chat_runtime',
               errorMessage: dependencies.logUserMessageError(error)
             }
           ] as MainAgentEventConsumptionResult['effects'])
@@ -225,7 +197,8 @@ const buildFailedUserMessageResult = (
         onChunk,
         message: dependencies.logUserMessageError(error)
       }
-    ]
+    ],
+    eventCommitted: typeof turnId === 'number'
   }
 }
 
@@ -233,19 +206,42 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
   eventType: 'user_message',
   owner: MAIN_AGENT_FLOW_RULES.user_message.owner,
   async prepare(event, dependencies, runtime) {
-    const control = await dependencies.controlUserMessage(event, runtime?.onChunk)
-    if (control.handledResult) {
-      return {
-        kind: 'handled',
-        result: control.handledResult
-      }
-    }
-
     const turn = await dependencies.createChatTurn({
       eventId: event.id,
       sessionId: event.sessionId,
       userMessageId: event.payload.messageId
     })
+
+    const control = await dependencies.controlUserMessage(event, runtime?.onChunk)
+    if (control.handledResult) {
+      const visibleMessageEffect = control.handledResult.effects.find(
+        (effect) => effect.type === 'save_message' && effect.role === 'ai'
+      )
+      if (!visibleMessageEffect || visibleMessageEffect.type !== 'save_message') {
+        throw new Error('Lifecycle control result is missing its canonical visible response')
+      }
+      return {
+        kind: 'handled',
+        result: {
+          ...control.handledResult,
+          effects: [
+            {
+              ...createEffectContext(event),
+              type: 'commit_turn',
+              turnId: turn.turnId,
+              status: 'completed',
+              consumer: 'lifecycle_control',
+              finalResponse: {
+                messageId: `${event.id}:lifecycle`,
+                content: visibleMessageEffect.content
+              }
+            },
+            ...control.handledResult.effects.filter((effect) => effect.type !== 'save_message')
+          ],
+          eventCommitted: true
+        }
+      }
+    }
 
     return {
       kind: 'chat_runtime',
@@ -269,13 +265,14 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
         prepared.taskLifecycle
       )
 
-      const userText = await dependencies.getPersistedUserMessageText(event.payload.messageId)
-
       if (result.interrupted) {
-        return buildInterruptedResult(event, prepared.turnId, userText, result.fullText, runtime?.onChunk)
+        return buildInterruptedResult(event, prepared.turnId, result.fullText, runtime?.onChunk)
       }
 
-      return buildCompletedResult(event, prepared.turnId, result.fullText, runtime?.onChunk)
+      if (!result.graphResult) {
+        throw new Error('Agent runtime completed without a graph turn result')
+      }
+      return buildCompletedResult(event, prepared.turnId, result.graphResult, runtime?.onChunk)
     } catch (error) {
       return buildFailedUserMessageResult(event, prepared.turnId, dependencies, error, runtime?.onChunk)
     }
@@ -297,7 +294,8 @@ const buildBackgroundStageResult = (
   event: MainAgentBackgroundPersonaStageEvent,
   turnId: number,
   fullText: string,
-  interrupted: boolean
+  interrupted: boolean,
+  graphResult?: MainAgentGraphTurnResult
 ): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(event)
   const status = interrupted ? 'interrupted' : 'completed'
@@ -312,29 +310,32 @@ const buildBackgroundStageResult = (
     effects: [
       {
         ...effectContext,
-        type: 'update_chat_turn',
+        type: 'commit_turn',
         turnId,
-        status
-      },
-      {
-        ...effectContext,
-        type: 'record_interaction_observation',
-        observationType: interrupted
-          ? 'background_persona_stage_failed'
-          : 'background_persona_stage_completed',
-        source: 'background_persona',
-        summary: `${event.payload.title} / ${event.payload.stageId}: ${fullText.trim().slice(0, 160)}`,
-        payload: {
-          backgroundTaskId: event.payload.backgroundTaskId,
-          stageId: event.payload.stageId,
-          stageKind: event.payload.stageKind,
-          title: event.payload.title,
-          resumePointer: event.payload.resumePointer,
-          interrupted,
-          result: fullText
-        }
+        status,
+        consumer: 'background_persona_stage_consumer',
+        workspace: interrupted ? undefined : graphResult?.workspace,
+        observations: [
+          {
+            type: interrupted
+              ? 'background_persona_stage_failed'
+              : 'background_persona_stage_completed',
+            source: 'background_persona',
+            summary: `${event.payload.title} / ${event.payload.stageId}: ${fullText.trim().slice(0, 160)}`,
+            payload: {
+              backgroundTaskId: event.payload.backgroundTaskId,
+              stageId: event.payload.stageId,
+              stageKind: event.payload.stageKind,
+              title: event.payload.title,
+              resumePointer: event.payload.resumePointer,
+              interrupted,
+              result: fullText
+            }
+          }
+        ]
       }
-    ]
+    ],
+    eventCommitted: true
   }
 }
 
@@ -353,28 +354,30 @@ const buildFailedBackgroundStageResult = (
       ...(typeof turnId === 'number'
         ? ([{
             ...effectContext,
-            type: 'update_chat_turn',
+            type: 'commit_turn',
             turnId,
             status: 'failed',
-            errorMessage: message
+            consumer: 'background_persona_stage_consumer',
+            errorMessage: message,
+            observations: [
+              {
+                type: 'background_persona_stage_failed',
+                source: 'background_persona',
+                summary: `${event.payload.title} / ${event.payload.stageId} failed`,
+                payload: {
+                  backgroundTaskId: event.payload.backgroundTaskId,
+                  stageId: event.payload.stageId,
+                  stageKind: event.payload.stageKind,
+                  title: event.payload.title,
+                  resumePointer: event.payload.resumePointer,
+                  error: message
+                }
+              }
+            ]
           }] satisfies MainAgentEventConsumptionResult['effects'])
-        : []),
-      {
-        ...effectContext,
-        type: 'record_interaction_observation',
-        observationType: 'background_persona_stage_failed',
-        source: 'background_persona',
-        summary: `${event.payload.title} / ${event.payload.stageId} failed`,
-        payload: {
-          backgroundTaskId: event.payload.backgroundTaskId,
-          stageId: event.payload.stageId,
-          stageKind: event.payload.stageKind,
-          title: event.payload.title,
-          resumePointer: event.payload.resumePointer,
-          error: message
-        }
-      }
-    ]
+        : [])
+    ],
+    eventCommitted: typeof turnId === 'number'
   }
 }
 
@@ -393,9 +396,16 @@ const backgroundPersonaStageHandler: MainAgentEventHandler<MainAgentBackgroundPe
       const result = await dependencies.runBackgroundPersonaStage(
         event.id,
         prepared.turnId,
+        event.sessionId,
         event.payload
       )
-      return buildBackgroundStageResult(event, prepared.turnId, result.fullText, result.interrupted)
+      return buildBackgroundStageResult(
+        event,
+        prepared.turnId,
+        result.fullText,
+        result.interrupted,
+        result.graphResult
+      )
     } catch (error) {
       return buildFailedBackgroundStageResult(event, prepared.turnId, error)
     }

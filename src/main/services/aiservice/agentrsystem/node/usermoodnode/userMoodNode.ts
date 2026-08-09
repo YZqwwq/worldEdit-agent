@@ -3,9 +3,12 @@ import { z } from 'zod'
 import type { UserMoodState } from '@share/cache/AItype/states/memorySlots'
 import { contentToText } from '../../../messageoutput/transformRespones'
 import { traceArtifact, traceDecision, traceError } from '../../../../log/trace/agentTraceEmitter'
-import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import { MessagesState } from '../../state/messageState'
+import {
+  getEffectiveMemorySlots,
+  withMemorySlotsDraft
+} from '../../state/turnWorkspace'
 import type {
   InstantPerceptionContext,
   RecentDialogueMessage
@@ -87,10 +90,14 @@ const fallbackUserMood = (
 })
 
 export async function userMoodNode(
-  _state: typeof MessagesState.State,
+  state: typeof MessagesState.State,
   perceptionContext: InstantPerceptionContext
 ): Promise<Partial<typeof MessagesState.State>> {
   const currentUserText = perceptionContext.currentUserText
+  if (!state.turnWorkspace) {
+    throw new Error('userMoodNode requires an initialized TurnWorkspace.')
+  }
+  const slots = getEffectiveMemorySlots(state.turnWorkspace)
 
   try {
     const quickModel = await getQuickModel()
@@ -127,7 +134,10 @@ export async function userMoodNode(
             updatedAt: new Date().toISOString()
           }
 
-    await memorySlotService.updateUserMood(mood)
+    const nextSlots = {
+      ...slots,
+      user_mood: mood
+    }
 
     traceDecision('userMoodNode', {
       title: '决策: userMoodNode 用户情绪感知完成',
@@ -143,19 +153,27 @@ export async function userMoodNode(
       summary: parsed.reason
     })
 
-    return {}
+    return {
+      turnWorkspace: withMemorySlotsDraft(state.turnWorkspace, nextSlots)
+    }
   } catch (error) {
     const fallback = fallbackUserMood(error instanceof Error ? error.message : String(error))
-    await memorySlotService.updateUserMood({
-      confidence: fallback.confidence,
-      updatedAt: new Date().toISOString()
-    })
+    const nextSlots = {
+      ...slots,
+      user_mood: {
+        ...slots.user_mood,
+        confidence: fallback.confidence,
+        updatedAt: new Date().toISOString()
+      }
+    }
 
     traceError('userMoodNode', error, {
       title: '异常: userMoodNode 用户情绪感知失败',
       summary: fallback.reason
     })
 
-    return {}
+    return {
+      turnWorkspace: withMemorySlotsDraft(state.turnWorkspace, nextSlots)
+    }
   }
 }

@@ -3,8 +3,8 @@ import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
 import type { PersonaActionPolicy } from '@share/cache/AItype/states/personaPolicy'
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
-import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { buildMemoryPromptPlan } from '../../manager/memory/memoryPromptPolicy'
+import { getEffectiveMemorySlots } from '../../state/turnWorkspace'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
 import {
   getVisibleMainAgentToolEntries,
@@ -25,6 +25,7 @@ import {
 import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEmitter'
 import { getCurrentDetailTime, getDetailTime } from '../../../../../utils/getDetailTime'
 import { applyScenePerceptionToMemorySlots } from '../../state/sceneContextAdapter'
+import { resolveContextualToolsets } from './contextualToolActivation'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
@@ -216,15 +217,17 @@ export async function contextNode(
     messages.push(promptSectionToSystemMessage(section))
   }
 
-  const slotSnapshot = await memorySlotService.reconcileFromObservations()
+  if (!state.turnWorkspace) {
+    throw new Error('contextNode requires an active turn workspace')
+  }
+  const slotSnapshot = getEffectiveMemorySlots(state.turnWorkspace)
   const effectiveSlotSnapshot = applyScenePerceptionToMemorySlots(slotSnapshot)
   const characterPrompt = await loadCharacterPrompt()
   const expressionProfile =
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
   const currentTimeContext = formatCurrentContextTime()
   const currentUserMessageCreatedAt = getCurrentUserMessageCreatedAt(state)
-  const contextualToolsets =
-    state.workspaceContext?.pageKind === 'document' ? ['world_document_editor'] : []
+  const contextualToolsets = resolveContextualToolsets(state.workspaceContext)
   const toolActivationState = await resolveMainAgentToolActivationState({
     ...state,
     activeToolsets: [...(state.activeToolsets ?? []), ...contextualToolsets],

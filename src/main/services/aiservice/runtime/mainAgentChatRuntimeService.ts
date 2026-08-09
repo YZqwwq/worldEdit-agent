@@ -7,7 +7,14 @@ import type {
   TaskLifecycleState
 } from '@share/cache/AItype/states/taskLifecycleState'
 import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
+import type { MainAgentGraphTurnResult } from '@share/cache/AItype/states/turnWorkspace'
 import { agent } from '../agentrsystem/agentReactSystem'
+import { memorySlotService } from '../agentrsystem/manager/memory/memorySlotService'
+import { loadPersonaState } from '../agentrsystem/manager/personal/personalManager'
+import {
+  createTurnWorkspace,
+  withObservationDraft
+} from '../agentrsystem/state/turnWorkspace'
 import {
   attachMainAgentContentPartsMetadata,
   getMainAgentContentPartsFromPersistedMessage,
@@ -22,6 +29,17 @@ import { chatMessageService } from '../chat/chatMessageService'
 export type MainAgentChatRuntimeResult = {
   fullText: string
   interrupted: boolean
+  graphResult?: MainAgentGraphTurnResult
+}
+
+const readGraphTurnResult = (value: unknown): MainAgentGraphTurnResult | undefined => {
+  if (!value || typeof value !== 'object') return undefined
+  const candidate = value as Partial<MainAgentGraphTurnResult>
+  if (!candidate.workspace || typeof candidate.workspace !== 'object') return undefined
+  return {
+    workspace: candidate.workspace,
+    finalResponse: candidate.finalResponse
+  }
 }
 
 class MainAgentChatRuntimeService {
@@ -45,6 +63,34 @@ class MainAgentChatRuntimeService {
       persistedMessage?.createdAt instanceof Date
         ? persistedMessage.createdAt.toISOString()
         : new Date().toISOString()
+    const [memorySlots, persona] = await Promise.all([
+      memorySlotService.reconcileFromObservations(),
+      loadPersonaState()
+    ])
+    const baseTurnWorkspace = createTurnWorkspace({
+      eventId,
+      turnId,
+      sessionId: persistedMessage?.sessionId || 'default',
+      runId,
+      memorySlots,
+      persona
+    })
+    const userText = persistedMessage?.content?.trim() || contentToText(message).trim()
+    const turnWorkspace = userText
+      ? withObservationDraft(baseTurnWorkspace, {
+          id: (memorySlots.lastObservationId ?? 0) + 1,
+          type: 'user_message',
+          source: 'user',
+          summary: userText.slice(0, 120),
+          payload: {
+            text: userText,
+            messageId: userMessageId,
+            eventId
+          },
+          createdAt: new Date().toISOString()
+        })
+      : baseTurnWorkspace
+    let graphResult: MainAgentGraphTurnResult | undefined
 
     try {
       return await runWithTraceContext(runId, { turnId, emitChunk: onChunk }, async () => {
@@ -62,7 +108,8 @@ class MainAgentChatRuntimeService {
               })
             ],
             taskLifecycle,
-            workspaceContext
+            workspaceContext,
+            turnWorkspace
           },
           { version: 'v2', signal: controller.signal } as {
             version: 'v2'
@@ -71,7 +118,10 @@ class MainAgentChatRuntimeService {
         )
 
         for await (const event of stream) {
-          if (event.event === 'on_chat_model_stream') {
+          if (
+            event.event === 'on_chat_model_stream' &&
+            event.metadata?.langgraph_node === 'llmCall'
+          ) {
             const chunk = event.data.chunk
             if (chunk && chunk.content) {
               const token = contentToText(chunk.content)
@@ -84,8 +134,12 @@ class MainAgentChatRuntimeService {
               }
             }
           }
+          if (event.event === 'on_chain_end') {
+            graphResult = readGraphTurnResult(event.data?.output) ?? graphResult
+          }
         }
-        return { fullText, interrupted: false }
+        const canonicalText = graphResult?.finalResponse?.content ?? fullText
+        return { fullText: canonicalText, interrupted: false, graphResult }
       })
     } catch (error) {
       const interrupted =
@@ -105,12 +159,26 @@ class MainAgentChatRuntimeService {
   async runBackgroundPersonaStage(
     eventId: string,
     turnId: number,
+    sessionId: string,
     payload: MainAgentBackgroundPersonaStagePayload
   ): Promise<MainAgentChatRuntimeResult> {
     const runId = randomUUID()
     const controller = mainAgentRunControlService.startRun({ eventId, turnId })
     let fullText = ''
     const stageMessage = this.buildBackgroundStageMessage(payload)
+    const [memorySlots, persona] = await Promise.all([
+      memorySlotService.reconcileFromObservations(),
+      loadPersonaState()
+    ])
+    const turnWorkspace = createTurnWorkspace({
+      eventId,
+      turnId,
+      sessionId,
+      runId,
+      memorySlots,
+      persona
+    })
+    let graphResult: MainAgentGraphTurnResult | undefined
 
     try {
       return await runWithTraceContext(runId, { turnId }, async () => {
@@ -125,7 +193,8 @@ class MainAgentChatRuntimeService {
                 }
               })
             ],
-            backgroundPersonaStage: payload
+            backgroundPersonaStage: payload,
+            turnWorkspace
           },
           { version: 'v2', signal: controller.signal } as {
             version: 'v2'
@@ -134,14 +203,24 @@ class MainAgentChatRuntimeService {
         )
 
         for await (const event of stream) {
-          if (event.event === 'on_chat_model_stream') {
+          if (
+            event.event === 'on_chat_model_stream' &&
+            event.metadata?.langgraph_node === 'llmCall'
+          ) {
             const chunk = event.data.chunk
             if (chunk && chunk.content) {
               fullText += contentToText(chunk.content)
             }
           }
+          if (event.event === 'on_chain_end') {
+            graphResult = readGraphTurnResult(event.data?.output) ?? graphResult
+          }
         }
-        return { fullText, interrupted: false }
+        return {
+          fullText: graphResult?.finalResponse?.content ?? fullText,
+          interrupted: false,
+          graphResult
+        }
       })
     } catch (error) {
       const interrupted =

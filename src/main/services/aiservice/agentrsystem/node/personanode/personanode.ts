@@ -1,7 +1,5 @@
-import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { interactionObservationService } from '../../manager/personal/interactionObservationService'
 import { personaConfigService } from '../../manager/personal/personaConfigService'
-import { loadPersonaState, savePersonaState } from '../../manager/personal/personalManager'
 import { traceArtifact, traceDecision, traceState } from '../../../../log/trace/agentTraceEmitter'
 import { MessagesState } from '../../state/messageState'
 import { applyScenePerceptionToMemorySlots } from '../../state/sceneContextAdapter'
@@ -16,6 +14,12 @@ import { reconcilePersonaState } from './personaEvolutionService'
 import { applyMoodDeltaToMetrics, buildPolicy } from './personaPolicyCompiler'
 import type { InstantPerceptionContext } from '../instantperceptionnode/instantPerceptionContext'
 import { getObservationText } from './personaObservationUtils'
+import {
+  getEffectiveMemorySlots,
+  getEffectivePersona,
+  withMemorySlotsDraft,
+  withPersonaDraft
+} from '../../state/turnWorkspace'
 
 /**
  * 人格总控节点。
@@ -27,20 +31,31 @@ import { getObservationText } from './personaObservationUtils'
  * - personaPolicyCompiler: 编译本轮采样、工具、行动和记忆策略。
  */
 export async function personaNode(
-  _state: typeof MessagesState.State,
+  state: typeof MessagesState.State,
   perceptionContext: InstantPerceptionContext
 ): Promise<Partial<typeof MessagesState.State>> {
-  const personaState = await loadPersonaState()
+  if (!state.turnWorkspace) {
+    throw new Error('personaNode requires an active turn workspace')
+  }
+
+  const personaState = getEffectivePersona(state.turnWorkspace)
   if (!personaState) {
     return {}
   }
 
   const config = await personaConfigService.getConfig()
   const moodPrompt = await loadMoodPrompt()
-  const observations = await interactionObservationService.listSince(
+  const persistedObservations = await interactionObservationService.listSince(
     personaState.last_observation_id
   )
-  const slots = await memorySlotService.reconcileFromObservations()
+  const observations = [
+    ...persistedObservations,
+    ...state.turnWorkspace.draft.observations.filter(
+      (observation) =>
+        !persistedObservations.some((persisted) => persisted.id === observation.id)
+    )
+  ]
+  const slots = getEffectiveMemorySlots(state.turnWorkspace)
   const effectiveSlots = applyScenePerceptionToMemorySlots(slots)
   const expressionProfileDefinition = resolveExpressionPromptProfile(effectiveSlots)
   const expressionProfile = await loadExpressionPromptProfile(expressionProfileDefinition.id)
@@ -83,8 +98,6 @@ export async function personaNode(
       : undefined
   })
 
-  await savePersonaState(reconciled.state)
-
   const nowIso = new Date().toISOString()
   const rawMoodAssessment = await inferMoodAssessment({
     moodPrompt,
@@ -111,10 +124,15 @@ export async function personaNode(
     nowIso
   )
 
-  await memorySlotService.updateAiMood({
-    current: moodAssessment,
-    updatedAt: moodAssessment.生成时间
-  })
+  const nextSlots = {
+    ...slots,
+    ai_mood: {
+      current: moodAssessment,
+      updatedAt: moodAssessment.生成时间
+    }
+  }
+  const workspaceWithPersona = withPersonaDraft(state.turnWorkspace, reconciled.state)
+  const nextWorkspace = withMemorySlotsDraft(workspaceWithPersona, nextSlots)
 
   traceDecision('personaNode', {
     title: '人格状态: personaNode',
@@ -156,6 +174,7 @@ export async function personaNode(
 
   return {
     personaPolicy: policy,
-    expressionProfile
+    expressionProfile,
+    turnWorkspace: nextWorkspace
   }
 }

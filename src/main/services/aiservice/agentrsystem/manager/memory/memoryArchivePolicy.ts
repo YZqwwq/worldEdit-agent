@@ -15,8 +15,9 @@ export const resolveArchivePlan = (
   hardLimit = RUNTIME_ARCHIVE_HARD_LIMIT
 ): ArchivePlan | null => {
   if (archiveBuffer.length >= hardLimit) {
-    let endIndex = Math.min(hardLimit, archiveBuffer.length) - 1
-    while (endIndex > 0 && archiveBuffer[endIndex]?.role !== 'ai') endIndex--
+    let endIndex = archiveBuffer.length - 1
+    while (endIndex >= 0 && archiveBuffer[endIndex]?.role !== 'ai') endIndex--
+    if (endIndex < 0) return null
     return {
       triggerKind: 'runtime_hard_limit',
       messageCount: endIndex + 1

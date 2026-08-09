@@ -11,7 +11,6 @@ import {
   getVisibleMainAgentToolEntryMap,
   resolveMainAgentToolActivationState
 } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
-import { toolUsageStatsService } from '../../../ai-utils/toolkits/toolUsageStatsService'
 import {
   getToolTurnCallCount,
   incrementToolTurnCallCount
@@ -33,6 +32,7 @@ import {
   markTurnForFinalization,
   shouldFinalizeToolLoop
 } from '../../execution/turnExecutionLifecycle'
+import { withSuccessfulToolUse } from '../../state/turnWorkspace'
 
 const isSensitiveToolByMetadata = (metadata?: {
   readOnly?: boolean
@@ -788,16 +788,6 @@ export async function toolNode(
       const envelope = parseAgentToolResultEnvelope(result)
       const modelResultContent = buildAgentToolModelMessage(toolCall.name, envelope, result)
       const toolEntry = toolEntries[toolCall.name]
-      if (toolEntry && toolEntry.activationMode !== 'always') {
-        try {
-          await toolUsageStatsService.recordToolUse({
-            toolName: toolCall.name,
-            capabilityLayer: toolEntry.capabilityLayer
-          })
-        } catch (statsError) {
-          console.warn(`Failed to record tool usage stats for "${toolCall.name}":`, statsError)
-        }
-      }
       const activatedToolsetsFromEnvelope =
         toolCall.name === 'activate_toolset' &&
         envelope?.data &&
@@ -1053,6 +1043,16 @@ export async function toolNode(
     executionLedger = markTurnForFinalization(executionLedger, 'repeated_invalid_action')
   }
 
+  const successfulToolNames = executedTools
+    .filter((tool) => tool.ok !== false)
+    .map((tool) => String(tool.name))
+  const nextWorkspace = state.turnWorkspace
+    ? successfulToolNames.reduce(
+        (workspace, toolName) => withSuccessfulToolUse(workspace, toolName),
+        state.turnWorkspace
+      )
+    : undefined
+
   return {
     messages: toolMessages,
     pendingToolContext,
@@ -1061,6 +1061,7 @@ export async function toolNode(
     activeTools: [...new Set(activatedTools)],
     toolCallCounts,
     turnExecutionLedger: executionLedger,
-    toolLoopFinalizing: finalizeRepeatedInvalidInvocation
+    toolLoopFinalizing: finalizeRepeatedInvalidInvocation,
+    ...(nextWorkspace ? { turnWorkspace: nextWorkspace } : {})
   }
 }

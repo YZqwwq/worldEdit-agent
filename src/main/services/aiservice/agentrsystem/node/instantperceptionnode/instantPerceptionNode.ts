@@ -1,11 +1,12 @@
 import { traceArtifact, traceDecision, traceError } from '../../../../log/trace/agentTraceEmitter'
-import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { MessagesState, type InstantPerceptionDetectorStatus } from '../../state/messageState'
+import { getEffectiveMemorySlots } from '../../state/turnWorkspace'
 import { personaNode } from '../personanode/personanode'
 import { sceneNode } from '../scenenode/sceneNode'
 import { userMoodNode } from '../usermoodnode/userMoodNode'
 import { worldFocusNode } from '../worldfocusnode/worldFocusNode'
 import { buildInstantPerceptionContext } from './instantPerceptionContext'
+import { shouldBypassInteractivePerception } from './instantPerceptionRouting'
 
 type DetectorName = 'scene' | 'userMood' | 'worldFocus' | 'persona'
 
@@ -91,29 +92,76 @@ const mergeDetectorPatch = (
 export async function instantPerceptionNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
+  if (!state.turnWorkspace) {
+    throw new Error('instantPerceptionNode requires an active turn workspace')
+  }
+
   const startedAtMs = now()
   const startedAt = new Date(startedAtMs).toISOString()
-  const perceptionContext = await buildInstantPerceptionContext(state)
 
-  const scene = await runDetector('scene', () => sceneNode(state, perceptionContext))
-  const userMood = await runDetector('userMood', () => userMoodNode(state, perceptionContext))
-  const slotsAfterScene = await memorySlotService.getSnapshot()
+  if (shouldBypassInteractivePerception(state.backgroundPersonaStage)) {
+    const reason = 'background_persona_stage_is_not_user_input'
+    const scene = skippedDetector('scene', reason)
+    const userMood = skippedDetector('userMood', reason)
+    const worldFocus = skippedDetector('worldFocus', reason)
+    const persona = skippedDetector('persona', reason)
+    const completedAtMs = now()
+    const instantPerception = {
+      mode: 'scene_gated_dag' as const,
+      startedAt,
+      completedAt: new Date(completedAtMs).toISOString(),
+      durationMs: completedAtMs - startedAtMs,
+      detectors: {
+        scene: scene.status,
+        userMood: userMood.status,
+        worldFocus: worldFocus.status,
+        persona: persona.status
+      },
+      routing: {
+        shouldRunWorldFocus: false,
+        worldFocusSkipped: true,
+        worldFocusSkipReason: reason
+      },
+      warnings: []
+    }
+
+    traceDecision('instantPerceptionNode', {
+      title: '决策: 后台人格阶段跳过交互式感知',
+      summary: '后台合成任务不会更新用户情绪、当前场景、世界焦点或即时人格判断。',
+      data: instantPerception
+    })
+
+    return { instantPerception }
+  }
+
+  const perceptionContext = await buildInstantPerceptionContext(state)
+  let workingState = state
+
+  const scene = await runDetector('scene', () => sceneNode(workingState, perceptionContext))
+  workingState = { ...workingState, ...scene.patch }
+
+  const userMood = await runDetector('userMood', () => userMoodNode(workingState, perceptionContext))
+  workingState = { ...workingState, ...userMood.patch }
+
+  const slotsAfterScene = getEffectiveMemorySlots(workingState.turnWorkspace!)
   const scenePerception = slotsAfterScene.scene_perception
   const shouldRunWorldFocus = scenePerception.shouldRunWorldFocus === true
   const worldFocusSkipReason = scenePerception.reason || 'scene_not_app_worldbuilding_instance'
 
-  const [worldFocus, persona] = await Promise.all([
-    shouldRunWorldFocus
-      ? runDetector('worldFocus', () => worldFocusNode(state, perceptionContext))
-      : Promise.resolve(skippedDetector('worldFocus', worldFocusSkipReason)),
-    runDetector('persona', () => personaNode(state, perceptionContext))
-  ])
+  const worldFocus = shouldRunWorldFocus
+    ? await runDetector('worldFocus', () => worldFocusNode(workingState, perceptionContext))
+    : skippedDetector('worldFocus', worldFocusSkipReason)
+  workingState = { ...workingState, ...worldFocus.patch }
+
+  const persona = await runDetector('persona', () => personaNode(workingState, perceptionContext))
+  workingState = { ...workingState, ...persona.patch }
 
   const merged: Partial<typeof MessagesState.State> = {}
   mergeDetectorPatch(merged, scene.patch)
   mergeDetectorPatch(merged, userMood.patch)
   mergeDetectorPatch(merged, worldFocus.patch)
   mergeDetectorPatch(merged, persona.patch)
+  merged.turnWorkspace = workingState.turnWorkspace
 
   const completedAtMs = now()
   const warnings = [scene, userMood, worldFocus, persona]

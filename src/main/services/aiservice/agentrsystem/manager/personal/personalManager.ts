@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import type { EntityManager } from 'typeorm'
 import type {
   PersonaBufferItem,
   PersonaMetricDelta,
@@ -243,8 +244,11 @@ export const loadPersonaState = async (): Promise<PersonaState | null> => {
   return row ? toState(row) : null
 }
 
-export const savePersonaState = async (state: PersonaState): Promise<void> => {
-  const repo = getRepo()
+export const savePersonaState = async (
+  state: PersonaState,
+  manager?: EntityManager
+): Promise<void> => {
+  const repo = manager?.getRepository(PersonaStateRecord) ?? getRepo()
   let row = await repo.findOneBy({ id: PERSONA_STATE_ROW_ID })
   if (!row) {
     row = repo.create({ id: PERSONA_STATE_ROW_ID })

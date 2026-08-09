@@ -40,3 +40,39 @@ test('the Runtime hard limit archives without waiting for an AI decision', () =>
     messageCount: RUNTIME_ARCHIVE_HARD_LIMIT
   })
 })
+
+test('the Runtime hard limit never turns user-only input into a closed stage', () => {
+  const buffer: MessageData[] = Array.from(
+    { length: RUNTIME_ARCHIVE_HARD_LIMIT },
+    (_, index) => ({
+      role: 'user',
+      content: `user-message-${index + 1}`,
+      timestamp: new Date(index * 1000).toISOString(),
+      sequence: index + 1
+    })
+  )
+
+  assert.equal(resolveArchivePlan(buffer), null)
+})
+
+test('an AI reply closes an oversized user-only archive buffer', () => {
+  const buffer: MessageData[] = [
+    ...Array.from({ length: RUNTIME_ARCHIVE_HARD_LIMIT }, (_, index) => ({
+      role: 'user' as const,
+      content: `user-message-${index + 1}`,
+      timestamp: new Date(index * 1000).toISOString(),
+      sequence: index + 1
+    })),
+    {
+      role: 'ai',
+      content: 'reply',
+      timestamp: new Date(RUNTIME_ARCHIVE_HARD_LIMIT * 1000).toISOString(),
+      sequence: RUNTIME_ARCHIVE_HARD_LIMIT + 1
+    }
+  ]
+
+  assert.deepEqual(resolveArchivePlan(buffer), {
+    triggerKind: 'runtime_hard_limit',
+    messageCount: RUNTIME_ARCHIVE_HARD_LIMIT + 1
+  })
+})

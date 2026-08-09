@@ -47,6 +47,15 @@ export type MemoryCheckpoint = {
   lastArchivedAt: string
 }
 
+type MemoryCommitDraft = {
+  state: StateData
+  shortTerm: MessageData[]
+  longTerm: MemoryLongTermSnapshot
+  archiveBuffer: MessageData[]
+  lastStageIndex: number
+  lastArchivedAt: string
+}
+
 export class MemoryManager {
   private state: StateData = defaultState()
   private shortTerm: MessageData[] = []
@@ -105,6 +114,128 @@ export class MemoryManager {
       })
     )
     await entryRepo.save(rows)
+  }
+
+  private async saveDraftWithManager(
+    manager: EntityManager,
+    draft: MemoryCommitDraft
+  ): Promise<void> {
+    const entryRepo = manager.getRepository(MemoryEntry)
+    await entryRepo.clear()
+    if (draft.shortTerm.length > 0) {
+      await entryRepo.save(
+        draft.shortTerm.map((msg) =>
+          entryRepo.create({
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp,
+            sequence: msg.sequence ?? 0,
+            compressed: Boolean(msg.compressed),
+            compressedAt: msg.compressed_at || ''
+          })
+        )
+      )
+    }
+
+    const stateRepo = manager.getRepository(MemoryStateRecord)
+    let row = await stateRepo.findOneBy({ id: MEMORY_STATE_ROW_ID })
+    if (!row) row = stateRepo.create({ id: MEMORY_STATE_ROW_ID })
+    row.sessionId = draft.state.session_id
+    row.createdAtIso = draft.state.created_at
+    row.totalTurns = draft.state.counters.total_turns
+    row.windowTurns = draft.state.counters.window_turns
+    row.sinceLastArchive = draft.state.counters.since_last_archive
+    row.lastArchiveTime = draft.state.last_archive_time
+    row.archiveStrategy = draft.state.archive_strategy
+    row.apiStatus = draft.state.api_status
+    row.archiveThreshold = RUNTIME_ARCHIVE_HARD_LIMIT
+    row.archiveMinIntervalMs = draft.state.archive_min_interval_ms ?? 0
+    row.shortTermLimit = RUNTIME_SHORT_TERM_LIMIT
+    row.longTermJson = JSON.stringify(draft.longTerm)
+    row.archiveBufferJson = JSON.stringify(draft.archiveBuffer)
+    row.lastStageIndex = draft.lastStageIndex
+    row.lastArchivedAtIso = draft.lastArchivedAt
+    await stateRepo.save(row)
+  }
+
+  private createCommitDraft(messages: Array<{ role: 'user' | 'ai'; content: string }>): MemoryCommitDraft {
+    const draft: MemoryCommitDraft = {
+      state: JSON.parse(JSON.stringify(this.state)) as StateData,
+      shortTerm: this.shortTerm.map((message) => ({ ...message })),
+      longTerm: JSON.parse(JSON.stringify(this.longTerm)) as MemoryLongTermSnapshot,
+      archiveBuffer: this.archiveBuffer.map((message) => ({ ...message })),
+      lastStageIndex: this.lastStageIndex,
+      lastArchivedAt: this.lastArchivedAt
+    }
+
+    for (const input of messages) {
+      const content = input.content.trim()
+      if (!content) continue
+      const lastMessage = draft.shortTerm[draft.shortTerm.length - 1]
+      if (lastMessage?.role === input.role && lastMessage.content === content) continue
+
+      const nextSequence = (draft.state.counters.total_turns || 0) + 1
+      draft.shortTerm.push({
+        role: input.role,
+        content,
+        timestamp: new Date().toISOString(),
+        sequence: nextSequence
+      })
+      draft.state.counters.total_turns = nextSequence
+      draft.state.counters.since_last_archive++
+    }
+
+    if (draft.shortTerm.length > RUNTIME_SHORT_TERM_LIMIT) {
+      const overflow = draft.shortTerm.splice(
+        0,
+        draft.shortTerm.length - RUNTIME_SHORT_TERM_LIMIT
+      )
+      draft.archiveBuffer.push(
+        ...overflow.map((message) => ({ ...message, compressed: false }))
+      )
+    }
+    draft.state.counters.window_turns = draft.shortTerm.length
+    return draft
+  }
+
+  public async commitTurnAtomically<T>(
+    messages: Array<{ role: 'user' | 'ai'; content: string }>,
+    transactionWork: (manager: EntityManager) => Promise<T>
+  ): Promise<T> {
+    await this.initialize()
+    return this.withLock(async () => {
+      const draft = this.createCommitDraft(messages)
+      const result = await AppDataSource.transaction(async (manager) => {
+        await this.saveDraftWithManager(manager, draft)
+        return transactionWork(manager)
+      })
+
+      this.state = draft.state
+      this.shortTerm = draft.shortTerm
+      this.longTerm = draft.longTerm
+      this.archiveBuffer = draft.archiveBuffer
+      this.lastStageIndex = draft.lastStageIndex
+      this.lastArchivedAt = draft.lastArchivedAt
+      return result
+    })
+  }
+
+  public async archivePendingIfNeeded(): Promise<void> {
+    await this.initialize()
+    await this.withLock(async () => {
+      if (!this.archiveBuffer.length) return
+      let archivePlan = resolveArchivePlan(this.archiveBuffer)
+      if (!archivePlan) {
+        const semanticBoundarySequence = await detectSemanticArchiveBoundary(
+          this.archiveBuffer,
+          this.shortTerm
+        )
+        archivePlan = resolveArchivePlan(this.archiveBuffer, semanticBoundarySequence)
+      }
+      if (archivePlan) {
+        await this.archiveBufferedMessages(archivePlan.triggerKind, archivePlan.messageCount)
+      }
+    })
   }
 
   private async persistMemoryState(input?: {
@@ -241,6 +372,15 @@ export class MemoryManager {
   private async archiveBufferedMessages(triggerKind: string, messageCount: number): Promise<void> {
     if (!this.archiveBuffer.length) return
 
+    const checkpoint: MemoryCheckpoint = {
+      state: JSON.parse(JSON.stringify(this.state)) as StateData,
+      shortTerm: this.shortTerm.map((message) => ({ ...message })),
+      longTerm: JSON.parse(JSON.stringify(this.longTerm)) as MemoryLongTermSnapshot,
+      archiveBuffer: this.archiveBuffer.map((message) => ({ ...message })),
+      lastStageIndex: this.lastStageIndex,
+      lastArchivedAt: this.lastArchivedAt
+    }
+
     const normalizedCount = Math.max(1, Math.min(this.archiveBuffer.length, messageCount))
     const messages = this.archiveBuffer.slice(0, normalizedCount).map((item) => ({ ...item }))
     const slots = await memorySlotService.reconcileFromObservations()
@@ -276,21 +416,32 @@ export class MemoryManager {
     this.state.last_archive_time = this.lastArchivedAt
     this.state.api_status = stageSummary.status === 'completed' ? 'healthy' : 'down'
 
-    const stage = await this.persistMemoryState({
-      stageToCreate: {
-        sessionId: this.state.session_id,
-        stageIndex,
-        status: stageSummary.status,
-        triggerKind,
-        messageCount: messages.length,
-        startSequence: messages[0]?.sequence ?? 0,
-        endSequence: messages[messages.length - 1]?.sequence ?? 0,
-        startedAt,
-        endedAt,
-        summary: stageSummary.summary,
-        moodLabel: stageSummary.moodLabel
-      }
-    })
+    let stage: MemoryStageSnapshot | null
+    try {
+      stage = await this.persistMemoryState({
+        stageToCreate: {
+          sessionId: this.state.session_id,
+          stageIndex,
+          status: stageSummary.status,
+          triggerKind,
+          messageCount: messages.length,
+          startSequence: messages[0]?.sequence ?? 0,
+          endSequence: messages[messages.length - 1]?.sequence ?? 0,
+          startedAt,
+          endedAt,
+          summary: stageSummary.summary,
+          moodLabel: stageSummary.moodLabel
+        }
+      })
+    } catch (error) {
+      this.state = checkpoint.state
+      this.shortTerm = checkpoint.shortTerm
+      this.longTerm = checkpoint.longTerm
+      this.archiveBuffer = checkpoint.archiveBuffer
+      this.lastStageIndex = checkpoint.lastStageIndex
+      this.lastArchivedAt = checkpoint.lastArchivedAt
+      throw error
+    }
 
     if (stage) {
       this.lastStageIndex = stage.stageIndex

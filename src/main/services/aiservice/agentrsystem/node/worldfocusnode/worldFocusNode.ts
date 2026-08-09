@@ -1,6 +1,7 @@
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
 import type {
+  MemorySlotSnapshot,
   WorldFocusItem,
   WorldFocusItemRole,
   WorldFocusTaskType
@@ -24,13 +25,17 @@ import {
   traceError
 } from '../../../../log/trace/agentTraceEmitter'
 import { contentToText } from '../../../messageoutput/transformRespones'
-import { memorySlotService } from '../../manager/memory/memorySlotService'
+import { createDefaultMemorySlots } from '../../manager/memory/memoryWritePolicy'
 import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import {
   MessagesState,
   type WorldFocusContext,
   type WorldFocusImpressionContext
 } from '../../state/messageState'
+import {
+  getEffectiveMemorySlots,
+  withMemorySlotsDraft
+} from '../../state/turnWorkspace'
 import type {
   InstantPerceptionContext,
   RecentDialogueMessage
@@ -368,7 +373,8 @@ const buildResolvedFocus = async (input: {
 
 const resolveFocus = async (
   text: string,
-  recentMessages: RecentDialogueMessage[]
+  recentMessages: RecentDialogueMessage[],
+  slots: MemorySlotSnapshot
 ): Promise<FocusResolutionResult> => {
   if (!text.trim()) {
     return {
@@ -379,10 +385,7 @@ const resolveFocus = async (
     }
   }
 
-  const [worlds, slots] = await Promise.all([
-    worldbuildingService.listWorlds(),
-    memorySlotService.getSnapshot()
-  ])
+  const worlds = await worldbuildingService.listWorlds()
   if (worlds.length === 0) {
     return {
       type: 'none',
@@ -578,25 +581,36 @@ const toWorldFocusSlotItem = (focus: ResolvedFocus): WorldFocusItem => ({
 })
 
 export async function worldFocusNode(
-  _state: typeof MessagesState.State,
+  state: typeof MessagesState.State,
   perceptionContext: InstantPerceptionContext
 ): Promise<Partial<typeof MessagesState.State>> {
   const text = perceptionContext.currentUserText
+  if (!state.turnWorkspace) {
+    throw new Error('worldFocusNode requires an initialized TurnWorkspace.')
+  }
+  const slots = getEffectiveMemorySlots(state.turnWorkspace)
 
   try {
-    const resolution = await resolveFocus(text, perceptionContext.recentDialogue)
+    const resolution = await resolveFocus(text, perceptionContext.recentDialogue, slots)
     if (resolution.type !== 'resolved') {
-      await memorySlotService.replaceWorldFocus({
-        status: resolution.type,
-        confidence: resolution.confidence
-      })
+      const nextSlots = {
+        ...slots,
+        world_focus: {
+          ...createDefaultMemorySlots().world_focus,
+          status: resolution.type,
+          confidence: resolution.confidence,
+          updatedAt: new Date().toISOString()
+        }
+      }
 
       traceArtifact('worldFocusNode', {
         title: '产物: worldFocusNode 未注入焦点上下文',
         summary: resolution.reason
       })
 
-      return {}
+      return {
+        turnWorkspace: withMemorySlotsDraft(state.turnWorkspace, nextSlots)
+      }
     }
 
     const { focusGroup } = resolution
@@ -612,14 +626,18 @@ export async function worldFocusNode(
     })
 
     const focusItems = focusGroup.focuses.map(toWorldFocusSlotItem)
-    await memorySlotService.replaceWorldFocus({
-      mode: focusItems.length > 1 ? 'multi' : 'single',
-      primaryFocusId: primaryFocus.entity.id,
-      focuses: focusItems,
-      focusTask: focusGroup.focusTask,
-      confidence: focusGroup.confidence,
-      status: 'resolved'
-    })
+    const nextSlots = {
+      ...slots,
+      world_focus: {
+        mode: focusItems.length > 1 ? ('multi' as const) : ('single' as const),
+        primaryFocusId: primaryFocus.entity.id,
+        focuses: focusItems,
+        focusTask: focusGroup.focusTask,
+        confidence: focusGroup.confidence,
+        status: 'resolved' as const,
+        updatedAt: new Date().toISOString()
+      }
+    }
 
     const contextFocuses = await Promise.all(
       focusGroup.focuses.map(async (focus) => {
@@ -688,19 +706,16 @@ export async function worldFocusNode(
     })
 
     return {
-      worldFocusContext
+      worldFocusContext,
+      turnWorkspace: withMemorySlotsDraft(state.turnWorkspace, nextSlots)
     }
   } catch (error) {
-    try {
-      await memorySlotService.replaceWorldFocus({
-        status: 'none',
-        confidence: 0
-      })
-    } catch (slotError) {
-      traceError('worldFocusNode', slotError, {
-        title: '异常: worldFocusNode 清理焦点槽失败',
-        summary: slotError instanceof Error ? slotError.message : String(slotError)
-      })
+    const nextSlots = {
+      ...slots,
+      world_focus: {
+        ...createDefaultMemorySlots().world_focus,
+        updatedAt: new Date().toISOString()
+      }
     }
 
     traceError('worldFocusNode', error, {
@@ -713,6 +728,8 @@ export async function worldFocusNode(
       status: 'error',
       detail: error instanceof Error ? error.message : String(error)
     })
-    return {}
+    return {
+      turnWorkspace: withMemorySlotsDraft(state.turnWorkspace, nextSlots)
+    }
   }
 }

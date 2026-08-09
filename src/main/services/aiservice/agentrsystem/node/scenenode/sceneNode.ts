@@ -2,10 +2,13 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
 import type { SceneDomain, ScenePerceptionSlot } from '@share/cache/AItype/states/memorySlots'
 import { contentToText } from '../../../messageoutput/transformRespones'
-import { memorySlotService } from '../../manager/memory/memorySlotService'
 import { getQuickModel } from '../../modelwithtool/quick-base-model'
 import { MessagesState } from '../../state/messageState'
 import { buildConversationStateFromScenePerception } from '../../state/sceneContextAdapter'
+import {
+  getEffectiveMemorySlots,
+  withMemorySlotsDraft
+} from '../../state/turnWorkspace'
 import { traceArtifact, traceDecision, traceError } from '../../../../log/trace/agentTraceEmitter'
 import type {
   InstantPerceptionContext,
@@ -223,7 +226,10 @@ export async function sceneNode(
   perceptionContext: InstantPerceptionContext
 ): Promise<Partial<typeof MessagesState.State>> {
   const currentUserText = perceptionContext.currentUserText
-  const slots = await memorySlotService.getSnapshot()
+  if (!state.turnWorkspace) {
+    throw new Error('sceneNode requires an initialized TurnWorkspace.')
+  }
+  const slots = getEffectiveMemorySlots(state.turnWorkspace)
   const primaryWorldFocus =
     slots.world_focus.focuses.find(
       (focus) => focus.entityId === slots.world_focus.primaryFocusId
@@ -284,10 +290,15 @@ export async function sceneNode(
       slots.conversation_state
     )
 
-    await memorySlotService.updateSceneState({
-      scenePerception,
-      conversationState: conversationState ?? slots.conversation_state
-    })
+    const updatedAt = scenePerception.updatedAt ?? new Date().toISOString()
+    const nextSlots = {
+      ...slots,
+      scene_perception: { ...scenePerception, updatedAt },
+      conversation_state: {
+        ...(conversationState ?? slots.conversation_state),
+        updatedAt: conversationState?.updatedAt ?? updatedAt
+      }
+    }
 
     traceDecision('sceneNode', {
       title: '决策: sceneNode 场景判断完成',
@@ -306,7 +317,9 @@ export async function sceneNode(
       summary: scenePerception.reason
     })
 
-    return {}
+    return {
+      turnWorkspace: withMemorySlotsDraft(state.turnWorkspace, nextSlots)
+    }
   } catch (error) {
     traceError('sceneNode', error, {
       title: '异常: sceneNode 场景判断失败',
@@ -322,11 +335,18 @@ export async function sceneNode(
       fallbackScene,
       slots.conversation_state
     )
-    await memorySlotService.updateSceneState({
-      scenePerception: fallbackScene,
-      conversationState: fallbackConversationState ?? slots.conversation_state
-    })
+    const updatedAt = fallbackScene.updatedAt ?? new Date().toISOString()
+    const nextSlots = {
+      ...slots,
+      scene_perception: { ...fallbackScene, updatedAt },
+      conversation_state: {
+        ...(fallbackConversationState ?? slots.conversation_state),
+        updatedAt: fallbackConversationState?.updatedAt ?? updatedAt
+      }
+    }
 
-    return {}
+    return {
+      turnWorkspace: withMemorySlotsDraft(state.turnWorkspace, nextSlots)
+    }
   }
 }

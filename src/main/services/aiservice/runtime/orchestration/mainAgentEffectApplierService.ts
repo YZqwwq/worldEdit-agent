@@ -8,6 +8,7 @@ import { taskTraceService } from '../../../task/taskTraceService'
 import { mainAgentTurnService } from '../mainAgentTurnService'
 import { memoryManager } from '../../agentrsystem/manager/memory/MemoryManager'
 import { interactionObservationService } from '../../agentrsystem/manager/personal/interactionObservationService'
+import { mainAgentTurnCommitter } from './mainAgentTurnCommitter'
 
 class MainAgentEffectApplierService {
   async apply(result: MainAgentEventConsumptionResult): Promise<void> {
@@ -18,6 +19,9 @@ class MainAgentEffectApplierService {
 
   private async applyEffect(effect: MainAgentEffect): Promise<void> {
     switch (effect.type) {
+      case 'commit_turn':
+        await mainAgentTurnCommitter.commit(effect)
+        return
       case 'save_message':
         {
           const saved = await chatMessageService.saveMessageOrThrow(effect.role, effect.content, {

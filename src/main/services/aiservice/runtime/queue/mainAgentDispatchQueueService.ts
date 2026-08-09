@@ -11,6 +11,7 @@ import type {
 import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
 import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAgentMessageContentService'
 import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
+import { mainAgentTurnService } from '../mainAgentTurnService'
 
 type DispatchHandlers = {
   processEvent?: (
@@ -287,15 +288,22 @@ class MainAgentDispatchService {
           const result = await this.processEvent(entry.event, {
             onChunk: (chunk) => this.dispatchChunk(entry.event.id, chunk)
           })
-          await mainAgentEventLogService.markCompleted(entry.event.id, {
-            consumer: result.consumer,
-            summary: result.summary
-          })
+          if (!result.eventCommitted) {
+            await mainAgentEventLogService.markCompleted(entry.event.id, {
+              consumer: result.consumer,
+              summary: result.summary
+            })
+          }
           entry.resolve()
         } catch (error) {
-          await mainAgentEventLogService.markFailed(entry.event.id, {
-            errorMessage: error instanceof Error ? error.message : String(error)
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          await mainAgentTurnService.reconcileIncompleteTurnForFailedEvent({
+            eventId: entry.event.id,
+            errorMessage
           })
+          if ((await mainAgentEventLogService.getStatus(entry.event.id)) === 'processing') {
+            await mainAgentEventLogService.markFailed(entry.event.id, { errorMessage })
+          }
           entry.reject(error)
         } finally {
           this.clearQueuedEventDedupe(entry.event)

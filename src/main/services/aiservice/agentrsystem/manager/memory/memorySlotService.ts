@@ -13,6 +13,7 @@ import {
 } from '@share/cache/AItype/states/memorySlots'
 import type { MoodAssessment, 情绪标签 } from '@share/cache/AItype/states/moodAssessment'
 import type { WorldEntityType } from '@share/cache/worldbuilding/worldbuilding'
+import type { EntityManager } from 'typeorm'
 import { AppDataSource } from '../../../../../database'
 import { MemorySlotRecord } from '../../../../../../share/entity/database/MemorySlotRecord'
 import { interactionObservationService } from '../personal/interactionObservationService'
@@ -405,6 +406,18 @@ class MemorySlotService {
     const snapshot = parseSnapshot(row.payloadJson)
     snapshot.lastObservationId = row.lastObservationId
     return snapshot
+  }
+
+  async saveSnapshotWithManager(
+    snapshot: MemorySlotSnapshot,
+    manager: EntityManager
+  ): Promise<void> {
+    const repo = manager.getRepository(MemorySlotRecord)
+    let row = await repo.findOneBy({ id: MEMORY_SLOT_ROW_ID })
+    if (!row) row = repo.create({ id: MEMORY_SLOT_ROW_ID })
+    row.lastObservationId = snapshot.lastObservationId ?? 0
+    row.payloadJson = JSON.stringify(snapshot)
+    await repo.save(row)
   }
 
   async reconcileFromObservations(): Promise<MemorySlotSnapshot> {
