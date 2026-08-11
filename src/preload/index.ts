@@ -56,6 +56,10 @@ type Api = {
   // 获取历史记录
   getHistory: () => Promise<any[]>
   interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
+  pauseCurrentTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
+  resumePausedTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
+  rollbackPausedTurn: () => Promise<{ ok: boolean; message: string; turnId?: number; versionId?: number }>
+  getTurnWorkspaceControlState: () => Promise<{ paused: boolean; turnId?: number }>
   revertLastChatTurn: () => Promise<{
     ok: boolean
     message: string
@@ -202,6 +206,10 @@ const api: Api = {
 
   getHistory: () => ipcRenderer.invoke('ai:getHistory'),
   interruptCurrentRun: () => ipcRenderer.invoke('ai:interruptCurrentRun'),
+  pauseCurrentTurn: () => ipcRenderer.invoke('ai:pauseCurrentTurn'),
+  resumePausedTurn: () => ipcRenderer.invoke('ai:resumePausedTurn'),
+  rollbackPausedTurn: () => ipcRenderer.invoke('ai:rollbackPausedTurn'),
+  getTurnWorkspaceControlState: () => ipcRenderer.invoke('ai:getTurnWorkspaceControlState'),
   revertLastChatTurn: () => ipcRenderer.invoke('ai:revertLastChatTurn'),
   clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
   purgeAllData: () => ipcRenderer.invoke('ai:purgeAllData'),

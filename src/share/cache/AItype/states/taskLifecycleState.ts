@@ -56,6 +56,7 @@ export type MainAgentDispatchState =
   | 'task-active'
   | 'background-active'
   | 'mixed-active'
+  | 'paused'
   | 'processing'
 
 export type TaskTraceStage =
@@ -253,6 +254,17 @@ export interface MainAgentStreamErrorEffect extends MainAgentEffectBase {
   message: string
 }
 
+export interface MainAgentPauseTurnEffect extends MainAgentEffectBase {
+  type: 'pause_turn'
+  turnId: number
+}
+
+export interface MainAgentStreamPausedEffect extends MainAgentEffectBase {
+  type: 'stream_paused'
+  onChunk?: (chunk: StreamChunk) => void
+  message: string
+}
+
 export interface MainAgentCommitTurnEffect extends MainAgentEffectBase {
   type: 'commit_turn'
   turnId: number
@@ -278,6 +290,8 @@ export interface MainAgentRecordInteractionObservationEffect extends MainAgentEf
 }
 
 export type MainAgentEffect =
+  | MainAgentPauseTurnEffect
+  | MainAgentStreamPausedEffect
   | MainAgentCommitTurnEffect
   | MainAgentSaveMessageEffect
   | MainAgentUpdateChatTurnEffect
@@ -293,6 +307,7 @@ export interface MainAgentEventConsumptionResult {
   summary: string
   effects: MainAgentEffect[]
   eventCommitted?: boolean
+  paused?: boolean
 }
 
 export interface MainAgentTaskEvent {

@@ -19,7 +19,7 @@ export type MainAgentEventOrchestrationDependencies = {
     eventId: string
     sessionId: string
     userMessageId: number
-  }) => Promise<{ turnId: number }>
+  }) => Promise<{ turnId: number; resumeFromHead?: boolean }>
   controlUserMessage: (
     event: MainAgentUserMessageEvent,
     onChunk?: (chunk: StreamChunk) => void
@@ -31,8 +31,9 @@ export type MainAgentEventOrchestrationDependencies = {
     content: MainAgentUserMessageEvent['payload']['content'],
     workspaceContext: MainAgentUserMessageEvent['payload']['workspaceContext'],
     onChunk?: (chunk: StreamChunk) => void,
-    taskLifecycle?: TaskLifecycleState
-  ) => Promise<{ fullText: string; interrupted: boolean; graphResult?: MainAgentGraphTurnResult }>
+    taskLifecycle?: TaskLifecycleState,
+    resumeFromHead?: boolean
+  ) => Promise<{ fullText: string; interrupted: boolean; paused?: boolean; graphResult?: MainAgentGraphTurnResult }>
   createBackgroundPersonaStageTurn: (input: {
     eventId: string
     sessionId: string
@@ -42,7 +43,7 @@ export type MainAgentEventOrchestrationDependencies = {
     turnId: number,
     sessionId: string,
     payload: MainAgentBackgroundPersonaStageEvent['payload']
-  ) => Promise<{ fullText: string; interrupted: boolean; graphResult?: MainAgentGraphTurnResult }>
+  ) => Promise<{ fullText: string; interrupted: boolean; paused?: boolean; graphResult?: MainAgentGraphTurnResult }>
   consumeTaskNotification: (
     event: MainAgentTaskNotificationEvent
   ) => Promise<MainAgentEventConsumptionResult>
@@ -62,6 +63,7 @@ type UserMessagePreparedState =
       kind: 'chat_runtime'
       turnId: number
       taskLifecycle?: TaskLifecycleState
+      resumeFromHead?: boolean
     }
 
 type MainAgentEventPreparedStateMap = {
@@ -130,6 +132,27 @@ const buildInterruptedResult = (
     eventCommitted: true
   }
 }
+
+const buildPausedResult = (
+  event: MainAgentUserMessageEvent,
+  turnId: number,
+  onChunk?: (chunk: StreamChunk) => void
+): MainAgentEventConsumptionResult => ({
+  handled: true,
+  consumer: 'chat_runtime',
+  summary: 'user_message_paused',
+  effects: [
+    { ...createEffectContext(event), type: 'pause_turn', turnId },
+    {
+      ...createEffectContext(event),
+      type: 'stream_paused',
+      onChunk,
+      message: '本轮已在稳定位置暂停，尚未提交人格、记忆或最终回复。'
+    }
+  ],
+  eventCommitted: true,
+  paused: true
+})
 
 const buildCompletedResult = (
   event: MainAgentUserMessageEvent,
@@ -212,6 +235,14 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
       userMessageId: event.payload.messageId
     })
 
+    if (turn.resumeFromHead) {
+      return {
+        kind: 'chat_runtime',
+        turnId: turn.turnId,
+        resumeFromHead: true
+      }
+    }
+
     const control = await dependencies.controlUserMessage(event, runtime?.onChunk)
     if (control.handledResult) {
       const visibleMessageEffect = control.handledResult.effects.find(
@@ -246,7 +277,8 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
     return {
       kind: 'chat_runtime',
       turnId: turn.turnId,
-      taskLifecycle: control.taskLifecycle
+      taskLifecycle: control.taskLifecycle,
+      resumeFromHead: turn.resumeFromHead
     }
   },
   async consume(event, prepared, dependencies, runtime) {
@@ -262,8 +294,13 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
         event.payload.content,
         event.payload.workspaceContext,
         runtime?.onChunk,
-        prepared.taskLifecycle
+        prepared.taskLifecycle,
+        prepared.resumeFromHead
       )
+
+      if (result.paused) {
+        return buildPausedResult(event, prepared.turnId, runtime?.onChunk)
+      }
 
       if (result.interrupted) {
         return buildInterruptedResult(event, prepared.turnId, result.fullText, runtime?.onChunk)

@@ -44,14 +44,16 @@ export const MAIN_AGENT_FLOW_RULES: Record<MainAgentEventType, MainAgentFlowRule
 
 export const MAIN_AGENT_EVENT_TRANSITIONS: TransitionMap<MainAgentEventStatus> = {
   queued: ['processing', 'failed'],
-  processing: ['completed', 'failed', 'queued'],
+  processing: ['paused', 'completed', 'failed', 'queued'],
+  paused: ['processing', 'failed'],
   completed: [],
   failed: ['queued']
 }
 
 export const MAIN_AGENT_TURN_TRANSITIONS: TransitionMap<MainAgentTurnStatus> = {
   queued: ['processing', 'failed'],
-  processing: ['completed', 'interrupted', 'failed'],
+  processing: ['paused', 'completed', 'interrupted', 'failed'],
+  paused: ['processing', 'failed'],
   completed: ['reverted'],
   interrupted: ['reverted'],
   failed: [],

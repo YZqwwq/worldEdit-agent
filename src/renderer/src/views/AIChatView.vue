@@ -46,6 +46,10 @@
       </div>
 
         <div class="absolute inset-x-0 bottom-0 z-20 px-8 pb-7 pt-3 pointer-events-none">
+          <div v-if="isPaused" class="pointer-events-auto mb-2 flex justify-center gap-2">
+            <button type="button" class="rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm text-slate-700 shadow-sm" @click="handleRollbackPausedTurn">回退稳定版本</button>
+            <button type="button" class="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white shadow-sm" @click="handleResumePausedTurn">继续本轮</button>
+          </div>
           <MessageComposer
             class="pointer-events-auto"
             ref="composerRef"
@@ -896,8 +900,11 @@ import type { CharacterImpressionPayload } from '../../../share/cache/worldbuild
 const {
   messages,
   isLoading,
+  isPaused,
   sendMessage,
-  interruptCurrentRun,
+  pauseCurrentTurn,
+  resumePausedTurn,
+  rollbackPausedTurn,
   revertLastChatTurn,
   loadHistory,
   refreshHistory,
@@ -942,6 +949,7 @@ type DialogIcon = 'none' | 'info' | 'warning' | 'danger' | 'success'
 const uploadedFiles = ref<UploadedChatFile[]>([])
 const canSendMessage = computed(
   () =>
+    !isPaused.value &&
     !uploadedFiles.value.some((file) => file.status === 'pending') &&
     (Boolean(userInput.value.trim()) || uploadedFiles.value.length > 0)
 )
@@ -1544,8 +1552,18 @@ const handleSend = async (): Promise<void> => {
 }
 
 const handleInterruptRun = async (): Promise<void> => {
-  const result = await interruptCurrentRun()
-  showNotice(result.ok ? '停止请求已发送' : '无法停止当前回复', result.message, result.ok ? 'info' : 'warning')
+  const result = await pauseCurrentTurn()
+  showNotice(result.ok ? '暂停请求已发送' : '无法暂停当前回复', result.message, result.ok ? 'info' : 'warning')
+}
+
+const handleResumePausedTurn = async (): Promise<void> => {
+  const result = await resumePausedTurn()
+  showNotice(result.ok ? '已继续本轮' : '无法继续', result.message, result.ok ? 'info' : 'warning')
+}
+
+const handleRollbackPausedTurn = async (): Promise<void> => {
+  const result = await rollbackPausedTurn()
+  showNotice(result.ok ? '工作区已回退' : '无法回退', result.message, result.ok ? 'success' : 'warning')
 }
 
 const handleRevertLastTurn = async (message?: ChatMessage): Promise<void> => {

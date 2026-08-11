@@ -54,6 +54,15 @@ declare global {
 
     getHistory: () => Promise<any[]>
     interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
+    pauseCurrentTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
+    resumePausedTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
+    rollbackPausedTurn: () => Promise<{
+      ok: boolean
+      message: string
+      turnId?: number
+      versionId?: number
+    }>
+    getTurnWorkspaceControlState: () => Promise<{ paused: boolean; turnId?: number }>
     revertLastChatTurn: () => Promise<{
       ok: boolean
       message: string

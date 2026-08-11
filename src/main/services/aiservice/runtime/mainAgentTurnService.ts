@@ -128,12 +128,14 @@ class MainAgentTurnService {
       status: 'queued',
       userMessageId: input.userMessageId,
       aiMessageId: null,
+      headVersionId: null,
       reversible: 1,
       memoryCheckpointJson: JSON.stringify(memoryCheckpoint),
       errorMessage: '',
       startedAt: null,
       completedAt: null,
       interruptedAt: null,
+      pausedAt: null,
       revertedAt: null
     })
     const saved = await this.repo.save(turn)
@@ -158,12 +160,14 @@ class MainAgentTurnService {
       status: 'queued',
       userMessageId: null,
       aiMessageId: null,
+      headVersionId: null,
       reversible: 0,
       memoryCheckpointJson: JSON.stringify(memoryCheckpoint),
       errorMessage: '',
       startedAt: null,
       completedAt: null,
       interruptedAt: null,
+      pausedAt: null,
       revertedAt: null
     })
     return this.repo.save(turn)
@@ -173,11 +177,16 @@ class MainAgentTurnService {
     return this.repo.findOneBy({ eventId })
   }
 
+  async listPausedTurns(): Promise<MainAgentTurnRecord[]> {
+    return this.repo.find({ where: { status: 'paused' }, order: { createdAt: 'DESC', id: 'DESC' } })
+  }
+
   async markProcessing(turnId: number): Promise<void> {
     const turn = await this.repo.findOneBy({ id: turnId })
     if (!turn) return
     assertMainAgentTurnStatusTransition(turn.status, 'processing')
     turn.status = 'processing'
+    turn.pausedAt = null
     if (!turn.startedAt) {
       turn.startedAt = new Date()
     }
@@ -283,6 +292,7 @@ class MainAgentTurnService {
       startedAt: turn.startedAt?.toISOString(),
       completedAt: turn.completedAt?.toISOString(),
       interruptedAt: turn.interruptedAt?.toISOString(),
+      pausedAt: turn.pausedAt?.toISOString(),
       revertedAt: turn.revertedAt?.toISOString(),
       errorMessage: turn.errorMessage || undefined
     }))

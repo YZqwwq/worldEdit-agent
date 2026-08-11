@@ -4,6 +4,16 @@ import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
 import { mainAgentTurnService } from '../mainAgentTurnService'
 
 class MainAgentEventRecoveryService {
+  async restorePausedTurn(): Promise<void> {
+    const pausedEvents = await mainAgentEventLogService.listPausedEvents()
+    if (pausedEvents.length > 1) {
+      throw new Error('Multiple paused main agent turns violate the serial dispatch invariant.')
+    }
+    if (pausedEvents[0]) {
+      mainAgentDispatchService.restorePausedEvent(pausedEvents[0])
+    }
+  }
+
   async reconcileTurnOwnedEvents(): Promise<void> {
     const processingEvents = await mainAgentEventLogService.listProcessingEvents()
 
@@ -86,7 +96,7 @@ class MainAgentEventRecoveryService {
         }
 
         await mainAgentEventLogService.resetToQueued(event.id)
-        await mainAgentDispatchService.enqueueRecoveredEvent(event)
+        mainAgentDispatchService.stageRecoveredEvent(event)
       }
     }
   }
@@ -94,7 +104,7 @@ class MainAgentEventRecoveryService {
   async enqueueQueuedEvents(): Promise<void> {
     const queuedEvents = await mainAgentEventLogService.listQueuedEvents()
     for (const event of queuedEvents) {
-      await mainAgentDispatchService.enqueueRecoveredEvent(event)
+      mainAgentDispatchService.stageRecoveredEvent(event)
     }
   }
 }

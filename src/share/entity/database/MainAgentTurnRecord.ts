@@ -45,6 +45,9 @@ export class MainAgentTurnRecord {
   })
   aiMessageId!: number | null
 
+  @Column({ type: 'integer', nullable: true })
+  headVersionId!: number | null
+
   @Column({
     type: 'integer',
     default: 1
@@ -80,6 +83,9 @@ export class MainAgentTurnRecord {
     nullable: true
   })
   interruptedAt!: Date | null
+
+  @Column({ type: 'datetime', nullable: true })
+  pausedAt!: Date | null
 
   @Column({
     type: 'datetime',

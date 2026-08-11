@@ -144,3 +144,45 @@ test('the current document page activates the document capability package', () =
 
   assert.deepEqual(activeToolsets, ['world_document_editor'])
 })
+
+test('a resumed turn can pause again without publishing a formal commit', async () => {
+  const event = createScenarioEvent()
+  const appliedEffects: MainAgentEffect[] = []
+  let receivedResumeFlag = false
+  const dependencies: MainAgentEventOrchestrationDependencies = {
+    createChatTurn: async () => ({ turnId: 501, resumeFromHead: true }),
+    controlUserMessage: async () => {
+      throw new Error('lifecycle control must not rerun while resuming a paused graph')
+    },
+    runUserMessage: async (
+      _eventId,
+      _turnId,
+      _messageId,
+      _content,
+      _workspaceContext,
+      _onChunk,
+      _taskLifecycle,
+      resumeFromHead
+    ) => {
+      receivedResumeFlag = resumeFromHead === true
+      return { fullText: '', interrupted: false, paused: true }
+    },
+    createBackgroundPersonaStageTurn: async () => ({ turnId: 0 }),
+    runBackgroundPersonaStage: async () => ({ fullText: '', interrupted: false }),
+    consumeTaskNotification: async () => {
+      throw new Error('not used')
+    },
+    applyEffects: async (result) => {
+      appliedEffects.push(...result.effects)
+    },
+    completeTaskNotificationConsumption: async () => undefined,
+    logUserMessageError: (error) => (error instanceof Error ? error.message : String(error))
+  }
+
+  const result = await orchestrateMainAgentEvent(event, dependencies)
+
+  assert.equal(receivedResumeFlag, true)
+  assert.equal(result.paused, true)
+  assert.deepEqual(appliedEffects.map((effect) => effect.type), ['pause_turn', 'stream_paused'])
+  assert.equal(appliedEffects.some((effect) => effect.type === 'commit_turn'), false)
+})

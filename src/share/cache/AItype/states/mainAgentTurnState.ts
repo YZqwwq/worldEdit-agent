@@ -15,6 +15,7 @@ export const VISIBLE_MAIN_AGENT_MESSAGE_STATUSES = [
 export const MAIN_AGENT_TURN_STATUS_VALUES = [
   'queued',
   'processing',
+  'paused',
   'completed',
   'interrupted',
   'failed',
@@ -25,6 +26,7 @@ export type MainAgentTurnStatus = (typeof MAIN_AGENT_TURN_STATUS_VALUES)[number]
 
 export const MAIN_AGENT_TURN_RUNTIME_STATUS_VALUES = [
   'processing',
+  'paused',
   'completed',
   'interrupted',
   'failed'
@@ -58,6 +60,7 @@ export interface MainAgentTurnSnapshot {
   startedAt?: string
   completedAt?: string
   interruptedAt?: string
+  pausedAt?: string
   revertedAt?: string
   errorMessage?: string
 }

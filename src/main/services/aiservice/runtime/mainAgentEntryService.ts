@@ -67,8 +67,9 @@ class MainAgentEntryService {
           sessionId,
           userMessageId
         })
+        const resumeFromHead = turn.status === 'paused'
         await mainAgentTurnService.markProcessing(turn.id)
-        return { turnId: turn.id }
+        return { turnId: turn.id, resumeFromHead }
       },
       createBackgroundPersonaStageTurn: async ({ eventId, sessionId }) => {
         const turn = await mainAgentTurnService.createBackgroundPersonaStageTurn({

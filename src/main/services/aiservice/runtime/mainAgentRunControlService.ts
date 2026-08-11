@@ -22,6 +22,11 @@ class MainAgentRunControlService {
     | null = null
 
   startRun(input: { eventId: string; turnId: number }): AbortController {
+    if (this.activeRun) {
+      throw new Error(
+        `Main agent serial invariant violated: ${this.activeRun.eventId} is still running.`
+      )
+    }
     const controller = new AbortController()
     let resolveDone = () => {}
     const donePromise = new Promise<void>((resolve) => {

@@ -412,6 +412,19 @@ class MainAgentEventLogService {
     return events
   }
 
+  async listPausedEvents(): Promise<MainAgentEvent[]> {
+    const rows = await this.repo.find({
+      where: { status: 'paused' },
+      order: { startedAt: 'ASC', createdAtMs: 'ASC' }
+    })
+    const events: MainAgentEvent[] = []
+    for (const row of rows) {
+      const event = await this.getEventById(row.id)
+      if (event) events.push(event)
+    }
+    return events
+  }
+
   async clearAll(): Promise<void> {
     await this.repo.clear()
   }

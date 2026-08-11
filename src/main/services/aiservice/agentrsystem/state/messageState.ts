@@ -15,6 +15,7 @@ import type {
   MainAgentFinalResponse,
   TurnWorkspace
 } from '@share/cache/AItype/states/turnWorkspace'
+import type { MainAgentResumePoint } from '../../runtime/version/turnVersionSnapshot'
 
 export type ToolContextSourceRef = {
   type: 'message' | 'url' | 'entity' | 'task' | 'tool' | 'unknown'
@@ -112,6 +113,10 @@ export type InstantPerceptionSnapshot = {
 }
 
 export const MessagesState = Annotation.Root({
+  resumeFromNode: Annotation<MainAgentResumePoint | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
+  }),
   // 消息状态
   messages: Annotation<BaseMessage[]>({
     reducer: messagesStateReducer,

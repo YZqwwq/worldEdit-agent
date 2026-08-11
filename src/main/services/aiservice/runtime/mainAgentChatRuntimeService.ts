@@ -25,10 +25,15 @@ import { contentToText } from '../messageoutput/transformRespones'
 import { runWithTraceContext } from '../../log/trace/agentTraceRuntime'
 import { mainAgentRunControlService } from './mainAgentRunControlService'
 import { chatMessageService } from '../chat/chatMessageService'
+import {
+  MainAgentTurnPausedError,
+  mainAgentTurnVersionService
+} from './version/mainAgentTurnVersionService'
 
 export type MainAgentChatRuntimeResult = {
   fullText: string
   interrupted: boolean
+  paused: boolean
   graphResult?: MainAgentGraphTurnResult
 }
 
@@ -50,10 +55,10 @@ class MainAgentChatRuntimeService {
     content: MainAgentMessageContentPart[],
     workspaceContext?: AgentWorkspaceContext,
     onChunk?: (chunk: StreamChunk) => void,
-    taskLifecycle?: TaskLifecycleState
+    taskLifecycle?: TaskLifecycleState,
+    resumeFromHead = false
   ): Promise<MainAgentChatRuntimeResult> {
     const runId = randomUUID()
-    const controller = mainAgentRunControlService.startRun({ eventId, turnId })
     let fullText = ''
     const persistedMessage = await chatMessageService.getMessageById(userMessageId)
     const originalContent = getMainAgentContentPartsFromPersistedMessage(persistedMessage)
@@ -63,20 +68,29 @@ class MainAgentChatRuntimeService {
       persistedMessage?.createdAt instanceof Date
         ? persistedMessage.createdAt.toISOString()
         : new Date().toISOString()
-    const [memorySlots, persona] = await Promise.all([
-      memorySlotService.reconcileFromObservations(),
-      loadPersonaState()
-    ])
-    const baseTurnWorkspace = createTurnWorkspace({
-      eventId,
-      turnId,
-      sessionId: persistedMessage?.sessionId || 'default',
-      runId,
-      memorySlots,
-      persona
-    })
+    const restoredState = resumeFromHead
+      ? await mainAgentTurnVersionService.loadHeadState(turnId)
+      : null
+    if (resumeFromHead && !restoredState) {
+      throw new Error(`Paused turn ${turnId} has no restorable HEAD version.`)
+    }
+    const restoredWorkspace = restoredState?.turnWorkspace
+    const [memorySlots, persona] = restoredWorkspace
+      ? [restoredWorkspace.base.memorySlots, restoredWorkspace.base.persona]
+      : await Promise.all([
+          memorySlotService.reconcileFromObservations(),
+          loadPersonaState()
+        ])
+    const baseTurnWorkspace = restoredWorkspace ?? createTurnWorkspace({
+        eventId,
+        turnId,
+        sessionId: persistedMessage?.sessionId || 'default',
+        runId,
+        memorySlots,
+        persona
+      })
     const userText = persistedMessage?.content?.trim() || contentToText(message).trim()
-    const turnWorkspace = userText
+    const turnWorkspace = restoredWorkspace ? restoredWorkspace : userText
       ? withObservationDraft(baseTurnWorkspace, {
           id: (memorySlots.lastObservationId ?? 0) + 1,
           type: 'user_message',
@@ -91,11 +105,11 @@ class MainAgentChatRuntimeService {
         })
       : baseTurnWorkspace
     let graphResult: MainAgentGraphTurnResult | undefined
+    const controller = mainAgentRunControlService.startRun({ eventId, turnId })
 
     try {
       return await runWithTraceContext(runId, { turnId, emitChunk: onChunk }, async () => {
-        const stream = await agent.streamEvents(
-          {
+        const graphInput = restoredState ?? {
             messages: [
               new HumanMessage({
                 content: message,
@@ -110,38 +124,44 @@ class MainAgentChatRuntimeService {
             taskLifecycle,
             workspaceContext,
             turnWorkspace
-          },
-          { version: 'v2', signal: controller.signal } as {
-            version: 'v2'
-            signal: AbortSignal
           }
-        )
-
-        for await (const event of stream) {
-          if (
-            event.event === 'on_chat_model_stream' &&
-            event.metadata?.langgraph_node === 'llmCall'
-          ) {
-            const chunk = event.data.chunk
-            if (chunk && chunk.content) {
-              const token = contentToText(chunk.content)
-              if (token) {
-                fullText += token
-                onChunk?.({
-                  type: 'text_delta',
-                  content: token
-                })
+        await mainAgentTurnVersionService.runInTurn({ eventId, turnId }, async () => {
+          const stream = await agent.streamEvents(
+            graphInput,
+            { version: 'v2', signal: controller.signal } as {
+              version: 'v2'
+              signal: AbortSignal
+            }
+          )
+          for await (const event of stream) {
+            if (
+              event.event === 'on_chat_model_stream' &&
+              event.metadata?.langgraph_node === 'llmCall'
+            ) {
+              const chunk = event.data.chunk
+              if (chunk && chunk.content) {
+                const token = contentToText(chunk.content)
+                if (token) {
+                  fullText += token
+                  onChunk?.({
+                    type: 'text_delta',
+                    content: token
+                  })
+                }
               }
             }
+            if (event.event === 'on_chain_end') {
+              graphResult = readGraphTurnResult(event.data?.output) ?? graphResult
+            }
           }
-          if (event.event === 'on_chain_end') {
-            graphResult = readGraphTurnResult(event.data?.output) ?? graphResult
-          }
-        }
+        })
         const canonicalText = graphResult?.finalResponse?.content ?? fullText
-        return { fullText: canonicalText, interrupted: false, graphResult }
+        return { fullText: canonicalText, interrupted: false, paused: false, graphResult }
       })
     } catch (error) {
+      if (error instanceof MainAgentTurnPausedError) {
+        return { fullText, interrupted: false, paused: true }
+      }
       const interrupted =
         controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')
       if (!interrupted) {
@@ -149,9 +169,11 @@ class MainAgentChatRuntimeService {
       }
       return {
         fullText,
-        interrupted: true
+        interrupted: true,
+        paused: false
       }
     } finally {
+      mainAgentTurnVersionService.clearPauseRequest(eventId)
       mainAgentRunControlService.finishRun(eventId)
     }
   }
@@ -219,6 +241,7 @@ class MainAgentChatRuntimeService {
         return {
           fullText: graphResult?.finalResponse?.content ?? fullText,
           interrupted: false,
+          paused: false,
           graphResult
         }
       })
@@ -230,7 +253,8 @@ class MainAgentChatRuntimeService {
       }
       return {
         fullText,
-        interrupted: true
+        interrupted: true,
+        paused: false
       }
     } finally {
       mainAgentRunControlService.finishRun(eventId)

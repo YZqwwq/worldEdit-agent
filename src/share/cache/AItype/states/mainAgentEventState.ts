@@ -1,6 +1,7 @@
 export const MAIN_AGENT_EVENT_STATUS_VALUES = [
   'queued',
   'processing',
+  'paused',
   'completed',
   'failed'
 ] as const
