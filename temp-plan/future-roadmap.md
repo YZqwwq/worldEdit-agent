@@ -27,8 +27,8 @@
 Turn Version 第一阶段已支持普通主 Agent Turn 的暂停、HEAD 恢复和未提交工作区单步回退，但尚未达到可进入后续治理阶段的稳定线。当前最高优先级待办为：
 
 - [x] 原子提交 Version、HEAD、Turn paused 与 Event paused；移除编排层二次暂停写入，并修正恢复参数漏传。
-- [ ] 在最后计算节点后建立 `ready_to_commit` Final 候选和 Final Version。
-- [ ] 让带完整 HEAD 的 processing Turn 在崩溃后恢复，而不是直接失败。
+- [x] 在最后计算节点后建立 `ready_to_commit` Final 候选，并在正式提交事务内生成 Final Version。
+- [ ] 让带完整 HEAD 的 processing Turn 在崩溃后恢复：ready HEAD 已完成；普通 checkpoint 必须等待工具 planned action 后开放。
 - [ ] 支持取消 paused Turn 并释放串行队列。
 - [ ] 用真实 SQLite 和应用重启覆盖暂停前、暂停事务中、暂停完成后、恢复运行中、Final 提交前、Final 提交后。
 - [ ] 为不可延迟副作用接入 planned/receipt/unknown。

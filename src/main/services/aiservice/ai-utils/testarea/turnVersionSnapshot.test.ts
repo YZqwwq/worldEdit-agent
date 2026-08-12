@@ -6,8 +6,10 @@ import { tmpdir } from 'node:os'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import { DataSource } from 'typeorm'
 import {
+  deserializeReadyToCommitCandidate,
   deserializeTurnGraphState,
   readCompletedActionKeys,
+  serializeReadyToCommitCandidate,
   serializeTurnGraphState
 } from '../../runtime/version/turnVersionSnapshot'
 import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memoryWritePolicy'
@@ -17,7 +19,11 @@ import { canTransitionMainAgentEventStatus, canTransitionMainAgentTurnStatus } f
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
-import { persistTurnVersion } from '../../runtime/version/turnVersionPersistence'
+import {
+  persistFinalTurnVersionWithManager,
+  persistTurnVersion
+} from '../../runtime/version/turnVersionPersistence'
+import type { MainAgentReadyToCommitCandidate } from '@share/cache/AItype/states/turnWorkspace'
 
 const sqliteTest = process.env.RUN_TURN_VERSION_SQLITE_TESTS === '1' ? test : test.skip
 
@@ -115,6 +121,30 @@ const seedProcessingTurn = async (
   })
 }
 
+const createReadyCandidate = (
+  eventId: string,
+  turnId: number
+): MainAgentReadyToCommitCandidate => ({
+  schemaVersion: 1,
+  eventId,
+  turnId,
+  sessionId: 'default',
+  consumer: 'chat_runtime',
+  status: 'completed',
+  workspace: createTurnWorkspace({
+    eventId,
+    turnId,
+    sessionId: 'default',
+    runId: 'ready-run',
+    memorySlots: createDefaultMemorySlots(),
+    persona: null
+  }),
+  finalResponse: {
+    messageId: `${eventId}:final`,
+    content: '这是已经完成计算、等待正式提交的回复。'
+  }
+})
+
 test('turn graph snapshot restores messages, workspace and exact resume point', () => {
   const snapshot = serializeTurnGraphState(createState())
   const restored = deserializeTurnGraphState(snapshot, 'toolNode')
@@ -140,6 +170,17 @@ test('paused is a resumable state rather than a committed terminal state', () =>
   assert.equal(canTransitionMainAgentTurnStatus('paused', 'processing'), true)
 })
 
+test('ready-to-commit candidates preserve the authoritative response and workspace', () => {
+  const candidate = createReadyCandidate('ready-candidate', 42)
+  const restored = deserializeReadyToCommitCandidate(
+    serializeReadyToCommitCandidate(candidate)
+  )
+
+  assert.deepEqual(restored, candidate)
+  assert.equal(restored.finalResponse.content, candidate.finalResponse.content)
+  assert.equal(restored.workspace.turnId, 42)
+})
+
 sqliteTest('pause checkpoint atomically saves version, HEAD, turn and event state', async () => {
   const dataSource = await createVersionDataSource(':memory:')
   try {
@@ -152,11 +193,13 @@ sqliteTest('pause checkpoint atomically saves version, HEAD, turn and event stat
       snapshotJson: '{"checkpoint":1}',
       pause: false
     })
+    const candidate = createReadyCandidate(eventId, turn.id)
     const paused = await persistTurnVersion(dataSource, {
       eventId,
       turnId: turn.id,
-      resumePoint: 'llmCall',
-      snapshotJson: '{"checkpoint":2}',
+      kind: 'ready_to_commit',
+      resumePoint: 'commit_turn',
+      snapshotJson: serializeReadyToCommitCandidate(candidate),
       pause: true
     })
 
@@ -170,6 +213,8 @@ sqliteTest('pause checkpoint atomically saves version, HEAD, turn and event stat
     assert.equal(versions.length, 2)
     assert.equal(paused.sequence, 2)
     assert.equal(paused.parentVersionId, first.id)
+    assert.equal(paused.kind, 'ready_to_commit')
+    assert.deepEqual(deserializeReadyToCommitCandidate(paused.snapshotJson), candidate)
     assert.equal(savedTurn.headVersionId, paused.id)
     assert.equal(savedTurn.status, 'paused')
     assert.ok(savedTurn.pausedAt instanceof Date)
@@ -240,8 +285,9 @@ sqliteTest('an atomically paused turn remains discoverable after reopening SQLit
     const version = await persistTurnVersion(writer, {
       eventId,
       turnId: turn.id,
-      resumePoint: 'toolNode',
-      snapshotJson: '{"checkpoint":"paused"}',
+      kind: 'ready_to_commit',
+      resumePoint: 'commit_turn',
+      snapshotJson: serializeReadyToCommitCandidate(createReadyCandidate(eventId, turn.id)),
       pause: true
     })
     await writer.destroy()
@@ -261,10 +307,58 @@ sqliteTest('an atomically paused turn remains discoverable after reopening SQLit
     assert.equal(pausedTurn.eventId, eventId)
     assert.equal(pausedEvent.id, eventId)
     assert.equal(head.id, version.id)
-    assert.equal(head.resumePoint, 'toolNode')
+    assert.equal(head.kind, 'ready_to_commit')
+    assert.equal(head.resumePoint, 'commit_turn')
   } finally {
     if (writer?.isInitialized) await writer.destroy()
     if (reader?.isInitialized) await reader.destroy()
     await rm(directory, { recursive: true, force: true })
+  }
+})
+
+sqliteTest('Final Version is committed with terminal turn and event state', async () => {
+  const dataSource = await createVersionDataSource(':memory:')
+  try {
+    const eventId = 'final-version-atomic'
+    const turn = await seedProcessingTurn(dataSource, eventId)
+    const candidate = createReadyCandidate(eventId, turn.id)
+    const ready = await persistTurnVersion(dataSource, {
+      eventId,
+      turnId: turn.id,
+      kind: 'ready_to_commit',
+      resumePoint: 'commit_turn',
+      snapshotJson: serializeReadyToCommitCandidate(candidate),
+      pause: false
+    })
+
+    const final = await dataSource.transaction(async (manager) => {
+      const turnRepo = manager.getRepository(MainAgentTurnRecord)
+      const eventRepo = manager.getRepository(MainAgentEventRecord)
+      const savedTurn = await turnRepo.findOneByOrFail({ id: turn.id })
+      const savedEvent = await eventRepo.findOneByOrFail({ id: eventId })
+      const finalVersion = await persistFinalTurnVersionWithManager(manager, {
+        turn: savedTurn,
+        snapshotJson: '{}'
+      })
+      savedTurn.status = 'completed'
+      savedTurn.completedAt = new Date()
+      savedTurn.headVersionId = finalVersion.id
+      savedEvent.status = 'completed'
+      savedEvent.finishedAt = new Date()
+      await turnRepo.save(savedTurn)
+      await eventRepo.save(savedEvent)
+      return finalVersion
+    })
+
+    const savedTurn = await dataSource.getRepository(MainAgentTurnRecord).findOneByOrFail({ id: turn.id })
+    const savedEvent = await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })
+    assert.equal(final.kind, 'final')
+    assert.equal(final.parentVersionId, ready.id)
+    assert.equal(final.snapshotJson, ready.snapshotJson)
+    assert.equal(savedTurn.headVersionId, final.id)
+    assert.equal(savedTurn.status, 'completed')
+    assert.equal(savedEvent.status, 'completed')
+  } finally {
+    await dataSource.destroy()
   }
 })

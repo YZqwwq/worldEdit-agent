@@ -4,6 +4,7 @@ import {
   type StoredMessage
 } from '@langchain/core/messages'
 import type { MessagesState } from '../../agentrsystem/state/messageState'
+import type { MainAgentReadyToCommitCandidate } from '@share/cache/AItype/states/turnWorkspace'
 
 export type MainAgentResumePoint =
   | 'instantPerceptionNode'
@@ -51,4 +52,37 @@ export const readCompletedActionKeys = (snapshotJson: string): string[] => {
     .filter((action) => ['accepted', 'completed', 'partial'].includes(String(action.status || '')))
     .map((action) => String(action.invocationFingerprint || action.actionId || ''))
     .filter(Boolean)
+}
+
+export const serializeReadyToCommitCandidate = (
+  candidate: MainAgentReadyToCommitCandidate
+): string => JSON.stringify(candidate)
+
+export const deserializeReadyToCommitCandidate = (
+  snapshotJson: string
+): MainAgentReadyToCommitCandidate => {
+  const candidate = JSON.parse(snapshotJson) as Partial<MainAgentReadyToCommitCandidate>
+  if (
+    candidate.schemaVersion !== 1 ||
+    typeof candidate.eventId !== 'string' ||
+    typeof candidate.turnId !== 'number' ||
+    typeof candidate.sessionId !== 'string' ||
+    candidate.consumer !== 'chat_runtime' ||
+    candidate.status !== 'completed' ||
+    !candidate.workspace ||
+    typeof candidate.workspace !== 'object' ||
+    !candidate.finalResponse ||
+    typeof candidate.finalResponse.content !== 'string' ||
+    !candidate.finalResponse.content.trim()
+  ) {
+    throw new Error('Turn version contains an invalid ready-to-commit candidate.')
+  }
+  if (
+    candidate.workspace.eventId !== candidate.eventId ||
+    candidate.workspace.turnId !== candidate.turnId ||
+    candidate.workspace.sessionId !== candidate.sessionId
+  ) {
+    throw new Error('Ready-to-commit candidate identity does not match its workspace.')
+  }
+  return candidate as MainAgentReadyToCommitCandidate
 }

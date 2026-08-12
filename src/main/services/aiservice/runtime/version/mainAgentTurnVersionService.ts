@@ -3,9 +3,15 @@ import { AppDataSource } from '../../../../database'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
 import type { MessagesState } from '../../agentrsystem/state/messageState'
+import type {
+  MainAgentGraphTurnResult,
+  MainAgentReadyToCommitCandidate
+} from '@share/cache/AItype/states/turnWorkspace'
 import {
+  deserializeReadyToCommitCandidate,
   deserializeTurnGraphState,
   readCompletedActionKeys,
+  serializeReadyToCommitCandidate,
   serializeTurnGraphState,
   type MainAgentResumePoint
 } from './turnVersionSnapshot'
@@ -29,6 +35,16 @@ export type TurnWorkspaceControlResult = {
   turnId?: number
   versionId?: number
 }
+
+export type MainAgentRestorableHead =
+  | {
+      kind: 'checkpoint'
+      state: Partial<typeof MessagesState.State>
+    }
+  | {
+      kind: 'ready_to_commit'
+      candidate: MainAgentReadyToCommitCandidate
+    }
 
 class MainAgentTurnVersionService {
   private readonly runtime = new AsyncLocalStorage<TurnVersionRuntimeContext>()
@@ -66,17 +82,77 @@ class MainAgentTurnVersionService {
     }
   }
 
-  async loadHeadState(turnId: number): Promise<Partial<typeof MessagesState.State> | null> {
+  async prepareReadyToCommit(graphResult: MainAgentGraphTurnResult): Promise<void> {
+    const context = this.runtime.getStore()
+    if (!context) {
+      throw new Error('Cannot prepare a final candidate outside an active turn context.')
+    }
+    if (!graphResult.finalResponse?.content.trim()) {
+      throw new Error('Cannot prepare a final candidate without a canonical response.')
+    }
+    if (
+      graphResult.workspace.eventId !== context.eventId ||
+      graphResult.workspace.turnId !== context.turnId
+    ) {
+      throw new Error('Final candidate workspace does not match the active turn.')
+    }
+    const candidate: MainAgentReadyToCommitCandidate = {
+      schemaVersion: 1,
+      eventId: context.eventId,
+      turnId: context.turnId,
+      sessionId: graphResult.workspace.sessionId,
+      consumer: 'chat_runtime',
+      status: 'completed',
+      workspace: graphResult.workspace,
+      finalResponse: graphResult.finalResponse
+    }
+    const shouldPause = this.pauseRequestedEventIds.has(context.eventId)
+    await persistTurnVersion(AppDataSource, {
+      eventId: context.eventId,
+      turnId: context.turnId,
+      kind: 'ready_to_commit',
+      resumePoint: 'commit_turn',
+      snapshotJson: serializeReadyToCommitCandidate(candidate),
+      pause: shouldPause
+    })
+    if (shouldPause) {
+      this.pauseRequestedEventIds.delete(context.eventId)
+      throw new MainAgentTurnPausedError()
+    }
+  }
+
+  async hasReadyToCommitHead(turnId: number): Promise<boolean> {
+    const turn = await AppDataSource.getRepository(MainAgentTurnRecord).findOneBy({ id: turnId })
+    if (!turn?.headVersionId) return false
+    const head = await AppDataSource.getRepository(MainAgentTurnVersionRecord).findOneBy({
+      id: turn.headVersionId
+    })
+    return head?.kind === 'ready_to_commit'
+  }
+
+  async loadHead(turnId: number): Promise<MainAgentRestorableHead | null> {
     const turn = await AppDataSource.getRepository(MainAgentTurnRecord).findOneBy({ id: turnId })
     if (!turn?.headVersionId) return null
     const version = await AppDataSource.getRepository(MainAgentTurnVersionRecord).findOneBy({
       id: turn.headVersionId
     })
     if (!version) throw new Error(`Turn ${turnId} points to a missing HEAD version.`)
-    return deserializeTurnGraphState(
-      version.snapshotJson,
-      version.resumePoint as MainAgentResumePoint
-    )
+    if (version.kind === 'ready_to_commit') {
+      return {
+        kind: 'ready_to_commit',
+        candidate: deserializeReadyToCommitCandidate(version.snapshotJson)
+      }
+    }
+    if (version.kind !== 'checkpoint') {
+      throw new Error(`Turn ${turnId} cannot resume from ${version.kind} HEAD.`)
+    }
+    return {
+      kind: 'checkpoint',
+      state: deserializeTurnGraphState(
+        version.snapshotJson,
+        version.resumePoint as MainAgentResumePoint
+      )
+    }
   }
 
   async rollbackPausedTurn(): Promise<TurnWorkspaceControlResult> {

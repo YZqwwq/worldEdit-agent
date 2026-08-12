@@ -49,11 +49,11 @@
 当前未提交工作区已经支持暂停、继续和单步回退，但仍有四个必须先收口的缺口：
 
 1. 已完成：保存 Version/HEAD 与标记 Turn/Event paused 已合并为同一事务；编排层的二次 `pause_turn` 已移除，并完成真实 SQLite 成功、失败回滚和重新打开验证。
-2. 最后一个 Graph 节点完成后没有 `ready_to_commit` Final 候选；末尾收到的暂停请求可能被清除并继续提交。
-3. 启动恢复仍把带 HEAD 的 processing Turn 标记 failed，没有从最后完整版本恢复。
+2. 已完成：最后一个 Graph 节点结束后保存 `ready_to_commit` 权威候选，正式提交事务内生成 Final Version；末尾暂停可停在 ready 候选，继续或崩溃恢复只执行提交。
+3. 部分完成：带 ready HEAD 的 processing Turn 已可恢复；普通 checkpoint 仍会标记 failed，必须先用 planned/receipt/unknown 闭合工具执行窗口，不能贸然自动重放。
 4. paused Turn 不能取消并释放队列。
 
-后续顺序：Final 候选/Final Version -> 运行中崩溃恢复 -> 取消 paused Turn -> 完整重启故障矩阵测试。
+后续顺序：取消 paused Turn -> 完整重启故障矩阵测试 -> 工具 planned action -> 普通 checkpoint 运行中崩溃恢复。
 
 六个验收位置统一为：暂停前、暂停事务中、暂停完成后、恢复运行中、Final 提交前、Final 提交后。它们是故障检查位置，不全部是新的状态；具体定义见 `turn-version-design.md`。
 
@@ -232,11 +232,12 @@ LangGraph 节点在 Event/Turn 提交完成前直接写入：
 5. 已确认：所有主 Agent 工作共用单实例串行队列，暂停 Turn 继续占有队列；当前不把 Persona/Memory Slots revision 作为优先修复，运行控制层同时增加了重复 active run 断言。
 6. 已完成第一阶段：为普通主 Agent Turn 建立持久化版本、HEAD、paused 状态、稳定节点继续和未提交工作区单步回退；跨越已完成工具动作的回退会被拒绝。
 7. 已完成：暂停 Version/HEAD/Turn/Event 原子事务；恢复入口同时修正了 `resumeFromHead` 参数漏传。
-8. 下一步：补齐 `ready_to_commit`/Final Version、运行中崩溃恢复和取消 paused Turn。
-9. 用真实数据库和应用重启覆盖六个故障位置；通过后再接入工具 planned action。
-10. 以世界文档验证最小 `TurnChangeSet`，不先建立覆盖所有工具和文件的统一虚拟层。
-11. 补齐提交清单与提交后动作恢复。
-12. 删除死字段、未使用参数和未生效规则后，再推进长期重要事件记忆。
+8. 已完成：`ready_to_commit`/Final Version，以及 ready 候选崩溃后只重试提交的恢复路径。
+9. 下一步：增加取消 paused Turn，并用真实数据库和应用重启覆盖六个故障位置。
+10. 接入工具 planned action 后，再开放普通 checkpoint 的运行中崩溃恢复。
+11. 以世界文档验证最小 `TurnChangeSet`，不先建立覆盖所有工具和文件的统一虚拟层。
+12. 补齐提交清单与提交后动作恢复。
+13. 删除死字段、未使用参数和未生效规则后，再推进长期重要事件记忆。
 
 ## 必须补充的验收测试
 

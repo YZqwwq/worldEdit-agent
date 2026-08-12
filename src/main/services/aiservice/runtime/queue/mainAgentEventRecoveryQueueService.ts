@@ -2,6 +2,7 @@ import { mainAgentDispatchService } from './mainAgentDispatchQueueService'
 import { taskNotificationService } from '../../../task/taskNotificationService'
 import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
 import { mainAgentTurnService } from '../mainAgentTurnService'
+import { mainAgentTurnVersionService } from '../version/mainAgentTurnVersionService'
 
 class MainAgentEventRecoveryService {
   async restorePausedTurn(): Promise<void> {
@@ -38,6 +39,16 @@ class MainAgentEventRecoveryService {
                 ? 'background_persona_stage_completed'
                 : 'background_persona_stage_interrupted'
         })
+        continue
+      }
+
+      if (
+        event.type === 'user_message' &&
+        turn?.status === 'processing' &&
+        await mainAgentTurnVersionService.hasReadyToCommitHead(turn.id)
+      ) {
+        await mainAgentEventLogService.resetToQueued(event.id)
+        mainAgentDispatchService.stageRecoveredEvent(event)
         continue
       }
 

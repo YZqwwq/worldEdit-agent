@@ -34,3 +34,14 @@ export type MainAgentGraphTurnResult = {
   workspace: TurnWorkspace
   finalResponse?: MainAgentFinalResponse
 }
+
+export type MainAgentReadyToCommitCandidate = {
+  schemaVersion: 1
+  eventId: string
+  turnId: number
+  sessionId: string
+  consumer: 'chat_runtime'
+  status: 'completed'
+  workspace: TurnWorkspace
+  finalResponse: MainAgentFinalResponse
+}

@@ -39,10 +39,13 @@ export type MainAgentChatRuntimeResult = {
 
 const readGraphTurnResult = (value: unknown): MainAgentGraphTurnResult | undefined => {
   if (!value || typeof value !== 'object') return undefined
-  const candidate = value as Partial<MainAgentGraphTurnResult>
-  if (!candidate.workspace || typeof candidate.workspace !== 'object') return undefined
+  const candidate = value as Partial<MainAgentGraphTurnResult> & {
+    turnWorkspace?: MainAgentGraphTurnResult['workspace']
+  }
+  const workspace = candidate.workspace ?? candidate.turnWorkspace
+  if (!workspace || typeof workspace !== 'object') return undefined
   return {
-    workspace: candidate.workspace,
+    workspace,
     finalResponse: candidate.finalResponse
   }
 }
@@ -68,12 +71,24 @@ class MainAgentChatRuntimeService {
       persistedMessage?.createdAt instanceof Date
         ? persistedMessage.createdAt.toISOString()
         : new Date().toISOString()
-    const restoredState = resumeFromHead
-      ? await mainAgentTurnVersionService.loadHeadState(turnId)
+    const restoredHead = resumeFromHead
+      ? await mainAgentTurnVersionService.loadHead(turnId)
       : null
-    if (resumeFromHead && !restoredState) {
+    if (resumeFromHead && !restoredHead) {
       throw new Error(`Paused turn ${turnId} has no restorable HEAD version.`)
     }
+    if (restoredHead?.kind === 'ready_to_commit') {
+      return {
+        fullText: restoredHead.candidate.finalResponse.content,
+        interrupted: false,
+        paused: false,
+        graphResult: {
+          workspace: restoredHead.candidate.workspace,
+          finalResponse: restoredHead.candidate.finalResponse
+        }
+      }
+    }
+    const restoredState = restoredHead?.kind === 'checkpoint' ? restoredHead.state : null
     const restoredWorkspace = restoredState?.turnWorkspace
     const [memorySlots, persona] = restoredWorkspace
       ? [restoredWorkspace.base.memorySlots, restoredWorkspace.base.persona]
@@ -154,6 +169,10 @@ class MainAgentChatRuntimeService {
               graphResult = readGraphTurnResult(event.data?.output) ?? graphResult
             }
           }
+          if (!graphResult) {
+            throw new Error('Agent graph completed without a final turn result.')
+          }
+          await mainAgentTurnVersionService.prepareReadyToCommit(graphResult)
         })
         const canonicalText = graphResult?.finalResponse?.content ?? fullText
         return { fullText: canonicalText, interrupted: false, paused: false, graphResult }

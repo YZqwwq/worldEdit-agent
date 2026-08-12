@@ -248,13 +248,14 @@ Turn Version 使用“小状态快照 + 大数据引用”：
 2. 已接入普通主 Agent Graph 的稳定节点恢复；暂停 Turn 阻塞统一队列。
 3. 已限制第一阶段不能跨越已完成工具动作回退。
 4. 已完成原子化暂停落盘：Version、HEAD、Turn paused、Event paused 处于同一事务；编排层不再二次标记暂停。
-5. 下一步增加 `ready_to_commit` Final 候选和 Final Version，闭合最后节点到正式提交之间的窗口。
-6. 增加取消 paused Turn：丢弃未提交 Draft/ChangeSet、释放队列，并明确不撤销已发生的外部副作用。
-7. 建立真实数据库、应用重启、多节点恢复和上述六个故障位置的测试夹具。
-8. 接入工具调用前 planned action 持久化，闭合不可延迟写工具的崩溃窗口。
-9. 以世界文档为首个用例验证最小 `TurnChangeSet`，再决定是否扩展到其他应用内写工具。
-10. 扩展到多工具、子 Agent 和后台人格阶段。
-11. 最后处理外部写工具的查询、幂等和补偿语义。
+5. 已完成 `ready_to_commit` Final 候选和 Final Version：最后节点结束后先保存权威候选，正式提交事务内再生成 Final 收据。
+6. 已支持 ready 候选恢复：崩溃后只重新进入提交，不重跑 Graph；普通 checkpoint 的运行中崩溃仍等待工具 planned action 后再开放恢复。
+7. 下一步增加取消 paused Turn：丢弃未提交 Draft/ChangeSet、释放队列，并明确不撤销已发生的外部副作用。
+8. 建立真实数据库、应用重启、多节点恢复和上述六个故障位置的测试夹具。
+9. 接入工具调用前 planned action 持久化，闭合不可延迟写工具的崩溃窗口。
+10. 以世界文档为首个用例验证最小 `TurnChangeSet`，再决定是否扩展到其他应用内写工具。
+11. 扩展到多工具、子 Agent 和后台人格阶段。
+12. 最后处理外部写工具的查询、幂等和补偿语义。
 
 ### 第一阶段当前边界
 
@@ -265,7 +266,7 @@ Turn Version 使用“小状态快照 + 大数据引用”：
 - 不支持跨越已完成工具动作回退。
 - 不把 Final 后撤回纳入 Turn Version。
 - 暂停 Version/HEAD 与 Turn/Event paused 已收敛到同一事务，并通过成功、注入失败回滚和 SQLite 重新打开测试。
-- 最后计算节点之后尚无 `ready_to_commit`/Final Version。
+- 最后计算节点之后已生成 `ready_to_commit`，正式提交事务内生成 Final Version；ready 崩溃恢复不会重跑模型。
 - 暂停 Turn 尚不能取消并释放队列。
 - 世界文档等写工具当前直接产生正式副作用，尚未进入 `TurnChangeSet`。
 - 工具执行中崩溃时的 unknown 状态仍需 planned action 协议解决。

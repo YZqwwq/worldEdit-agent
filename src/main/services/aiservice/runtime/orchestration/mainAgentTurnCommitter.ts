@@ -14,6 +14,7 @@ import type { InteractionObservationSnapshot } from '@share/cache/AItype/states/
 import { getMainAgentToolEntry } from '../../ai-utils/toolkits/mainAgentToolRegistry'
 import { toolUsageStatsService } from '../../ai-utils/toolkits/toolUsageStatsService'
 import { resolveTurnWorkspaceCommitPolicy } from './turnCommitPolicy'
+import { persistFinalTurnVersionWithManager } from '../version/turnVersionPersistence'
 
 export type MainAgentTurnCommitInput = Pick<
   MainAgentCommitTurnEffect,
@@ -143,6 +144,24 @@ class MainAgentTurnCommitter {
       event.errorMessage = input.errorMessage?.trim() || ''
       event.finishedAt = now
       await eventRepo.save(event)
+
+      const finalVersion = await persistFinalTurnVersionWithManager(manager, {
+        turn,
+        snapshotJson: JSON.stringify({
+          schemaVersion: 1,
+          eventId: input.eventId,
+          turnId: input.turnId,
+          sessionId: input.sessionId,
+          consumer: input.consumer,
+          status: input.status,
+          finalResponse: input.finalResponse,
+          workspace: input.workspace,
+          errorMessage: input.errorMessage,
+          observations: input.observations
+        })
+      })
+      turn.headVersionId = finalVersion.id
+      await turnRepo.save(turn)
     })
 
     if (input.status === 'completed' && input.workspace) {

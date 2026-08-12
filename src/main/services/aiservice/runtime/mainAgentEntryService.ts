@@ -16,6 +16,7 @@ import { taskNotificationDispatchBridge } from './queue/taskNotificationDispatch
 import { mainAgentTurnService } from './mainAgentTurnService'
 import { taskNotificationService } from '../../task/taskNotificationService'
 import { interactionObservationService } from '../agentrsystem/manager/personal/interactionObservationService'
+import { mainAgentTurnVersionService } from './version/mainAgentTurnVersionService'
 
 class MainAgentEntryService {
   constructor() {
@@ -67,7 +68,10 @@ class MainAgentEntryService {
           sessionId,
           userMessageId
         })
-        const resumeFromHead = turn.status === 'paused'
+        const resumeFromHead =
+          turn.status === 'paused' ||
+          (turn.status === 'processing' &&
+            await mainAgentTurnVersionService.hasReadyToCommitHead(turn.id))
         await mainAgentTurnService.markProcessing(turn.id)
         return { turnId: turn.id, resumeFromHead }
       },

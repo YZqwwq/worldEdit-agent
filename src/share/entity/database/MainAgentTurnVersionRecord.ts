@@ -1,5 +1,7 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm'
 
+export type MainAgentTurnVersionKind = 'checkpoint' | 'ready_to_commit' | 'final'
+
 @Entity('main_agent_turn_version')
 export class MainAgentTurnVersionRecord {
   @PrimaryGeneratedColumn()
@@ -13,6 +15,9 @@ export class MainAgentTurnVersionRecord {
 
   @Column({ type: 'integer', nullable: true })
   parentVersionId!: number | null
+
+  @Column({ type: 'text', default: 'checkpoint' })
+  kind!: MainAgentTurnVersionKind
 
   @Column({ type: 'text' })
   resumePoint!: string
