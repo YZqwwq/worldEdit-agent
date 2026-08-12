@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
+import { DataSource } from 'typeorm'
 import {
   deserializeTurnGraphState,
   readCompletedActionKeys,
@@ -10,6 +14,12 @@ import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memo
 import { createTurnWorkspace } from '../../agentrsystem/state/turnWorkspace'
 import type { MessagesState } from '../../agentrsystem/state/messageState'
 import { canTransitionMainAgentEventStatus, canTransitionMainAgentTurnStatus } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
+import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
+import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
+import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
+import { persistTurnVersion } from '../../runtime/version/turnVersionPersistence'
+
+const sqliteTest = process.env.RUN_TURN_VERSION_SQLITE_TESTS === '1' ? test : test.skip
 
 const createState = (): typeof MessagesState.State => ({
   messages: [
@@ -52,6 +62,59 @@ const createState = (): typeof MessagesState.State => ({
   }
 }) as unknown as typeof MessagesState.State
 
+const createVersionDataSource = async (
+  database: string,
+  synchronize = true
+): Promise<DataSource> => {
+  const dataSource = new DataSource({
+    type: 'better-sqlite3',
+    database,
+    synchronize,
+    entities: [MainAgentEventRecord, MainAgentTurnRecord, MainAgentTurnVersionRecord]
+  })
+  await dataSource.initialize()
+  return dataSource
+}
+
+const seedProcessingTurn = async (
+  dataSource: DataSource,
+  eventId: string
+): Promise<MainAgentTurnRecord> => {
+  await dataSource.getRepository(MainAgentEventRecord).save({
+    id: eventId,
+    type: 'user_message',
+    source: 'user',
+    sessionId: 'default',
+    priority: 'interactive',
+    createdAtMs: Date.now(),
+    dedupeKey: null,
+    payloadJson: '{}',
+    status: 'processing',
+    consumer: null,
+    summary: '',
+    errorMessage: '',
+    startedAt: new Date(),
+    finishedAt: null
+  })
+  return dataSource.getRepository(MainAgentTurnRecord).save({
+    eventId,
+    sessionId: 'default',
+    consumer: 'chat_runtime',
+    status: 'processing',
+    userMessageId: null,
+    aiMessageId: null,
+    headVersionId: null,
+    reversible: 1,
+    memoryCheckpointJson: '{}',
+    errorMessage: '',
+    startedAt: new Date(),
+    completedAt: null,
+    interruptedAt: null,
+    pausedAt: null,
+    revertedAt: null
+  })
+}
+
 test('turn graph snapshot restores messages, workspace and exact resume point', () => {
   const snapshot = serializeTurnGraphState(createState())
   const restored = deserializeTurnGraphState(snapshot, 'toolNode')
@@ -75,4 +138,133 @@ test('paused is a resumable state rather than a committed terminal state', () =>
   assert.equal(canTransitionMainAgentEventStatus('paused', 'processing'), true)
   assert.equal(canTransitionMainAgentTurnStatus('processing', 'paused'), true)
   assert.equal(canTransitionMainAgentTurnStatus('paused', 'processing'), true)
+})
+
+sqliteTest('pause checkpoint atomically saves version, HEAD, turn and event state', async () => {
+  const dataSource = await createVersionDataSource(':memory:')
+  try {
+    const eventId = 'atomic-pause-success'
+    const turn = await seedProcessingTurn(dataSource, eventId)
+    const first = await persistTurnVersion(dataSource, {
+      eventId,
+      turnId: turn.id,
+      resumePoint: 'contextNode',
+      snapshotJson: '{"checkpoint":1}',
+      pause: false
+    })
+    const paused = await persistTurnVersion(dataSource, {
+      eventId,
+      turnId: turn.id,
+      resumePoint: 'llmCall',
+      snapshotJson: '{"checkpoint":2}',
+      pause: true
+    })
+
+    const savedTurn = await dataSource.getRepository(MainAgentTurnRecord).findOneByOrFail({ id: turn.id })
+    const savedEvent = await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })
+    const versions = await dataSource.getRepository(MainAgentTurnVersionRecord).find({
+      where: { turnId: turn.id },
+      order: { sequence: 'ASC' }
+    })
+
+    assert.equal(versions.length, 2)
+    assert.equal(paused.sequence, 2)
+    assert.equal(paused.parentVersionId, first.id)
+    assert.equal(savedTurn.headVersionId, paused.id)
+    assert.equal(savedTurn.status, 'paused')
+    assert.ok(savedTurn.pausedAt instanceof Date)
+    assert.equal(savedEvent.status, 'paused')
+    assert.equal(savedEvent.summary, 'turn_paused')
+    assert.equal(savedEvent.finishedAt, null)
+  } finally {
+    await dataSource.destroy()
+  }
+})
+
+sqliteTest('pause transaction rolls back version and HEAD when the event update fails', async () => {
+  const dataSource = await createVersionDataSource(':memory:')
+  try {
+    const eventId = 'atomic-pause-rollback'
+    const turn = await seedProcessingTurn(dataSource, eventId)
+    const first = await persistTurnVersion(dataSource, {
+      eventId,
+      turnId: turn.id,
+      resumePoint: 'contextNode',
+      snapshotJson: '{"checkpoint":1}',
+      pause: false
+    })
+    await dataSource.query(`
+      CREATE TRIGGER reject_paused_event
+      BEFORE UPDATE ON main_agent_event_record
+      WHEN NEW.status = 'paused'
+      BEGIN
+        SELECT RAISE(ABORT, 'injected pause failure');
+      END
+    `)
+
+    await assert.rejects(
+      persistTurnVersion(dataSource, {
+        eventId,
+        turnId: turn.id,
+        resumePoint: 'llmCall',
+        snapshotJson: '{"checkpoint":2}',
+        pause: true
+      }),
+      /injected pause failure/
+    )
+
+    const savedTurn = await dataSource.getRepository(MainAgentTurnRecord).findOneByOrFail({ id: turn.id })
+    const savedEvent = await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })
+    const versions = await dataSource.getRepository(MainAgentTurnVersionRecord).findBy({ turnId: turn.id })
+
+    assert.equal(versions.length, 1)
+    assert.equal(savedTurn.headVersionId, first.id)
+    assert.equal(savedTurn.status, 'processing')
+    assert.equal(savedTurn.pausedAt, null)
+    assert.equal(savedEvent.status, 'processing')
+    assert.equal(savedEvent.summary, '')
+  } finally {
+    await dataSource.destroy()
+  }
+})
+
+sqliteTest('an atomically paused turn remains discoverable after reopening SQLite', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'worldedit-turn-version-'))
+  const database = join(directory, 'turn-version.sqlite')
+  let writer: DataSource | undefined
+  let reader: DataSource | undefined
+  try {
+    writer = await createVersionDataSource(database)
+    const eventId = 'atomic-pause-reopen'
+    const turn = await seedProcessingTurn(writer, eventId)
+    const version = await persistTurnVersion(writer, {
+      eventId,
+      turnId: turn.id,
+      resumePoint: 'toolNode',
+      snapshotJson: '{"checkpoint":"paused"}',
+      pause: true
+    })
+    await writer.destroy()
+    writer = undefined
+
+    reader = await createVersionDataSource(database, false)
+    const pausedTurn = await reader.getRepository(MainAgentTurnRecord).findOneByOrFail({
+      status: 'paused'
+    })
+    const pausedEvent = await reader.getRepository(MainAgentEventRecord).findOneByOrFail({
+      status: 'paused'
+    })
+    const head = await reader.getRepository(MainAgentTurnVersionRecord).findOneByOrFail({
+      id: pausedTurn.headVersionId ?? -1
+    })
+
+    assert.equal(pausedTurn.eventId, eventId)
+    assert.equal(pausedEvent.id, eventId)
+    assert.equal(head.id, version.id)
+    assert.equal(head.resumePoint, 'toolNode')
+  } finally {
+    if (writer?.isInitialized) await writer.destroy()
+    if (reader?.isInitialized) await reader.destroy()
+    await rm(directory, { recursive: true, force: true })
+  }
 })

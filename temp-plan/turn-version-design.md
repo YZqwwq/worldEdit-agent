@@ -247,8 +247,8 @@ Turn Version 使用“小状态快照 + 大数据引用”：
 1. 已完成第一阶段基础：最小 Turn Version、HEAD、`paused` 状态和未提交工作区单步回退。
 2. 已接入普通主 Agent Graph 的稳定节点恢复；暂停 Turn 阻塞统一队列。
 3. 已限制第一阶段不能跨越已完成工具动作回退。
-4. 下一步原子化暂停落盘：Version、HEAD、Turn paused、Event paused 必须处于同一事务。
-5. 增加 `ready_to_commit` Final 候选和 Final Version，闭合最后节点到正式提交之间的窗口。
+4. 已完成原子化暂停落盘：Version、HEAD、Turn paused、Event paused 处于同一事务；编排层不再二次标记暂停。
+5. 下一步增加 `ready_to_commit` Final 候选和 Final Version，闭合最后节点到正式提交之间的窗口。
 6. 增加取消 paused Turn：丢弃未提交 Draft/ChangeSet、释放队列，并明确不撤销已发生的外部副作用。
 7. 建立真实数据库、应用重启、多节点恢复和上述六个故障位置的测试夹具。
 8. 接入工具调用前 planned action 持久化，闭合不可延迟写工具的崩溃窗口。
@@ -264,7 +264,7 @@ Turn Version 使用“小状态快照 + 大数据引用”：
 - 支持暂停状态下单步回退父版本。
 - 不支持跨越已完成工具动作回退。
 - 不把 Final 后撤回纳入 Turn Version。
-- 暂停 Version/HEAD 与 Turn/Event paused 当前尚非同一事务。
+- 暂停 Version/HEAD 与 Turn/Event paused 已收敛到同一事务，并通过成功、注入失败回滚和 SQLite 重新打开测试。
 - 最后计算节点之后尚无 `ready_to_commit`/Final Version。
 - 暂停 Turn 尚不能取消并释放队列。
 - 世界文档等写工具当前直接产生正式副作用，尚未进入 `TurnChangeSet`。

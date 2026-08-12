@@ -135,14 +135,12 @@ const buildInterruptedResult = (
 
 const buildPausedResult = (
   event: MainAgentUserMessageEvent,
-  turnId: number,
   onChunk?: (chunk: StreamChunk) => void
 ): MainAgentEventConsumptionResult => ({
   handled: true,
   consumer: 'chat_runtime',
   summary: 'user_message_paused',
   effects: [
-    { ...createEffectContext(event), type: 'pause_turn', turnId },
     {
       ...createEffectContext(event),
       type: 'stream_paused',
@@ -299,7 +297,7 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
       )
 
       if (result.paused) {
-        return buildPausedResult(event, prepared.turnId, runtime?.onChunk)
+        return buildPausedResult(event, runtime?.onChunk)
       }
 
       if (result.interrupted) {

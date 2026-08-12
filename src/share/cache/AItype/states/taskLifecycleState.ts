@@ -254,11 +254,6 @@ export interface MainAgentStreamErrorEffect extends MainAgentEffectBase {
   message: string
 }
 
-export interface MainAgentPauseTurnEffect extends MainAgentEffectBase {
-  type: 'pause_turn'
-  turnId: number
-}
-
 export interface MainAgentStreamPausedEffect extends MainAgentEffectBase {
   type: 'stream_paused'
   onChunk?: (chunk: StreamChunk) => void
@@ -290,7 +285,6 @@ export interface MainAgentRecordInteractionObservationEffect extends MainAgentEf
 }
 
 export type MainAgentEffect =
-  | MainAgentPauseTurnEffect
   | MainAgentStreamPausedEffect
   | MainAgentCommitTurnEffect
   | MainAgentSaveMessageEffect

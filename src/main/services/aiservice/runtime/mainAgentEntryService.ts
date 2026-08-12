@@ -88,7 +88,8 @@ class MainAgentEntryService {
         content,
         workspaceContext,
         onChunk,
-        taskLifecycle
+        taskLifecycle,
+        resumeFromHead
       ) =>
         mainAgentChatRuntimeService.runUserMessage(
           eventId,
@@ -97,7 +98,8 @@ class MainAgentEntryService {
           content,
           workspaceContext,
           onChunk,
-          taskLifecycle
+          taskLifecycle,
+          resumeFromHead
         ),
       runBackgroundPersonaStage: (eventId, turnId, sessionId, payload) =>
         mainAgentChatRuntimeService.runBackgroundPersonaStage(

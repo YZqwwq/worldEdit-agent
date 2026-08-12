@@ -26,7 +26,7 @@
 
 Turn Version 第一阶段已支持普通主 Agent Turn 的暂停、HEAD 恢复和未提交工作区单步回退，但尚未达到可进入后续治理阶段的稳定线。当前最高优先级待办为：
 
-- [ ] 原子提交 Version、HEAD、Turn paused 与 Event paused。
+- [x] 原子提交 Version、HEAD、Turn paused 与 Event paused；移除编排层二次暂停写入，并修正恢复参数漏传。
 - [ ] 在最后计算节点后建立 `ready_to_commit` Final 候选和 Final Version。
 - [ ] 让带完整 HEAD 的 processing Turn 在崩溃后恢复，而不是直接失败。
 - [ ] 支持取消 paused Turn 并释放串行队列。

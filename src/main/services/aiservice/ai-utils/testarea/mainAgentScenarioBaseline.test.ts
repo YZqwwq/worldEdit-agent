@@ -183,6 +183,6 @@ test('a resumed turn can pause again without publishing a formal commit', async 
 
   assert.equal(receivedResumeFlag, true)
   assert.equal(result.paused, true)
-  assert.deepEqual(appliedEffects.map((effect) => effect.type), ['pause_turn', 'stream_paused'])
+  assert.deepEqual(appliedEffects.map((effect) => effect.type), ['stream_paused'])
   assert.equal(appliedEffects.some((effect) => effect.type === 'commit_turn'), false)
 })

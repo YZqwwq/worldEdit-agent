@@ -9,7 +9,6 @@ import { mainAgentTurnService } from '../mainAgentTurnService'
 import { memoryManager } from '../../agentrsystem/manager/memory/MemoryManager'
 import { interactionObservationService } from '../../agentrsystem/manager/personal/interactionObservationService'
 import { mainAgentTurnCommitter } from './mainAgentTurnCommitter'
-import { mainAgentTurnVersionService } from '../version/mainAgentTurnVersionService'
 
 class MainAgentEffectApplierService {
   async apply(result: MainAgentEventConsumptionResult): Promise<void> {
@@ -20,9 +19,6 @@ class MainAgentEffectApplierService {
 
   private async applyEffect(effect: MainAgentEffect): Promise<void> {
     switch (effect.type) {
-      case 'pause_turn':
-        await mainAgentTurnVersionService.markPaused(effect.eventId, effect.turnId)
-        return
       case 'stream_paused':
         effect.onChunk?.({ type: 'paused', message: effect.message })
         return
@@ -49,8 +45,7 @@ class MainAgentEffectApplierService {
             await mainAgentTurnService.markProcessing(effect.turnId)
             return
           case 'paused':
-            await mainAgentTurnVersionService.markPaused(effect.eventId, effect.turnId)
-            return
+            throw new Error('Paused state must be persisted at a Turn Version boundary.')
           case 'completed':
             await mainAgentTurnService.markCompleted(effect.turnId)
             return

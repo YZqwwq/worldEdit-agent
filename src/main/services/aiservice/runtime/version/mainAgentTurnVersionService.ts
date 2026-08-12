@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { AppDataSource } from '../../../../database'
-import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
 import type { MessagesState } from '../../agentrsystem/state/messageState'
@@ -10,6 +9,7 @@ import {
   serializeTurnGraphState,
   type MainAgentResumePoint
 } from './turnVersionSnapshot'
+import { persistTurnVersion } from './turnVersionPersistence'
 
 type TurnVersionRuntimeContext = {
   eventId: string
@@ -52,59 +52,18 @@ class MainAgentTurnVersionService {
   ): Promise<void> {
     const context = this.runtime.getStore()
     if (!context) return
-    await this.appendVersion(context.turnId, resumePoint, serializeTurnGraphState(state))
-    if (this.pauseRequestedEventIds.delete(context.eventId)) {
+    const shouldPause = this.pauseRequestedEventIds.has(context.eventId)
+    await persistTurnVersion(AppDataSource, {
+      eventId: context.eventId,
+      turnId: context.turnId,
+      resumePoint,
+      snapshotJson: serializeTurnGraphState(state),
+      pause: shouldPause
+    })
+    if (shouldPause) {
+      this.pauseRequestedEventIds.delete(context.eventId)
       throw new MainAgentTurnPausedError()
     }
-  }
-
-  async appendVersion(
-    turnId: number,
-    resumePoint: MainAgentResumePoint,
-    snapshotJson: string
-  ): Promise<MainAgentTurnVersionRecord> {
-    return AppDataSource.transaction(async (manager) => {
-      const turnRepo = manager.getRepository(MainAgentTurnRecord)
-      const versionRepo = manager.getRepository(MainAgentTurnVersionRecord)
-      const turn = await turnRepo.findOneBy({ id: turnId })
-      if (!turn) throw new Error(`Cannot version missing turn: ${turnId}`)
-      if (['completed', 'interrupted', 'failed', 'reverted'].includes(turn.status)) {
-        throw new Error(`Cannot version terminal turn ${turnId} (${turn.status}).`)
-      }
-      const latest = await versionRepo.findOne({
-        where: { turnId },
-        order: { sequence: 'DESC', id: 'DESC' }
-      })
-      const version = versionRepo.create({
-        turnId,
-        sequence: (latest?.sequence ?? 0) + 1,
-        parentVersionId: turn.headVersionId ?? null,
-        resumePoint,
-        snapshotJson
-      })
-      const saved = await versionRepo.save(version)
-      turn.headVersionId = saved.id
-      await turnRepo.save(turn)
-      return saved
-    })
-  }
-
-  async markPaused(eventId: string, turnId: number): Promise<void> {
-    await AppDataSource.transaction(async (manager) => {
-      const turnRepo = manager.getRepository(MainAgentTurnRecord)
-      const eventRepo = manager.getRepository(MainAgentEventRecord)
-      const turn = await turnRepo.findOneBy({ id: turnId })
-      const event = await eventRepo.findOneBy({ id: eventId })
-      if (!turn || !event) throw new Error('Cannot pause a missing main agent turn or event.')
-      if (!turn.headVersionId) throw new Error('Cannot pause a turn without a stable version.')
-      turn.status = 'paused'
-      turn.pausedAt = new Date()
-      event.status = 'paused'
-      event.summary = 'turn_paused'
-      event.finishedAt = null
-      await turnRepo.save(turn)
-      await eventRepo.save(event)
-    })
   }
 
   async loadHeadState(turnId: number): Promise<Partial<typeof MessagesState.State> | null> {
