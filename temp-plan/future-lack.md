@@ -51,13 +51,67 @@
 1. 已完成：保存 Version/HEAD 与标记 Turn/Event paused 已合并为同一事务；编排层的二次 `pause_turn` 已移除，并完成真实 SQLite 成功、失败回滚和重新打开验证。
 2. 已完成：最后一个 Graph 节点结束后保存 `ready_to_commit` 权威候选，正式提交事务内生成 Final Version；末尾暂停可停在 ready 候选，继续或崩溃恢复只执行提交。
 3. 部分完成：带 ready HEAD 的 processing Turn 已可恢复；普通 checkpoint 仍会标记 failed，必须先用 planned/receipt/unknown 闭合工具执行窗口，不能贸然自动重放。
-4. paused Turn 不能取消并释放队列。
+4. 已完成：paused Turn 可以原子进入独立 `cancelled` 终态；数据库提交后才释放队列，保留 Version 审计记录但不发布 Draft。
 
-后续顺序：取消 paused Turn -> 完整重启故障矩阵测试 -> 工具 planned action -> 普通 checkpoint 运行中崩溃恢复。
+后续顺序：完整重启故障矩阵测试 -> 工具 planned action -> 普通 checkpoint 运行中崩溃恢复。
 
 六个验收位置统一为：暂停前、暂停事务中、暂停完成后、恢复运行中、Final 提交前、Final 提交后。它们是故障检查位置，不全部是新的状态；具体定义见 `turn-version-design.md`。
 
 工具状态按三类处理：只读结果保存在未提交 Turn 中并可随取消丢弃；Persona/Memory 等继续使用现有 Draft；应用内文档写入后续使用最小 `TurnChangeSet`，外部不可延迟操作使用 planned/receipt/unknown，不能假装可回滚。
+
+### 2026-08-12：统一系统审计问题
+
+本节只记录尚未收口的问题。TurnWorkspace、Event/Turn、Version/HEAD、`ready_to_commit` 和统一 Committer 均有明确职责，不作为待删除的冗余架构。
+
+#### A1：消息队列错误承担了 Turn 暂停控制（P0）
+
+- 消息队列同时保存普通 Event 和内存 `pausedEvent`，把暂停中的 Turn 当成了队列特殊消息。
+- “继续”先清除 `pausedEvent`，再把原 Event 放回普通队列，导致消息队列重新决定 Turn 的执行顺序。
+- 这使消息状态和 Agent 执行状态重复表达，并可能让暂停期间排队的消息抢先执行。
+- 目标：队列只负责 Event 的 `queued/processing/completed/failed`；暂停、继续、取消和恢复位置只由 Turn/Version 系统管理。
+- 暂停中的 Turn 仍然占用 Agent 执行槽，但不通过 `pausedEvent` 保存第二份队列事实；继续应直接按 Turn ID 从 HEAD 恢复，完成后再消费普通队列。
+
+#### A2：统一撤回系统不是完整、原子的正式撤回（P0）
+
+- Final 后撤回当前只恢复 Memory checkpoint、隐藏消息并修改 Turn。
+- Persona、Memory Slots、Observation、任务状态和工具副作用没有同步补偿。
+- 多个步骤不在同一事务中，失败时可能留下部分撤回状态。
+- 目标：完整补偿机制完成前，将能力降级为“隐藏最后一轮并重新编辑”或暂时禁用；正式撤回以后由 Commit Manifest/Inverse Effects 驱动。
+
+#### A3：统一运行控制系统缺少精确目标校验（P1）
+
+- 继续、回退和取消默认操作数据库中的当前 paused Turn。
+- 多窗口、重复点击或交错控制请求可能操作已经变化的 Turn/HEAD。
+- 目标：控制请求携带 `turnId`、`eventId` 和 `expectedHeadVersionId`，使用 compare-and-set 语义拒绝过期请求。
+
+#### A4：统一提交系统缺少提交后动作恢复（P1）
+
+- Final 主事务已经统一，但工具使用统计和 Memory Stage 归档仍在事务外尽力执行。
+- 失败后没有持久化收据，应用重启也不会补做。
+- 目标：增加最小 Post-Commit Outbox，记录待执行、完成、失败和重试状态；派生动作必须幂等。
+
+#### A5：统一恢复系统尚未闭合工具执行窗口（P1）
+
+- `ready_to_commit` 可以安全恢复，普通 checkpoint 仍只能失败关闭。
+- 外部或不可延迟副作用缺少 `planned/receipt/unknown`，无法判断是否应重放。
+- 目标：先接入工具动作收据，再开放普通 checkpoint 自动恢复。
+
+#### A6：统一版本系统存在快照重复膨胀风险（P2）
+
+- 当前稳定节点保存完整 Graph State，大型 ToolMessage 和工具结果可能在多个 Version 中重复出现。
+- 目标：先观测版本数量、快照大小和重复字节；超过保护线后将大型结果改为引用，不提前建设通用对象存储。
+
+#### A7：统一 Effect 系统存在遗留分支（P2）
+
+- `update_chat_turn`、`sync_memory_messages`、`record_interaction_observation` 当前没有实际生产者。
+- 这些分支会弱化 `commit_turn` 是正式提交唯一入口的约束。
+- 目标：确认无调用后删除死 Effect；保留任务通知仍使用的 `save_message`、`emit_trace` 和纯展示流事件。
+
+#### A8：统一恢复测试没有进入默认完整验收（P1）
+
+- `test:turn-recovery-process` 尚未加入 `test:agent-core`。
+- Node 20 环境必须使用 ABI 匹配的 `better-sqlite3`，关键 SQLite 用例不能静默 skip 后仍视为完整通过。
+- 目标：建立明确的恢复测试入口或纳入核心套件，并在 Electron 启动编排中完成真实恢复验收。
 
 ### P0-1：最终回复没有唯一权威来源
 
@@ -233,11 +287,13 @@ LangGraph 节点在 Event/Turn 提交完成前直接写入：
 6. 已完成第一阶段：为普通主 Agent Turn 建立持久化版本、HEAD、paused 状态、稳定节点继续和未提交工作区单步回退；跨越已完成工具动作的回退会被拒绝。
 7. 已完成：暂停 Version/HEAD/Turn/Event 原子事务；恢复入口同时修正了 `resumeFromHead` 参数漏传。
 8. 已完成：`ready_to_commit`/Final Version，以及 ready 候选崩溃后只重试提交的恢复路径。
-9. 下一步：增加取消 paused Turn，并用真实数据库和应用重启覆盖六个故障位置。
-10. 接入工具 planned action 后，再开放普通 checkpoint 的运行中崩溃恢复。
-11. 以世界文档验证最小 `TurnChangeSet`，不先建立覆盖所有工具和文件的统一虚拟层。
-12. 补齐提交清单与提交后动作恢复。
-13. 删除死字段、未使用参数和未生效规则后，再推进长期重要事件记忆。
+9. 已完成：取消 paused Turn、释放队列及桌面/紧凑聊天入口；取消事务成功和注入失败回滚测试通过。
+10. 已完成：建立 Event/Turn/HEAD 统一恢复判定，生产启动恢复与六故障位置单元矩阵共用规则；真实 SQLite 已验证暂停事务、重新打开、Final 与取消边界。
+11. 已完成：六个故障位置均由独立子进程写入临时 SQLite 后 `SIGKILL`，父进程重开数据库并验证 Event/Turn/HEAD 与恢复动作；暂停事务中强杀确认原子回滚。
+12. 下一步：补完整 Electron 启动编排验收；接入工具 planned action 后，再开放普通 checkpoint 的运行中崩溃恢复。
+12. 以世界文档验证最小 `TurnChangeSet`，不先建立覆盖所有工具和文件的统一虚拟层。
+13. 补齐提交清单与提交后动作恢复。
+14. 删除死字段、未使用参数和未生效规则后，再推进长期重要事件记忆。
 
 ## 必须补充的验收测试
 

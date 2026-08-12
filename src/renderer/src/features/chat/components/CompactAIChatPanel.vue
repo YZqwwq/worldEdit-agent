@@ -8,6 +8,7 @@
           <p>{{ isLoading ? '正在响应' : '待命中' }}</p>
         </div>
       </div>
+      <button v-if="isPaused" type="button" class="compact-icon-btn" title="取消本轮" @click="handleCancelPausedTurn">■</button>
       <button v-if="isPaused" type="button" class="compact-icon-btn" title="回退稳定版本" @click="handleRollbackPausedTurn">↶</button>
       <button v-if="isPaused" type="button" class="compact-icon-btn" title="继续本轮" @click="handleResumePausedTurn">▶</button>
       <button
@@ -83,6 +84,7 @@ const {
   pauseCurrentTurn,
   resumePausedTurn,
   rollbackPausedTurn,
+  cancelPausedTurn,
   revertLastChatTurn,
   loadHistory,
   refreshHistory,
@@ -280,6 +282,10 @@ const handleResumePausedTurn = async (): Promise<void> => {
 
 const handleRollbackPausedTurn = async (): Promise<void> => {
   await rollbackPausedTurn()
+}
+
+const handleCancelPausedTurn = async (): Promise<void> => {
+  await cancelPausedTurn()
 }
 
 const handleRevertLastTurn = async (message?: ChatMessage): Promise<void> => {

@@ -29,7 +29,7 @@ export const persistTurnVersion = async (
     if (turn.eventId !== input.eventId) {
       throw new Error(`Turn ${input.turnId} does not belong to event ${input.eventId}.`)
     }
-    if (['completed', 'interrupted', 'failed', 'reverted'].includes(turn.status)) {
+    if (['completed', 'interrupted', 'cancelled', 'failed', 'reverted'].includes(turn.status)) {
       throw new Error(`Cannot version terminal turn ${input.turnId} (${turn.status}).`)
     }
 
@@ -104,3 +104,49 @@ export const persistFinalTurnVersionWithManager = async (
   })
   return versionRepo.save(finalVersion)
 }
+
+export type CancelPausedTurnPersistenceResult = {
+  turnId: number
+  eventId: string
+}
+
+export const persistCancelledPausedTurn = async (
+  dataSource: DataSource
+): Promise<CancelPausedTurnPersistenceResult | null> =>
+  dataSource.transaction(async (manager) => {
+    const turnRepo = manager.getRepository(MainAgentTurnRecord)
+    const eventRepo = manager.getRepository(MainAgentEventRecord)
+    const versionRepo = manager.getRepository(MainAgentTurnVersionRecord)
+    const turn = await turnRepo.findOne({
+      where: { status: 'paused' },
+      order: { createdAt: 'DESC', id: 'DESC' }
+    })
+    if (!turn) return null
+    const event = await eventRepo.findOneBy({ id: turn.eventId })
+    if (!event) throw new Error(`Cannot cancel paused turn ${turn.id} without its event.`)
+    if (event.status !== 'paused') {
+      throw new Error(
+        `Cannot atomically cancel paused turn/event from ${turn.status}/${event.status}.`
+      )
+    }
+    if (!turn.headVersionId) {
+      throw new Error(`Cannot cancel paused turn ${turn.id} without a HEAD version.`)
+    }
+    const head = await versionRepo.findOneBy({ id: turn.headVersionId })
+    if (!head) throw new Error(`Paused turn ${turn.id} points to a missing HEAD version.`)
+    if (head.kind === 'final') {
+      throw new Error(`Cannot cancel paused turn ${turn.id} from a Final Version.`)
+    }
+
+    const now = new Date()
+    turn.status = 'cancelled'
+    turn.cancelledAt = now
+    turn.errorMessage = ''
+    event.status = 'cancelled'
+    event.summary = 'turn_cancelled'
+    event.errorMessage = ''
+    event.finishedAt = now
+    await turnRepo.save(turn)
+    await eventRepo.save(event)
+    return { turnId: turn.id, eventId: event.id }
+  })

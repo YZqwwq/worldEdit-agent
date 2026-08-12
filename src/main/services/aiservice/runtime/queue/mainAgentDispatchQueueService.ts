@@ -214,6 +214,14 @@ class MainAgentDispatchService {
     })
   }
 
+  releaseCancelledPausedEvent(eventId: string): void {
+    if (this.pausedEvent && this.pausedEvent.id !== eventId) {
+      throw new Error('The cancelled turn does not own the paused dispatch queue.')
+    }
+    this.pausedEvent = null
+    void this.drain()
+  }
+
   reset(): void {
     while (this.queue.length > 0) {
       const entry = this.queue.shift()

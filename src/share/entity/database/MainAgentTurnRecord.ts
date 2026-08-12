@@ -87,6 +87,9 @@ export class MainAgentTurnRecord {
   @Column({ type: 'datetime', nullable: true })
   pausedAt!: Date | null
 
+  @Column({ type: 'datetime', nullable: true })
+  cancelledAt!: Date | null
+
   @Column({
     type: 'datetime',
     nullable: true

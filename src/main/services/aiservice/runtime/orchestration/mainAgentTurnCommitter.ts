@@ -36,7 +36,11 @@ class MainAgentTurnCommitter {
     const existingEvent = await AppDataSource.getRepository(MainAgentEventRecord).findOneBy({
       id: input.eventId
     })
-    if (existingEvent?.status === 'completed' || existingEvent?.status === 'failed') {
+    if (
+      existingEvent?.status === 'completed' ||
+      existingEvent?.status === 'cancelled' ||
+      existingEvent?.status === 'failed'
+    ) {
       return
     }
 

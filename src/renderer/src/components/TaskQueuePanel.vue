@@ -474,6 +474,7 @@ const hasInspection = (execution: TaskExecutionSnapshot): boolean =>
 
 const formatDispatchState = (state: MainAgentDispatchState): string => {
   if (state === 'processing') return '处理中'
+  if (state === 'paused') return '主 Agent 已暂停'
   if (state === 'mixed-active') return '多队列待处理'
   if (state === 'user-active') return '等待用户消息'
   if (state === 'task-active') return '等待任务回流'
@@ -483,6 +484,7 @@ const formatDispatchState = (state: MainAgentDispatchState): string => {
 
 const dispatchStateClass = (state: MainAgentDispatchState): string => {
   if (state === 'processing') return 'bg-emerald-50 text-emerald-700'
+  if (state === 'paused') return 'bg-amber-50 text-amber-700'
   if (state === 'mixed-active') return 'bg-amber-50 text-amber-700'
   if (state === 'user-active') return 'bg-sky-50 text-sky-700'
   if (state === 'task-active') return 'bg-indigo-50 text-indigo-700'
@@ -493,6 +495,8 @@ const dispatchStateClass = (state: MainAgentDispatchState): string => {
 const formatTurnStatus = (status: MainAgentTurnStatus): string => {
   if (status === 'queued') return '排队中'
   if (status === 'processing') return '处理中'
+  if (status === 'paused') return '已暂停'
+  if (status === 'cancelled') return '已取消'
   if (status === 'completed') return '已完成'
   if (status === 'interrupted') return '已中断'
   if (status === 'failed') return '失败'
@@ -502,6 +506,8 @@ const formatTurnStatus = (status: MainAgentTurnStatus): string => {
 const turnStatusClass = (status: MainAgentTurnStatus): string => {
   if (status === 'queued') return 'bg-sky-50 text-sky-700'
   if (status === 'processing') return 'bg-emerald-50 text-emerald-700'
+  if (status === 'paused') return 'bg-amber-50 text-amber-700'
+  if (status === 'cancelled') return 'bg-slate-200 text-slate-600'
   if (status === 'completed') return 'bg-slate-100 text-slate-700'
   if (status === 'interrupted') return 'bg-amber-50 text-amber-700'
   if (status === 'failed') return 'bg-rose-50 text-rose-700'
@@ -596,7 +602,7 @@ const traceStageClass = (stage: TaskTraceStage): string => {
 }
 
 const getTurnTerminalTime = (turn: MainAgentTurnSnapshot): string | undefined =>
-  turn.revertedAt ?? turn.interruptedAt ?? turn.completedAt
+  turn.revertedAt ?? turn.cancelledAt ?? turn.interruptedAt ?? turn.completedAt
 
 const formatIsoTime = (iso?: string): string => {
   if (!iso) return '-'

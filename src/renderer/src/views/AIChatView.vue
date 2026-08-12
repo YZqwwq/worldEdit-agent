@@ -47,6 +47,7 @@
 
         <div class="absolute inset-x-0 bottom-0 z-20 px-8 pb-7 pt-3 pointer-events-none">
           <div v-if="isPaused" class="pointer-events-auto mb-2 flex justify-center gap-2">
+            <button type="button" class="rounded-full border border-rose-200 bg-white px-4 py-1.5 text-sm text-rose-700 shadow-sm" @click="handleCancelPausedTurn">取消本轮</button>
             <button type="button" class="rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm text-slate-700 shadow-sm" @click="handleRollbackPausedTurn">回退稳定版本</button>
             <button type="button" class="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white shadow-sm" @click="handleResumePausedTurn">继续本轮</button>
           </div>
@@ -905,6 +906,7 @@ const {
   pauseCurrentTurn,
   resumePausedTurn,
   rollbackPausedTurn,
+  cancelPausedTurn,
   revertLastChatTurn,
   loadHistory,
   refreshHistory,
@@ -1564,6 +1566,11 @@ const handleResumePausedTurn = async (): Promise<void> => {
 const handleRollbackPausedTurn = async (): Promise<void> => {
   const result = await rollbackPausedTurn()
   showNotice(result.ok ? '工作区已回退' : '无法回退', result.message, result.ok ? 'success' : 'warning')
+}
+
+const handleCancelPausedTurn = async (): Promise<void> => {
+  const result = await cancelPausedTurn()
+  showNotice(result.ok ? '已取消本轮' : '无法取消', result.message, result.ok ? 'success' : 'warning')
 }
 
 const handleRevertLastTurn = async (message?: ChatMessage): Promise<void> => {

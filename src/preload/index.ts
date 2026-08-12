@@ -59,6 +59,7 @@ type Api = {
   pauseCurrentTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
   resumePausedTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
   rollbackPausedTurn: () => Promise<{ ok: boolean; message: string; turnId?: number; versionId?: number }>
+  cancelPausedTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
   getTurnWorkspaceControlState: () => Promise<{ paused: boolean; turnId?: number }>
   revertLastChatTurn: () => Promise<{
     ok: boolean
@@ -209,6 +210,7 @@ const api: Api = {
   pauseCurrentTurn: () => ipcRenderer.invoke('ai:pauseCurrentTurn'),
   resumePausedTurn: () => ipcRenderer.invoke('ai:resumePausedTurn'),
   rollbackPausedTurn: () => ipcRenderer.invoke('ai:rollbackPausedTurn'),
+  cancelPausedTurn: () => ipcRenderer.invoke('ai:cancelPausedTurn'),
   getTurnWorkspaceControlState: () => ipcRenderer.invoke('ai:getTurnWorkspaceControlState'),
   revertLastChatTurn: () => ipcRenderer.invoke('ai:revertLastChatTurn'),
   clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),

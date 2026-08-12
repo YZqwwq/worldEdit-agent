@@ -29,10 +29,27 @@ Turn Version 第一阶段已支持普通主 Agent Turn 的暂停、HEAD 恢复�
 - [x] 原子提交 Version、HEAD、Turn paused 与 Event paused；移除编排层二次暂停写入，并修正恢复参数漏传。
 - [x] 在最后计算节点后建立 `ready_to_commit` Final 候选，并在正式提交事务内生成 Final Version。
 - [ ] 让带完整 HEAD 的 processing Turn 在崩溃后恢复：ready HEAD 已完成；普通 checkpoint 必须等待工具 planned action 后开放。
-- [ ] 支持取消 paused Turn 并释放串行队列。
-- [ ] 用真实 SQLite 和应用重启覆盖暂停前、暂停事务中、暂停完成后、恢复运行中、Final 提交前、Final 提交后。
+- [x] 支持取消 paused Turn：原子进入 `cancelled` 终态后释放串行队列，保留版本但不发布 Draft。
+- [x] 建立 Event/Turn/HEAD 启动恢复判定矩阵，并让生产恢复逻辑与六故障位置单元测试共用同一规则。
+- [x] 用真实子进程强杀与 SQLite 重开覆盖暂停前、暂停事务中、暂停完成后、恢复运行中、Final 提交前、Final 提交后。
+- [ ] 补完整 Electron 启动编排验收，验证恢复动作实际进入 paused owner、ready commit 或终态核对路径。
 - [ ] 为不可延迟副作用接入 planned/receipt/unknown。
 - [ ] 以世界文档验证最小 `TurnChangeSet`；只读工具结果仍作为可丢弃的 Turn 证据，不建设全工具统一虚拟文件系统。
+
+### 2026-08-12 架构收口计划
+
+以下编号对应 `future-lack.md` 的统一系统审计问题，后续按编号逐项讨论和实施：
+
+1. [ ] **A1 队列与 Turn 解耦：** 删除或废弃 `pausedEvent` 队列状态；队列只管理 Event 生命周期，暂停/继续由 Turn/Version 系统直接恢复，不把 paused Event 重新加入普通队列。
+2. [ ] **A2 正式撤回边界：** 先决定降级或暂时禁用当前不完整撤回，再设计 Commit Manifest/Inverse Effects。
+3. [ ] **A3 控制目标校验：** 为继续、回退、取消增加 `turnId`、`eventId`、`expectedHeadVersionId` 和过期请求拒绝。
+4. [ ] **A4 提交后恢复：** 为工具统计和 Memory Stage 归档增加最小 Post-Commit Outbox。
+5. [ ] **A5 工具恢复收据：** 接入 `planned/receipt/unknown`，再开放普通 checkpoint 崩溃恢复。
+6. [ ] **A8 恢复验收：** 将进程恢复测试纳入完整测试入口，修正 Node 20 native ABI 环境并完成 Electron 启动验收。
+7. [ ] **A7 Effect 清理：** 删除确认无生产者的旧 Effect，维持 `commit_turn` 唯一正式提交入口。
+8. [ ] **A6 快照治理：** 先记录 Version 体积和重复率，再决定大型工具结果引用方案。
+
+收口标准：队列不再承担 Turn 暂停控制；运行控制不存在抢占和过期控制；Final 后状态不会被部分撤回；提交后动作可恢复；普通 checkpoint 不会盲目重放副作用；默认完整测试真实覆盖恢复链路。
 
 ## 实施原则
 
@@ -178,11 +195,13 @@ Turn Version 第一阶段已支持普通主 Agent Turn 的暂停、HEAD 恢复�
 
 ## 推荐执行顺序
 
-1. 收口 Turn Version：原子暂停、Final 边界、崩溃恢复和取消 paused Turn。
-2. 完成阶段 0 的真实链路验收，并覆盖六个故障位置及工具副作用恢复。
-3. 实施阶段 1 的 Quick Access 治理。
-4. 结合实际观测推进阶段 2，不凭估算过早压缩 Context。
-5. 先完成阶段 3，再开展阶段 4；`TurnChangeSet` 与文档版本能力共用 revision/diff 基础。
-6. 阶段 5 先完成产品语义讨论，再修改存储与 Recall。
+1. 按 A1、A2、A3 收口运行控制与正式撤回边界。
+2. 按 A4、A5、A8 收口提交后恢复、工具收据和真实恢复验收。
+3. 按 A7、A6 清理遗留职责并治理 Version 体积。
+4. 完成阶段 0 的其他真实链路验收。
+5. 实施阶段 1 的 Quick Access 治理。
+6. 结合实际观测推进阶段 2，不凭估算过早压缩 Context。
+7. 先完成阶段 3，再开展阶段 4；`TurnChangeSet` 与文档版本能力共用 revision/diff 基础。
+8. 阶段 5 先完成产品语义讨论，再修改存储与 Recall。
 
 任何阶段出现新的 P0 数据一致性、无限循环或权限绕过问题时，应暂停后续功能，先回到核心协议修复并补回归测试。

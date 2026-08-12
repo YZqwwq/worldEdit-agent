@@ -136,6 +136,7 @@ class MainAgentTurnService {
       completedAt: null,
       interruptedAt: null,
       pausedAt: null,
+      cancelledAt: null,
       revertedAt: null
     })
     const saved = await this.repo.save(turn)
@@ -168,6 +169,7 @@ class MainAgentTurnService {
       completedAt: null,
       interruptedAt: null,
       pausedAt: null,
+      cancelledAt: null,
       revertedAt: null
     })
     return this.repo.save(turn)
@@ -293,6 +295,7 @@ class MainAgentTurnService {
       completedAt: turn.completedAt?.toISOString(),
       interruptedAt: turn.interruptedAt?.toISOString(),
       pausedAt: turn.pausedAt?.toISOString(),
+      cancelledAt: turn.cancelledAt?.toISOString(),
       revertedAt: turn.revertedAt?.toISOString(),
       errorMessage: turn.errorMessage || undefined
     }))

@@ -62,6 +62,7 @@ declare global {
       turnId?: number
       versionId?: number
     }>
+    cancelPausedTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
     getTurnWorkspaceControlState: () => Promise<{ paused: boolean; turnId?: number }>
     revertLastChatTurn: () => Promise<{
       ok: boolean

@@ -288,6 +288,21 @@ async function rollbackPausedTurn(): Promise<{
   return window.api.rollbackPausedTurn()
 }
 
+async function cancelPausedTurn(): Promise<{ ok: boolean; message: string; turnId?: number }> {
+  if (isLoading.value) return { ok: false, message: '主 Agent 正在运行。' }
+  const result = await window.api.cancelPausedTurn()
+  if (result.ok) {
+    if (pausedDraftMessageId) {
+      messages.value = messages.value.filter((message) => message.id !== pausedDraftMessageId)
+    }
+    pausedDraftMessageId = null
+    isPaused.value = false
+    cleanupListener()
+    await refreshHistory()
+  }
+  return result
+}
+
 async function revertLastChatTurn(): Promise<{
   ok: boolean
   message: string
@@ -439,6 +454,7 @@ export function useAIChatService(): {
     turnId?: number
     versionId?: number
   }>
+  cancelPausedTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
   revertLastChatTurn: () => Promise<{
     ok: boolean
     message: string
@@ -462,6 +478,7 @@ export function useAIChatService(): {
     pauseCurrentTurn,
     resumePausedTurn,
     rollbackPausedTurn,
+    cancelPausedTurn,
     revertLastChatTurn,
     loadHistory,
     refreshHistory,

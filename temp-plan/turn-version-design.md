@@ -59,7 +59,7 @@ Turn 缓存区统一承载：
 - 中断：主动结束本轮，可以保存用户已经看到的部分回复，不能继续原 Turn。
 - 取消：放弃未提交工作区，不发布 Draft。
 
-主 Agent 保持严格串行。暂停的 Turn 继续占有主 Agent 调度权，普通用户消息、任务通知和后台人格阶段只能进入队列等待；只有暂停、回退、继续和取消等控制操作可以作用于当前暂停 Turn。
+主 Agent 保持严格串行。暂停的 Turn 继续占用 Agent 执行槽，但这不是消息队列的特殊所有权；普通用户消息、任务通知和后台人格阶段可以保持在队列中等待，只有暂停、回退、继续和取消等控制操作可以作用于当前暂停 Turn。
 
 ### 暂停
 
@@ -75,10 +75,12 @@ Turn 缓存区统一承载：
 
 ### 继续
 
-1. 读取当前 Turn 的 HEAD。
+1. 按 `turnId` 读取当前 Turn 的 HEAD。
 2. 恢复该版本中的工作状态、执行记录和待提交影响。
 3. 从记录的下一阶段继续。
 4. 不重复执行 HEAD 之前已经完成的动作。
+
+继续不应把原 Event 重新加入普通消息队列。消息队列只负责 Event 的排队和消费状态，Turn/Version 系统直接恢复暂停 Turn；暂停中的 Turn 完成后，调度器再消费其他 queued Event。
 
 HEAD 必须同时记录完整可恢复状态和明确的下一执行节点。只保存 `TurnWorkspace` Draft 不足以继续 Graph，还需要消息状态、工具上下文、执行账本、激活能力和循环计数等继续运行所需的公开状态。
 
@@ -90,10 +92,10 @@ HEAD 必须同时记录完整可恢复状态和明确的下一执行节点。只
 
 | 检查位置 | 持久化状态 | 准确定义 | 崩溃后的期望 |
 |---|---|---|---|
-| 暂停前 | `processing` | Turn 正常运行，暂停请求尚未在稳定边界生效 | 从最近完整 HEAD 恢复；没有 HEAD 才从 Turn 起点恢复 |
+| 暂停前 | `processing` | Turn 正常运行，暂停请求尚未在稳定边界生效 | 当前普通 checkpoint 失败关闭；接入工具 planned/receipt/unknown 后才允许从 HEAD 自动恢复 |
 | 暂停事务中 | 事务未提交 | 正在原子写入 Version、HEAD、Turn `paused`、Event `paused` | SQLite 只能呈现事务前或事务后，不能留下 HEAD 与状态不一致 |
 | 暂停完成后 | `paused` | 上述事务已经提交，执行器已经退出，Turn 仍独占队列 | 重启后仍为 paused，等待继续、回退或取消 |
-| 恢复运行中 | `processing` | 从 HEAD 恢复快照并重新进入原 Turn；不是一个新的 Turn，也不是独立长期状态 | 再次崩溃仍回到最后完整 HEAD，不直接标记 failed |
+| 恢复运行中 | `processing` | 从 HEAD 恢复快照并重新进入原 Turn；不是一个新的 Turn，也不是独立长期状态 | 当前普通 checkpoint 失败关闭，避免重复外部副作用；以后由工具收据决定复用、重试或等待确认 |
 | Final 提交前 | `ready_to_commit` 边界 | Graph 已闭合，最终回复和全部待提交影响已经形成不可变 Final 候选，但尚未发布正式状态 | 重启后只重试幂等提交，不重新运行模型或工具 |
 | Final 提交后 | `completed` + Final 标记 | 正式影响、Turn 和 Event 已提交，Final 可作为提交收据 | 重启只做一致性核对，不重复发布或执行 |
 
@@ -173,10 +175,12 @@ Turn 已经 Final 后的撤回属于补偿操作，需要反向处理消息、�
 
 应用启动时检查未完成 Turn：
 
-- 存在暂停版本：从 HEAD 继续。
-- 运行中异常退出：回到最后一个完整版本。
-- 没有完整版本：回到本轮开始前。
-- 已存在 Final：不得重复执行或重复提交。
+- Turn 为 `paused` 且 HEAD 为 checkpoint 或 ready 候选：恢复 Turn 的执行槽，等待用户继续、回退或取消；消息队列不额外保存一份 paused Event 所有权。
+- `processing + ready_to_commit`：只重新进入 Final 提交，不重新运行 Graph。
+- `processing + checkpoint`：当前失败关闭，不自动重放；工具 planned/receipt/unknown 完成后再开放。
+- Turn 已完成且 HEAD 为 Final、Event 仍为 processing：只核对并补齐 Event 终态。
+- Event 已完成且 HEAD 为 Final：不执行任何动作，不重复发布。
+- Event、Turn、HEAD 无法形成以上一致组合：失败关闭并保留错误原因。
 
 对于外部工具，恢复时依据调用标识和完成收据判断结果：
 
@@ -250,9 +254,9 @@ Turn Version 使用“小状态快照 + 大数据引用”：
 4. 已完成原子化暂停落盘：Version、HEAD、Turn paused、Event paused 处于同一事务；编排层不再二次标记暂停。
 5. 已完成 `ready_to_commit` Final 候选和 Final Version：最后节点结束后先保存权威候选，正式提交事务内再生成 Final 收据。
 6. 已支持 ready 候选恢复：崩溃后只重新进入提交，不重跑 Graph；普通 checkpoint 的运行中崩溃仍等待工具 planned action 后再开放恢复。
-7. 下一步增加取消 paused Turn：丢弃未提交 Draft/ChangeSet、释放队列，并明确不撤销已发生的外部副作用。
-8. 建立真实数据库、应用重启、多节点恢复和上述六个故障位置的测试夹具。
-9. 接入工具调用前 planned action 持久化，闭合不可延迟写工具的崩溃窗口。
+7. 已完成取消 paused Turn：Turn/Event 原子进入 `cancelled` 终态，版本保留用于审计，事务成功后释放队列；人格、记忆和最终回复 Draft 不发布，外部副作用不宣称撤销。
+8. 已建立 Event/Turn/HEAD 统一恢复判定和六故障位置矩阵；真实子进程在各边界被 `SIGKILL` 后，由父进程重新打开独立 SQLite 并验证状态和恢复动作。暂停事务中强杀已验证未提交 Version、HEAD、Turn、Event 会整体回滚。
+9. 下一步补完整 Electron 启动编排验收，确认恢复服务将判定动作正确落实到队列；接入工具调用前 planned action 持久化，闭合不可延迟写工具的崩溃窗口。
 10. 以世界文档为首个用例验证最小 `TurnChangeSet`，再决定是否扩展到其他应用内写工具。
 11. 扩展到多工具、子 Agent 和后台人格阶段。
 12. 最后处理外部写工具的查询、幂等和补偿语义。
@@ -260,13 +264,15 @@ Turn Version 使用“小状态快照 + 大数据引用”：
 ### 第一阶段当前边界
 
 - 支持普通主 Agent 对话在 Graph 稳定节点暂停。
-- 支持应用重启后保留 paused Turn 和队列所有权。
+- 支持应用重启后保留 paused Turn，并阻止其他 Event 占用 Agent 执行槽。
 - 支持从 HEAD 指定节点继续。
 - 支持暂停状态下单步回退父版本。
 - 不支持跨越已完成工具动作回退。
 - 不把 Final 后撤回纳入 Turn Version。
 - 暂停 Version/HEAD 与 Turn/Event paused 已收敛到同一事务，并通过成功、注入失败回滚和 SQLite 重新打开测试。
 - 最后计算节点之后已生成 `ready_to_commit`，正式提交事务内生成 Final Version；ready 崩溃恢复不会重跑模型。
-- 暂停 Turn 尚不能取消并释放队列。
+- 暂停 Turn 已可取消并释放队列；取消后不能继续或回退，但既有 Version 不删除。
+- 启动恢复已统一经过 Event/Turn/HEAD 判定：paused 恢复所有权、ready 只提交、Final 不重放、普通 checkpoint 失败关闭。
+- 六个故障位置已有独立进程强杀与 SQLite 重开测试；测试数据库均位于临时目录，不接触用户数据库。
 - 世界文档等写工具当前直接产生正式副作用，尚未进入 `TurnChangeSet`。
 - 工具执行中崩溃时的 unknown 状态仍需 planned action 协议解决。

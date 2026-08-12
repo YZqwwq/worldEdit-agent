@@ -3,6 +3,17 @@ import { taskNotificationService } from '../../../task/taskNotificationService'
 import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
 import { mainAgentTurnService } from '../mainAgentTurnService'
 import { mainAgentTurnVersionService } from '../version/mainAgentTurnVersionService'
+import { resolveMainAgentTurnRecovery } from '../version/turnRecoveryPolicy'
+import type { MainAgentEvent } from '@share/cache/AItype/states/taskLifecycleState'
+
+const getConsumer = (eventType: 'user_message' | 'background_persona_stage') =>
+  eventType === 'user_message' ? 'chat_runtime' : 'background_persona_stage_consumer'
+
+const getRecoveryFailureSummary = (
+  eventType: 'user_message' | 'background_persona_stage'
+) => eventType === 'user_message'
+  ? 'user_message_reconciled_failed_during_startup'
+  : 'background_persona_stage_reconciled_failed_during_startup'
 
 class MainAgentEventRecoveryService {
   async restorePausedTurn(): Promise<void> {
@@ -10,9 +21,24 @@ class MainAgentEventRecoveryService {
     if (pausedEvents.length > 1) {
       throw new Error('Multiple paused main agent turns violate the serial dispatch invariant.')
     }
-    if (pausedEvents[0]) {
-      mainAgentDispatchService.restorePausedEvent(pausedEvents[0])
+    const event = pausedEvents[0]
+    if (!event) return
+
+    if (event.type !== 'user_message' && event.type !== 'background_persona_stage') {
+      throw new Error('A non-Turn event cannot own the paused main agent queue.')
     }
+    const turn = await mainAgentTurnService.findByEventId(event.id)
+    const decision = resolveMainAgentTurnRecovery({
+      eventType: event.type,
+      eventStatus: 'paused',
+      turnStatus: turn?.status ?? null,
+      headKind: turn ? await mainAgentTurnVersionService.getHeadKind(turn.id) : null
+    })
+    if (decision.action === 'restore_paused_owner') {
+      mainAgentDispatchService.restorePausedEvent(event)
+      return
+    }
+    await this.failClosed(event, decision.reason)
   }
 
   async reconcileTurnOwnedEvents(): Promise<void> {
@@ -24,12 +50,16 @@ class MainAgentEventRecoveryService {
       }
 
       const turn = await mainAgentTurnService.findByEventId(event.id)
-      if (turn?.status === 'completed' || turn?.status === 'interrupted') {
+      const decision = resolveMainAgentTurnRecovery({
+        eventType: event.type,
+        eventStatus: 'processing',
+        turnStatus: turn?.status ?? null,
+        headKind: turn ? await mainAgentTurnVersionService.getHeadKind(turn.id) : null
+      })
+
+      if (decision.action === 'reconcile_completed_event' && turn) {
         await mainAgentEventLogService.markCompleted(event.id, {
-          consumer:
-            event.type === 'user_message'
-              ? 'chat_runtime'
-              : 'background_persona_stage_consumer',
+          consumer: getConsumer(event.type),
           summary:
             event.type === 'user_message'
               ? turn.status === 'completed'
@@ -42,31 +72,13 @@ class MainAgentEventRecoveryService {
         continue
       }
 
-      if (
-        event.type === 'user_message' &&
-        turn?.status === 'processing' &&
-        await mainAgentTurnVersionService.hasReadyToCommitHead(turn.id)
-      ) {
+      if (decision.action === 'resume_ready_commit') {
         await mainAgentEventLogService.resetToQueued(event.id)
         mainAgentDispatchService.stageRecoveredEvent(event)
         continue
       }
 
-      await mainAgentTurnService.reconcileIncompleteTurnForFailedEvent({
-        eventId: event.id,
-        errorMessage: 'Main agent event was interrupted before commit completed.'
-      })
-      await mainAgentEventLogService.markFailed(event.id, {
-        consumer:
-          event.type === 'user_message'
-            ? 'chat_runtime'
-            : 'background_persona_stage_consumer',
-        summary:
-          event.type === 'user_message'
-            ? 'user_message_reconciled_failed_during_startup'
-            : 'background_persona_stage_reconciled_failed_during_startup',
-        errorMessage: 'Main agent event was interrupted before commit completed.'
-      })
+      await this.failClosed(event, decision.reason)
     }
   }
 
@@ -117,6 +129,21 @@ class MainAgentEventRecoveryService {
     for (const event of queuedEvents) {
       mainAgentDispatchService.stageRecoveredEvent(event)
     }
+  }
+
+  private async failClosed(
+    event: Extract<MainAgentEvent, { type: 'user_message' | 'background_persona_stage' }>,
+    errorMessage: string
+  ): Promise<void> {
+    await mainAgentTurnService.reconcileIncompleteTurnForFailedEvent({
+      eventId: event.id,
+      errorMessage
+    })
+    await mainAgentEventLogService.markFailed(event.id, {
+      consumer: getConsumer(event.type),
+      summary: getRecoveryFailureSummary(event.type),
+      errorMessage
+    })
   }
 }
 

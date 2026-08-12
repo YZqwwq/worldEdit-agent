@@ -46,6 +46,8 @@ class MainAgentEffectApplierService {
             return
           case 'paused':
             throw new Error('Paused state must be persisted at a Turn Version boundary.')
+          case 'cancelled':
+            throw new Error('Cancelled state must be persisted by paused Turn control.')
           case 'completed':
             await mainAgentTurnService.markCompleted(effect.turnId)
             return

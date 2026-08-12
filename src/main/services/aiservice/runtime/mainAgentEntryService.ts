@@ -71,7 +71,7 @@ class MainAgentEntryService {
         const resumeFromHead =
           turn.status === 'paused' ||
           (turn.status === 'processing' &&
-            await mainAgentTurnVersionService.hasReadyToCommitHead(turn.id))
+            (await mainAgentTurnVersionService.getHeadKind(turn.id)) === 'ready_to_commit')
         await mainAgentTurnService.markProcessing(turn.id)
         return { turnId: turn.id, resumeFromHead }
       },

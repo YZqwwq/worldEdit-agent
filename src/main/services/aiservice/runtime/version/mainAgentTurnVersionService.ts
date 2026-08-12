@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { AppDataSource } from '../../../../database'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
+import type { MainAgentTurnVersionKind } from '@share/entity/database/MainAgentTurnVersionRecord'
 import type { MessagesState } from '../../agentrsystem/state/messageState'
 import type {
   MainAgentGraphTurnResult,
@@ -15,7 +16,10 @@ import {
   serializeTurnGraphState,
   type MainAgentResumePoint
 } from './turnVersionSnapshot'
-import { persistTurnVersion } from './turnVersionPersistence'
+import {
+  persistCancelledPausedTurn,
+  persistTurnVersion
+} from './turnVersionPersistence'
 
 type TurnVersionRuntimeContext = {
   eventId: string
@@ -34,6 +38,7 @@ export type TurnWorkspaceControlResult = {
   message: string
   turnId?: number
   versionId?: number
+  eventId?: string
 }
 
 export type MainAgentRestorableHead =
@@ -121,13 +126,13 @@ class MainAgentTurnVersionService {
     }
   }
 
-  async hasReadyToCommitHead(turnId: number): Promise<boolean> {
+  async getHeadKind(turnId: number): Promise<MainAgentTurnVersionKind | null> {
     const turn = await AppDataSource.getRepository(MainAgentTurnRecord).findOneBy({ id: turnId })
-    if (!turn?.headVersionId) return false
+    if (!turn?.headVersionId) return null
     const head = await AppDataSource.getRepository(MainAgentTurnVersionRecord).findOneBy({
       id: turn.headVersionId
     })
-    return head?.kind === 'ready_to_commit'
+    return head?.kind ?? null
   }
 
   async loadHead(turnId: number): Promise<MainAgentRestorableHead | null> {
@@ -189,6 +194,19 @@ class MainAgentTurnVersionService {
       message: `已回退到本轮稳定版本 ${parent.sequence}，尚未改变正式记忆或人格状态。`,
       turnId: turn.id,
       versionId: parent.id
+    }
+  }
+
+  async cancelPausedTurn(): Promise<TurnWorkspaceControlResult> {
+    const cancelled = await persistCancelledPausedTurn(AppDataSource)
+    if (!cancelled) {
+      return { ok: false, message: '当前没有可取消的暂停工作区。' }
+    }
+    return {
+      ok: true,
+      message: '已取消本轮未提交工作区；人格、记忆和最终回复均未发布。已发生的外部工具副作用不会被撤销。',
+      turnId: cancelled.turnId,
+      eventId: cancelled.eventId
     }
   }
 }

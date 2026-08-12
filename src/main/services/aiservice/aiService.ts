@@ -253,6 +253,18 @@ class AIService {
     return mainAgentTurnVersionService.rollbackPausedTurn()
   }
 
+  async cancelPausedTurn(): Promise<{ ok: boolean; message: string; turnId?: number }> {
+    const result = await mainAgentTurnVersionService.cancelPausedTurn()
+    if (result.ok && result.eventId) {
+      mainAgentDispatchService.releaseCancelledPausedEvent(result.eventId)
+    }
+    return {
+      ok: result.ok,
+      message: result.message,
+      turnId: result.turnId
+    }
+  }
+
   async getTurnWorkspaceControlState(): Promise<{ paused: boolean; turnId?: number }> {
     const turn = (await mainAgentTurnService.listPausedTurns())[0]
     return turn ? { paused: true, turnId: turn.id } : { paused: false }
