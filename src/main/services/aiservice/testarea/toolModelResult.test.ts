@@ -5,7 +5,7 @@ import {
   buildAgentToolModelMessage,
   defineAgentTool,
   parseAgentToolResultEnvelope
-} from '../core/agentTool'
+} from '../ai-utils/core/agentTool'
 
 test('read-only tools expose the complete validated result to the next model call', async () => {
   const fullContent = Array.from({ length: 320 }, (_, index) => `段落-${index}-完整正文`).join('\n')

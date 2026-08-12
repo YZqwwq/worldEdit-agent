@@ -5,7 +5,7 @@ import {
   resolveArchivePlan,
   RUNTIME_ARCHIVE_HARD_LIMIT,
   SEMANTIC_ARCHIVE_REVIEW_MIN_MESSAGES
-} from '../../agentrsystem/manager/memory/memoryArchivePolicy'
+} from '../agentrsystem/manager/memory/memoryArchivePolicy'
 
 const messages = (count: number): MessageData[] =>
   Array.from({ length: count }, (_, index) => ({

@@ -11,10 +11,10 @@ import {
   readCompletedActionKeys,
   serializeReadyToCommitCandidate,
   serializeTurnGraphState
-} from '../../runtime/version/turnVersionSnapshot'
-import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memoryWritePolicy'
-import { createTurnWorkspace } from '../../agentrsystem/state/turnWorkspace'
-import type { MessagesState } from '../../agentrsystem/state/messageState'
+} from '../runtime/version/turnVersionSnapshot'
+import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
+import { createTurnWorkspace } from '../agentrsystem/state/turnWorkspace'
+import type { MessagesState } from '../agentrsystem/state/messageState'
 import { canTransitionMainAgentEventStatus, canTransitionMainAgentTurnStatus } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
@@ -23,12 +23,12 @@ import {
   persistCancelledPausedTurn,
   persistFinalTurnVersionWithManager,
   persistTurnVersion
-} from '../../runtime/version/turnVersionPersistence'
+} from '../runtime/version/turnVersionPersistence'
 import type { MainAgentReadyToCommitCandidate } from '@share/cache/AItype/states/turnWorkspace'
 import {
   resolveMainAgentTurnRecovery,
   type MainAgentTurnRecoveryState
-} from '../../runtime/version/turnRecoveryPolicy'
+} from '../runtime/version/turnRecoveryPolicy'
 
 const sqliteTest = process.env.RUN_TURN_VERSION_SQLITE_TESTS === '1' ? test : test.skip
 

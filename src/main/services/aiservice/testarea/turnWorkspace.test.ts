@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memoryWritePolicy'
+import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
 import {
   createFinalResponse,
   createTurnWorkspace,
@@ -9,9 +9,9 @@ import {
   withMemorySlotsDraft,
   withObservationDraft,
   withSuccessfulToolUse
-} from '../../agentrsystem/state/turnWorkspace'
-import { shouldBypassInteractivePerception } from '../../agentrsystem/node/instantperceptionnode/instantPerceptionRouting'
-import { resolveTurnWorkspaceCommitPolicy } from '../../runtime/orchestration/turnCommitPolicy'
+} from '../agentrsystem/state/turnWorkspace'
+import { shouldBypassInteractivePerception } from '../agentrsystem/node/instantperceptionnode/instantPerceptionRouting'
+import { resolveTurnWorkspaceCommitPolicy } from '../runtime/orchestration/turnCommitPolicy'
 
 const createWorkspace = () =>
   createTurnWorkspace({

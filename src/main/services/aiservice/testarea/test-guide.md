@@ -14,7 +14,24 @@ npm run test:agent-core
 
 # 用户场景基线
 npm run test:agent-scenario
+
+# Turn Version 快照与原子提交
+npm run test:turn-version
+
+# 独立进程故障注入与崩溃恢复（不在默认核心回归中）
+npm run test:turn-recovery-process
 ```
+
+`test:turn-recovery-process` 必须使用与 `better-sqlite3` 编译 ABI 一致的运行时。Electron 重建后的 native 模块不能由普通 Node 直接加载；出现 `NODE_MODULE_VERSION` 不一致时属于测试运行环境问题，不代表故障边界断言已经执行。
+
+## 文件组织
+
+- `*.test.ts`：可维护的自动化测试源码。
+- `*Worker.ts`：只由测试启动的故障注入或子进程入口。
+- `*.cjs`：依赖真实 API 的手动探针；不是 esbuild 产物。
+- `.generated/*.cjs`：测试命令生成的临时 CommonJS bundle，可随时删除，禁止手工修改和提交。
+
+测试 bundle 不再生成到仓库根目录。历史 `.tmp-*.cjs` 均为下表测试源码的编译副本，不是独立测试案例。
 
 ## 完整交互场景
 
@@ -54,6 +71,28 @@ npm run test:agent-scenario
 - [x] eventual 工具在明确完成前保持未完成状态。
 
 测试文件：[turnExecutionLifecycle.test.ts](./turnExecutionLifecycle.test.ts)
+
+### Agent Loop 暂停与继续
+
+- [ ] 暂停与继续不读写普通消息队列。
+- [ ] 暂停 Turn 保持当前执行槽，新消息保持未处理和原有顺序。
+- [ ] 工具、多个工具和子 Agent 只在稳定边界暂停。
+- [ ] 继续不会重复执行暂停点之前已经完成的动作。
+- [ ] 重复或过期的控制请求按 `turnId + loopRevision` 拒绝。
+- [ ] 当前 Turn 终止后执行槽只释放一次。
+
+计划测试文件：`agentLoopPauseResume.test.ts`。该组只验证同进程运行控制，不使用 SQLite、Version 或 HEAD。
+
+### Turn Version 与崩溃恢复
+
+- [x] Turn Workspace 可以生成和恢复不可变快照。
+- [x] Version、HEAD 与 Turn 状态具备原子提交和失败回滚测试。
+- [x] `ready_to_commit` 候选恢复时不会重跑模型和工具。
+- [x] 独立子进程可以在六个故障边界终止，并由父进程重开 SQLite 验证状态。
+- [ ] 从当前暂停/继续实现移除 Event paused 后，重新建立持久化恢复矩阵。
+- [ ] 恢复只重建 Agent Runtime 与 Loop，不把原 Event 重新加入普通队列。
+
+测试文件：[turnVersionSnapshot.test.ts](./turnVersionSnapshot.test.ts)、[turnRecoveryProcess.test.ts](./turnRecoveryProcess.test.ts)、[turnRecoveryFaultWorker.ts](./turnRecoveryFaultWorker.ts)。
 
 ## 工具系统
 
@@ -122,6 +161,23 @@ npm run test:agent-scenario
 - [officialWebSearchStructureProbe.cjs](./officialWebSearchStructureProbe.cjs)：探测官方联网搜索返回结构。
 
 运行前不得把 API Key 写入仓库。使用环境变量或本机临时配置，并避免在测试输出中打印凭据。
+
+## 生成产物索引
+
+| 测试命令 | 维护源码 | `.generated` 产物 |
+|---|---|---|
+| `test:agent-scenario` | `mainAgentScenarioBaseline.test.ts` | `main-agent-scenario-test.cjs` |
+| `test:memory-archive` | `memoryArchivePolicy.test.ts` | `memory-archive-policy-test.cjs` |
+| `test:recall` | `recallSemantics.test.ts` | `recall-semantics-test.cjs` |
+| `test:tool-error` | `toolErrorProtocol.test.ts` | `tool-error-protocol-test.cjs` |
+| `test:tool-result` | `toolModelResult.test.ts` | `tool-model-result-test.cjs` |
+| `test:tool-registry` | `toolRegistryValidation.test.ts` | `tool-registry-validation-test.cjs` |
+| `test:turn-lifecycle` | `turnExecutionLifecycle.test.ts` | `turn-execution-lifecycle-test.cjs` |
+| `test:turn-version` | `turnVersionSnapshot.test.ts` | `turn-version-test.cjs` |
+| `test:turn-workspace` | `turnWorkspace.test.ts` | `turn-workspace-test.cjs` |
+| `test:tool-contract` | `worldDocumentToolContract.test.ts` | `world-document-tool-contract-test.cjs` |
+| `test:turn-recovery-process` | `turnRecoveryProcess.test.ts` | `turn-recovery-process-test.cjs` |
+| `test:turn-recovery-process` | `turnRecoveryFaultWorker.ts` | `turn-recovery-fault-worker.cjs` |
 
 ## 维护规则
 

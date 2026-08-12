@@ -8,7 +8,7 @@
 
 - 正常成功路径基本可用。
 - 短期记忆、待归档缓冲、Stage 和 Recall 的正常路径已连通。
-- 单轮缓存与统一提交入口已经建立；主 Agent 用户消息、任务通知和后台人格阶段已确认由同一队列严格串行。未提交工作区暂停/回退/继续进入第一阶段，正式撤回语义和提交后动作恢复仍未形成完整闭环。
+- 单轮缓存与统一提交入口已经建立；主 Agent 用户消息、任务通知和后台人格阶段进入同一串行入口。产品已放弃暂停/继续，当前最高优先级是把用户中断改造成完整的 interrupted Turn 提交；崩溃恢复继续由 Turn Version 单独负责。
 - 在 P0 问题收口前，不建议继续扩展 Context Planner 或长期重要事件系统。
 
 ## 单轮提交缺陷的外部表现
@@ -44,18 +44,15 @@
 
 ## P0：运行闭环必须修正
 
-### P0-0：Turn Version 第一阶段仍有恢复窗口
+### P0-0：用户中断尚未形成完整提交
 
-当前未提交工作区已经支持暂停、继续和单步回退，但仍有四个必须先收口的缺口：
+当前 `interruptCurrentRun()` 可以通过 AbortController 停止模型流，但中断结果主要围绕部分回复处理，没有确保 Turn Workspace、执行账本、已完成工具证据和稳定 Effect 通过同一个原子入口提交。
 
-1. 已完成：保存 Version/HEAD 与标记 Turn/Event paused 已合并为同一事务；编排层的二次 `pause_turn` 已移除，并完成真实 SQLite 成功、失败回滚和重新打开验证。
-2. 已完成：最后一个 Graph 节点结束后保存 `ready_to_commit` 权威候选，正式提交事务内生成 Final Version；末尾暂停可停在 ready 候选，继续或崩溃恢复只执行提交。
-3. 部分完成：带 ready HEAD 的 processing Turn 已可恢复；普通 checkpoint 仍会标记 failed，必须先用 planned/receipt/unknown 闭合工具执行窗口，不能贸然自动重放。
-4. 已完成：paused Turn 可以原子进入独立 `cancelled` 终态；数据库提交后才释放队列，保留 Version 审计记录但不发布 Draft。
+方向已经调整：不再继续建设暂停、继续和暂停回退。现有 Version/HEAD、paused Event 和恢复队列代码属于待拆除或重新归属的历史实现；`ready_to_commit`、Final Version 和不可变快照仍可用于崩溃恢复。
 
-后续顺序：完整重启故障矩阵测试 -> 工具 planned action -> 普通 checkpoint 运行中崩溃恢复。
+后续顺序：建立 `commitInterruptedTurn` -> 删除 paused 队列路径 -> 验证下一轮承接中断事实 -> 再独立重写持久化恢复矩阵 -> 工具 planned action -> 普通 checkpoint 崩溃恢复。
 
-六个验收位置统一为：暂停前、暂停事务中、暂停完成后、恢复运行中、Final 提交前、Final 提交后。它们是故障检查位置，不全部是新的状态；具体定义见 `turn-version-design.md`。
+中断验收位置统一为：模型流中、工具调用前、工具执行中、工具返回后、Memory/Persona Draft 形成后、正式 Final 提交前。每个位置都要验证现场封存和稳定影响发布边界。
 
 工具状态按三类处理：只读结果保存在未提交 Turn 中并可随取消丢弃；Persona/Memory 等继续使用现有 Draft；应用内文档写入后续使用最小 `TurnChangeSet`，外部不可延迟操作使用 planned/receipt/unknown，不能假装可回滚。
 
@@ -63,13 +60,46 @@
 
 本节只记录尚未收口的问题。TurnWorkspace、Event/Turn、Version/HEAD、`ready_to_commit` 和统一 Committer 均有明确职责，不作为待删除的冗余架构。
 
-#### A1：消息队列错误承担了 Turn 暂停控制（P0）
+#### A1：用户中断没有完整终结当前 Turn（P0）
 
-- 消息队列同时保存普通 Event 和内存 `pausedEvent`，把暂停中的 Turn 当成了队列特殊消息。
-- “继续”先清除 `pausedEvent`，再把原 Event 放回普通队列，导致消息队列重新决定 Turn 的执行顺序。
-- 这使消息状态和 Agent 执行状态重复表达，并可能让暂停期间排队的消息抢先执行。
-- 目标：队列只负责 Event 的 `queued/processing/completed/failed`；暂停、继续、取消和恢复位置只由 Turn/Version 系统管理。
-- 暂停中的 Turn 仍然占用 Agent 执行槽，但不通过 `pausedEvent` 保存第二份队列事实；继续应直接按 Turn ID 从 HEAD 恢复，完成后再消费普通队列。
+**方向性结论：消息队列只调度未处理和正在处理的消息。中断成功后当前消息必须进入 `interrupted` 终态并离开调度集合，不存在暂停和重新入队。**
+
+- 未处理：消息尚未被 Agent Runtime 领取。
+- 正在处理：消息已经绑定当前 Turn，直到完成、中断、失败或取消。
+- 中断：Turn 的正式终态和审计结果，不参与队列排序。
+
+当前错误：
+
+- 旧队列保存 `pausedEvent`，中断和暂停存在两套相似但结果不同的运行出口。
+- 当前中断提交没有完整携带 Turn Workspace 和工具执行账本，下一轮可能不知道已经做过什么。
+- 已展示文本、已完成工具、半成品人格记忆可能分别由不同路径处理，形成部分提交。
+- 如果中断后过早释放执行槽，下一条消息可能在 interrupted Turn 尚未落盘时开始执行。
+
+目标模型：
+
+```text
+消息队列
+  未处理 -> 正在处理 -> 离开调度集合
+                         completed / interrupted / failed / cancelled
+
+Agent Runtime
+  running -> interrupt_requested -> interrupted
+```
+
+- AbortSignal 停止当前模型流或可取消工具，不再调度新动作。
+- `commitInterruptedTurn` 完整封存现场，但只发布已闭合的稳定影响。
+- 已展示回复保存为 `interrupted`，不能表现为完整结论。
+- 已完成工具结果保留；执行中工具进入 `aborted` 或 `unknown`。
+- 中断事务提交后才释放执行槽，随后队列领取下一条未处理消息。
+
+验收标准：
+
+1. 队列实现中不存在 `pausedEvent`、恢复 paused Event 或原 Event 重新入队路径。
+2. 中断后 Event/Turn 只进入一次 `interrupted`。
+3. UI 部分回复、数据库消息和 Workspace 中的流式文本一致。
+4. 已完成工具结果不丢失，未完成工具不被误报成功。
+5. 中断提交失败时不释放执行槽；成功后执行槽只释放一次。
+6. 下一轮 Context 能明确承接中断事实和稳定证据。
 
 #### A2：统一撤回系统不是完整、原子的正式撤回（P0）
 
@@ -78,11 +108,11 @@
 - 多个步骤不在同一事务中，失败时可能留下部分撤回状态。
 - 目标：完整补偿机制完成前，将能力降级为“隐藏最后一轮并重新编辑”或暂时禁用；正式撤回以后由 Commit Manifest/Inverse Effects 驱动。
 
-#### A3：统一运行控制系统缺少精确目标校验（P1）
+#### A3：中断请求缺少精确目标校验（P1）
 
-- 继续、回退和取消默认操作数据库中的当前 paused Turn。
-- 多窗口、重复点击或交错控制请求可能操作已经变化的 Turn/HEAD。
-- 目标：控制请求携带 `turnId`、`eventId` 和 `expectedHeadVersionId`，使用 compare-and-set 语义拒绝过期请求。
+- 当前入口主要读取“活动运行”，多窗口、重复点击或延迟 IPC 可能命中新启动的 Turn。
+- 目标：中断请求携带预期 `eventId + turnId`；Runtime 使用 compare-and-set 语义，只能中断请求发出时的那次运行。
+- 重复中断返回当前终态，不重复提交、不重复释放执行槽。
 
 #### A4：统一提交系统缺少提交后动作恢复（P1）
 
@@ -283,17 +313,18 @@ LangGraph 节点在 Event/Turn 提交完成前直接写入：
 2. 已完成：统一正常、失败、中断和生命周期回复的提交入口。
 3. 已完成：隔离后台人格阶段与普通用户感知链路。
 4. 已完成：修正归档事务失败回滚和纯 User buffer 边界。
-5. 已确认：所有主 Agent 工作共用单实例串行队列，暂停 Turn 继续占有队列；当前不把 Persona/Memory Slots revision 作为优先修复，运行控制层同时增加了重复 active run 断言。
-6. 已完成第一阶段：为普通主 Agent Turn 建立持久化版本、HEAD、paused 状态、稳定节点继续和未提交工作区单步回退；跨越已完成工具动作的回退会被拒绝。
-7. 已完成：暂停 Version/HEAD/Turn/Event 原子事务；恢复入口同时修正了 `resumeFromHead` 参数漏传。
+5. 方向已调整：所有主 Agent 工作共用一个 Agent Runtime 执行槽；消息队列只保存未处理消息和当前已领取消息，不保存暂停状态。
+6. 下一步：强化现有 AbortController 中断入口，建立唯一 `commitInterruptedTurn`，统一提交部分回复、Workspace、Ledger 和稳定 Effects。
+7. 待改造：移除暂停、继续、暂停回退、Event paused、队列 `pausedEvent` 与 `resumeFromHead` 产品路径；既有 Version/HEAD 保留给随后独立修订的崩溃恢复。
 8. 已完成：`ready_to_commit`/Final Version，以及 ready 候选崩溃后只重试提交的恢复路径。
-9. 已完成：取消 paused Turn、释放队列及桌面/紧凑聊天入口；取消事务成功和注入失败回滚测试通过。
-10. 已完成：建立 Event/Turn/HEAD 统一恢复判定，生产启动恢复与六故障位置单元矩阵共用规则；真实 SQLite 已验证暂停事务、重新打开、Final 与取消边界。
-11. 已完成：六个故障位置均由独立子进程写入临时 SQLite 后 `SIGKILL`，父进程重开数据库并验证 Event/Turn/HEAD 与恢复动作；暂停事务中强杀确认原子回滚。
-12. 下一步：补完整 Electron 启动编排验收；接入工具 planned action 后，再开放普通 checkpoint 的运行中崩溃恢复。
-12. 以世界文档验证最小 `TurnChangeSet`，不先建立覆盖所有工具和文件的统一虚拟层。
-13. 补齐提交清单与提交后动作恢复。
-14. 删除死字段、未使用参数和未生效规则后，再推进长期重要事件记忆。
+9. 待改造：中断事务成功后由 Agent Runtime 释放执行槽；桌面和紧凑聊天只保留一个中断入口。
+10. 后续独立工作：崩溃恢复以 Turn/HEAD 重建新的运行；Event 只提供原始输入和审计关联，不再用 paused 状态决定队列所有权。
+11. 已完成：旧方案的六个故障位置已由独立子进程写入临时 SQLite 后 `SIGKILL`，父进程重开数据库并验证 Event/Turn/HEAD；该测试框架保留，中断事务的期望状态需要按新语义重写。
+12. 下一步：先完成中断提交和消息队列解耦，覆盖模型流、工具前后、Draft 形成后和 Final 前的中断测试。
+13. 中断闭环稳定后再重写启动恢复测试；补完整 Electron 启动编排验收并接入工具 planned action，再开放普通 checkpoint 的崩溃恢复。
+14. 以世界文档验证最小 `TurnChangeSet`，不先建立覆盖所有工具和文件的统一虚拟层。
+15. 补齐提交清单与提交后动作恢复。
+16. 删除死字段、未使用参数和未生效规则后，再推进长期重要事件记忆。
 
 ## 必须补充的验收测试
 

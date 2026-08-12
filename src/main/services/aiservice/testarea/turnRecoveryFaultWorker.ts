@@ -5,10 +5,10 @@ import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurn
 import {
   persistFinalTurnVersionWithManager,
   persistTurnVersion
-} from '../../runtime/version/turnVersionPersistence'
-import { serializeReadyToCommitCandidate } from '../../runtime/version/turnVersionSnapshot'
-import { createTurnWorkspace } from '../../agentrsystem/state/turnWorkspace'
-import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memoryWritePolicy'
+} from '../runtime/version/turnVersionPersistence'
+import { serializeReadyToCommitCandidate } from '../runtime/version/turnVersionSnapshot'
+import { createTurnWorkspace } from '../agentrsystem/state/turnWorkspace'
+import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
 import type { MainAgentReadyToCommitCandidate } from '@share/cache/AItype/states/turnWorkspace'
 
 type FaultBoundary =

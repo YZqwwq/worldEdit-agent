@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { z } from 'zod'
-import { defineAgentTool } from '../core/agentTool'
-import type { AgentToolRegistryEntry, ToolsetRegistryEntry } from '../toolkits/toolRegistryTypes'
+import { defineAgentTool } from '../ai-utils/core/agentTool'
+import type { AgentToolRegistryEntry, ToolsetRegistryEntry } from '../ai-utils/toolkits/toolRegistryTypes'
 import {
   isToolCallLimitReached,
   isToolVisible,
   incrementToolTurnCallCount,
   toToolMap,
   validateToolRegistry
-} from '../toolkits/toolRegistryTypes'
+} from '../ai-utils/toolkits/toolRegistryTypes'
 
 const toolsets: ToolsetRegistryEntry[] = [
   {

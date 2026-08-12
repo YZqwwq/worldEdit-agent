@@ -4,6 +4,8 @@
 
 本文是当前阶段之后的统一执行入口，用于回答“下一步做什么、为什么先做、做到什么程度算完成”。详细协议仍保留在以下专题文档中：
 
+- `agent-turn-interrupt.md`：用户主动中断、现场封存和 interrupted Turn 提交。
+- `turn-version-design.md`：持久化版本、进程重启与崩溃恢复。
 - `temp-context.md`：Context、Recall、瞬时感知、长期记忆与单轮执行生命周期。
 - `temp-toolsystem.md`：工具注册表、工具目录、Quick Access、调用协议与错误恢复。
 - `temp-plan-ducoment.md`：页面感知、世界文档工具、编辑同步与后续局部编辑。
@@ -24,15 +26,31 @@
 
 当前重点已经从“接通能力”转为“真实验收、治理和可持续扩展”。
 
-Turn Version 第一阶段已支持普通主 Agent Turn 的暂停、HEAD 恢复和未提交工作区单步回退，但尚未达到可进入后续治理阶段的稳定线。当前最高优先级待办为：
+### 2026-08-13 运行控制方向调整
 
-- [x] 原子提交 Version、HEAD、Turn paused 与 Event paused；移除编排层二次暂停写入，并修正恢复参数漏传。
+产品不再提供“暂停并继续同一个 Turn”。用户在 Agent 运行时采取的是对话打断：当前 Turn 结束，已经展示的回复、完成的工具信息和执行现场被保存，下一轮 Agent 基于这些事实承接用户的新消息。
+
+更改原因：
+
+- 对具有人格连续性的 Agent，用户插话更接近终止当前表达并开始新一轮交流，而不是冻结内部 Graph。
+- 暂停需要维护 continuation、安全边界、重复继续、队列所有权和持久化恢复等多套状态，产品收益不足以覆盖复杂度。
+- Codex、Claude Code 等公开运行语义主要也是中断当前 Turn 后由会话历史承接；LangGraph 原生 interrupt 依赖 checkpoint 重新调用，并不保留 JavaScript 调用栈。
+- 项目已经具备 AbortController、Turn Workspace、执行账本和统一提交入口，中断可以沿现有主链闭环。
+
+当前最高优先级：
+
+- [ ] 删除暂停、继续、暂停回退入口，以及队列 `pausedEvent` 和原 Event 重新入队逻辑。
+- [ ] 将消息队列收紧为未处理/正在处理；Turn 终态不参与队列排序。
+- [ ] 建立唯一 `commitInterruptedTurn`，原子保存部分回复、Workspace、执行账本和稳定 Effects。
+- [ ] 完整封存中断现场，但不发布未闭合的 Memory、Persona、Mood、Slot 和任务 Draft。
+- [ ] 为工具动作区分 completed、not_started、aborted 和 unknown。
+- [ ] 下一轮 Context 明确注入上一轮中断事实、部分回复和已完成工具证据。
 - [x] 在最后计算节点后建立 `ready_to_commit` Final 候选，并在正式提交事务内生成 Final Version。
 - [ ] 让带完整 HEAD 的 processing Turn 在崩溃后恢复：ready HEAD 已完成；普通 checkpoint 必须等待工具 planned action 后开放。
-- [x] 支持取消 paused Turn：原子进入 `cancelled` 终态后释放串行队列，保留版本但不发布 Draft。
-- [x] 建立 Event/Turn/HEAD 启动恢复判定矩阵，并让生产恢复逻辑与六故障位置单元测试共用同一规则。
-- [x] 用真实子进程强杀与 SQLite 重开覆盖暂停前、暂停事务中、暂停完成后、恢复运行中、Final 提交前、Final 提交后。
-- [ ] 补完整 Electron 启动编排验收，验证恢复动作实际进入 paused owner、ready commit 或终态核对路径。
+- [ ] 将旧 paused Turn 取消、继续和回退实现移出产品主链；保留必要迁移与审计处理。
+- [ ] 按新语义重写 Event/Turn/HEAD 启动恢复判定矩阵。
+- [ ] 复用独立子进程强杀框架，改为覆盖 checkpoint、工具 unknown、中断事务、ready 和 Final 边界。
+- [ ] 补完整 Electron 启动编排验收，验证恢复动作进入 fail-closed、ready commit 或终态核对路径。
 - [ ] 为不可延迟副作用接入 planned/receipt/unknown。
 - [ ] 以世界文档验证最小 `TurnChangeSet`；只读工具结果仍作为可丢弃的 Turn 证据，不建设全工具统一虚拟文件系统。
 
@@ -40,16 +58,16 @@ Turn Version 第一阶段已支持普通主 Agent Turn 的暂停、HEAD 恢复�
 
 以下编号对应 `future-lack.md` 的统一系统审计问题，后续按编号逐项讨论和实施：
 
-1. [ ] **A1 队列与 Turn 解耦：** 删除或废弃 `pausedEvent` 队列状态；队列只管理 Event 生命周期，暂停/继续由 Turn/Version 系统直接恢复，不把 paused Event 重新加入普通队列。
+1. [ ] **A1 中断与队列解耦：** 删除 `pausedEvent`；中断提交成功后当前 Event 进入 `interrupted` 并离开调度集合，不重新入队。
 2. [ ] **A2 正式撤回边界：** 先决定降级或暂时禁用当前不完整撤回，再设计 Commit Manifest/Inverse Effects。
-3. [ ] **A3 控制目标校验：** 为继续、回退、取消增加 `turnId`、`eventId`、`expectedHeadVersionId` 和过期请求拒绝。
+3. [ ] **A3 中断目标校验：** 中断请求精确绑定当前 `eventId + turnId`，重复或过期请求不能终止新的 Turn。
 4. [ ] **A4 提交后恢复：** 为工具统计和 Memory Stage 归档增加最小 Post-Commit Outbox。
 5. [ ] **A5 工具恢复收据：** 接入 `planned/receipt/unknown`，再开放普通 checkpoint 崩溃恢复。
 6. [ ] **A8 恢复验收：** 将进程恢复测试纳入完整测试入口，修正 Node 20 native ABI 环境并完成 Electron 启动验收。
 7. [ ] **A7 Effect 清理：** 删除确认无生产者的旧 Effect，维持 `commit_turn` 唯一正式提交入口。
 8. [ ] **A6 快照治理：** 先记录 Version 体积和重复率，再决定大型工具结果引用方案。
 
-收口标准：队列不再承担 Turn 暂停控制；运行控制不存在抢占和过期控制；Final 后状态不会被部分撤回；提交后动作可恢复；普通 checkpoint 不会盲目重放副作用；默认完整测试真实覆盖恢复链路。
+收口标准：队列不再承担暂停控制；中断只产生一个原子的 interrupted Turn；已展示文本和完成工具结果不丢失；半成品状态不被正式发布；恢复不通过消息重新入队实现；Final 后状态不会被部分撤回；提交后动作可恢复；普通 checkpoint 不会盲目重放副作用。
 
 ## 实施原则
 
@@ -195,13 +213,15 @@ Turn Version 第一阶段已支持普通主 Agent Turn 的暂停、HEAD 恢复�
 
 ## 推荐执行顺序
 
-1. 按 A1、A2、A3 收口运行控制与正式撤回边界。
-2. 按 A4、A5、A8 收口提交后恢复、工具收据和真实恢复验收。
-3. 按 A7、A6 清理遗留职责并治理 Version 体积。
-4. 完成阶段 0 的其他真实链路验收。
-5. 实施阶段 1 的 Quick Access 治理。
-6. 结合实际观测推进阶段 2，不凭估算过早压缩 Context。
-7. 先完成阶段 3，再开展阶段 4；`TurnChangeSet` 与文档版本能力共用 revision/diff 基础。
-8. 阶段 5 先完成产品语义讨论，再修改存储与 Recall。
+1. 先按 A1、A3 完成中断与队列解耦，建立 `commitInterruptedTurn` 和端到端中断测试。
+2. 验证下一轮可以承接中断前的部分回复、执行账本和已完成工具证据。
+3. 再独立修订 Turn Version 恢复协议，按 A5、A8 完成工具收据和真实崩溃恢复验收。
+4. 按 A2、A4 收口正式撤回与提交后恢复。
+5. 按 A7、A6 清理遗留职责并治理 Version 体积。
+6. 完成阶段 0 的其他真实链路验收。
+7. 实施阶段 1 的 Quick Access 治理。
+8. 结合实际观测推进阶段 2，不凭估算过早压缩 Context。
+9. 先完成阶段 3，再开展阶段 4；`TurnChangeSet` 与文档版本能力共用 revision/diff 基础。
+10. 阶段 5 先完成产品语义讨论，再修改存储与 Recall。
 
 任何阶段出现新的 P0 数据一致性、无限循环或权限绕过问题时，应暂停后续功能，先回到核心协议修复并补回归测试。

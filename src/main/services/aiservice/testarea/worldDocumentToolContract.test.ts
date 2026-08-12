@@ -3,7 +3,7 @@ import test from 'node:test'
 import {
   createWorldDocumentInputSchema,
   listWorldDocumentsInputSchema
-} from '../tools/document/worldDocumentToolContracts'
+} from '../ai-utils/tools/document/worldDocumentToolContracts'
 
 test('document catalog input uses flat world and entity references', () => {
   assert.equal(

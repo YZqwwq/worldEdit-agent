@@ -10,8 +10,8 @@ import {
   MAX_MODEL_STEPS_BEFORE_FINALIZATION,
   renderTurnExecutionLedger,
   shouldFinalizeToolLoop
-} from '../../agentrsystem/execution/turnExecutionLifecycle'
-import { toolContextReloadNode } from '../../agentrsystem/node/toolcontextreloadnode/toolContextReloadNode'
+} from '../agentrsystem/execution/turnExecutionLifecycle'
+import { toolContextReloadNode } from '../agentrsystem/node/toolcontextreloadnode/toolContextReloadNode'
 
 const action = (input: {
   actionId: string

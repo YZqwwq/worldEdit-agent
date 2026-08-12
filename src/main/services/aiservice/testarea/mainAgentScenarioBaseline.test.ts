@@ -6,18 +6,18 @@ import type {
   MainAgentEventConsumptionResult,
   MainAgentUserMessageEvent
 } from '@share/cache/AItype/states/taskLifecycleState'
-import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memoryWritePolicy'
+import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
 import {
   createFinalResponse,
   createTurnWorkspace,
   withMemoryMessagesDraft,
   withSuccessfulToolUse
-} from '../../agentrsystem/state/turnWorkspace'
+} from '../agentrsystem/state/turnWorkspace'
 import {
   orchestrateMainAgentEvent,
   type MainAgentEventOrchestrationDependencies
-} from '../../runtime/orchestration/mainAgentEventOrchestration'
-import { resolveContextualToolsets } from '../../agentrsystem/node/contextnode/contextualToolActivation'
+} from '../runtime/orchestration/mainAgentEventOrchestration'
+import { resolveContextualToolsets } from '../agentrsystem/node/contextnode/contextualToolActivation'
 
 const CURRENT_DOCUMENT_CONTEXT = {
   pageKind: 'document' as const,

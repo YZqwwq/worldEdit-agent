@@ -11,7 +11,7 @@ import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurn
 import {
   resolveMainAgentTurnRecovery,
   type MainAgentTurnRecoveryAction
-} from '../../runtime/version/turnRecoveryPolicy'
+} from '../runtime/version/turnRecoveryPolicy'
 
 type FaultCase = {
   boundary: string
@@ -77,7 +77,10 @@ for (const faultCase of cases) {
   test(`process restart resolves ${faultCase.boundary}`, async () => {
     const directory = await mkdtemp(join(tmpdir(), `worldedit-${faultCase.boundary}-`))
     const database = join(directory, 'recovery.sqlite')
-    const worker = join(process.cwd(), '.tmp-turn-recovery-fault-worker.cjs')
+    const worker = join(
+      process.cwd(),
+      'src/main/services/aiservice/ai-utils/testarea/.generated/turn-recovery-fault-worker.cjs'
+    )
     let dataSource: DataSource | undefined
     try {
       const result = spawnSync(process.execPath, [worker, database, faultCase.boundary], {

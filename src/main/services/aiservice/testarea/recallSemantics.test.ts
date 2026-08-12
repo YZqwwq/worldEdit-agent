@@ -3,7 +3,7 @@ import test from 'node:test'
 import {
   analyzeConversationRecallQuery,
   excludeConversationMessages
-} from '../tools/conversation/conversationRecallSemantics'
+} from '../ai-utils/tools/conversation/conversationRecallSemantics'
 
 test('natural history references use recent-context fallback', () => {
   for (const query of ['刚才', '刚才那个', '之前说的', '按之前那个', '继续刚才那个']) {
