@@ -55,7 +55,7 @@ Turn 缓存区统一承载：
 
 ## 与用户中断的边界
 
-用户中断主动结束本轮：保存用户已经看到的部分回复和完整 Workspace 现场，只发布稳定影响，原 Turn 不可继续。崩溃恢复则处理没有机会完成中断或 Final 提交的异常运行，两者不能共用产品入口。
+用户中断主动结束本轮：保存用户已经看到的部分回复，并发布最近稳定 HEAD 中的完整 Workspace 缓存，原 Turn 不可继续。崩溃恢复则处理没有机会完成中断或 Final 提交的异常运行，两者不能共用产品入口。
 
 主 Agent 保持严格串行。中断事务成功后释放执行槽，队列才能领取下一条消息。
 
@@ -73,7 +73,7 @@ Turn 缓存区统一承载：
 |---|---|---|---|
 | 普通节点 checkpoint 后 | `processing` | Graph 在稳定节点前保存完整状态 | 无工具副作用或收据完整时才允许恢复，否则失败关闭 |
 | 工具 planned 后、receipt 前 | `processing` | 工具可能未执行、已执行或结果丢失 | 标记 `unknown`，查询实际状态或等待确认，不盲目重放 |
-| 用户中断事务中 | 事务未提交 | 正在提交 interrupted Workspace、消息和稳定 Effects | SQLite 只能呈现事务前或事务后，不留下部分中断终态 |
+| 用户中断事务中 | 事务未提交 | 正在提交 interrupted Workspace、消息和 Final receipt | SQLite 只能呈现事务前或事务后，不留下部分中断终态 |
 | 用户中断提交后 | `interrupted` | 当前 Turn 已正式结束 | 不恢复原 Turn；下一轮从中断摘要和稳定证据承接 |
 | Final 提交前 | `ready_to_commit` 边界 | Graph 已闭合，最终回复和全部待提交影响已经形成不可变 Final 候选，但尚未发布正式状态 | 重启后只重试幂等提交，不重新运行模型或工具 |
 | Final 提交后 | `completed` + Final 标记 | 正式影响、Turn 和 Event 已提交，Final 可作为提交收据 | 重启只做一致性核对，不重复发布或执行 |
@@ -102,7 +102,7 @@ checkpoint 和运行版本不能直接影响正式状态。
 
 - 结果属于本轮证据和上下文，不属于正式状态。
 - 只要后续推理或恢复仍需要，就随 Turn Version 保存结果或大型结果引用。
-- Turn 被中断或判定不可恢复后，结果仍可留在封存现场中，但无需发布为正式状态，也不需要补偿。
+- Turn 被中断后，最近稳定 HEAD 中已经形成的结果随 Workspace 正式提交；尚未进入稳定缓存的瞬时结果不被猜测发布。
 - 如果崩溃发生在调用完成、结果尚未落入版本之间，允许按工具的只读/幂等属性重新调用。昂贵或非确定性查询以后可增加短期调用结果缓存，但不作为当前 P0。
 
 “无需发布”不等于删除审计证据。已完成结果应随中断现场或恢复版本保留，供下一轮承接和故障检修使用。
@@ -113,15 +113,16 @@ Persona、Memory、Memory Slots、回复和 Observation 继续写入 `TurnWorksp
 
 ### 3. 应用可控的文档和文件写入
 
-当前世界文档工具会立即修改正式数据库，因此中断当前 Turn 不能撤销已经发生的文档变化。后续增加一个最小 `TurnChangeSet`：
+当前世界文档工具会立即修改正式数据库，中断当前 Turn 不应假装撤销已经发生的变化。后续以世界文档验证统一的 `ChangeSet + EffectReceipt`：
 
-- 写工具先生成待应用 mutation、基准 revision、diff/摘要和预期结果，不立即覆盖正式文档。
-- 同一 Turn 的后续读取应看到“正式基线 + 本轮 ChangeSet”的合成视图。
-- Final 时再次校验 revision，并把 ChangeSet 与 Turn 正式影响一起提交；冲突则停止提交并要求重新读取。
-- 中断时，尚未应用的 ChangeSet 只随现场封存，不发布到正式文档。
-- 第一批只覆盖世界文档这一类应用内可控写入，不抽象整个文件系统。
+- 业务数据库仍是正式事实来源；普通单对象写入可以直接执行，但应让业务修改与小型 EffectReceipt 尽可能在同一事务提交。
+- EffectReceipt 记录操作目标、前后 revision、结果和 diff/ref；ChangeSet 只聚合同一轮或同一任务的多个动作。
+- 同一 Turn 后续读取继续读取业务事实，不额外维护默认的“正式基线 + 本轮虚拟文件系统”。
+- 只有明确要求多个对象一起生效时，才建立暂存 mutation、基准 revision 和最终原子提交；暂存不是全部写工具的前置要求。
+- 中断时已经提交的业务变化和 Receipt 一起保留；尚未执行的暂存动作不发布。
+- 第一批只覆盖世界文档这一类应用内可控写入，再按实际需要扩展到图片、地图和实体。
 
-这不是要求所有文件都复制一份。正文等大内容可保存 blob/patch 引用，Turn Version 只保存 ChangeSet 清单和引用。
+正文、图片等大内容可保存 blob/patch 引用，Turn Version 只保存紧凑 ChangeSet 投影和引用。完整协议以 `temp-toolsystem.md` 为准。
 
 ### 4. 无法延迟或无法回滚的外部操作
 
@@ -137,7 +138,7 @@ planned -> running -> completed / failed / unknown
 
 ### 未发布工作区清理
 
-用户中断或恢复失败时，当前 Turn 直接进入终态。系统封存 Workspace 与执行证据，只丢弃未发布的 Persona、Memory Slots、Memory Draft 和未执行计划；不提供移动 HEAD 后继续原 Turn 的产品能力。
+用户中断时，当前 Turn 直接进入终态并提交最近稳定 HEAD 的 Workspace 与执行证据；恢复失败则保持 fail-closed。系统不提供移动 HEAD 后继续原 Turn 的产品能力。
 
 已完成工具动作及其收据必须保留。清理未发布草稿不能被表述为撤销外部结果，也不能让下一轮误以为工具从未执行。
 
@@ -242,7 +243,7 @@ Turn Version 使用“小状态快照 + 大数据引用”：
 2. 以 Turn/HEAD 重建新的 Agent Runtime 执行槽和 Loop，不把原 Event 重新入队。
 3. 接入工具调用前 planned action 与调用后 receipt，闭合不可延迟副作用窗口。
 4. 补完整 Electron 启动编排验收和 Node/Electron native ABI 测试入口。
-5. 以世界文档验证最小 `TurnChangeSet`，再扩展到多工具、子 Agent 和后台人格阶段。
+5. 以世界文档验证最小 `ChangeSet + EffectReceipt`，再按实际副作用类型扩展；不要求子 Agent、后台人格或全部工具同时迁移。
 
 ### 当前边界
 
@@ -250,5 +251,5 @@ Turn Version 使用“小状态快照 + 大数据引用”：
 - 产品不再开放用户回退到 checkpoint 后继续原 Turn；旧回退能力只作为迁移清理对象。
 - 旧测试中关于 Event paused、恢复队列所有权和从 HEAD 直接“继续”的断言需要重写，不能作为新协议验收标准。
 - 六个故障位置的测试框架可复用，但恢复期望必须在队列解耦后重新定义。
-- 世界文档等写工具当前直接产生正式副作用，尚未进入 `TurnChangeSet`。
+- 世界文档等写工具当前直接产生正式副作用，尚未进入持久化 `ChangeSet + EffectReceipt` 协议；Workspace `durableToolReceipts` 只是已完成的 Turn 投影基础。
 - 工具执行中崩溃时的 unknown 状态仍需 planned action 协议解决。

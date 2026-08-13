@@ -5,6 +5,7 @@ import {
 } from '@langchain/core/messages'
 import type { MessagesState } from '../../agentrsystem/state/messageState'
 import type { MainAgentReadyToCommitCandidate } from '@share/cache/AItype/states/turnWorkspace'
+import type { TurnWorkspace } from '@share/cache/AItype/states/turnWorkspace'
 
 export type MainAgentResumePoint =
   | 'instantPerceptionNode'
@@ -17,6 +18,21 @@ export type MainAgentResumePoint =
 type PersistedTurnGraphSnapshot = {
   messages: StoredMessage[]
   state: Record<string, unknown>
+}
+
+const normalizeTurnWorkspace = (value: unknown): TurnWorkspace | undefined => {
+  if (!value || typeof value !== 'object') return undefined
+  const workspace = value as TurnWorkspace
+  if (!workspace.draft || typeof workspace.draft !== 'object') return undefined
+  return {
+    ...workspace,
+    draft: {
+      ...workspace.draft,
+      durableToolReceipts: Array.isArray(workspace.draft.durableToolReceipts)
+        ? workspace.draft.durableToolReceipts
+        : []
+    }
+  }
 }
 
 export const serializeTurnGraphState = (state: typeof MessagesState.State): string => {
@@ -35,8 +51,10 @@ export const deserializeTurnGraphState = (
   if (!parsed || !Array.isArray(parsed.messages) || !parsed.state || typeof parsed.state !== 'object') {
     throw new Error('Turn version contains an invalid graph snapshot.')
   }
+  const state = parsed.state as Partial<typeof MessagesState.State>
   return {
-    ...(parsed.state as Partial<typeof MessagesState.State>),
+    ...state,
+    turnWorkspace: normalizeTurnWorkspace(state.turnWorkspace),
     messages: mapStoredMessagesToChatMessages(parsed.messages),
     resumeFromNode: resumePoint
   }
@@ -84,5 +102,8 @@ export const deserializeReadyToCommitCandidate = (
   ) {
     throw new Error('Ready-to-commit candidate identity does not match its workspace.')
   }
-  return candidate as MainAgentReadyToCommitCandidate
+  return {
+    ...(candidate as MainAgentReadyToCommitCandidate),
+    workspace: normalizeTurnWorkspace(candidate.workspace)!
+  }
 }

@@ -20,11 +20,9 @@ const agentStage = ref<AgentStageChunk | null>(null)
 
 // A reactive reference to track if the AI is currently thinking
 const isLoading = ref(false)
-const isPaused = ref(false)
 
 // 当前正在响应的消息 ID，用于流式追加内容
 let currentStreamingMessageId: number | null = null
-let pausedDraftMessageId: number | null = null
 let currentStreamingText = ''
 let stopListening: (() => void) | null = null
 let stageClearTimer: ReturnType<typeof setTimeout> | null = null
@@ -143,11 +141,16 @@ function handleStreamChunk(chunk: StreamChunk): void {
       cleanupListener()
       break
 
-    case 'paused':
-      pausedDraftMessageId = currentStreamingMessageId
-      msg.text = msg.text === '正在思考中...' ? chunk.message : `${msg.text}\n\n${chunk.message}`
+    case 'interrupted':
+      if (chunk.fullContent) {
+        const interruptedText = partsToMarkdown(chunk.fullContent)
+        if (interruptedText.trim()) {
+          msg.text = interruptedText
+        } else {
+          messages.value = messages.value.filter((message) => message.id !== msg.id)
+        }
+      }
       isLoading.value = false
-      isPaused.value = true
       setAgentStage(null)
       cleanupListener()
       break
@@ -158,8 +161,6 @@ function handleStreamChunk(chunk: StreamChunk): void {
         msg.text = partsToMarkdown(chunk.fullContent)
       }
       isLoading.value = false
-      isPaused.value = false
-      pausedDraftMessageId = null
       setAgentStage(null)
       cleanupListener()
       break
@@ -182,11 +183,7 @@ function cleanupListener(): void {
  */
 async function loadHistory(): Promise<void> {
   try {
-    const [history, controlState] = await Promise.all([
-      window.api.getHistory(),
-      window.api.getTurnWorkspaceControlState()
-    ])
-    isPaused.value = controlState.paused
+    const history = await window.api.getHistory()
     if (history && Array.isArray(history)) {
       messages.value = mapHistoryToMessages(history)
     }
@@ -200,11 +197,7 @@ async function refreshHistory(): Promise<void> {
     return
   }
   try {
-    const [history, controlState] = await Promise.all([
-      window.api.getHistory(),
-      window.api.getTurnWorkspaceControlState()
-    ])
-    isPaused.value = controlState.paused
+    const history = await window.api.getHistory()
     if (history && Array.isArray(history)) {
       messages.value = mapHistoryToMessages(history)
     }
@@ -226,8 +219,6 @@ async function clearHistory(): Promise<void> {
     }
     await window.api.clearHistory()
     messages.value = []
-    isPaused.value = false
-    pausedDraftMessageId = null
     agentLogs.value = []
     setAgentStage(null)
   } catch (error) {
@@ -245,62 +236,6 @@ async function interruptCurrentRun(): Promise<{ ok: boolean; message: string }> 
       message: error instanceof Error ? error.message : String(error)
     }
   }
-}
-
-async function pauseCurrentTurn(): Promise<{ ok: boolean; message: string; turnId?: number }> {
-  return window.api.pauseCurrentTurn()
-}
-
-async function resumePausedTurn(): Promise<{ ok: boolean; message: string; turnId?: number }> {
-  if (isLoading.value) return { ok: false, message: '主 Agent 正在运行。' }
-  if (pausedDraftMessageId) {
-    messages.value = messages.value.filter((message) => message.id !== pausedDraftMessageId)
-  }
-  const aiMessageId = Date.now()
-  messages.value.push({
-    id: aiMessageId,
-    text: '正在从暂停位置继续...',
-    sender: 'ai',
-    timestamp: aiMessageId
-  })
-  currentStreamingMessageId = aiMessageId
-  currentStreamingText = ''
-  stopListening = window.api.onStreamChunk(handleStreamChunk)
-  isLoading.value = true
-  const result = await window.api.resumePausedTurn()
-  if (result.ok) {
-    isPaused.value = false
-    pausedDraftMessageId = null
-  } else {
-    cleanupListener()
-    isLoading.value = false
-    messages.value = messages.value.filter((message) => message.id !== aiMessageId)
-  }
-  return result
-}
-
-async function rollbackPausedTurn(): Promise<{
-  ok: boolean
-  message: string
-  turnId?: number
-  versionId?: number
-}> {
-  return window.api.rollbackPausedTurn()
-}
-
-async function cancelPausedTurn(): Promise<{ ok: boolean; message: string; turnId?: number }> {
-  if (isLoading.value) return { ok: false, message: '主 Agent 正在运行。' }
-  const result = await window.api.cancelPausedTurn()
-  if (result.ok) {
-    if (pausedDraftMessageId) {
-      messages.value = messages.value.filter((message) => message.id !== pausedDraftMessageId)
-    }
-    pausedDraftMessageId = null
-    isPaused.value = false
-    cleanupListener()
-    await refreshHistory()
-  }
-  return result
 }
 
 async function revertLastChatTurn(): Promise<{
@@ -337,8 +272,6 @@ async function purgeAllData(): Promise<void> {
     }
     await window.api.purgeAllData()
     messages.value = []
-    isPaused.value = false
-    pausedDraftMessageId = null
     agentLogs.value = []
     setAgentStage(null)
   } catch (error) {
@@ -359,8 +292,6 @@ async function resetAgentState(): Promise<void> {
     }
     await window.api.resetAgentState()
     messages.value = []
-    isPaused.value = false
-    pausedDraftMessageId = null
     agentLogs.value = []
     setAgentStage(null)
   } catch (error) {
@@ -443,18 +374,8 @@ export function useAIChatService(): {
   agentLogs: Ref<AgentLog[]>
   agentStage: Ref<AgentStageChunk | null>
   isLoading: Ref<boolean>
-  isPaused: Ref<boolean>
   sendMessage: (input: MainAgentUserMessageInput) => Promise<void>
   interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
-  pauseCurrentTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
-  resumePausedTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
-  rollbackPausedTurn: () => Promise<{
-    ok: boolean
-    message: string
-    turnId?: number
-    versionId?: number
-  }>
-  cancelPausedTurn: () => Promise<{ ok: boolean; message: string; turnId?: number }>
   revertLastChatTurn: () => Promise<{
     ok: boolean
     message: string
@@ -472,13 +393,8 @@ export function useAIChatService(): {
     agentLogs,
     agentStage,
     isLoading,
-    isPaused,
     sendMessage,
     interruptCurrentRun,
-    pauseCurrentTurn,
-    resumePausedTurn,
-    rollbackPausedTurn,
-    cancelPausedTurn,
     revertLastChatTurn,
     loadHistory,
     refreshHistory,

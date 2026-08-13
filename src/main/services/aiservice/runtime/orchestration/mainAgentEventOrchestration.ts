@@ -7,12 +7,24 @@ import type {
   MainAgentUserMessageEvent,
   TaskLifecycleState
 } from '@share/cache/AItype/states/taskLifecycleState'
-import type { MainAgentGraphTurnResult } from '@share/cache/AItype/states/turnWorkspace'
+import type {
+  MainAgentGraphTurnResult,
+  MainAgentInterruptionRecord,
+  TurnWorkspace
+} from '@share/cache/AItype/states/turnWorkspace'
 import type { MainAgentLifecycleControlResult } from '../lifecycle/mainAgentLifecycleControlService'
 import {
   MAIN_AGENT_FLOW_RULES,
   type MainAgentCommitOwner
 } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
+
+type MainAgentRuntimeResult = {
+  fullText: string
+  interrupted: boolean
+  graphResult?: MainAgentGraphTurnResult
+  interruptedWorkspace?: TurnWorkspace
+  interruption?: MainAgentInterruptionRecord
+}
 
 export type MainAgentEventOrchestrationDependencies = {
   createChatTurn: (input: {
@@ -33,7 +45,7 @@ export type MainAgentEventOrchestrationDependencies = {
     onChunk?: (chunk: StreamChunk) => void,
     taskLifecycle?: TaskLifecycleState,
     resumeFromHead?: boolean
-  ) => Promise<{ fullText: string; interrupted: boolean; paused?: boolean; graphResult?: MainAgentGraphTurnResult }>
+  ) => Promise<MainAgentRuntimeResult>
   createBackgroundPersonaStageTurn: (input: {
     eventId: string
     sessionId: string
@@ -43,7 +55,7 @@ export type MainAgentEventOrchestrationDependencies = {
     turnId: number,
     sessionId: string,
     payload: MainAgentBackgroundPersonaStageEvent['payload']
-  ) => Promise<{ fullText: string; interrupted: boolean; paused?: boolean; graphResult?: MainAgentGraphTurnResult }>
+  ) => Promise<MainAgentRuntimeResult>
   consumeTaskNotification: (
     event: MainAgentTaskNotificationEvent
   ) => Promise<MainAgentEventConsumptionResult>
@@ -102,6 +114,8 @@ const buildInterruptedResult = (
   event: MainAgentUserMessageEvent,
   turnId: number,
   fullText: string,
+  workspace: TurnWorkspace | undefined,
+  interruption: MainAgentInterruptionRecord | undefined,
   onChunk?: (chunk: StreamChunk) => void
 ): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(event)
@@ -114,11 +128,24 @@ const buildInterruptedResult = (
       consumer: 'chat_runtime',
       finalResponse: fullText.trim()
         ? { messageId: `${event.id}:interrupted`, content: fullText }
-        : undefined
+        : undefined,
+      workspace,
+      interruption,
+      observations: [
+        {
+          type: 'user_interrupt',
+          source: 'user',
+          summary: '用户主动中断当前主 Agent Turn。',
+          payload: {
+            sourceVersionId: interruption?.sourceVersionId,
+            resumePoint: interruption?.resumePoint
+          }
+        }
+      ]
     },
     {
       ...effectContext,
-      type: 'stream_done',
+      type: 'stream_interrupted',
       onChunk,
       fullText
     }
@@ -128,29 +155,9 @@ const buildInterruptedResult = (
     handled: true,
     consumer: 'chat_runtime',
     summary: 'user_message_interrupted',
-    effects,
-    eventCommitted: true
+    effects
   }
 }
-
-const buildPausedResult = (
-  event: MainAgentUserMessageEvent,
-  onChunk?: (chunk: StreamChunk) => void
-): MainAgentEventConsumptionResult => ({
-  handled: true,
-  consumer: 'chat_runtime',
-  summary: 'user_message_paused',
-  effects: [
-    {
-      ...createEffectContext(event),
-      type: 'stream_paused',
-      onChunk,
-      message: '本轮已在稳定位置暂停，尚未提交人格、记忆或最终回复。'
-    }
-  ],
-  eventCommitted: true,
-  paused: true
-})
 
 const buildCompletedResult = (
   event: MainAgentUserMessageEvent,
@@ -182,8 +189,7 @@ const buildCompletedResult = (
         onChunk,
         fullText: graphResult.finalResponse.content
       }
-    ],
-    eventCommitted: true
+    ]
   }
 }
 
@@ -218,8 +224,7 @@ const buildFailedUserMessageResult = (
         onChunk,
         message: dependencies.logUserMessageError(error)
       }
-    ],
-    eventCommitted: typeof turnId === 'number'
+    ]
   }
 }
 
@@ -266,8 +271,7 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
               }
             },
             ...control.handledResult.effects.filter((effect) => effect.type !== 'save_message')
-          ],
-          eventCommitted: true
+          ]
         }
       }
     }
@@ -296,12 +300,15 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
         prepared.resumeFromHead
       )
 
-      if (result.paused) {
-        return buildPausedResult(event, runtime?.onChunk)
-      }
-
       if (result.interrupted) {
-        return buildInterruptedResult(event, prepared.turnId, result.fullText, runtime?.onChunk)
+        return buildInterruptedResult(
+          event,
+          prepared.turnId,
+          result.fullText,
+          result.interruptedWorkspace,
+          result.interruption,
+          runtime?.onChunk
+        )
       }
 
       if (!result.graphResult) {
@@ -330,7 +337,9 @@ const buildBackgroundStageResult = (
   turnId: number,
   fullText: string,
   interrupted: boolean,
-  graphResult?: MainAgentGraphTurnResult
+  graphResult?: MainAgentGraphTurnResult,
+  interruptedWorkspace?: TurnWorkspace,
+  interruption?: MainAgentInterruptionRecord
 ): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(event)
   const status = interrupted ? 'interrupted' : 'completed'
@@ -349,11 +358,12 @@ const buildBackgroundStageResult = (
         turnId,
         status,
         consumer: 'background_persona_stage_consumer',
-        workspace: interrupted ? undefined : graphResult?.workspace,
+        workspace: interrupted ? interruptedWorkspace : graphResult?.workspace,
+        interruption: interrupted ? interruption : undefined,
         observations: [
           {
             type: interrupted
-              ? 'background_persona_stage_failed'
+              ? 'background_persona_stage_interrupted'
               : 'background_persona_stage_completed',
             source: 'background_persona',
             summary: `${event.payload.title} / ${event.payload.stageId}: ${fullText.trim().slice(0, 160)}`,
@@ -364,13 +374,14 @@ const buildBackgroundStageResult = (
               title: event.payload.title,
               resumePointer: event.payload.resumePointer,
               interrupted,
+              sourceVersionId: interruption?.sourceVersionId,
+              resumePoint: interruption?.resumePoint,
               result: fullText
             }
           }
         ]
       }
-    ],
-    eventCommitted: true
+    ]
   }
 }
 
@@ -411,8 +422,7 @@ const buildFailedBackgroundStageResult = (
             ]
           }] satisfies MainAgentEventConsumptionResult['effects'])
         : [])
-    ],
-    eventCommitted: typeof turnId === 'number'
+    ]
   }
 }
 
@@ -439,7 +449,9 @@ const backgroundPersonaStageHandler: MainAgentEventHandler<MainAgentBackgroundPe
         prepared.turnId,
         result.fullText,
         result.interrupted,
-        result.graphResult
+        result.graphResult,
+        result.interruptedWorkspace,
+        result.interruption
       )
     } catch (error) {
       return buildFailedBackgroundStageResult(event, prepared.turnId, error)

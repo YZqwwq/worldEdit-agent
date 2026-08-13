@@ -8,9 +8,6 @@
           <p>{{ isLoading ? '正在响应' : '待命中' }}</p>
         </div>
       </div>
-      <button v-if="isPaused" type="button" class="compact-icon-btn" title="取消本轮" @click="handleCancelPausedTurn">■</button>
-      <button v-if="isPaused" type="button" class="compact-icon-btn" title="回退稳定版本" @click="handleRollbackPausedTurn">↶</button>
-      <button v-if="isPaused" type="button" class="compact-icon-btn" title="继续本轮" @click="handleResumePausedTurn">▶</button>
       <button
         type="button"
         class="compact-icon-btn"
@@ -79,12 +76,8 @@ defineEmits<{
 const {
   messages,
   isLoading,
-  isPaused,
   sendMessage,
-  pauseCurrentTurn,
-  resumePausedTurn,
-  rollbackPausedTurn,
-  cancelPausedTurn,
+  interruptCurrentRun,
   revertLastChatTurn,
   loadHistory,
   refreshHistory,
@@ -129,7 +122,6 @@ const chatParticipants = ref<Record<'ai' | 'user', ChatParticipantProfile>>({
 const composerDockPadding = computed(() => (uploadedFiles.value.length ? '9.5rem' : '7rem'))
 const canSendMessage = computed(
   () =>
-    !isPaused.value &&
     !uploadedFiles.value.some((file) => file.status === 'pending') &&
     (Boolean(userInput.value.trim()) || uploadedFiles.value.length > 0)
 )
@@ -273,19 +265,7 @@ const handleSend = async (): Promise<void> => {
 }
 
 const handleInterruptRun = async (): Promise<void> => {
-  await pauseCurrentTurn()
-}
-
-const handleResumePausedTurn = async (): Promise<void> => {
-  await resumePausedTurn()
-}
-
-const handleRollbackPausedTurn = async (): Promise<void> => {
-  await rollbackPausedTurn()
-}
-
-const handleCancelPausedTurn = async (): Promise<void> => {
-  await cancelPausedTurn()
+  await interruptCurrentRun()
 }
 
 const handleRevertLastTurn = async (message?: ChatMessage): Promise<void> => {

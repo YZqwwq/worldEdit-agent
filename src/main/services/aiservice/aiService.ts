@@ -16,11 +16,7 @@ import { aiSessionMaintenanceService } from './maintenance/aiSessionMaintenanceS
 import { parseMainAgentContentForStorage } from './messagecontent/mainAgentFileParseService'
 import { mainAgentEntryService } from './runtime/mainAgentEntryService'
 import { mainAgentRunControlService } from './runtime/mainAgentRunControlService'
-import { mainAgentTurnVersionService } from './runtime/version/mainAgentTurnVersionService'
-import { mainAgentEventLogService } from './runtime/queue/mainAgentEventLogQueueService'
-import { mainAgentDispatchService } from './runtime/queue/mainAgentDispatchQueueService'
 import { mainAgentTurnService, type RevertLastTurnResult } from './runtime/mainAgentTurnService'
-import { interactionObservationService } from './agentrsystem/manager/personal/interactionObservationService'
 import { resolveAgentWorkspaceContext } from './runtime/agentWorkspaceContextResolver'
 import { normalizeAgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
 
@@ -207,67 +203,10 @@ class AIService {
       }
     }
 
-    void interactionObservationService.record({
-      type: 'user_interrupt',
-      source: 'user',
-      summary: '用户主动中断当前主 agent 回复。',
-      payload: {
-        activeRun: mainAgentRunControlService.getActiveRunSnapshot()
-      }
-    })
-
     return {
       ok: true,
       message: '已请求停止当前主 agent 回复。'
     }
-  }
-
-  async pauseCurrentTurn(): Promise<{ ok: boolean; message: string; turnId?: number }> {
-    const active = mainAgentRunControlService.getActiveRunSnapshot()
-    if (!active) return { ok: false, message: '当前没有正在运行的主 Agent 对话。' }
-    const turn = await mainAgentTurnService.findByEventId(active.eventId)
-    if (!turn || turn.consumer !== 'chat_runtime') {
-      return { ok: false, message: '第一阶段只支持暂停普通主 Agent 对话。' }
-    }
-    mainAgentTurnVersionService.requestPause(active.eventId)
-    return {
-      ok: true,
-      message: '已请求在当前不可分割操作结束后的稳定位置暂停。',
-      turnId: active.turnId
-    }
-  }
-
-  async resumePausedTurn(
-    onChunk?: (chunk: StreamChunk) => void
-  ): Promise<{ ok: boolean; message: string; turnId?: number }> {
-    const pausedTurns = await mainAgentTurnService.listPausedTurns()
-    const turn = pausedTurns[0]
-    if (!turn) return { ok: false, message: '当前没有暂停中的主 Agent 对话。' }
-    const event = await mainAgentEventLogService.getEventById(turn.eventId)
-    if (!event) return { ok: false, message: '暂停 Turn 对应的输入事件不存在。' }
-    mainAgentDispatchService.stageResumePausedEvent(event, onChunk)
-    return { ok: true, message: '已从当前 HEAD 继续本轮对话。', turnId: turn.id }
-  }
-
-  async rollbackPausedTurn() {
-    return mainAgentTurnVersionService.rollbackPausedTurn()
-  }
-
-  async cancelPausedTurn(): Promise<{ ok: boolean; message: string; turnId?: number }> {
-    const result = await mainAgentTurnVersionService.cancelPausedTurn()
-    if (result.ok && result.eventId) {
-      mainAgentDispatchService.releaseCancelledPausedEvent(result.eventId)
-    }
-    return {
-      ok: result.ok,
-      message: result.message,
-      turnId: result.turnId
-    }
-  }
-
-  async getTurnWorkspaceControlState(): Promise<{ paused: boolean; turnId?: number }> {
-    const turn = (await mainAgentTurnService.listPausedTurns())[0]
-    return turn ? { paused: true, turnId: turn.id } : { paused: false }
   }
 
   async revertLastChatTurn(): Promise<RevertLastTurnResult> {

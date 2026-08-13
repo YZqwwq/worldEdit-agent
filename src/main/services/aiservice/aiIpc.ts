@@ -340,14 +340,6 @@ export function initializeAIEndpoints(): void {
     return aiService.interruptCurrentRun()
   })
 
-  ipcMain.handle('ai:pauseCurrentTurn', () => aiService.pauseCurrentTurn())
-  ipcMain.handle('ai:resumePausedTurn', (event) =>
-    aiService.resumePausedTurn((chunk) => event.sender.send('ai:streamChunk', chunk))
-  )
-  ipcMain.handle('ai:rollbackPausedTurn', () => aiService.rollbackPausedTurn())
-  ipcMain.handle('ai:cancelPausedTurn', () => aiService.cancelPausedTurn())
-  ipcMain.handle('ai:getTurnWorkspaceControlState', () => aiService.getTurnWorkspaceControlState())
-
   ipcMain.handle('ai:revertLastChatTurn', async () => {
     return aiService.revertLastChatTurn()
   })

@@ -12,6 +12,24 @@ export type MainAgentFinalResponse = {
   content: string
 }
 
+export type TurnWorkspaceDurableToolReceipt = {
+  toolCallId: string
+  toolName: string
+  operation: string
+  subject?: {
+    type: string
+    id?: string
+    label?: string
+  }
+  completion: 'complete' | 'partial' | 'failed'
+  completionState: 'accepted' | 'running' | 'awaiting_input' | 'completed' | 'failed'
+  summary: string
+  retryable: boolean
+  evidenceRef?: string
+  payload?: Record<string, unknown>
+  persistedAt: string
+}
+
 export type TurnWorkspace = {
   eventId: string
   turnId: number
@@ -26,6 +44,7 @@ export type TurnWorkspace = {
     persona?: PersonaState
     memoryMessages: TurnWorkspaceMemoryMessage[]
     successfulToolNames: string[]
+    durableToolReceipts: TurnWorkspaceDurableToolReceipt[]
     observations: InteractionObservationSnapshot[]
   }
 }
@@ -44,4 +63,11 @@ export type MainAgentReadyToCommitCandidate = {
   status: 'completed'
   workspace: TurnWorkspace
   finalResponse: MainAgentFinalResponse
+}
+
+export type MainAgentInterruptionRecord = {
+  reason: 'user_interrupted' | 'runtime_reset'
+  interruptedAt: string
+  sourceVersionId?: number
+  resumePoint?: string
 }

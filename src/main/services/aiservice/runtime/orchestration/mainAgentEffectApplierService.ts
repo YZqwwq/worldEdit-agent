@@ -19,10 +19,17 @@ class MainAgentEffectApplierService {
 
   private async applyEffect(effect: MainAgentEffect): Promise<void> {
     switch (effect.type) {
-      case 'stream_paused':
-        effect.onChunk?.({ type: 'paused', message: effect.message })
+      case 'stream_interrupted':
+        effect.onChunk?.({
+          type: 'interrupted',
+          fullContent: contentToParts(effect.fullText)
+        })
         return
       case 'commit_turn':
+        if (effect.status === 'interrupted') {
+          await mainAgentTurnCommitter.commitInterruptedTurn(effect)
+          return
+        }
         await mainAgentTurnCommitter.commit(effect)
         return
       case 'save_message':

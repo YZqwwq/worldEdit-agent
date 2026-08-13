@@ -5,6 +5,8 @@ import { mainAgentTurnService } from '../mainAgentTurnService'
 import { mainAgentTurnVersionService } from '../version/mainAgentTurnVersionService'
 import { resolveMainAgentTurnRecovery } from '../version/turnRecoveryPolicy'
 import type { MainAgentEvent } from '@share/cache/AItype/states/taskLifecycleState'
+import { persistCancelledPausedTurn } from '../version/turnVersionPersistence'
+import { AppDataSource } from '../../../../database'
 
 const getConsumer = (eventType: 'user_message' | 'background_persona_stage') =>
   eventType === 'user_message' ? 'chat_runtime' : 'background_persona_stage_consumer'
@@ -16,29 +18,16 @@ const getRecoveryFailureSummary = (
   : 'background_persona_stage_reconciled_failed_during_startup'
 
 class MainAgentEventRecoveryService {
-  async restorePausedTurn(): Promise<void> {
+  async reconcileLegacyPausedTurn(): Promise<void> {
     const pausedEvents = await mainAgentEventLogService.listPausedEvents()
     if (pausedEvents.length > 1) {
       throw new Error('Multiple paused main agent turns violate the serial dispatch invariant.')
     }
-    const event = pausedEvents[0]
-    if (!event) return
-
-    if (event.type !== 'user_message' && event.type !== 'background_persona_stage') {
-      throw new Error('A non-Turn event cannot own the paused main agent queue.')
+    if (!pausedEvents[0]) return
+    const cancelled = await persistCancelledPausedTurn(AppDataSource)
+    if (!cancelled) {
+      throw new Error('Legacy paused Event could not be reconciled with a paused Turn.')
     }
-    const turn = await mainAgentTurnService.findByEventId(event.id)
-    const decision = resolveMainAgentTurnRecovery({
-      eventType: event.type,
-      eventStatus: 'paused',
-      turnStatus: turn?.status ?? null,
-      headKind: turn ? await mainAgentTurnVersionService.getHeadKind(turn.id) : null
-    })
-    if (decision.action === 'restore_paused_owner') {
-      mainAgentDispatchService.restorePausedEvent(event)
-      return
-    }
-    await this.failClosed(event, decision.reason)
   }
 
   async reconcileTurnOwnedEvents(): Promise<void> {

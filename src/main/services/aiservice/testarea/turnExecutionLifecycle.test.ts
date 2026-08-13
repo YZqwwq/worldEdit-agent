@@ -12,6 +12,7 @@ import {
   shouldFinalizeToolLoop
 } from '../agentrsystem/execution/turnExecutionLifecycle'
 import { toolContextReloadNode } from '../agentrsystem/node/toolcontextreloadnode/toolContextReloadNode'
+import { mainAgentRunControlService } from '../runtime/mainAgentRunControlService'
 
 const action = (input: {
   actionId: string
@@ -219,4 +220,25 @@ test('eventual actions remain unresolved until a later completed state replaces 
   )
 
   assert.equal(ledger.unresolvedItems.length, 0)
+})
+
+test('interruption waits for durable tools to publish their receipt boundary', async () => {
+  mainAgentRunControlService.reset()
+  mainAgentRunControlService.startRun({ eventId: 'event-durable-tool', turnId: 91 })
+  const finishTool = mainAgentRunControlService.beginDurableToolExecution()
+  assert.equal(mainAgentRunControlService.interruptActiveRun(), true)
+
+  let released = false
+  const waiting = mainAgentRunControlService
+    .waitForDurableToolExecutions('event-durable-tool')
+    .then(() => {
+      released = true
+    })
+  await Promise.resolve()
+  assert.equal(released, false)
+
+  finishTool()
+  await waiting
+  assert.equal(released, true)
+  mainAgentRunControlService.finishRun('event-durable-tool')
 })

@@ -4,7 +4,6 @@ import type { MainAgentEventType } from '@share/cache/AItype/states/taskLifecycl
 import type { MainAgentTurnVersionKind } from '@share/entity/database/MainAgentTurnVersionRecord'
 
 export type MainAgentTurnRecoveryAction =
-  | 'restore_paused_owner'
   | 'resume_ready_commit'
   | 'reconcile_completed_event'
   | 'fail_closed'
@@ -30,23 +29,6 @@ export type MainAgentTurnRecoveryState = {
 export const resolveMainAgentTurnRecovery = (
   state: MainAgentTurnRecoveryState
 ): MainAgentTurnRecoveryDecision => {
-  if (state.eventStatus === 'paused') {
-    if (
-      state.eventType === 'user_message' &&
-      state.turnStatus === 'paused' &&
-      (state.headKind === 'checkpoint' || state.headKind === 'ready_to_commit')
-    ) {
-      return {
-        action: 'restore_paused_owner',
-        reason: 'The atomically paused user turn has a restorable HEAD.'
-      }
-    }
-    return {
-      action: 'fail_closed',
-      reason: 'Paused Event, Turn and HEAD do not form a restorable user turn.'
-    }
-  }
-
   if (state.eventStatus === 'processing') {
     if (
       (state.turnStatus === 'completed' || state.turnStatus === 'interrupted') &&

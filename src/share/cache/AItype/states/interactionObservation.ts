@@ -7,6 +7,7 @@ export type InteractionObservationType =
   | 'task_needs_input'
   | 'task_cancelled'
   | 'background_persona_stage_completed'
+  | 'background_persona_stage_interrupted'
   | 'background_persona_stage_failed'
 
 export type InteractionObservationSource =

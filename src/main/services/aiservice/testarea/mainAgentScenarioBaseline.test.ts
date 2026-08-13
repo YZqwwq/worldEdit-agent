@@ -4,12 +4,14 @@ import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
   MainAgentEffect,
   MainAgentEventConsumptionResult,
+  MainAgentBackgroundPersonaStageEvent,
   MainAgentUserMessageEvent
 } from '@share/cache/AItype/states/taskLifecycleState'
 import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
 import {
   createFinalResponse,
   createTurnWorkspace,
+  withDurableToolReceipt,
   withMemoryMessagesDraft,
   withSuccessfulToolUse
 } from '../agentrsystem/state/turnWorkspace'
@@ -111,7 +113,6 @@ test('document discussion keeps one coherent path from page snapshot to final co
 
   assert.deepEqual(runtimeWorkspaceContext, CURRENT_DOCUMENT_CONTEXT)
   assert.equal(result.summary, 'user_message_completed')
-  assert.equal(result.eventCommitted, true)
   assert.deepEqual(
     appliedEffects.map((effect) => effect.type),
     ['commit_turn', 'stream_done']
@@ -145,28 +146,46 @@ test('the current document page activates the document capability package', () =
   assert.deepEqual(activeToolsets, ['world_document_editor'])
 })
 
-test('a resumed turn can pause again without publishing a formal commit', async () => {
+test('an interrupted turn commits its stable workspace and interruption boundary', async () => {
   const event = createScenarioEvent()
   const appliedEffects: MainAgentEffect[] = []
-  let receivedResumeFlag = false
+  const workspace = withDurableToolReceipt(
+    withSuccessfulToolUse(createTurnWorkspace({
+      eventId: event.id,
+      turnId: 501,
+      sessionId: event.sessionId,
+      runId: 'run-interrupted',
+      memorySlots: createDefaultMemorySlots(),
+      persona: null
+    }), 'update_world_document'),
+    {
+      toolCallId: 'call-update-document',
+      toolName: 'update_world_document',
+      operation: '更新世界观文档',
+      subject: { type: 'document', id: 'doc-1' },
+      completion: 'complete',
+      completionState: 'completed',
+      summary: '文档已更新。',
+      retryable: false,
+      evidenceRef: 'document:doc-1',
+      payload: { revision: 9 },
+      persistedAt: '2026-08-13T00:00:00.000Z'
+    }
+  )
   const dependencies: MainAgentEventOrchestrationDependencies = {
-    createChatTurn: async () => ({ turnId: 501, resumeFromHead: true }),
-    controlUserMessage: async () => {
-      throw new Error('lifecycle control must not rerun while resuming a paused graph')
-    },
-    runUserMessage: async (
-      _eventId,
-      _turnId,
-      _messageId,
-      _content,
-      _workspaceContext,
-      _onChunk,
-      _taskLifecycle,
-      resumeFromHead
-    ) => {
-      receivedResumeFlag = resumeFromHead === true
-      return { fullText: '', interrupted: false, paused: true }
-    },
+    createChatTurn: async () => ({ turnId: 501 }),
+    controlUserMessage: async () => ({}),
+    runUserMessage: async () => ({
+      fullText: '已经展示的部分回复',
+      interrupted: true,
+      interruptedWorkspace: workspace,
+      interruption: {
+        reason: 'user_interrupted',
+        interruptedAt: '2026-08-13T00:00:00.000Z',
+        sourceVersionId: 9,
+        resumePoint: 'toolContextReloadNode'
+      }
+    }),
     createBackgroundPersonaStageTurn: async () => ({ turnId: 0 }),
     runBackgroundPersonaStage: async () => ({ fullText: '', interrupted: false }),
     consumeTaskNotification: async () => {
@@ -181,8 +200,81 @@ test('a resumed turn can pause again without publishing a formal commit', async 
 
   const result = await orchestrateMainAgentEvent(event, dependencies)
 
-  assert.equal(receivedResumeFlag, true)
-  assert.equal(result.paused, true)
-  assert.deepEqual(appliedEffects.map((effect) => effect.type), ['stream_paused'])
-  assert.equal(appliedEffects.some((effect) => effect.type === 'commit_turn'), false)
+  assert.equal(result.summary, 'user_message_interrupted')
+  assert.deepEqual(appliedEffects.map((effect) => effect.type), [
+    'commit_turn',
+    'stream_interrupted'
+  ])
+  const commit = appliedEffects.find((effect) => effect.type === 'commit_turn')
+  assert.equal(commit?.type, 'commit_turn')
+  assert.equal(commit?.status, 'interrupted')
+  assert.equal(commit?.finalResponse?.content, '已经展示的部分回复')
+  assert.deepEqual(commit?.workspace, workspace)
+  assert.equal(commit?.workspace?.draft.durableToolReceipts[0]?.payload?.revision, 9)
+  assert.equal(commit?.interruption?.sourceVersionId, 9)
+})
+
+test('an interrupted background stage commits the same stable workspace boundary', async () => {
+  const event: MainAgentBackgroundPersonaStageEvent = {
+    id: 'event-background-interrupted',
+    type: 'background_persona_stage',
+    source: 'background_persona',
+    sessionId: 'default',
+    priority: 'idle',
+    createdAt: Date.parse(CURRENT_DOCUMENT_CONTEXT.capturedAt),
+    dedupeKey: 'background_persona_stage:task-1:stage-1',
+    payload: {
+      backgroundTaskId: 'task-1',
+      stageId: 'stage-1',
+      stageKind: 'reflection',
+      title: '整理近期体验',
+      resumePointer: 'stage-1',
+      instruction: '整理当前阶段的稳定认识。',
+      input: {}
+    }
+  }
+  const workspace = createTurnWorkspace({
+    eventId: event.id,
+    turnId: 601,
+    sessionId: event.sessionId,
+    runId: 'run-background-interrupted',
+    memorySlots: createDefaultMemorySlots(),
+    persona: null
+  })
+  const appliedEffects: MainAgentEffect[] = []
+  const dependencies: MainAgentEventOrchestrationDependencies = {
+    createChatTurn: async () => ({ turnId: 0 }),
+    controlUserMessage: async () => ({}),
+    runUserMessage: async () => ({ fullText: '', interrupted: false }),
+    createBackgroundPersonaStageTurn: async () => ({ turnId: 601 }),
+    runBackgroundPersonaStage: async () => ({
+      fullText: '已经形成的阶段认识',
+      interrupted: true,
+      interruptedWorkspace: workspace,
+      interruption: {
+        reason: 'user_interrupted',
+        interruptedAt: '2026-08-13T00:00:00.000Z',
+        sourceVersionId: 12,
+        resumePoint: 'sceneNode'
+      }
+    }),
+    consumeTaskNotification: async () => {
+      throw new Error('not used')
+    },
+    applyEffects: async (result) => {
+      appliedEffects.push(...result.effects)
+    },
+    completeTaskNotificationConsumption: async () => undefined,
+    logUserMessageError: (error) => (error instanceof Error ? error.message : String(error))
+  }
+
+  const result = await orchestrateMainAgentEvent(event, dependencies)
+  const commit = appliedEffects.find((effect) => effect.type === 'commit_turn')
+
+  assert.equal(result.summary, 'background_persona_stage_interrupted')
+  assert.equal(commit?.type, 'commit_turn')
+  assert.equal(commit?.status, 'interrupted')
+  assert.deepEqual(commit?.workspace, workspace)
+  assert.equal(commit?.interruption?.sourceVersionId, 12)
+  assert.equal(commit?.observations?.[0]?.type, 'background_persona_stage_interrupted')
 })

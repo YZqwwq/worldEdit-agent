@@ -12,16 +12,13 @@ import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryW
 import type { MainAgentReadyToCommitCandidate } from '@share/cache/AItype/states/turnWorkspace'
 
 type FaultBoundary =
-  | 'pause_before'
-  | 'pause_during'
-  | 'pause_after'
-  | 'resume_running'
-  | 'final_before'
-  | 'final_after'
+  | 'checkpoint_running'
+  | 'ready_to_commit'
+  | 'interrupted_before_queue_ack'
+  | 'interrupted_after_queue_ack'
 
 const database = process.argv[2]
 const boundary = process.argv[3] as FaultBoundary | undefined
-
 if (!database || !boundary) {
   throw new Error('turnRecoveryFaultWorker requires a database path and fault boundary.')
 }
@@ -33,7 +30,7 @@ const dataSource = new DataSource({
   entities: [MainAgentEventRecord, MainAgentTurnRecord, MainAgentTurnVersionRecord]
 })
 
-const seedProcessingTurn = async (): Promise<MainAgentTurnRecord> => {
+const seed = async (): Promise<MainAgentTurnRecord> => {
   const eventId = `process-fault-${boundary}`
   await dataSource.getRepository(MainAgentEventRecord).save({
     id: eventId,
@@ -71,128 +68,86 @@ const seedProcessingTurn = async (): Promise<MainAgentTurnRecord> => {
   })
 }
 
-const createReadyCandidate = (
-  eventId: string,
-  turnId: number
-): MainAgentReadyToCommitCandidate => ({
+const readyCandidate = (turn: MainAgentTurnRecord): MainAgentReadyToCommitCandidate => ({
   schemaVersion: 1,
-  eventId,
-  turnId,
-  sessionId: 'default',
+  eventId: turn.eventId,
+  turnId: turn.id,
+  sessionId: turn.sessionId,
   consumer: 'chat_runtime',
   status: 'completed',
   workspace: createTurnWorkspace({
-    eventId,
-    turnId,
-    sessionId: 'default',
+    eventId: turn.eventId,
+    turnId: turn.id,
+    sessionId: turn.sessionId,
     runId: `fault-${boundary}`,
     memorySlots: createDefaultMemorySlots(),
     persona: null
   }),
-  finalResponse: {
-    messageId: `${eventId}:final`,
-    content: '已经完成计算的权威回复。'
-  }
+  finalResponse: { messageId: `${turn.eventId}:final`, content: '权威回复' }
 })
 
-const crashNow = (): never => {
+const crash = (): never => {
   process.kill(process.pid, 'SIGKILL')
-  throw new Error('SIGKILL did not terminate the fault worker.')
+  throw new Error('SIGKILL did not terminate the worker.')
 }
 
 const run = async (): Promise<void> => {
   await dataSource.initialize()
-  const turn = await seedProcessingTurn()
-  const eventId = turn.eventId
-
-  if (boundary === 'final_before' || boundary === 'final_after') {
-    const candidate = createReadyCandidate(eventId, turn.id)
+  const turn = await seed()
+  if (boundary === 'ready_to_commit') {
+    const candidate = readyCandidate(turn)
     await persistTurnVersion(dataSource, {
-      eventId,
+      eventId: turn.eventId,
       turnId: turn.id,
       kind: 'ready_to_commit',
       resumePoint: 'commit_turn',
-      snapshotJson: serializeReadyToCommitCandidate(candidate),
-      pause: false
+      snapshotJson: serializeReadyToCommitCandidate(candidate)
     })
-    if (boundary === 'final_before') crashNow()
-
-    await dataSource.transaction(async (manager) => {
-      const turnRepo = manager.getRepository(MainAgentTurnRecord)
-      const eventRepo = manager.getRepository(MainAgentEventRecord)
-      const savedTurn = await turnRepo.findOneByOrFail({ id: turn.id })
-      const savedEvent = await eventRepo.findOneByOrFail({ id: eventId })
-      const finalVersion = await persistFinalTurnVersionWithManager(manager, {
-        turn: savedTurn,
-        snapshotJson: JSON.stringify(candidate)
-      })
-      savedTurn.status = 'completed'
-      savedTurn.completedAt = new Date()
-      savedTurn.headVersionId = finalVersion.id
-      savedEvent.status = 'completed'
-      savedEvent.finishedAt = new Date()
-      await turnRepo.save(savedTurn)
-      await eventRepo.save(savedEvent)
-    })
-    crashNow()
+    crash()
   }
 
   const checkpoint = await persistTurnVersion(dataSource, {
-    eventId,
+    eventId: turn.eventId,
     turnId: turn.id,
-    resumePoint: 'toolNode',
-    snapshotJson: JSON.stringify({ boundary, checkpoint: 1 }),
-    pause: false
+    resumePoint: 'toolContextReloadNode',
+    snapshotJson: JSON.stringify({ messages: [], state: { turnWorkspace: readyCandidate(turn).workspace } })
   })
-  if (boundary === 'pause_before') crashNow()
-
-  if (boundary === 'pause_during') {
-    const runner = dataSource.createQueryRunner()
-    await runner.connect()
-    await runner.startTransaction()
-    const versionRepo = runner.manager.getRepository(MainAgentTurnVersionRecord)
-    const turnRepo = runner.manager.getRepository(MainAgentTurnRecord)
-    const eventRepo = runner.manager.getRepository(MainAgentEventRecord)
-    const uncommittedVersion = await versionRepo.save({
-      turnId: turn.id,
-      sequence: 2,
-      parentVersionId: checkpoint.id,
-      kind: 'checkpoint',
-      resumePoint: 'llmCall',
-      snapshotJson: JSON.stringify({ boundary, checkpoint: 2 })
-    })
-    const savedTurn = await turnRepo.findOneByOrFail({ id: turn.id })
-    const savedEvent = await eventRepo.findOneByOrFail({ id: eventId })
-    savedTurn.headVersionId = uncommittedVersion.id
-    savedTurn.status = 'paused'
-    savedTurn.pausedAt = new Date()
-    savedEvent.status = 'paused'
-    savedEvent.summary = 'turn_paused'
-    await turnRepo.save(savedTurn)
-    await eventRepo.save(savedEvent)
-    crashNow()
-  }
-
-  await persistTurnVersion(dataSource, {
-    eventId,
-    turnId: turn.id,
-    resumePoint: 'llmCall',
-    snapshotJson: JSON.stringify({ boundary, checkpoint: 2 }),
-    pause: true
-  })
-  if (boundary === 'pause_after') crashNow()
+  if (boundary === 'checkpoint_running') crash()
 
   await dataSource.transaction(async (manager) => {
     const savedTurn = await manager.getRepository(MainAgentTurnRecord).findOneByOrFail({ id: turn.id })
-    const savedEvent = await manager.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })
-    savedTurn.status = 'processing'
-    savedTurn.pausedAt = null
-    savedEvent.status = 'processing'
-    savedEvent.finishedAt = null
+    const finalVersion = await persistFinalTurnVersionWithManager(manager, {
+      turn: savedTurn,
+      reuseReadySnapshot: false,
+      snapshotJson: JSON.stringify({
+        schemaVersion: 1,
+        eventId: turn.eventId,
+        turnId: turn.id,
+        status: 'interrupted',
+        interruption: {
+          reason: 'user_interrupted',
+          sourceVersionId: checkpoint.id,
+          resumePoint: checkpoint.resumePoint
+        }
+      })
+    })
+    savedTurn.status = 'interrupted'
+    savedTurn.interruptedAt = new Date()
+    savedTurn.headVersionId = finalVersion.id
     await manager.getRepository(MainAgentTurnRecord).save(savedTurn)
-    await manager.getRepository(MainAgentEventRecord).save(savedEvent)
   })
-  crashNow()
+
+  if (boundary === 'interrupted_after_queue_ack') {
+    const event = await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({
+      id: turn.eventId
+    })
+    event.status = 'completed'
+    event.consumer = 'chat_runtime'
+    event.summary = 'user_message_interrupted'
+    event.finishedAt = new Date()
+    await dataSource.getRepository(MainAgentEventRecord).save(event)
+  }
+  crash()
 }
 
 void run().catch((error) => {

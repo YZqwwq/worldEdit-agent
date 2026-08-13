@@ -12,6 +12,7 @@ import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mai
 import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAgentMessageContentService'
 import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
 import { mainAgentTurnService } from '../mainAgentTurnService'
+import { isTerminalMainAgentTurnStatus } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
 
 type DispatchHandlers = {
   processEvent?: (
@@ -40,7 +41,6 @@ class MainAgentDispatchService {
   private readonly eventStreamSubscribers = new Map<string, Set<(chunk: StreamChunk) => void>>()
   private processing = false
   private currentEvent: MainAgentEvent | null = null
-  private pausedEvent: MainAgentEvent | null = null
   private handlers: DispatchHandlers = {}
 
   configure(handlers: DispatchHandlers): void {
@@ -51,9 +51,6 @@ class MainAgentDispatchService {
   }
 
   getState(): MainAgentDispatchState {
-    if (this.pausedEvent) {
-      return 'paused'
-    }
     if (this.processing) {
       return 'processing'
     }
@@ -87,9 +84,9 @@ class MainAgentDispatchService {
       state: this.getState(),
       ...counts,
       totalQueued: this.queue.length,
-      currentSource: (this.currentEvent ?? this.pausedEvent)?.source,
-      currentEventType: (this.currentEvent ?? this.pausedEvent)?.type,
-      currentLabel: this.formatCurrentLabel(this.currentEvent ?? this.pausedEvent)
+      currentSource: this.currentEvent?.source,
+      currentEventType: this.currentEvent?.type,
+      currentLabel: this.formatCurrentLabel(this.currentEvent)
     }
   }
 
@@ -186,42 +183,6 @@ class MainAgentDispatchService {
     return this.enqueueLoadedEvent(event, { onChunk })
   }
 
-  restorePausedEvent(event: MainAgentEvent): void {
-    if (this.pausedEvent && this.pausedEvent.id !== event.id) {
-      throw new Error('Only one paused main agent turn may own the dispatch queue.')
-    }
-    this.pausedEvent = event
-  }
-
-  async resumePausedEvent(event: MainAgentEvent): Promise<void> {
-    if (this.pausedEvent?.id !== event.id) {
-      throw new Error('The requested turn does not own the paused dispatch queue.')
-    }
-    this.pausedEvent = null
-    return this.enqueueLoadedEvent(event, this.getDedupeOptionsForEvent(event))
-  }
-
-  stageResumePausedEvent(event: MainAgentEvent, onChunk?: (chunk: StreamChunk) => void): void {
-    if (this.pausedEvent?.id !== event.id) {
-      throw new Error('The requested turn does not own the paused dispatch queue.')
-    }
-    this.pausedEvent = null
-    void this.enqueueLoadedEvent(event, {
-      ...this.getDedupeOptionsForEvent(event),
-      onChunk
-    }).catch((error) => {
-      console.error('Resumed main agent event failed:', error)
-    })
-  }
-
-  releaseCancelledPausedEvent(eventId: string): void {
-    if (this.pausedEvent && this.pausedEvent.id !== eventId) {
-      throw new Error('The cancelled turn does not own the paused dispatch queue.')
-    }
-    this.pausedEvent = null
-    void this.drain()
-  }
-
   reset(): void {
     while (this.queue.length > 0) {
       const entry = this.queue.shift()
@@ -233,7 +194,6 @@ class MainAgentDispatchService {
     this.eventStreamSubscribers.clear()
     this.processing = false
     this.currentEvent = null
-    this.pausedEvent = null
   }
 
   private getQueuedCounts(): Pick<
@@ -317,7 +277,7 @@ class MainAgentDispatchService {
   }
 
   private async drain(): Promise<void> {
-    if (this.processing || this.pausedEvent) {
+    if (this.processing) {
       return
     }
 
@@ -335,26 +295,24 @@ class MainAgentDispatchService {
           const result = await this.processEvent(entry.event, {
             onChunk: (chunk) => this.dispatchChunk(entry.event.id, chunk)
           })
-          if (result.paused) {
-            this.pausedEvent = entry.event
-          }
-          if (!result.eventCommitted) {
+          if ((await mainAgentEventLogService.getStatus(entry.event.id)) === 'processing') {
             await mainAgentEventLogService.markCompleted(entry.event.id, {
               consumer: result.consumer,
               summary: result.summary
             })
           }
           entry.resolve()
-          if (result.paused) {
-            break
-          }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           await mainAgentTurnService.reconcileIncompleteTurnForFailedEvent({
             eventId: entry.event.id,
             errorMessage
           })
-          if ((await mainAgentEventLogService.getStatus(entry.event.id)) === 'processing') {
+          const turn = await mainAgentTurnService.findByEventId(entry.event.id)
+          if (
+            (await mainAgentEventLogService.getStatus(entry.event.id)) === 'processing' &&
+            (!turn || !isTerminalMainAgentTurnStatus(turn.status))
+          ) {
             await mainAgentEventLogService.markFailed(entry.event.id, { errorMessage })
           }
           entry.reject(error)

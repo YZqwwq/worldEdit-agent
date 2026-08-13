@@ -12,7 +12,6 @@ export type PersistTurnVersionInput = {
   turnId: number
   resumePoint: MainAgentTurnVersionResumePoint
   snapshotJson: string
-  pause: boolean
   kind?: MainAgentTurnVersionKind
 }
 
@@ -22,7 +21,6 @@ export const persistTurnVersion = async (
 ): Promise<MainAgentTurnVersionRecord> =>
   dataSource.transaction(async (manager) => {
     const turnRepo = manager.getRepository(MainAgentTurnRecord)
-    const eventRepo = manager.getRepository(MainAgentEventRecord)
     const versionRepo = manager.getRepository(MainAgentTurnVersionRecord)
     const turn = await turnRepo.findOneBy({ id: input.turnId })
     if (!turn) throw new Error(`Cannot version missing turn: ${input.turnId}`)
@@ -31,18 +29,6 @@ export const persistTurnVersion = async (
     }
     if (['completed', 'interrupted', 'cancelled', 'failed', 'reverted'].includes(turn.status)) {
       throw new Error(`Cannot version terminal turn ${input.turnId} (${turn.status}).`)
-    }
-
-    const event = input.pause
-      ? await eventRepo.findOneBy({ id: input.eventId })
-      : null
-    if (input.pause) {
-      if (!event) throw new Error(`Cannot pause missing event: ${input.eventId}`)
-      if (turn.status !== 'processing' || event.status !== 'processing') {
-        throw new Error(
-          `Cannot atomically pause turn/event from ${turn.status}/${event.status}.`
-        )
-      }
     }
 
     const latest = await versionRepo.findOne({
@@ -60,19 +46,7 @@ export const persistTurnVersion = async (
     const saved = await versionRepo.save(version)
     turn.headVersionId = saved.id
 
-    if (event) {
-      turn.status = 'paused'
-      turn.pausedAt = new Date()
-      event.status = 'paused'
-      event.summary = 'turn_paused'
-      event.errorMessage = ''
-      event.finishedAt = null
-    }
-
     await turnRepo.save(turn)
-    if (event) {
-      await eventRepo.save(event)
-    }
     return saved
   })
 
@@ -81,6 +55,7 @@ export const persistFinalTurnVersionWithManager = async (
   input: {
     turn: MainAgentTurnRecord
     snapshotJson: string
+    reuseReadySnapshot?: boolean
   }
 ): Promise<MainAgentTurnVersionRecord> => {
   const versionRepo = manager.getRepository(MainAgentTurnVersionRecord)
@@ -100,7 +75,9 @@ export const persistFinalTurnVersionWithManager = async (
     kind: 'final',
     resumePoint: 'final',
     snapshotJson:
-      currentHead?.kind === 'ready_to_commit' ? currentHead.snapshotJson : input.snapshotJson
+      input.reuseReadySnapshot !== false && currentHead?.kind === 'ready_to_commit'
+        ? currentHead.snapshotJson
+        : input.snapshotJson
   })
   return versionRepo.save(finalVersion)
 }

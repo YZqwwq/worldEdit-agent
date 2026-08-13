@@ -76,7 +76,7 @@ app.whenReady().then(async () => {
   await taskRecoveryService.recoverInterruptedExecutions()
   await subAgentExecutionQueueService.enqueueQueuedExecutions()
   await mainAgentEventRecoveryService.reconcileTurnOwnedEvents()
-  await mainAgentEventRecoveryService.restorePausedTurn()
+  await mainAgentEventRecoveryService.reconcileLegacyPausedTurn()
   await mainAgentEventRecoveryService.reconcileTaskNotificationEvents()
   await mainAgentEventRecoveryService.enqueueQueuedEvents()
   await taskRecoveryService.enqueuePendingNotifications()

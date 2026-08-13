@@ -44,17 +44,19 @@
 
 ## P0：运行闭环必须修正
 
-### P0-0：用户中断尚未形成完整提交
+### P0-0：用户中断完整提交
 
-当前 `interruptCurrentRun()` 可以通过 AbortController 停止模型流，但中断结果主要围绕部分回复处理，没有确保 Turn Workspace、执行账本、已完成工具证据和稳定 Effect 通过同一个原子入口提交。
+状态：已于 2026-08-13 接通。`interruptCurrentRun()` 通过 AbortController 停止模型流，Runtime 读取最近稳定 HEAD，`commitInterruptedTurn` 原子提交部分回复、稳定 Workspace、Observation 和 Final interruption receipt；随后消息队列完成原 Event 并释放。
 
-方向已经调整：不再继续建设暂停、继续和暂停回退。现有 Version/HEAD、paused Event 和恢复队列代码属于待拆除或重新归属的历史实现；`ready_to_commit`、Final Version 和不可变快照仍可用于崩溃恢复。
+暂停、继续、暂停回退和队列 `pausedEvent` 已移出产品主链。旧 paused 状态只保留启动迁移和历史审计；`ready_to_commit`、Final Version 和不可变快照继续用于崩溃恢复。
 
-后续顺序：建立 `commitInterruptedTurn` -> 删除 paused 队列路径 -> 验证下一轮承接中断事实 -> 再独立重写持久化恢复矩阵 -> 工具 planned action -> 普通 checkpoint 崩溃恢复。
+后续顺序：补模型流和工具边界的真实中断测试 -> 验证下一轮承接中断事实 -> 工具 planned action -> 普通 checkpoint 崩溃恢复。
 
 中断验收位置统一为：模型流中、工具调用前、工具执行中、工具返回后、Memory/Persona Draft 形成后、正式 Final 提交前。每个位置都要验证现场封存和稳定影响发布边界。
 
-工具状态按三类处理：只读结果保存在未提交 Turn 中并可随取消丢弃；Persona/Memory 等继续使用现有 Draft；应用内文档写入后续使用最小 `TurnChangeSet`，外部不可延迟操作使用 planned/receipt/unknown，不能假装可回滚。
+工具状态按三类处理：只读结果保存在未提交 Turn 中并可随取消丢弃；Persona/Memory 等继续使用现有 Draft；副作用工具统一接入 `ChangeSet + EffectReceipt`。应用内修改尽可能让业务事实与 Receipt 同事务，外部不可延迟操作使用 planned/receipt/unknown，不能假装可回滚。
+
+已完成的中间收口：有副作用工具成功返回后立即写入 `durableToolReceipts` 并形成稳定 checkpoint；中断会等待在途写工具完成这一边界。它解决正常用户中断时“数据库已修改、Workspace 无感知”的问题。用户侧避免 Agent 重复写入或否认已完成修改；维护侧保证 interrupted Final 能引用真实工具回执。进程强杀的提交微窗口仍归 A5 处理。
 
 ### 2026-08-12：统一系统审计问题
 
@@ -62,32 +64,35 @@
 
 #### A1：用户中断没有完整终结当前 Turn（P0）
 
-**方向性结论：消息队列只调度未处理和正在处理的消息。中断成功后当前消息必须进入 `interrupted` 终态并离开调度集合，不存在暂停和重新入队。**
+**状态：中断主链已于 2026-08-13 接通。消息队列只调度未处理和正在处理的消息；Turn 中断提交后，原 Queue Event 作为已消费消息进入 `completed`，不存在暂停和重新入队。**
 
 - 未处理：消息尚未被 Agent Runtime 领取。
 - 正在处理：消息已经绑定当前 Turn，直到完成、中断、失败或取消。
-- 中断：Turn 的正式终态和审计结果，不参与队列排序。
+- 中断：Turn 的正式终态和审计结果；Queue Event 只记录该输入是否已经消费完毕。
 
-当前错误：
+已完成：
 
-- 旧队列保存 `pausedEvent`，中断和暂停存在两套相似但结果不同的运行出口。
-- 当前中断提交没有完整携带 Turn Workspace 和工具执行账本，下一轮可能不知道已经做过什么。
-- 已展示文本、已完成工具、半成品人格记忆可能分别由不同路径处理，形成部分提交。
-- 如果中断后过早释放执行槽，下一条消息可能在 interrupted Turn 尚未落盘时开始执行。
+- 删除 `pausedEvent`、暂停/继续/回退 IPC 与 UI，停止按钮直接请求 Abort。
+- Abort 后读取最近稳定 HEAD，提交其中的 Workspace，并让 Final interruption receipt 引用源 Version 与中断位置。
+- 普通对话和后台人格阶段均进入 Turn Version 上下文；后台阶段中断也提交最近稳定 Workspace 与 interruption receipt。
+- 部分回复保存为 interrupted Message；稳定 Workspace 按正常发布策略提交。
+- Interrupted Final 成功后才由队列完成原 Event；崩溃发生在两者之间时，启动恢复只补齐 Event 完成状态。
+- 删除无实际控制作用的 `eventCommitted` 字段；Event 完成权唯一归队列所有。
+- 真实 SQLite 和独立进程强杀测试已覆盖中断提交前后的队列回执窗口。
 
 目标模型：
 
 ```text
 消息队列
   未处理 -> 正在处理 -> 离开调度集合
-                         completed / interrupted / failed / cancelled
+                         completed / failed / cancelled
 
 Agent Runtime
   running -> interrupt_requested -> interrupted
 ```
 
 - AbortSignal 停止当前模型流或可取消工具，不再调度新动作。
-- `commitInterruptedTurn` 完整封存现场，但只发布已闭合的稳定影响。
+- `commitInterruptedTurn` 发布最近稳定 HEAD 中已经形成的全部 Workspace 缓存。
 - 已展示回复保存为 `interrupted`，不能表现为完整结论。
 - 已完成工具结果保留；执行中工具进入 `aborted` 或 `unknown`。
 - 中断事务提交后才释放执行槽，随后队列领取下一条未处理消息。
@@ -95,11 +100,11 @@ Agent Runtime
 验收标准：
 
 1. 队列实现中不存在 `pausedEvent`、恢复 paused Event 或原 Event 重新入队路径。
-2. 中断后 Event/Turn 只进入一次 `interrupted`。
+2. 中断后 Turn 只进入一次 `interrupted`，Event 只进入一次 `completed`。
 3. UI 部分回复、数据库消息和 Workspace 中的流式文本一致。
 4. 已完成工具结果不丢失，未完成工具不被误报成功。
 5. 中断提交失败时不释放执行槽；成功后执行槽只释放一次。
-6. 下一轮 Context 能明确承接中断事实和稳定证据。
+6. 待完成：下一轮 Context 明确承接中断事实和稳定证据；未来的高优先级 follow-up Event 暂不实现。
 
 #### A2：统一撤回系统不是完整、原子的正式撤回（P0）
 
@@ -314,15 +319,15 @@ LangGraph 节点在 Event/Turn 提交完成前直接写入：
 3. 已完成：隔离后台人格阶段与普通用户感知链路。
 4. 已完成：修正归档事务失败回滚和纯 User buffer 边界。
 5. 方向已调整：所有主 Agent 工作共用一个 Agent Runtime 执行槽；消息队列只保存未处理消息和当前已领取消息，不保存暂停状态。
-6. 下一步：强化现有 AbortController 中断入口，建立唯一 `commitInterruptedTurn`，统一提交部分回复、Workspace、Ledger 和稳定 Effects。
-7. 待改造：移除暂停、继续、暂停回退、Event paused、队列 `pausedEvent` 与 `resumeFromHead` 产品路径；既有 Version/HEAD 保留给随后独立修订的崩溃恢复。
+6. 已完成：AbortController 中断入口、唯一 `commitInterruptedTurn`、部分回复、稳定 Workspace 与 Final interruption receipt 提交。
+7. 已完成：移除暂停、继续、暂停回退、队列 `pausedEvent` 与 paused `resumeFromHead` 产品路径；既有 Version/HEAD 保留给崩溃恢复。
 8. 已完成：`ready_to_commit`/Final Version，以及 ready 候选崩溃后只重试提交的恢复路径。
-9. 待改造：中断事务成功后由 Agent Runtime 释放执行槽；桌面和紧凑聊天只保留一个中断入口。
+9. 已完成：中断提交成功后队列完成并释放原 Event；桌面和紧凑聊天只保留一个中断入口。
 10. 后续独立工作：崩溃恢复以 Turn/HEAD 重建新的运行；Event 只提供原始输入和审计关联，不再用 paused 状态决定队列所有权。
-11. 已完成：旧方案的六个故障位置已由独立子进程写入临时 SQLite 后 `SIGKILL`，父进程重开数据库并验证 Event/Turn/HEAD；该测试框架保留，中断事务的期望状态需要按新语义重写。
-12. 下一步：先完成中断提交和消息队列解耦，覆盖模型流、工具前后、Draft 形成后和 Final 前的中断测试。
-13. 中断闭环稳定后再重写启动恢复测试；补完整 Electron 启动编排验收并接入工具 planned action，再开放普通 checkpoint 的崩溃恢复。
-14. 以世界文档验证最小 `TurnChangeSet`，不先建立覆盖所有工具和文件的统一虚拟层。
+11. 已完成：独立子进程 `SIGKILL` 已覆盖 checkpoint、ready、Interrupted Final 提交前后 Queue Event 回执状态。
+12. 下一步：覆盖模型流、工具前后、Draft 形成后和 Final 前的真实中断测试，并验证下一轮 Context 承接。
+13. 补完整 Electron 启动编排验收并接入工具 planned action，再开放普通 checkpoint 的崩溃恢复。
+14. 以世界文档验证最小 `ChangeSet + EffectReceipt`；普通写入不强制暂存，不先建立覆盖所有工具和文件的统一虚拟层。
 15. 补齐提交清单与提交后动作恢复。
 16. 删除死字段、未使用参数和未生效规则后，再推进长期重要事件记忆。
 

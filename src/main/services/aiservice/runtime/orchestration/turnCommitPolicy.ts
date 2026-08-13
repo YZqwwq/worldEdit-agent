@@ -12,7 +12,7 @@ export const resolveTurnWorkspaceCommitPolicy = (
   status: MainAgentCommitTurnEffect['status'],
   consumer: MainAgentEventConsumer
 ): TurnWorkspaceCommitPolicy => {
-  if (status !== 'completed') {
+  if (status === 'failed') {
     return {
       commitMemorySlots: false,
       commitPersona: false

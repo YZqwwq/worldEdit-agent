@@ -18,6 +18,8 @@ class MainAgentRunControlService {
         startedAt: number
         donePromise: Promise<void>
         resolveDone: () => void
+        durableToolExecutions: number
+        durableToolWaiters: Set<() => void>
       }
     | null = null
 
@@ -38,7 +40,9 @@ class MainAgentRunControlService {
       controller,
       startedAt: Date.now(),
       donePromise,
-      resolveDone
+      resolveDone,
+      durableToolExecutions: 0,
+      durableToolWaiters: new Set()
     }
     return controller
   }
@@ -57,6 +61,32 @@ class MainAgentRunControlService {
 
     this.activeRun.controller.abort('user_interrupted')
     return true
+  }
+
+  beginDurableToolExecution(): () => void {
+    const activeRun = this.activeRun
+    if (!activeRun) return () => undefined
+    activeRun.durableToolExecutions += 1
+    let finished = false
+    return () => {
+      if (finished) return
+      finished = true
+      activeRun.durableToolExecutions = Math.max(0, activeRun.durableToolExecutions - 1)
+      if (activeRun.durableToolExecutions === 0) {
+        for (const resolve of activeRun.durableToolWaiters) resolve()
+        activeRun.durableToolWaiters.clear()
+      }
+    }
+  }
+
+  async waitForDurableToolExecutions(eventId: string): Promise<void> {
+    const activeRun = this.activeRun
+    if (!activeRun || activeRun.eventId !== eventId || activeRun.durableToolExecutions === 0) {
+      return
+    }
+    await new Promise<void>((resolve) => {
+      activeRun.durableToolWaiters.add(resolve)
+    })
   }
 
   getActiveRunSnapshot(): ActiveMainAgentRunSnapshot | null {
@@ -85,6 +115,8 @@ class MainAgentRunControlService {
   reset(): void {
     if (this.activeRun) {
       this.activeRun.controller.abort('runtime_reset')
+      for (const resolve of this.activeRun.durableToolWaiters) resolve()
+      this.activeRun.durableToolWaiters.clear()
       this.activeRun.resolveDone()
     }
     this.activeRun = null

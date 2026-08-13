@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { ToolMessage } from '@langchain/core/messages'
+import type { TurnWorkspaceDurableToolReceipt } from '@share/cache/AItype/states/turnWorkspace'
 import {
   buildAgentToolModelMessage,
   parseAgentToolResultEnvelope
@@ -32,7 +33,10 @@ import {
   markTurnForFinalization,
   shouldFinalizeToolLoop
 } from '../../execution/turnExecutionLifecycle'
-import { withSuccessfulToolUse } from '../../state/turnWorkspace'
+import { withDurableToolReceipt, withSuccessfulToolUse } from '../../state/turnWorkspace'
+import { buildDurableToolEffectCheckpointState } from '../../execution/durableToolEffectCheckpoint'
+import { mainAgentTurnVersionService } from '../../../runtime/version/mainAgentTurnVersionService'
+import { mainAgentRunControlService } from '../../../runtime/mainAgentRunControlService'
 
 const isSensitiveToolByMetadata = (metadata?: {
   readOnly?: boolean
@@ -360,6 +364,7 @@ export async function toolNode(
   let toolCallCounts = { ...(state.toolCallCounts ?? {}) }
   let repeatedInvalidInvocationCount = 0
   let executionLedger = state.turnExecutionLedger ?? createTurnExecutionLedger('处理当前用户请求')
+  let nextWorkspace = state.turnWorkspace
   const recordExecution = (input: Parameters<typeof createTurnExecutionAction>[0]): void => {
     executionLedger = appendTurnExecutionAction(executionLedger, createTurnExecutionAction(input))
   }
@@ -776,6 +781,11 @@ export async function toolNode(
       toolCallCounts[tool.name] = (toolCallCounts[tool.name] ?? 0) + 1
     }
 
+    let durableReceipt: TurnWorkspaceDurableToolReceipt | undefined
+    const finishDurableToolExecution =
+      tool.agentMetadata.readOnly === false
+        ? mainAgentRunControlService.beginDurableToolExecution()
+        : undefined
     try {
       emitAgentStage({
         stageId,
@@ -930,6 +940,26 @@ export async function toolNode(
           return toolMessage
         })()
       )
+      if (
+        tool.agentMetadata.readOnly === false &&
+        envelope?.ok !== false &&
+        toolCall.id
+      ) {
+        durableReceipt = {
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          operation: envelope?.receipt?.operation || envelope?.receipt?.kind || toolCall.name,
+          subject: envelope?.receipt?.subject,
+          completion: envelope?.receipt?.completion ?? 'complete',
+          completionState: envelope?.completion.state ?? 'completed',
+          summary:
+            envelope?.receipt?.summary || buildResultSummary(toolCall.name, envelope, result),
+          retryable: envelope?.receipt?.retryable ?? false,
+          evidenceRef: envelope?.receipt?.evidenceRef,
+          payload: envelope?.receipt?.payload,
+          persistedAt: new Date().toISOString()
+        }
+      }
     } catch (error) {
       const invocationError = describeInvocationError(error, tool.agentMetadata.inputSummary)
       // ✅ 错误信息返回给 LLM，而不是静默失败
@@ -999,6 +1029,29 @@ export async function toolNode(
         retryCondition: invocationError.retryCondition
       })
     }
+
+    try {
+      if (durableReceipt && nextWorkspace) {
+        nextWorkspace = withDurableToolReceipt(
+          withSuccessfulToolUse(nextWorkspace, durableReceipt.toolName),
+          durableReceipt
+        )
+        await mainAgentTurnVersionService.checkpointAfterDurableToolEffect(
+          buildDurableToolEffectCheckpointState(state, {
+            messages: toolMessages,
+            pendingToolContext,
+            activeToolTranscriptIds: [...new Set(activeToolTranscriptIds)],
+            activeToolsets: [...new Set(activatedToolsets)],
+            activeTools: [...new Set(activatedTools)],
+            toolCallCounts,
+            turnExecutionLedger: executionLedger,
+            turnWorkspace: nextWorkspace
+          })
+        )
+      }
+    } finally {
+      finishDurableToolExecution?.()
+    }
   }
 
   traceDecision('toolNode', {
@@ -1046,10 +1099,10 @@ export async function toolNode(
   const successfulToolNames = executedTools
     .filter((tool) => tool.ok !== false)
     .map((tool) => String(tool.name))
-  const nextWorkspace = state.turnWorkspace
+  nextWorkspace = nextWorkspace
     ? successfulToolNames.reduce(
         (workspace, toolName) => withSuccessfulToolUse(workspace, toolName),
-        state.turnWorkspace
+        nextWorkspace
       )
     : undefined
 

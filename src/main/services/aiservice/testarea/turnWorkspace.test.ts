@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { AIMessage, ToolMessage } from '@langchain/core/messages'
 import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
 import {
   createFinalResponse,
   createTurnWorkspace,
   getEffectiveMemorySlots,
+  withDurableToolReceipt,
   withMemoryMessagesDraft,
   withMemorySlotsDraft,
   withObservationDraft,
   withSuccessfulToolUse
 } from '../agentrsystem/state/turnWorkspace'
+import { buildDurableToolEffectCheckpointState } from '../agentrsystem/execution/durableToolEffectCheckpoint'
 import { shouldBypassInteractivePerception } from '../agentrsystem/node/instantperceptionnode/instantPerceptionRouting'
 import { resolveTurnWorkspaceCommitPolicy } from '../runtime/orchestration/turnCommitPolicy'
 
@@ -79,7 +82,54 @@ test('background commits cannot publish interactive memory slots', () => {
     }
   )
   assert.deepEqual(resolveTurnWorkspaceCommitPolicy('interrupted', 'chat_runtime'), {
-    commitMemorySlots: false,
-    commitPersona: false
+    commitMemorySlots: true,
+    commitPersona: true
   })
+})
+
+test('durable tool receipts survive interruption checkpoints without duplication', () => {
+  const receipt = {
+    toolCallId: 'call-update-doc',
+    toolName: 'update_world_document',
+    operation: '更新世界观文档',
+    subject: { type: 'document', id: 'doc-1', label: '力量体系' },
+    completion: 'complete' as const,
+    completionState: 'completed' as const,
+    summary: '更新力量体系说明。',
+    retryable: false,
+    evidenceRef: 'document:doc-1',
+    payload: { revision: 9 },
+    persistedAt: '2026-08-13T12:00:00.000Z'
+  }
+  let workspace = withDurableToolReceipt(createWorkspace(), receipt)
+  workspace = withDurableToolReceipt(workspace, { ...receipt, summary: '最终回执' })
+
+  assert.equal(workspace.draft.durableToolReceipts.length, 1)
+  assert.equal(workspace.draft.durableToolReceipts[0]?.summary, '最终回执')
+
+  const aiMessage = new AIMessage({
+    content: '',
+    tool_calls: [{ id: receipt.toolCallId, name: receipt.toolName, args: { documentId: 'doc-1' } }]
+  })
+  const toolMessage = new ToolMessage({
+    content: JSON.stringify({ ok: true, revision: 9 }),
+    tool_call_id: receipt.toolCallId,
+    name: receipt.toolName
+  })
+  const checkpoint = buildDurableToolEffectCheckpointState(
+    {
+      messages: [aiMessage],
+      activeToolsets: ['world_document_editor'],
+      activeTools: [],
+      turnWorkspace: createWorkspace()
+    } as never,
+    {
+      messages: [toolMessage],
+      activeToolsets: ['world_document_editor'],
+      turnWorkspace: workspace
+    }
+  )
+
+  assert.equal(checkpoint.messages.length, 2)
+  assert.equal(checkpoint.turnWorkspace?.draft.durableToolReceipts[0]?.payload?.revision, 9)
 })

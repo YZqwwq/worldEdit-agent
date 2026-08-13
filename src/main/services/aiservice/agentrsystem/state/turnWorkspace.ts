@@ -26,6 +26,7 @@ export const createTurnWorkspace = (input: {
   draft: {
     memoryMessages: [],
     successfulToolNames: [],
+    durableToolReceipts: [],
     observations: []
   }
 })
@@ -79,6 +80,22 @@ export const withSuccessfulToolUse = (
   draft: {
     ...workspace.draft,
     successfulToolNames: [...new Set([...workspace.draft.successfulToolNames, toolName])]
+  }
+})
+
+export const withDurableToolReceipt = (
+  workspace: TurnWorkspace,
+  receipt: TurnWorkspace['draft']['durableToolReceipts'][number]
+): TurnWorkspace => ({
+  ...workspace,
+  draft: {
+    ...workspace.draft,
+    durableToolReceipts: [
+      ...(workspace.draft.durableToolReceipts ?? []).filter(
+        (item) => item.toolCallId !== receipt.toolCallId
+      ),
+      clone(receipt)
+    ]
   }
 })
 

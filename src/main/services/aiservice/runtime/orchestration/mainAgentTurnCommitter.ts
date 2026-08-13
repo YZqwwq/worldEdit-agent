@@ -25,21 +25,37 @@ export type MainAgentTurnCommitInput = Pick<
   | 'status'
   | 'finalResponse'
   | 'workspace'
+  | 'interruption'
   | 'errorMessage'
   | 'observations'
 >
 
 class MainAgentTurnCommitter {
+  async commitInterruptedTurn(input: MainAgentTurnCommitInput): Promise<void> {
+    if (input.status !== 'interrupted') {
+      throw new Error('commitInterruptedTurn requires an interrupted Turn input.')
+    }
+    await this.commit(input)
+  }
+
   async commit(input: MainAgentTurnCommitInput): Promise<void> {
     this.assertInput(input)
 
-    const existingEvent = await AppDataSource.getRepository(MainAgentEventRecord).findOneBy({
-      id: input.eventId
-    })
+    const [existingEvent, existingTurn] = await Promise.all([
+      AppDataSource.getRepository(MainAgentEventRecord).findOneBy({ id: input.eventId }),
+      AppDataSource.getRepository(MainAgentTurnRecord).findOneBy({ id: input.turnId })
+    ])
     if (
       existingEvent?.status === 'completed' ||
       existingEvent?.status === 'cancelled' ||
       existingEvent?.status === 'failed'
+    ) {
+      return
+    }
+    if (
+      existingTurn?.status === 'completed' ||
+      existingTurn?.status === 'interrupted' ||
+      existingTurn?.status === 'failed'
     ) {
       return
     }
@@ -142,15 +158,18 @@ class MainAgentTurnCommitter {
         }
       }
 
-      event.status = input.status === 'failed' ? 'failed' : 'completed'
-      event.consumer = input.consumer
-      event.summary = `turn_${input.status}`
-      event.errorMessage = input.errorMessage?.trim() || ''
-      event.finishedAt = now
-      await eventRepo.save(event)
+      if (input.status !== 'interrupted') {
+        event.status = input.status === 'failed' ? 'failed' : 'completed'
+        event.consumer = input.consumer
+        event.summary = `turn_${input.status}`
+        event.errorMessage = input.errorMessage?.trim() || ''
+        event.finishedAt = now
+        await eventRepo.save(event)
+      }
 
       const finalVersion = await persistFinalTurnVersionWithManager(manager, {
         turn,
+        reuseReadySnapshot: input.status === 'completed',
         snapshotJson: JSON.stringify({
           schemaVersion: 1,
           eventId: input.eventId,
@@ -160,6 +179,7 @@ class MainAgentTurnCommitter {
           status: input.status,
           finalResponse: input.finalResponse,
           workspace: input.workspace,
+          interruption: input.interruption,
           errorMessage: input.errorMessage,
           observations: input.observations
         })
@@ -168,7 +188,7 @@ class MainAgentTurnCommitter {
       await turnRepo.save(turn)
     })
 
-    if (input.status === 'completed' && input.workspace) {
+    if (input.status !== 'failed' && input.workspace) {
       for (const toolName of input.workspace.draft.successfulToolNames) {
         const entry = getMainAgentToolEntry(toolName)
         if (!entry || entry.activationMode === 'always') continue
@@ -234,6 +254,19 @@ class MainAgentTurnCommitter {
   private async resolveObservationDrafts(
     input: MainAgentTurnCommitInput
   ): Promise<InteractionObservationSnapshot[]> {
+    if (input.status === 'interrupted') {
+      return [
+        ...(input.workspace?.draft.observations ?? []),
+        ...(input.observations ?? []).map((observation) => ({
+          id: 0,
+          type: observation.type,
+          source: observation.source,
+          summary: observation.summary,
+          payload: observation.payload ?? {},
+          createdAt: new Date().toISOString()
+        }))
+      ]
+    }
     if (input.observations?.length) {
       return input.observations.map((observation) => ({
         id: 0,

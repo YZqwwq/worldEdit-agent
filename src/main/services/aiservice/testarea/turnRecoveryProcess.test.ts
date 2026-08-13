@@ -13,63 +13,40 @@ import {
   type MainAgentTurnRecoveryAction
 } from '../runtime/version/turnRecoveryPolicy'
 
-type FaultCase = {
+const cases: Array<{
   boundary: string
-  expectedAction: MainAgentTurnRecoveryAction
   eventStatus: MainAgentEventRecord['status']
   turnStatus: MainAgentTurnRecord['status']
   headKind: MainAgentTurnVersionRecord['kind']
-  versionCount: number
-}
-
-const cases: FaultCase[] = [
+  action: MainAgentTurnRecoveryAction
+}> = [
   {
-    boundary: 'pause_before',
-    expectedAction: 'fail_closed',
+    boundary: 'checkpoint_running',
     eventStatus: 'processing',
     turnStatus: 'processing',
     headKind: 'checkpoint',
-    versionCount: 1
+    action: 'fail_closed'
   },
   {
-    boundary: 'pause_during',
-    expectedAction: 'fail_closed',
-    eventStatus: 'processing',
-    turnStatus: 'processing',
-    headKind: 'checkpoint',
-    versionCount: 1
-  },
-  {
-    boundary: 'pause_after',
-    expectedAction: 'restore_paused_owner',
-    eventStatus: 'paused',
-    turnStatus: 'paused',
-    headKind: 'checkpoint',
-    versionCount: 2
-  },
-  {
-    boundary: 'resume_running',
-    expectedAction: 'fail_closed',
-    eventStatus: 'processing',
-    turnStatus: 'processing',
-    headKind: 'checkpoint',
-    versionCount: 2
-  },
-  {
-    boundary: 'final_before',
-    expectedAction: 'resume_ready_commit',
+    boundary: 'ready_to_commit',
     eventStatus: 'processing',
     turnStatus: 'processing',
     headKind: 'ready_to_commit',
-    versionCount: 1
+    action: 'resume_ready_commit'
   },
   {
-    boundary: 'final_after',
-    expectedAction: 'none',
-    eventStatus: 'completed',
-    turnStatus: 'completed',
+    boundary: 'interrupted_before_queue_ack',
+    eventStatus: 'processing',
+    turnStatus: 'interrupted',
     headKind: 'final',
-    versionCount: 2
+    action: 'reconcile_completed_event'
+  },
+  {
+    boundary: 'interrupted_after_queue_ack',
+    eventStatus: 'completed',
+    turnStatus: 'interrupted',
+    headKind: 'final',
+    action: 'none'
   }
 ]
 
@@ -77,10 +54,7 @@ for (const faultCase of cases) {
   test(`process restart resolves ${faultCase.boundary}`, async () => {
     const directory = await mkdtemp(join(tmpdir(), `worldedit-${faultCase.boundary}-`))
     const database = join(directory, 'recovery.sqlite')
-    const worker = join(
-      process.cwd(),
-      'src/main/services/aiservice/ai-utils/testarea/.generated/turn-recovery-fault-worker.cjs'
-    )
+    const worker = join(process.cwd(), 'src/main/services/aiservice/testarea/.generated/turn-recovery-fault-worker.cjs')
     let dataSource: DataSource | undefined
     try {
       const result = spawnSync(process.execPath, [worker, database, faultCase.boundary], {
@@ -105,14 +79,10 @@ for (const faultCase of cases) {
       const head = await dataSource.getRepository(MainAgentTurnVersionRecord).findOneByOrFail({
         id: turn.headVersionId ?? -1
       })
-      const versions = await dataSource.getRepository(MainAgentTurnVersionRecord).findBy({
-        turnId: turn.id
-      })
 
       assert.equal(event.status, faultCase.eventStatus)
       assert.equal(turn.status, faultCase.turnStatus)
       assert.equal(head.kind, faultCase.headKind)
-      assert.equal(versions.length, faultCase.versionCount)
       assert.equal(
         resolveMainAgentTurnRecovery({
           eventType: event.type,
@@ -120,7 +90,7 @@ for (const faultCase of cases) {
           turnStatus: turn.status,
           headKind: head.kind
         }).action,
-        faultCase.expectedAction
+        faultCase.action
       )
     } finally {
       if (dataSource?.isInitialized) await dataSource.destroy()

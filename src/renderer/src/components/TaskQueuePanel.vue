@@ -474,7 +474,6 @@ const hasInspection = (execution: TaskExecutionSnapshot): boolean =>
 
 const formatDispatchState = (state: MainAgentDispatchState): string => {
   if (state === 'processing') return '处理中'
-  if (state === 'paused') return '主 Agent 已暂停'
   if (state === 'mixed-active') return '多队列待处理'
   if (state === 'user-active') return '等待用户消息'
   if (state === 'task-active') return '等待任务回流'
@@ -484,7 +483,6 @@ const formatDispatchState = (state: MainAgentDispatchState): string => {
 
 const dispatchStateClass = (state: MainAgentDispatchState): string => {
   if (state === 'processing') return 'bg-emerald-50 text-emerald-700'
-  if (state === 'paused') return 'bg-amber-50 text-amber-700'
   if (state === 'mixed-active') return 'bg-amber-50 text-amber-700'
   if (state === 'user-active') return 'bg-sky-50 text-sky-700'
   if (state === 'task-active') return 'bg-indigo-50 text-indigo-700'

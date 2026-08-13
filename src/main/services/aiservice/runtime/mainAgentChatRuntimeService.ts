@@ -7,7 +7,11 @@ import type {
   TaskLifecycleState
 } from '@share/cache/AItype/states/taskLifecycleState'
 import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
-import type { MainAgentGraphTurnResult } from '@share/cache/AItype/states/turnWorkspace'
+import type {
+  MainAgentGraphTurnResult,
+  MainAgentInterruptionRecord,
+  TurnWorkspace
+} from '@share/cache/AItype/states/turnWorkspace'
 import { agent } from '../agentrsystem/agentReactSystem'
 import { memorySlotService } from '../agentrsystem/manager/memory/memorySlotService'
 import { loadPersonaState } from '../agentrsystem/manager/personal/personalManager'
@@ -25,16 +29,14 @@ import { contentToText } from '../messageoutput/transformRespones'
 import { runWithTraceContext } from '../../log/trace/agentTraceRuntime'
 import { mainAgentRunControlService } from './mainAgentRunControlService'
 import { chatMessageService } from '../chat/chatMessageService'
-import {
-  MainAgentTurnPausedError,
-  mainAgentTurnVersionService
-} from './version/mainAgentTurnVersionService'
+import { mainAgentTurnVersionService } from './version/mainAgentTurnVersionService'
 
 export type MainAgentChatRuntimeResult = {
   fullText: string
   interrupted: boolean
-  paused: boolean
   graphResult?: MainAgentGraphTurnResult
+  interruptedWorkspace?: TurnWorkspace
+  interruption?: MainAgentInterruptionRecord
 }
 
 const readGraphTurnResult = (value: unknown): MainAgentGraphTurnResult | undefined => {
@@ -75,13 +77,12 @@ class MainAgentChatRuntimeService {
       ? await mainAgentTurnVersionService.loadHead(turnId)
       : null
     if (resumeFromHead && !restoredHead) {
-      throw new Error(`Paused turn ${turnId} has no restorable HEAD version.`)
+      throw new Error(`Recovering turn ${turnId} has no restorable HEAD version.`)
     }
     if (restoredHead?.kind === 'ready_to_commit') {
       return {
         fullText: restoredHead.candidate.finalResponse.content,
         interrupted: false,
-        paused: false,
         graphResult: {
           workspace: restoredHead.candidate.workspace,
           finalResponse: restoredHead.candidate.finalResponse
@@ -169,31 +170,50 @@ class MainAgentChatRuntimeService {
               graphResult = readGraphTurnResult(event.data?.output) ?? graphResult
             }
           }
+          if (controller.signal.aborted) {
+            throw new Error('Main agent run was interrupted after streaming completed.')
+          }
           if (!graphResult) {
             throw new Error('Agent graph completed without a final turn result.')
           }
           await mainAgentTurnVersionService.prepareReadyToCommit(graphResult)
+          if (controller.signal.aborted) {
+            throw new Error('Main agent run was interrupted before commit.')
+          }
         })
         const canonicalText = graphResult?.finalResponse?.content ?? fullText
-        return { fullText: canonicalText, interrupted: false, paused: false, graphResult }
+        return { fullText: canonicalText, interrupted: false, graphResult }
       })
     } catch (error) {
-      if (error instanceof MainAgentTurnPausedError) {
-        return { fullText, interrupted: false, paused: true }
-      }
       const interrupted =
         controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')
       if (!interrupted) {
         throw error
       }
+      await mainAgentRunControlService.waitForDurableToolExecutions(eventId)
       return {
         fullText,
         interrupted: true,
-        paused: false
+        ...await this.captureInterruption(turnId, controller.signal.reason)
       }
     } finally {
-      mainAgentTurnVersionService.clearPauseRequest(eventId)
       mainAgentRunControlService.finishRun(eventId)
+    }
+  }
+
+  private async captureInterruption(turnId: number, reason: unknown): Promise<{
+    interruptedWorkspace?: TurnWorkspace
+    interruption: MainAgentInterruptionRecord
+  }> {
+    const stable = await mainAgentTurnVersionService.loadStableInterruptionState(turnId)
+    return {
+      interruptedWorkspace: stable.workspace,
+      interruption: {
+        reason: reason === 'runtime_reset' ? 'runtime_reset' : 'user_interrupted',
+        interruptedAt: new Date().toISOString(),
+        sourceVersionId: stable.sourceVersionId,
+        resumePoint: stable.resumePoint
+      }
     }
   }
 
@@ -223,44 +243,48 @@ class MainAgentChatRuntimeService {
 
     try {
       return await runWithTraceContext(runId, { turnId }, async () => {
-        const stream = await agent.streamEvents(
-          {
-            messages: [
-              new HumanMessage({
-                content: stageMessage,
-                additional_kwargs: {
-                  isBackgroundPersonaStage: true,
-                  [MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY]: new Date().toISOString()
-                }
-              })
-            ],
-            backgroundPersonaStage: payload,
-            turnWorkspace
-          },
-          { version: 'v2', signal: controller.signal } as {
-            version: 'v2'
-            signal: AbortSignal
-          }
-        )
+        await mainAgentTurnVersionService.runInTurn({ eventId, turnId }, async () => {
+          const stream = await agent.streamEvents(
+            {
+              messages: [
+                new HumanMessage({
+                  content: stageMessage,
+                  additional_kwargs: {
+                    isBackgroundPersonaStage: true,
+                    [MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY]: new Date().toISOString()
+                  }
+                })
+              ],
+              backgroundPersonaStage: payload,
+              turnWorkspace
+            },
+            { version: 'v2', signal: controller.signal } as {
+              version: 'v2'
+              signal: AbortSignal
+            }
+          )
 
-        for await (const event of stream) {
-          if (
-            event.event === 'on_chat_model_stream' &&
-            event.metadata?.langgraph_node === 'llmCall'
-          ) {
-            const chunk = event.data.chunk
-            if (chunk && chunk.content) {
-              fullText += contentToText(chunk.content)
+          for await (const event of stream) {
+            if (
+              event.event === 'on_chat_model_stream' &&
+              event.metadata?.langgraph_node === 'llmCall'
+            ) {
+              const chunk = event.data.chunk
+              if (chunk && chunk.content) {
+                fullText += contentToText(chunk.content)
+              }
+            }
+            if (event.event === 'on_chain_end') {
+              graphResult = readGraphTurnResult(event.data?.output) ?? graphResult
             }
           }
-          if (event.event === 'on_chain_end') {
-            graphResult = readGraphTurnResult(event.data?.output) ?? graphResult
+          if (controller.signal.aborted) {
+            throw new Error('Background persona stage was interrupted after streaming completed.')
           }
-        }
+        })
         return {
           fullText: graphResult?.finalResponse?.content ?? fullText,
           interrupted: false,
-          paused: false,
           graphResult
         }
       })
@@ -270,10 +294,11 @@ class MainAgentChatRuntimeService {
       if (!interrupted) {
         throw error
       }
+      await mainAgentRunControlService.waitForDurableToolExecutions(eventId)
       return {
         fullText,
         interrupted: true,
-        paused: false
+        ...await this.captureInterruption(turnId, controller.signal.reason)
       }
     } finally {
       mainAgentRunControlService.finishRun(eventId)
@@ -284,7 +309,7 @@ class MainAgentChatRuntimeService {
     const lines = [
       '后台人格阶段任务。',
       '这不是用户即时消息，不要把它当作需要直接回复用户的对话。',
-      '请以主 agent 自身的视角完成这一小段可暂停任务，并输出阶段结果。',
+      '请以主 agent 自身的视角完成这一独立阶段任务，并输出阶段结果。',
       '',
       `任务标题：${payload.title}`,
       `后台任务 ID：${payload.backgroundTaskId}`,
@@ -300,7 +325,7 @@ class MainAgentChatRuntimeService {
       '',
       '输出要求：',
       '1. 区分客观结果与主观理解。',
-      '2. 明确本阶段结束后的停顿位置。',
+      '2. 明确本阶段结束的位置。',
       '3. 记录这段经历如何影响你对相关内容的理解。',
       '4. 不要声称已经完成未被本阶段覆盖的后续内容。'
     ]

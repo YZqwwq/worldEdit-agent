@@ -39,35 +39,37 @@
 
 当前最高优先级：
 
-- [ ] 删除暂停、继续、暂停回退入口，以及队列 `pausedEvent` 和原 Event 重新入队逻辑。
-- [ ] 将消息队列收紧为未处理/正在处理；Turn 终态不参与队列排序。
-- [ ] 建立唯一 `commitInterruptedTurn`，原子保存部分回复、Workspace、执行账本和稳定 Effects。
-- [ ] 完整封存中断现场，但不发布未闭合的 Memory、Persona、Mood、Slot 和任务 Draft。
-- [ ] 为工具动作区分 completed、not_started、aborted 和 unknown。
+- [x] 删除暂停、继续、暂停回退产品入口，以及队列 `pausedEvent` 和原 Event 重新入队逻辑；旧 paused 数据仅在启动时迁移为 cancelled。
+- [x] 将消息队列收紧为未处理/正在处理；Interrupted Turn 提交成功后由队列把原 Event 完成为已消费。
+- [x] 建立唯一 `commitInterruptedTurn`，原子保存部分回复、稳定 Workspace 和 Final interruption receipt。
+- [x] 发布最近稳定 HEAD 中的全部 Workspace 缓存；不提交尚未进入稳定缓存的瞬时计算。
+- [x] 统一普通对话与后台人格阶段的中断边界，后台中断不再丢弃稳定 Workspace。
+- [x] 删除失效的 `eventCommitted` 标记，Event 只由队列在 Turn 提交回执后完成。
+- [x] 有副作用工具成功后立即写入稳定回执 checkpoint；中断等待在途写工具完成回执边界，避免数据库已修改但 Workspace 无感知。
+- [ ] 建立统一副作用记录层，以持久化 `EffectReceipt` 区分 completed、failed、aborted 和 unknown，并由 `ChangeSet` 聚合同轮或同任务动作。
 - [ ] 下一轮 Context 明确注入上一轮中断事实、部分回复和已完成工具证据。
 - [x] 在最后计算节点后建立 `ready_to_commit` Final 候选，并在正式提交事务内生成 Final Version。
 - [ ] 让带完整 HEAD 的 processing Turn 在崩溃后恢复：ready HEAD 已完成；普通 checkpoint 必须等待工具 planned action 后开放。
-- [ ] 将旧 paused Turn 取消、继续和回退实现移出产品主链；保留必要迁移与审计处理。
-- [ ] 按新语义重写 Event/Turn/HEAD 启动恢复判定矩阵。
-- [ ] 复用独立子进程强杀框架，改为覆盖 checkpoint、工具 unknown、中断事务、ready 和 Final 边界。
+- [x] 将旧 paused Turn 取消、继续和回退实现移出产品主链；保留启动迁移与历史状态展示。
+- [x] 按新语义重写 Event/Turn/HEAD 启动恢复判定矩阵。
+- [x] 复用独立子进程强杀框架，覆盖 checkpoint、ready、Interrupted Final 提交前后队列回执边界。
 - [ ] 补完整 Electron 启动编排验收，验证恢复动作进入 fail-closed、ready commit 或终态核对路径。
-- [ ] 为不可延迟副作用接入 planned/receipt/unknown。
-- [ ] 以世界文档验证最小 `TurnChangeSet`；只读工具结果仍作为可丢弃的 Turn 证据，不建设全工具统一虚拟文件系统。
+- [ ] 以世界文档验证最小 `ChangeSet + EffectReceipt`：本地业务修改与小型 Receipt 尽可能同事务，崩溃边界使用 planned/receipt/unknown；只读工具结果仍作为可丢弃的 Turn 证据。
 
 ### 2026-08-12 架构收口计划
 
 以下编号对应 `future-lack.md` 的统一系统审计问题，后续按编号逐项讨论和实施：
 
-1. [ ] **A1 中断与队列解耦：** 删除 `pausedEvent`；中断提交成功后当前 Event 进入 `interrupted` 并离开调度集合，不重新入队。
+1. [x] **A1 中断与队列解耦：** 删除 `pausedEvent`；Turn 中断提交成功后队列将当前 Event 完成为已消费，不重新入队。
 2. [ ] **A2 正式撤回边界：** 先决定降级或暂时禁用当前不完整撤回，再设计 Commit Manifest/Inverse Effects。
 3. [ ] **A3 中断目标校验：** 中断请求精确绑定当前 `eventId + turnId`，重复或过期请求不能终止新的 Turn。
 4. [ ] **A4 提交后恢复：** 为工具统计和 Memory Stage 归档增加最小 Post-Commit Outbox。
-5. [ ] **A5 工具恢复收据：** 接入 `planned/receipt/unknown`，再开放普通 checkpoint 崩溃恢复。
+5. [ ] **A5 工具恢复收据：** 建立通用 `ChangeSet + EffectReceipt`，先以世界文档接入 `planned/receipt/unknown`，再开放普通 checkpoint 崩溃恢复。
 6. [ ] **A8 恢复验收：** 将进程恢复测试纳入完整测试入口，修正 Node 20 native ABI 环境并完成 Electron 启动验收。
 7. [ ] **A7 Effect 清理：** 删除确认无生产者的旧 Effect，维持 `commit_turn` 唯一正式提交入口。
 8. [ ] **A6 快照治理：** 先记录 Version 体积和重复率，再决定大型工具结果引用方案。
 
-收口标准：队列不再承担暂停控制；中断只产生一个原子的 interrupted Turn；已展示文本和完成工具结果不丢失；半成品状态不被正式发布；恢复不通过消息重新入队实现；Final 后状态不会被部分撤回；提交后动作可恢复；普通 checkpoint 不会盲目重放副作用。
+收口标准：队列不再承担暂停控制；中断只产生一个原子的 interrupted Turn；已展示文本、稳定 Workspace 和完成工具结果不丢失；恢复不通过消息重新入队实现；Final 后状态不会被部分撤回；提交后动作可恢复；普通 checkpoint 不会盲目重放副作用。
 
 ## 实施原则
 
@@ -144,12 +146,15 @@
 
 ### 工作项
 
+- [ ] 先以世界文档验证统一副作用记录层：每次写动作生成持久化 EffectReceipt，同一轮多动作由 ChangeSet 聚合。
 - [ ] 设计文档版本记录，保存文档、revision、操作者、时间、变更摘要和前后版本引用。
 - [ ] 为 Agent 写入生成结构化 diff 和人类可读变更说明。
 - [ ] 支持单次变更撤销，并校验撤销目标 revision，避免覆盖后续人工编辑。
 - [ ] 支持批量操作的变更集，使多文档修改能够整体审阅和撤销。
 - [ ] 在编辑器中展示冲突、版本差异和恢复结果。
 - [ ] 建立并发编辑、跨文档批量修改、撤销后再编辑的回归测试。
+
+这里不为文档另建一套 Turn 记录协议：文档版本是业务历史，EffectReceipt 是跨资源统一的执行事实，ChangeSet 是任务级聚合。图片、地图和实体编辑后续按需接入相同协议；不要求本阶段一次迁移所有副作用工具，也不建设全工具虚拟文件系统。
 
 ### 完成标准
 
@@ -215,13 +220,13 @@
 
 1. 先按 A1、A3 完成中断与队列解耦，建立 `commitInterruptedTurn` 和端到端中断测试。
 2. 验证下一轮可以承接中断前的部分回复、执行账本和已完成工具证据。
-3. 再独立修订 Turn Version 恢复协议，按 A5、A8 完成工具收据和真实崩溃恢复验收。
+3. 再独立修订 Turn Version 恢复协议，按 A5 以世界文档完成最小 `ChangeSet + EffectReceipt`，并按 A8 完成真实崩溃恢复验收。
 4. 按 A2、A4 收口正式撤回与提交后恢复。
 5. 按 A7、A6 清理遗留职责并治理 Version 体积。
 6. 完成阶段 0 的其他真实链路验收。
 7. 实施阶段 1 的 Quick Access 治理。
 8. 结合实际观测推进阶段 2，不凭估算过早压缩 Context。
-9. 先完成阶段 3，再开展阶段 4；`TurnChangeSet` 与文档版本能力共用 revision/diff 基础。
+9. 先完成阶段 3，再开展阶段 4；通用 ChangeSet/Receipt 与文档版本能力共用 revision/diff 基础，但职责保持分离。
 10. 阶段 5 先完成产品语义讨论，再修改存储与 Recall。
 
 任何阶段出现新的 P0 数据一致性、无限循环或权限绕过问题时，应暂停后续功能，先回到核心协议修复并补回归测试。

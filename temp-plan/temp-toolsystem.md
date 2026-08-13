@@ -250,6 +250,112 @@ type AgentToolErrorCode =
 - not found 不会被误判为临时系统故障。
 - 失败调用不会进入成功统计或生成成功 receipt。
 
+## P1：统一工具副作用记录层（ChangeSet + EffectReceipt）
+
+### 要解决的问题及影响
+
+当前工具可以直接修改业务数据库，Turn Workspace 也已经能保存 `durableToolReceipts`，但两者之间尚未形成适用于所有副作用工具的正式协议。文档、图片、地图或实体工具增多后，Agent 可能只知道工具调用结束，却无法稳定判断哪些对象已经改变、哪些尚未开始、哪些在崩溃边界处结果未知。
+
+- 用户交互影响：复杂编辑被中断或部分失败时，Agent 可能重复执行已经生效的操作、错误宣称全部完成，或者无法准确说明哪些修改需要人工核对。
+- 开发维护影响：如果每种资源分别实现一套 Turn 跟随记录，中断、恢复、审计和撤销逻辑会随工具数量重复扩张，并产生不同资源间不一致的语义。
+
+### 目标边界
+
+建立一层统一、轻量的副作用记录，而不是为全部工具建设虚拟文件系统：
+
+1. **业务存储仍是事实来源。** 文档、图片、地图和实体继续由各自 Service 与数据库保存。
+2. **EffectReceipt 记录一个真实副作用动作的结果。** 所有有副作用的工具接入同一协议；只读工具不接入，结果仍作为可丢弃或可压缩的 Turn 证据。
+3. **ChangeSet 聚合同一轮或同一任务的多个 EffectReceipt。** 它用于向 Agent 和用户解释整体进度，并为后续审阅、提交和撤销提供组织边界。
+4. **Turn Workspace 只保存投影。** 当前 `durableToolReceipts` 是正式记录层的 Workspace 投影，用于中断封存和下一轮承接，不替代业务事实和持久化 EffectReceipt。
+5. **AI 只消费紧凑摘要。** 底层 revision、幂等键和恢复状态由运行时维护，模型不负责手工拼装或修复记录。
+
+关系如下：
+
+```text
+工具调用
+  ├─ 业务修改（最终事实）
+  └─ EffectReceipt（动作、目标、结果与恢复依据）
+          └─ ChangeSet（一次任务内的聚合视图）
+                  └─ Workspace / Turn Snapshot（当前 Turn 的稳定投影）
+```
+
+### 最小数据模型草案
+
+字段只保留恢复、审计和 Agent 解释实际需要的信息，具体存储结构在第一阶段实现时确定：
+
+```ts
+type EffectReceipt = {
+  eventId: string
+  turnId: string
+  changeSetId: string
+  toolCallId: string
+  idempotencyKey?: string
+  operation: string
+  subject: { type: string; id: string }
+  status: 'completed' | 'failed' | 'aborted' | 'unknown'
+  beforeRevision?: string | number
+  afterRevision?: string | number
+  summary: string
+  diffRef?: string
+  resultRef?: string
+  compensatable?: boolean
+  completedAt?: string
+}
+
+type ChangeSet = {
+  id: string
+  eventId: string
+  turnId: string
+  status: 'open' | 'completed' | 'partial' | 'unknown'
+  receiptIds: string[]
+  summary?: string
+}
+```
+
+`planned` 是副作用执行前的状态标记，不代表动作已经发生。工具完成后必须落为明确 Receipt；进程无法证明结果时转为 `unknown`，恢复逻辑不得盲目重放。对于能与业务修改共用事务的本地操作，可以在同一事务内直接产生 completed Receipt，从而不暴露中间窗口。
+
+### 原子性与暂存边界
+
+- 同一 SQLite 或同一事务资源中的修改，应让“业务修改 + 小型 EffectReceipt”共用事务；不把完整 Turn Snapshot 放进业务事务。
+- 同一事务能够覆盖的多个对象，可以作为一个 ChangeSet 原子提交。
+- 图片等大文件先写入临时区或内容寻址存储，事务只切换最终引用并写 Receipt；失败时清理未引用对象。
+- 外部服务无法与本地数据库形成真正原子事务，使用幂等键、执行前 planned 标记、结果 Receipt、补偿动作和 `unknown` 核对流程。
+- 暂存区只服务于“多个对象必须一起生效”的编辑任务，不强迫所有副作用工具先暂存。普通单对象写入继续直接执行并记录 Receipt。
+- 删除能力暂不进入本阶段；统一记录层先覆盖创建、更新、移动、重命名等已有写操作。
+
+### 工具接入约束
+
+- `readOnly=true` 的工具不创建 ChangeSet 或 EffectReceipt。
+- 有副作用的工具必须声明其目标类型、幂等方式、revision 能力和可否补偿，并在成功、失败或结果未知时返回统一执行状态。
+- ToolNode 负责把已持久化 Receipt 的摘要投影到 Workspace，不根据具体资源类型写文档、图片或地图专用分支。
+- 业务适配器负责把工具操作与实际事务连接起来；新增资源类型只实现统一副作用适配接口。
+- ChangeSet 完成不等于用户任务完成。Agent 仍根据目标判断是否需要继续，但不能在存在 `partial` 或 `unknown` 时宣称全部成功。
+- EffectReceipt 只描述已经执行或无法确认结果的动作，不保存模型思维过程，也不替代业务版本历史。
+
+### 分阶段迁移
+
+1. **协议定型：** 以现有 `durableToolReceipts` 为投影基础，统一 completed、failed、aborted、unknown 语义和稳定标识。
+2. **世界文档验证：** 选择现有文档创建、更新、移动和重命名工具，实现最小持久化 EffectReceipt，并与业务修改尽可能同事务提交。
+3. **ChangeSet 聚合：** 让同一 Turn 的多个文档动作形成可读的整体摘要，验证部分完成、中断承接和崩溃核对。
+4. **渐进扩展：** 图片、地图、实体编辑出现实际需求时逐类接入统一适配接口，不一次性迁移全部工具。
+5. **版本与撤销：** 在 Receipt 稳定后复用 revision、diff/ref 和补偿信息建设审阅与撤销，不让 ChangeSet 自行承担完整业务版本库职责。
+
+### 验收标准
+
+- 世界文档业务修改成功后，业务事实和对应 Receipt 不会出现一边成功、一边永久缺失。
+- 用户中断时，下一轮能准确说明已经完成、未开始、失败和需要核对的动作。
+- 崩溃恢复不会自动重放 `unknown` 副作用；可通过幂等键或业务 revision 核对真实结果。
+- 一个 ChangeSet 包含多个动作时，可以明确表达全部完成、部分完成或结果未知。
+- 新增一种副作用资源时，不需要分别修改 Turn、中断、恢复和审计主链。
+- 只读工具不承担额外持久化成本，完整 Turn Snapshot 不进入业务修改事务。
+
+### 已完成基础（2026-08-13）
+
+- 非只读工具成功返回后，已将 operation、subject、completion、summary、evidenceRef、payload 和完成时间写入 Turn Workspace 的 `durableToolReceipts`。
+- 写入回执后会立即形成稳定 Turn Version checkpoint，不再依赖下一个 Graph 节点启动。
+- 用户中断会等待当前有副作用工具完成回执边界；只读工具仍允许直接抛弃。
+- 这解决了正常中断中的 Workspace 无感知，但尚未解决进程在业务提交与 checkpoint 之间被强杀的窗口；该窗口由本节的持久化 Receipt 与 `planned/unknown` 协议继续收口。
+
 ## 测试补充
 
 建议至少增加以下测试层次：

@@ -1,8 +1,5 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import { DataSource } from 'typeorm'
 import {
@@ -13,14 +10,16 @@ import {
   serializeTurnGraphState
 } from '../runtime/version/turnVersionSnapshot'
 import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
-import { createTurnWorkspace } from '../agentrsystem/state/turnWorkspace'
+import {
+  createTurnWorkspace,
+  withDurableToolReceipt
+} from '../agentrsystem/state/turnWorkspace'
 import type { MessagesState } from '../agentrsystem/state/messageState'
 import { canTransitionMainAgentEventStatus, canTransitionMainAgentTurnStatus } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
 import {
-  persistCancelledPausedTurn,
   persistFinalTurnVersionWithManager,
   persistTurnVersion
 } from '../runtime/version/turnVersionPersistence'
@@ -169,15 +168,35 @@ test('completed tool actions are visible to rollback safety checks', () => {
   ])
 })
 
-test('paused is a resumable state rather than a committed terminal state', () => {
-  assert.equal(canTransitionMainAgentEventStatus('processing', 'paused'), true)
-  assert.equal(canTransitionMainAgentEventStatus('paused', 'processing'), true)
-  assert.equal(canTransitionMainAgentTurnStatus('processing', 'paused'), true)
-  assert.equal(canTransitionMainAgentTurnStatus('paused', 'processing'), true)
-  assert.equal(canTransitionMainAgentEventStatus('paused', 'cancelled'), true)
-  assert.equal(canTransitionMainAgentTurnStatus('paused', 'cancelled'), true)
-  assert.equal(canTransitionMainAgentEventStatus('cancelled', 'processing'), false)
-  assert.equal(canTransitionMainAgentTurnStatus('cancelled', 'processing'), false)
+test('durable application effects remain visible in a restored interruption snapshot', () => {
+  const state = createState()
+  state.turnWorkspace = withDurableToolReceipt(state.turnWorkspace!, {
+    toolCallId: 'tool-write-1',
+    toolName: 'update_world_document',
+    operation: '更新世界观文档',
+    subject: { type: 'document', id: 'doc-1' },
+    completion: 'complete',
+    completionState: 'completed',
+    summary: '文档正文已更新。',
+    retryable: false,
+    evidenceRef: 'document:doc-1',
+    payload: { revision: 3 },
+    persistedAt: '2026-08-13T12:00:00.000Z'
+  })
+
+  const restored = deserializeTurnGraphState(
+    serializeTurnGraphState(state),
+    'toolContextReloadNode'
+  )
+
+  assert.equal(restored.turnWorkspace?.draft.durableToolReceipts.length, 1)
+  assert.equal(restored.turnWorkspace?.draft.durableToolReceipts[0]?.payload?.revision, 3)
+})
+
+test('interrupted is a terminal Turn while its queue Event completes normally', () => {
+  assert.equal(canTransitionMainAgentTurnStatus('processing', 'interrupted'), true)
+  assert.equal(canTransitionMainAgentTurnStatus('interrupted', 'processing'), false)
+  assert.equal(canTransitionMainAgentEventStatus('processing', 'completed'), true)
 })
 
 test('ready-to-commit candidates preserve the authoritative response and workspace', () => {
@@ -191,14 +210,14 @@ test('ready-to-commit candidates preserve the authoritative response and workspa
   assert.equal(restored.workspace.turnId, 42)
 })
 
-test('six crash boundaries resolve to explicit startup recovery actions', () => {
+test('running, Final and interrupted boundaries resolve to explicit recovery actions', () => {
   const cases: Array<{
     boundary: string
     state: MainAgentTurnRecoveryState
     action: ReturnType<typeof resolveMainAgentTurnRecovery>['action']
   }> = [
     {
-      boundary: 'before pause transaction',
+      boundary: 'running checkpoint',
       state: {
         eventType: 'user_message',
         eventStatus: 'processing',
@@ -208,37 +227,7 @@ test('six crash boundaries resolve to explicit startup recovery actions', () => 
       action: 'fail_closed'
     },
     {
-      boundary: 'pause transaction committed',
-      state: {
-        eventType: 'user_message',
-        eventStatus: 'paused',
-        turnStatus: 'paused',
-        headKind: 'checkpoint'
-      },
-      action: 'restore_paused_owner'
-    },
-    {
-      boundary: 'after pause with ready candidate',
-      state: {
-        eventType: 'user_message',
-        eventStatus: 'paused',
-        turnStatus: 'paused',
-        headKind: 'ready_to_commit'
-      },
-      action: 'restore_paused_owner'
-    },
-    {
-      boundary: 'while resuming a normal checkpoint',
-      state: {
-        eventType: 'user_message',
-        eventStatus: 'processing',
-        turnStatus: 'processing',
-        headKind: 'checkpoint'
-      },
-      action: 'fail_closed'
-    },
-    {
-      boundary: 'before Final commit',
+      boundary: 'ready to commit',
       state: {
         eventType: 'user_message',
         eventStatus: 'processing',
@@ -248,11 +237,41 @@ test('six crash boundaries resolve to explicit startup recovery actions', () => 
       action: 'resume_ready_commit'
     },
     {
-      boundary: 'after Final commit',
+      boundary: 'completed before queue acknowledgement',
+      state: {
+        eventType: 'user_message',
+        eventStatus: 'processing',
+        turnStatus: 'completed',
+        headKind: 'final'
+      },
+      action: 'reconcile_completed_event'
+    },
+    {
+      boundary: 'completed after queue acknowledgement',
       state: {
         eventType: 'user_message',
         eventStatus: 'completed',
         turnStatus: 'completed',
+        headKind: 'final'
+      },
+      action: 'none'
+    },
+    {
+      boundary: 'interrupted before queue acknowledgement',
+      state: {
+        eventType: 'user_message',
+        eventStatus: 'processing',
+        turnStatus: 'interrupted',
+        headKind: 'final'
+      },
+      action: 'reconcile_completed_event'
+    },
+    {
+      boundary: 'interrupted after queue acknowledgement',
+      state: {
+        eventType: 'user_message',
+        eventStatus: 'completed',
+        turnStatus: 'interrupted',
         headKind: 'final'
       },
       action: 'none'
@@ -289,150 +308,6 @@ test('startup reconciles only a committed Turn with a Final HEAD', () => {
   )
 })
 
-sqliteTest('pause checkpoint atomically saves version, HEAD, turn and event state', async () => {
-  const dataSource = await createVersionDataSource(':memory:')
-  try {
-    const eventId = 'atomic-pause-success'
-    const turn = await seedProcessingTurn(dataSource, eventId)
-    const first = await persistTurnVersion(dataSource, {
-      eventId,
-      turnId: turn.id,
-      resumePoint: 'contextNode',
-      snapshotJson: '{"checkpoint":1}',
-      pause: false
-    })
-    const candidate = createReadyCandidate(eventId, turn.id)
-    const paused = await persistTurnVersion(dataSource, {
-      eventId,
-      turnId: turn.id,
-      kind: 'ready_to_commit',
-      resumePoint: 'commit_turn',
-      snapshotJson: serializeReadyToCommitCandidate(candidate),
-      pause: true
-    })
-
-    const savedTurn = await dataSource.getRepository(MainAgentTurnRecord).findOneByOrFail({ id: turn.id })
-    const savedEvent = await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })
-    const versions = await dataSource.getRepository(MainAgentTurnVersionRecord).find({
-      where: { turnId: turn.id },
-      order: { sequence: 'ASC' }
-    })
-
-    assert.equal(versions.length, 2)
-    assert.equal(paused.sequence, 2)
-    assert.equal(paused.parentVersionId, first.id)
-    assert.equal(paused.kind, 'ready_to_commit')
-    assert.deepEqual(deserializeReadyToCommitCandidate(paused.snapshotJson), candidate)
-    assert.equal(savedTurn.headVersionId, paused.id)
-    assert.equal(savedTurn.status, 'paused')
-    assert.ok(savedTurn.pausedAt instanceof Date)
-    assert.equal(savedEvent.status, 'paused')
-    assert.equal(savedEvent.summary, 'turn_paused')
-    assert.equal(savedEvent.finishedAt, null)
-  } finally {
-    await dataSource.destroy()
-  }
-})
-
-sqliteTest('pause transaction rolls back version and HEAD when the event update fails', async () => {
-  const dataSource = await createVersionDataSource(':memory:')
-  try {
-    const eventId = 'atomic-pause-rollback'
-    const turn = await seedProcessingTurn(dataSource, eventId)
-    const first = await persistTurnVersion(dataSource, {
-      eventId,
-      turnId: turn.id,
-      resumePoint: 'contextNode',
-      snapshotJson: '{"checkpoint":1}',
-      pause: false
-    })
-    await dataSource.query(`
-      CREATE TRIGGER reject_paused_event
-      BEFORE UPDATE ON main_agent_event_record
-      WHEN NEW.status = 'paused'
-      BEGIN
-        SELECT RAISE(ABORT, 'injected pause failure');
-      END
-    `)
-
-    await assert.rejects(
-      persistTurnVersion(dataSource, {
-        eventId,
-        turnId: turn.id,
-        resumePoint: 'llmCall',
-        snapshotJson: '{"checkpoint":2}',
-        pause: true
-      }),
-      /injected pause failure/
-    )
-
-    const savedTurn = await dataSource.getRepository(MainAgentTurnRecord).findOneByOrFail({ id: turn.id })
-    const savedEvent = await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })
-    const versions = await dataSource.getRepository(MainAgentTurnVersionRecord).findBy({ turnId: turn.id })
-
-    assert.equal(versions.length, 1)
-    assert.equal(savedTurn.headVersionId, first.id)
-    assert.equal(savedTurn.status, 'processing')
-    assert.equal(savedTurn.pausedAt, null)
-    assert.equal(savedEvent.status, 'processing')
-    assert.equal(savedEvent.summary, '')
-  } finally {
-    await dataSource.destroy()
-  }
-})
-
-sqliteTest('an atomically paused turn remains discoverable after reopening SQLite', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'worldedit-turn-version-'))
-  const database = join(directory, 'turn-version.sqlite')
-  let writer: DataSource | undefined
-  let reader: DataSource | undefined
-  try {
-    writer = await createVersionDataSource(database)
-    const eventId = 'atomic-pause-reopen'
-    const turn = await seedProcessingTurn(writer, eventId)
-    const version = await persistTurnVersion(writer, {
-      eventId,
-      turnId: turn.id,
-      kind: 'ready_to_commit',
-      resumePoint: 'commit_turn',
-      snapshotJson: serializeReadyToCommitCandidate(createReadyCandidate(eventId, turn.id)),
-      pause: true
-    })
-    await writer.destroy()
-    writer = undefined
-
-    reader = await createVersionDataSource(database, false)
-    const pausedTurn = await reader.getRepository(MainAgentTurnRecord).findOneByOrFail({
-      status: 'paused'
-    })
-    const pausedEvent = await reader.getRepository(MainAgentEventRecord).findOneByOrFail({
-      status: 'paused'
-    })
-    const head = await reader.getRepository(MainAgentTurnVersionRecord).findOneByOrFail({
-      id: pausedTurn.headVersionId ?? -1
-    })
-
-    assert.equal(pausedTurn.eventId, eventId)
-    assert.equal(pausedEvent.id, eventId)
-    assert.equal(head.id, version.id)
-    assert.equal(head.kind, 'ready_to_commit')
-    assert.equal(head.resumePoint, 'commit_turn')
-    assert.equal(
-      resolveMainAgentTurnRecovery({
-        eventType: pausedEvent.type,
-        eventStatus: pausedEvent.status,
-        turnStatus: pausedTurn.status,
-        headKind: head.kind
-      }).action,
-      'restore_paused_owner'
-    )
-  } finally {
-    if (writer?.isInitialized) await writer.destroy()
-    if (reader?.isInitialized) await reader.destroy()
-    await rm(directory, { recursive: true, force: true })
-  }
-})
-
 sqliteTest('Final Version is committed with terminal turn and event state', async () => {
   const dataSource = await createVersionDataSource(':memory:')
   try {
@@ -444,8 +319,7 @@ sqliteTest('Final Version is committed with terminal turn and event state', asyn
       turnId: turn.id,
       kind: 'ready_to_commit',
       resumePoint: 'commit_turn',
-      snapshotJson: serializeReadyToCommitCandidate(candidate),
-      pause: false
+      snapshotJson: serializeReadyToCommitCandidate(candidate)
     })
 
     const final = await dataSource.transaction(async (manager) => {
@@ -480,70 +354,62 @@ sqliteTest('Final Version is committed with terminal turn and event state', asyn
   }
 })
 
-sqliteTest('cancelling a paused turn preserves versions and records a terminal state', async () => {
+sqliteTest('interrupted Final seals the Turn before the queue completes its Event', async () => {
   const dataSource = await createVersionDataSource(':memory:')
   try {
-    const eventId = 'cancel-paused-success'
+    const eventId = 'interrupted-turn-queue-release'
     const turn = await seedProcessingTurn(dataSource, eventId)
-    const head = await persistTurnVersion(dataSource, {
+    const ready = await persistTurnVersion(dataSource, {
       eventId,
       turnId: turn.id,
-      resumePoint: 'toolNode',
-      snapshotJson: '{"checkpoint":"paused"}',
-      pause: true
+      kind: 'ready_to_commit',
+      resumePoint: 'commit_turn',
+      snapshotJson: serializeReadyToCommitCandidate(createReadyCandidate(eventId, turn.id))
     })
-
-    const result = await persistCancelledPausedTurn(dataSource)
-    const savedTurn = await dataSource.getRepository(MainAgentTurnRecord).findOneByOrFail({ id: turn.id })
-    const savedEvent = await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })
-    const versions = await dataSource.getRepository(MainAgentTurnVersionRecord).findBy({ turnId: turn.id })
-
-    assert.deepEqual(result, { turnId: turn.id, eventId })
-    assert.equal(savedTurn.status, 'cancelled')
-    assert.ok(savedTurn.cancelledAt instanceof Date)
-    assert.equal(savedTurn.headVersionId, head.id)
-    assert.equal(savedEvent.status, 'cancelled')
-    assert.equal(savedEvent.summary, 'turn_cancelled')
-    assert.ok(savedEvent.finishedAt instanceof Date)
-    assert.equal(versions.length, 1)
-  } finally {
-    await dataSource.destroy()
-  }
-})
-
-sqliteTest('cancel transaction rolls back Turn when Event cancellation fails', async () => {
-  const dataSource = await createVersionDataSource(':memory:')
-  try {
-    const eventId = 'cancel-paused-rollback'
-    const turn = await seedProcessingTurn(dataSource, eventId)
-    const head = await persistTurnVersion(dataSource, {
+    const interruptedSnapshot = JSON.stringify({
+      schemaVersion: 1,
       eventId,
       turnId: turn.id,
-      resumePoint: 'toolNode',
-      snapshotJson: '{"checkpoint":"paused"}',
-      pause: true
+      status: 'interrupted',
+      interruption: {
+        reason: 'user_interrupted',
+        sourceVersionId: ready.id,
+        resumePoint: 'commit_turn'
+      }
     })
-    await dataSource.query(`
-      CREATE TRIGGER reject_cancelled_event
-      BEFORE UPDATE ON main_agent_event_record
-      WHEN NEW.status = 'cancelled'
-      BEGIN
-        SELECT RAISE(ABORT, 'injected cancellation failure');
-      END
-    `)
 
-    await assert.rejects(
-      persistCancelledPausedTurn(dataSource),
-      /injected cancellation failure/
+    const final = await dataSource.transaction(async (manager) => {
+      const savedTurn = await manager.getRepository(MainAgentTurnRecord).findOneByOrFail({
+        id: turn.id
+      })
+      const finalVersion = await persistFinalTurnVersionWithManager(manager, {
+        turn: savedTurn,
+        snapshotJson: interruptedSnapshot,
+        reuseReadySnapshot: false
+      })
+      savedTurn.status = 'interrupted'
+      savedTurn.interruptedAt = new Date()
+      savedTurn.headVersionId = finalVersion.id
+      await manager.getRepository(MainAgentTurnRecord).save(savedTurn)
+      return finalVersion
+    })
+
+    const eventBeforeQueueAck = await dataSource
+      .getRepository(MainAgentEventRecord)
+      .findOneByOrFail({ id: eventId })
+    assert.equal(final.kind, 'final')
+    assert.equal(final.parentVersionId, ready.id)
+    assert.equal(final.snapshotJson, interruptedSnapshot)
+    assert.equal(eventBeforeQueueAck.status, 'processing')
+
+    eventBeforeQueueAck.status = 'completed'
+    eventBeforeQueueAck.summary = 'user_message_interrupted'
+    eventBeforeQueueAck.finishedAt = new Date()
+    await dataSource.getRepository(MainAgentEventRecord).save(eventBeforeQueueAck)
+    assert.equal(
+      (await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })).status,
+      'completed'
     )
-
-    const savedTurn = await dataSource.getRepository(MainAgentTurnRecord).findOneByOrFail({ id: turn.id })
-    const savedEvent = await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })
-    assert.equal(savedTurn.status, 'paused')
-    assert.equal(savedTurn.cancelledAt, null)
-    assert.equal(savedTurn.headVersionId, head.id)
-    assert.equal(savedEvent.status, 'paused')
-    assert.equal(savedEvent.summary, 'turn_paused')
   } finally {
     await dataSource.destroy()
   }
