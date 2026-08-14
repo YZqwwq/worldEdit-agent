@@ -1,6 +1,5 @@
 import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages'
 import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
-import type { PersonaActionPolicy } from '@share/cache/AItype/states/personaPolicy'
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
 import { buildMemoryPromptPlan } from '../../manager/memory/memoryPromptPolicy'
@@ -26,27 +25,11 @@ import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEm
 import { getCurrentDetailTime, getDetailTime } from '../../../../../utils/getDetailTime'
 import { applyScenePerceptionToMemorySlots } from '../../state/sceneContextAdapter'
 import { resolveContextualToolsets } from './contextualToolActivation'
+import { buildActionPolicyPrompt } from '../../../prompt/main_agent/persona/actionPolicyPrompt'
+import { buildSceneCharacterPrompt } from '../../../prompt/main_agent/persona/sceneCharacterPrompt'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
-}
-
-const buildActionPolicyPrompt = (actionPolicy: PersonaActionPolicy | undefined): string => {
-  if (!actionPolicy) return ''
-
-  const lines = [
-    '行动策略调制：',
-    `自主推进=${actionPolicy.autonomyDrive.toFixed(2)}`,
-    `谨慎度=${actionPolicy.caution.toFixed(2)}`,
-    `澄清需求=${actionPolicy.clarificationNeed.toFixed(2)}`,
-    `证据需求=${actionPolicy.evidenceNeed.toFixed(2)}`,
-    `回忆需求=${actionPolicy.recallNeed.toFixed(2)}`,
-    `写入保守度=${actionPolicy.writeConservatism.toFixed(2)}`,
-    `工具持续性=${actionPolicy.toolPersistence.toFixed(2)}`,
-    '使用规则：这是本轮行动倾向，不是用户可见内容。谨慎度/证据需求高时先查证或澄清；回忆需求高且问题涉及旧上下文时优先调用 recall_agent_memory；写入保守度高时写入、删除、修改前更应确认对象与意图。'
-  ]
-
-  return lines.join('\n')
 }
 
 const getCurrentUserMessageCreatedAt = (state: typeof MessagesState.State): string | null => {
@@ -387,6 +370,18 @@ export async function contextNode(
       kind: 'tool_rule',
       source: 'mainAgentToolRegistry',
       content: toolUsagePrompt
+    })
+  }
+
+  const sceneCharacterPrompt = buildSceneCharacterPrompt(state.personaPolicy?.scene)
+  if (sceneCharacterPrompt) {
+    appendPromptSection({
+      id: 'scene-character',
+      duty: 'instruction',
+      kind: 'scene_character_posture',
+      source: 'sceneCharacterRegistry',
+      content: sceneCharacterPrompt,
+      capturedAt: state.personaPolicy?.generatedAt
     })
   }
 

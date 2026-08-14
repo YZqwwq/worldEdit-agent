@@ -12,6 +12,7 @@ import { applyCharacterMoodBoundary, FAMILA_CHARACTER_MOOD_BOUNDARY } from './ch
 import { inferMoodAssessment } from './moodAssessmentService'
 import { reconcilePersonaState } from './personaEvolutionService'
 import { applyMoodDeltaToMetrics, buildPolicy } from './personaPolicyCompiler'
+import { applySceneCharacterToMetrics, resolveSceneCharacter } from './sceneCharacterRegistry'
 import type { InstantPerceptionContext } from '../instantperceptionnode/instantPerceptionContext'
 import { getObservationText } from './personaObservationUtils'
 import {
@@ -51,12 +52,12 @@ export async function personaNode(
   const observations = [
     ...persistedObservations,
     ...state.turnWorkspace.draft.observations.filter(
-      (observation) =>
-        !persistedObservations.some((persisted) => persisted.id === observation.id)
+      (observation) => !persistedObservations.some((persisted) => persisted.id === observation.id)
     )
   ]
   const slots = getEffectiveMemorySlots(state.turnWorkspace)
   const effectiveSlots = applyScenePerceptionToMemorySlots(slots)
+  const sceneCharacter = resolveSceneCharacter(state.workspaceContext)
   const expressionProfileDefinition = resolveExpressionPromptProfile(effectiveSlots)
   const expressionProfile = await loadExpressionPromptProfile(expressionProfileDefinition.id)
 
@@ -72,6 +73,7 @@ export async function personaNode(
       observations,
       slots,
       effectiveSlots,
+      sceneCharacter: sceneCharacter?.policy ?? null,
       scenePerception: effectiveSlots.scene_perception
     }
   })
@@ -98,15 +100,22 @@ export async function personaNode(
       : undefined
   })
 
+  const baseMetrics = reconciled.state.metrics
+  const sceneMetrics = applySceneCharacterToMetrics(baseMetrics, sceneCharacter)
+  const sceneAdjustedPersonaState = {
+    ...reconciled.state,
+    metrics: sceneMetrics
+  }
   const nowIso = new Date().toISOString()
   const rawMoodAssessment = await inferMoodAssessment({
     moodPrompt,
     observations,
     recentDialogue: perceptionContext.recentDialogue,
     previousMood: effectiveSlots.ai_mood.current,
-    state: reconciled.state,
+    state: sceneAdjustedPersonaState,
     slots: effectiveSlots,
     signals: reconciled.appliedSignals,
+    scene: sceneCharacter?.policy,
     nowIso
   })
   const moodAssessment = applyCharacterMoodBoundary(
@@ -114,14 +123,15 @@ export async function personaNode(
     FAMILA_CHARACTER_MOOD_BOUNDARY,
     effectiveSlots
   )
-  const baseMetrics = reconciled.state.metrics
-  const effectiveMetrics = applyMoodDeltaToMetrics(baseMetrics, moodAssessment.参数偏移)
+  const effectiveMetrics = applyMoodDeltaToMetrics(sceneMetrics, moodAssessment.参数偏移)
   const policy = buildPolicy(
     baseMetrics,
+    sceneMetrics,
     effectiveMetrics,
     moodAssessment,
     reconciled.appliedSignals,
-    nowIso
+    nowIso,
+    sceneCharacter?.policy
   )
 
   const nextSlots = {
@@ -160,7 +170,9 @@ export async function personaNode(
       `，温度偏移=${policy.sampling.temperatureOffset.toFixed(2)}`,
     data: {
       baseMetrics,
+      sceneMetrics,
       effectiveMetrics,
+      sceneCharacter: sceneCharacter?.policy ?? null,
       expressionProfile: {
         id: expressionProfile.id,
         title: expressionProfile.title,

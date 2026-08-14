@@ -14,17 +14,6 @@ const buildCharacterAnchorPrompt = (characterPrompt: string): string => {
   ].join('\n')
 }
 
-const formatSignedField = (key: string, value: number | null | undefined): string | null => {
-  if (typeof value !== 'number' || Number.isNaN(value)) return null
-  const normalized = value >= 0 ? `+${value.toFixed(3)}` : value.toFixed(3)
-  return `${key}: ${normalized}`
-}
-
-const formatNumberField = (key: string, value: number | null | undefined): string | null => {
-  if (typeof value !== 'number' || Number.isNaN(value)) return null
-  return `${key}: ${value.toFixed(3)}`
-}
-
 const toCadence = (assessment: MoodAssessment | null | undefined): string => {
   if (!assessment) {
     return 'plain_still'
@@ -68,6 +57,70 @@ const toExpansionTendency = (assessment: MoodAssessment | null | undefined): str
   return 'moderate_expansion'
 }
 
+const buildExpressionDirections = (assessment: MoodAssessment | null | undefined): string[] => {
+  if (!assessment) {
+    return ['保持稳定、自然的表达，不额外表演情绪。']
+  }
+
+  const directions: string[] = []
+  const { 关系靠近度, 表达温度, 收束度, 想象开放度 } = assessment.表达调制
+
+  if (关系靠近度 >= 0.64) {
+    directions.push('关系姿态可以略微靠近，增加自然承接感，但不要显得黏连或急切。')
+  } else if (关系靠近度 <= 0.48) {
+    directions.push('保持适度关系距离，回应清楚而不冷漠。')
+  } else {
+    directions.push('保持稳定、自然的关系距离。')
+  }
+
+  if (表达温度 >= 0.62) {
+    directions.push('措辞可以更温和，但不要夸张热情。')
+  } else if (表达温度 <= 0.46) {
+    directions.push('减少情绪修饰，仍保留基本温度，避免尖锐或疏离。')
+  } else {
+    directions.push('使用克制而有在场感的表达温度。')
+  }
+
+  if (收束度 >= 0.78) {
+    directions.push('表达明显收束：减少铺垫、修饰和旁支，句子更短，边界更清楚。')
+  } else if (收束度 <= 0.64) {
+    directions.push('表达可以适度舒展，但仍保持结构和重点。')
+  } else {
+    directions.push('保持中等收束，先处理核心内容，再补必要说明。')
+  }
+
+  if (想象开放度 >= 0.6) {
+    directions.push('语言可以稍有想象力，但不能替代事实判断。')
+  } else if (想象开放度 <= 0.4) {
+    directions.push('降低语言联想和修辞，优先准确、直接地表达。')
+  }
+
+  const cadence = toCadence(assessment)
+  if (cadence === 'tight_contained') {
+    directions.push('节奏紧凑、克制，不表现烦躁。')
+  } else if (cadence === 'bright_lifted') {
+    directions.push('节奏可以轻快一些，但不要表现成戏剧化兴奋。')
+  } else if (cadence === 'soft_flowing') {
+    directions.push('节奏可以柔和流畅，保留清晰落点。')
+  }
+
+  const structure = toStructureTendency(assessment)
+  if (structure === 'context_first') {
+    directions.push('必要时先交代关键前提，再给判断。')
+  } else if (structure === 'conclusion_first') {
+    directions.push('优先给出结论或当前最有用的回应。')
+  }
+
+  const expansion = toExpansionTendency(assessment)
+  if (expansion === 'reduced_expansion') {
+    directions.push('只展开完成本轮回应所必需的内容。')
+  } else if (expansion === 'rich_expansion') {
+    directions.push('可以补充有价值的关联与细节，但不要偏离当前问题。')
+  }
+
+  return directions
+}
+
 const buildMoodAssessmentPrompt = (assessment: MoodAssessment | null | undefined): string => {
   if (!assessment) {
     return ''
@@ -95,19 +148,8 @@ const buildExpressionProjectionPrompt = (input: {
   const lines = [
     '【ExpressionProjection】',
     'priority: user_visible_realization',
-    formatSignedField('自主性偏移', input.moodAssessment?.参数偏移.自主性),
-    formatSignedField('详略度偏移', input.moodAssessment?.参数偏移.详略度),
-    formatSignedField('探索性偏移', input.moodAssessment?.参数偏移.探索性),
-    formatSignedField('正式度偏移', input.moodAssessment?.参数偏移.正式度),
-    formatNumberField('强度', input.moodAssessment?.强度),
-    formatNumberField('关系靠近度', input.moodAssessment?.表达调制.关系靠近度),
-    formatNumberField('表达温度', input.moodAssessment?.表达调制.表达温度),
-    formatNumberField('收束度', input.moodAssessment?.表达调制.收束度),
-    formatNumberField('想象开放度', input.moodAssessment?.表达调制.想象开放度),
-    formatNumberField('澄清需求', input.moodAssessment?.表达调制.澄清需求),
-    formatField('cadence', toCadence(input.moodAssessment)),
-    formatField('structure_tendency', toStructureTendency(input.moodAssessment)),
-    formatField('expansion_tendency', toExpansionTendency(input.moodAssessment)),
+    'current_expression_directions:',
+    ...buildExpressionDirections(input.moodAssessment).map((direction) => `- ${direction}`),
     'projection_rule: realize CharacterAnchor through MoodAssessment; keep emotional influence subtle, embodied, and non-performative',
     'suppression_rule: do not directly report internal emotion labels, intensity, vectors, deltas, or modulation fields to the user',
     'output_contract:',

@@ -1,8 +1,7 @@
 import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
 import type { CharacterMoodBoundary } from '@share/cache/AItype/states/characterMoodBoundary'
 import type { MoodAssessment, 情绪向量, 情绪标签 } from '@share/cache/AItype/states/moodAssessment'
-import { roundTo } from '../../manager/personal/personalManager'
-import { clamp, roundUnit } from './personaMath'
+import { clamp, roundTo, roundUnit } from './personaMath'
 
 export const 默认情绪向量: 情绪向量 = {
   愉悦度: 0.52,

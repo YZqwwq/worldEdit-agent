@@ -19,8 +19,17 @@ export interface PersonaActionPolicy {
   toolPersistence: number
 }
 
+export interface PersonaScenePolicy {
+  id: string
+  label: string
+  cognitiveDirections: string[]
+  actionDirections: string[]
+  actionBias: Partial<PersonaActionPolicy>
+}
+
 export interface PersonaPolicyMetrics {
   base: PersonaMetrics
+  scene: PersonaMetrics
   effective: PersonaMetrics
 }
 
@@ -30,5 +39,6 @@ export interface PersonaPolicy {
   sampling: PersonaSamplingPolicy
   tool: PersonaToolPolicy
   action: PersonaActionPolicy
+  scene?: PersonaScenePolicy
   signals: string[]
 }
