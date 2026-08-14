@@ -10,12 +10,12 @@ import {
   serializeTurnGraphState
 } from '../runtime/version/turnVersionSnapshot'
 import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
-import {
-  createTurnWorkspace,
-  withDurableToolReceipt
-} from '../agentrsystem/state/turnWorkspace'
+import { createTurnWorkspace, withDurableToolReceipt } from '../agentrsystem/state/turnWorkspace'
 import type { MessagesState } from '../agentrsystem/state/messageState'
-import { canTransitionMainAgentEventStatus, canTransitionMainAgentTurnStatus } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
+import {
+  canTransitionMainAgentEventStatus,
+  canTransitionMainAgentTurnStatus
+} from '@share/cache/AItype/states/mainAgentOrchestrationRules'
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
@@ -29,48 +29,51 @@ import {
   type MainAgentTurnRecoveryState
 } from '../runtime/version/turnRecoveryPolicy'
 
-const sqliteTest = process.env.RUN_TURN_VERSION_SQLITE_TESTS === '1' ? test : test.skip
+const sqliteTest = (name: string, execute: () => Promise<void>): void => {
+  test(name, { skip: process.env.RUN_TURN_VERSION_SQLITE_TESTS !== '1' }, execute)
+}
 
-const createState = (): typeof MessagesState.State => ({
-  messages: [
-    new HumanMessage({ content: '继续这个方案', id: 'user-1' }),
-    new AIMessage({
-      content: '',
-      id: 'ai-1',
-      tool_calls: [{ id: 'tool-1', name: 'read_world_document', args: { documentId: 'doc-1' } }]
-    })
-  ],
-  turnWorkspace: createTurnWorkspace({
-    eventId: 'event-1',
-    turnId: 1,
-    sessionId: 'default',
-    runId: 'run-1',
-    memorySlots: createDefaultMemorySlots(),
-    persona: null
-  }),
-  turnExecutionLedger: {
-    objective: '读取文档',
-    phase: 'acting',
-    modelStep: 1,
-    unresolvedItems: [],
-    actions: [
-      {
-        actionId: 'action-1',
-        toolCallId: 'tool-1',
-        toolName: 'read_world_document',
-        operation: 'read',
-        status: 'completed',
-        summary: '读取完成',
-        retryable: false,
-        retryCondition: 'none',
-        invocationFingerprint: 'read_world_document:{"documentId":"doc-1"}',
-        evidenceRefs: [],
-        startedAt: '2026-08-10T00:00:00.000Z',
-        completedAt: '2026-08-10T00:00:01.000Z'
-      }
-    ]
-  }
-}) as unknown as typeof MessagesState.State
+const createState = (): typeof MessagesState.State =>
+  ({
+    messages: [
+      new HumanMessage({ content: '继续这个方案', id: 'user-1' }),
+      new AIMessage({
+        content: '',
+        id: 'ai-1',
+        tool_calls: [{ id: 'tool-1', name: 'read_world_document', args: { documentId: 'doc-1' } }]
+      })
+    ],
+    turnWorkspace: createTurnWorkspace({
+      eventId: 'event-1',
+      turnId: 1,
+      sessionId: 'default',
+      runId: 'run-1',
+      memorySlots: createDefaultMemorySlots(),
+      persona: null
+    }),
+    turnExecutionLedger: {
+      objective: '读取文档',
+      phase: 'acting',
+      modelStep: 1,
+      unresolvedItems: [],
+      actions: [
+        {
+          actionId: 'action-1',
+          toolCallId: 'tool-1',
+          toolName: 'read_world_document',
+          operation: 'read',
+          status: 'completed',
+          summary: '读取完成',
+          retryable: false,
+          retryCondition: 'none',
+          invocationFingerprint: 'read_world_document:{"documentId":"doc-1"}',
+          evidenceRefs: [],
+          startedAt: '2026-08-10T00:00:00.000Z',
+          completedAt: '2026-08-10T00:00:01.000Z'
+        }
+      ]
+    }
+  }) as unknown as typeof MessagesState.State
 
 const createVersionDataSource = async (
   database: string,
@@ -201,9 +204,7 @@ test('interrupted is a terminal Turn while its queue Event completes normally', 
 
 test('ready-to-commit candidates preserve the authoritative response and workspace', () => {
   const candidate = createReadyCandidate('ready-candidate', 42)
-  const restored = deserializeReadyToCommitCandidate(
-    serializeReadyToCommitCandidate(candidate)
-  )
+  const restored = deserializeReadyToCommitCandidate(serializeReadyToCommitCandidate(candidate))
 
   assert.deepEqual(restored, candidate)
   assert.equal(restored.finalResponse.content, candidate.finalResponse.content)
@@ -235,6 +236,17 @@ test('running, Final and interrupted boundaries resolve to explicit recovery act
         headKind: 'ready_to_commit'
       },
       action: 'resume_ready_commit'
+    },
+    {
+      boundary: 'ready to commit with an unknown tool effect',
+      state: {
+        eventType: 'user_message',
+        eventStatus: 'processing',
+        turnStatus: 'processing',
+        headKind: 'ready_to_commit',
+        hasUnknownToolEffects: true
+      },
+      action: 'fail_closed'
     },
     {
       boundary: 'completed before queue acknowledgement',
@@ -341,8 +353,12 @@ sqliteTest('Final Version is committed with terminal turn and event state', asyn
       return finalVersion
     })
 
-    const savedTurn = await dataSource.getRepository(MainAgentTurnRecord).findOneByOrFail({ id: turn.id })
-    const savedEvent = await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })
+    const savedTurn = await dataSource
+      .getRepository(MainAgentTurnRecord)
+      .findOneByOrFail({ id: turn.id })
+    const savedEvent = await dataSource
+      .getRepository(MainAgentEventRecord)
+      .findOneByOrFail({ id: eventId })
     assert.equal(final.kind, 'final')
     assert.equal(final.parentVersionId, ready.id)
     assert.equal(final.snapshotJson, ready.snapshotJson)
@@ -407,7 +423,8 @@ sqliteTest('interrupted Final seals the Turn before the queue completes its Even
     eventBeforeQueueAck.finishedAt = new Date()
     await dataSource.getRepository(MainAgentEventRecord).save(eventBeforeQueueAck)
     assert.equal(
-      (await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId })).status,
+      (await dataSource.getRepository(MainAgentEventRecord).findOneByOrFail({ id: eventId }))
+        .status,
       'completed'
     )
   } finally {

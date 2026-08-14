@@ -3,9 +3,7 @@ import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecor
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { Message } from '@share/entity/database/Message'
 import type { MainAgentCommitTurnEffect } from '@share/cache/AItype/states/taskLifecycleState'
-import {
-  serializeMainAgentMessageContent
-} from '@share/cache/AItype/states/mainAgentMessageContent'
+import { serializeMainAgentMessageContent } from '@share/cache/AItype/states/mainAgentMessageContent'
 import { memoryManager } from '../../agentrsystem/manager/memory/MemoryManager'
 import { memorySlotService } from '../../agentrsystem/manager/memory/memorySlotService'
 import { savePersonaState } from '../../agentrsystem/manager/personal/personalManager'
@@ -15,6 +13,7 @@ import { getMainAgentToolEntry } from '../../ai-utils/toolkits/mainAgentToolRegi
 import { toolUsageStatsService } from '../../ai-utils/toolkits/toolUsageStatsService'
 import { resolveTurnWorkspaceCommitPolicy } from './turnCommitPolicy'
 import { persistFinalTurnVersionWithManager } from '../version/turnVersionPersistence'
+import { sealTurnChangeSetWithManager } from '../../../toolEffects/toolChangeSetService'
 
 export type MainAgentTurnCommitInput = Pick<
   MainAgentCommitTurnEffect,
@@ -133,20 +132,14 @@ class MainAgentTurnCommitter {
       }
 
       if (input.workspace) {
-        const workspaceCommitPolicy = resolveTurnWorkspaceCommitPolicy(
-          input.status,
-          input.consumer
-        )
+        const workspaceCommitPolicy = resolveTurnWorkspaceCommitPolicy(input.status, input.consumer)
         if (workspaceCommitPolicy.commitMemorySlots && input.workspace.draft.memorySlots) {
           const slots = {
             ...input.workspace.draft.memorySlots,
             lastObservationId:
               lastCommittedObservationId ?? input.workspace.draft.memorySlots.lastObservationId
           }
-          await memorySlotService.saveSnapshotWithManager(
-            slots,
-            manager
-          )
+          await memorySlotService.saveSnapshotWithManager(slots, manager)
         }
         if (workspaceCommitPolicy.commitPersona && input.workspace.draft.persona) {
           const persona = {
@@ -166,6 +159,8 @@ class MainAgentTurnCommitter {
         event.finishedAt = now
         await eventRepo.save(event)
       }
+
+      await sealTurnChangeSetWithManager(manager, input.eventId, input.turnId)
 
       const finalVersion = await persistFinalTurnVersionWithManager(manager, {
         turn,
@@ -239,10 +234,14 @@ class MainAgentTurnCommitter {
       return input.workspace.draft.memoryMessages
     }
 
-    const turn = await AppDataSource.getRepository(MainAgentTurnRecord).findOneBy({ id: input.turnId })
+    const turn = await AppDataSource.getRepository(MainAgentTurnRecord).findOneBy({
+      id: input.turnId
+    })
     const messages: Array<{ role: 'user' | 'ai'; content: string }> = []
     if (turn?.userMessageId) {
-      const userMessage = await AppDataSource.getRepository(Message).findOneBy({ id: turn.userMessageId })
+      const userMessage = await AppDataSource.getRepository(Message).findOneBy({
+        id: turn.userMessageId
+      })
       if (userMessage?.content.trim()) messages.push({ role: 'user', content: userMessage.content })
     }
     if (input.finalResponse?.content.trim()) {
@@ -284,9 +283,13 @@ class MainAgentTurnCommitter {
       return input.workspace.draft.observations
     }
 
-    const turn = await AppDataSource.getRepository(MainAgentTurnRecord).findOneBy({ id: input.turnId })
+    const turn = await AppDataSource.getRepository(MainAgentTurnRecord).findOneBy({
+      id: input.turnId
+    })
     if (!turn?.userMessageId) return []
-    const userMessage = await AppDataSource.getRepository(Message).findOneBy({ id: turn.userMessageId })
+    const userMessage = await AppDataSource.getRepository(Message).findOneBy({
+      id: turn.userMessageId
+    })
     const text = userMessage?.content.trim()
     if (!text) return []
     return [

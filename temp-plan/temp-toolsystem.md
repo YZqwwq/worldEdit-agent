@@ -356,6 +356,52 @@ type ChangeSet = {
 - 用户中断会等待当前有副作用工具完成回执边界；只读工具仍允许直接抛弃。
 - 这解决了正常中断中的 Workspace 无感知，但尚未解决进程在业务提交与 checkpoint 之间被强杀的窗口；该窗口由本节的持久化 Receipt 与 `planned/unknown` 协议继续收口。
 
+### 第一阶段进展（2026-08-14）
+
+- [x] 增加持久化 `MainAgentToolEffectReceiptRecord`，保存 ChangeSet、Event、Turn、ToolCall、操作目标、前后 revision、状态和紧凑 payload。
+- [x] 使用轻量异步执行上下文把 `eventId + turnId + toolCallId` 传入业务事务，不把完整 Agent State 传给世界文档 Service。
+- [x] 世界文档创建、更新、重命名和移动已实现“业务修改 + completed EffectReceipt”同一 SQLite 事务提交；普通非 Agent 写入不产生 Receipt。
+- [x] ToolNode 优先读取持久化 Receipt 投影到 `durableToolReceipts`；即使业务提交后工具输出校验失败，也以数据库事实为准并明确禁止重复写入。
+- [x] 增加事务提交、整体回滚和非 Agent 写入测试；无原生数据库依赖的用例已通过。
+- [ ] 在 ABI 匹配的 Node 20 SQLite 测试环境运行两条真实事务用例。当前本机 `better-sqlite3` 为 Electron ABI 139，普通 Node 测试进程无法加载，因此测试默认显式 skip，不计作已完成验收。
+- [x] 实现持久化 `planned → completed / failed / unknown`：工具执行前先落 planned；确定不会产生副作用的错误落 failed；无法证明结果的异常落 unknown，并投影到 Workspace 禁止自动重试。
+- [x] 区分恢复模式：世界文档创建、更新、重命名和移动声明 `same_database_transaction`，启动时遗留 planned 可确定为未提交；其他写工具默认 `best_effort`，遗留 planned 转为 unknown。
+- [x] 启动恢复先核对遗留 planned；存在 unknown 时 processing Turn 和 ready candidate 均 fail-closed，不重放工具，也不提交可能失真的 Final。
+- [x] 增加三个独立进程强杀边界：原子事务提交前、原子事务提交后、非原子动作完成但 Receipt 未落库。测试入口已建立并通过编译。
+- [ ] 在 ABI 匹配环境实际运行新增强杀用例；在此之前普通 checkpoint 仍保持 fail-closed，不视为已经开放恢复。
+- [x] 增加正式 ChangeSet 聚合查询与 partial/unknown 摘要；实现状态见下节。
+
+### 正式 ChangeSet 与扩展性审计（2026-08-14）
+
+审计发现旧 Receipt 层有两个会导致未来重构的隐含假设：一个 ToolCall 只能对应一条 Effect，以及所有资源都使用数字 revision。现已在正式 ChangeSet 落地前修正。
+
+- [x] 新增持久化 `MainAgentChangeSetRecord`。它只保存 scope、创建位置和 open/sealed 生命周期，不复制 Receipt ID，也不保存文档、图片或地图专用字段。
+- [x] ChangeSet outcome 从关联 Receipt 实时派生：`empty / in_progress / completed / partial / failed / unknown`，避免聚合状态与真实 Effect 双写漂移。
+- [x] Receipt 增加 `effectKey`，一个 ToolCall 可在同一事务内产生多条独立 Effect；Workspace 也改为按 `receiptId/effectKey` 去重，不再互相覆盖。
+- [x] 保留数字 `beforeRevision/afterRevision`，同时增加通用 `beforeRef/afterRef`、`diffRef/resultRef`。图片 hash、外部 etag、地图 patch 和大型结果都通过引用接入，不把大对象塞进 Receipt JSON。
+- [x] 默认建立 Turn scope ChangeSet；同时提供通用 scope 创建入口，后续任务可建立 `scopeType=task` 的 ChangeSet 并跨 Turn 继续追加 Effect，无需修改表结构。
+- [x] ToolNode 将紧凑聚合摘要投影到 Workspace；完整 Effect 仍留在数据库，AI 不负责维护底层清单。
+- [x] Turn 正式提交时在同一提交事务内 seal 对应 Turn ChangeSet；ChangeSet 不替代文档版本历史或业务事实。
+- [x] 增加文档、图片、地图三种资源由同一 ToolCall 聚合的测试，以及 completed/partial/unknown 状态派生测试。
+- [x] 增加按 `effectKey` 逐项 `planToolEffect / settleToolEffect` 的薄接口，支持一个工具连续执行多个不可原子外部动作；首个子 Effect 复用 ToolNode 的通用 planned 记录，不制造虚假的额外 Effect。
+- [x] 工具异常时只把仍为 planned 的子 Effect 收敛为 unknown，已经 completed 的事实保持不变并一起 checkpoint；unknown 后续可通过外部核验修正为 completed、failed 或 aborted。
+- [x] 多 Effect 的紧凑 ChangeSet receipt 会直接进入下一次模型上下文，不再只存在于数据库和 Workspace。
+- [ ] SQLite 聚合、seal 和多资源事务用例仍需在 ABI 匹配环境实际执行。
+
+用户交互影响：多对象编辑中断或部分失败时，Agent 可以说明整体结果和涉及的资源类型，同时保留每个对象的独立执行事实，不会把“改了三项”压成一条模糊成功记录。
+
+开发维护影响：新增资源只实现 Effect 适配，不需要向 ChangeSet、Turn Snapshot、中断或恢复流程增加资源专用分支；跨 Turn 任务也只改变 scope 选择。
+
+### 继续优化的边际收益审计（2026-08-14）
+
+这一层的通用协议已经覆盖：同事务单/多 Effect、非原子逐项 planned/settle、部分成功、unknown、重启后核验、Turn/Task 聚合以及模型侧摘要。继续脱离真实工具扩建通用框架，收益已经明显降低。
+
+- 下一步高收益工作不是增加更多 ChangeSet 状态或抽象层，而是让第一个真实的图片、地图或外部发布工具使用逐项接口，以真实调用验证 effectKey、恢复查询和用户提示是否足够。
+- ABI 匹配环境中的 SQLite 与强杀验收仍然有高收益，因为它验证的是现有承诺是否真实成立，而不是继续增加架构。
+- 通用 Saga 编排、自动补偿、跨数据库两阶段提交、资源适配器注册中心暂不建设。当前没有对应使用场景，提前实现会增加 Agent 工具接入和故障理解成本。
+
+用户交互影响：现阶段继续完善协议本身已很难带来可感知提升；接入更多真实工具，才能让 Agent 获得新的操作能力。开发维护影响：现在新增普通资源只需实现 Effect 适配，继续抽象反而可能让简单工具也被迫理解复杂事务概念。
+
 ## 测试补充
 
 建议至少增加以下测试层次：

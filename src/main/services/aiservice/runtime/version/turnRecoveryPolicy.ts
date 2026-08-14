@@ -19,6 +19,7 @@ export type MainAgentTurnRecoveryState = {
   eventStatus: MainAgentEventStatus
   turnStatus: MainAgentTurnStatus | null
   headKind: MainAgentTurnVersionKind | null
+  hasUnknownToolEffects?: boolean
 }
 
 /**
@@ -37,6 +38,13 @@ export const resolveMainAgentTurnRecovery = (
       return {
         action: 'reconcile_completed_event',
         reason: 'The Turn and Final Version committed before the Event status was reconciled.'
+      }
+    }
+    if (state.hasUnknownToolEffects) {
+      return {
+        action: 'fail_closed',
+        reason:
+          'A planned tool side effect has an unknown outcome after process restart; it must not be replayed automatically.'
       }
     }
     if (

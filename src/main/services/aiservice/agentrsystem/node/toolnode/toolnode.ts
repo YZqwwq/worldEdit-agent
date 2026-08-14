@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { ToolMessage } from '@langchain/core/messages'
 import type { TurnWorkspaceDurableToolReceipt } from '@share/cache/AItype/states/turnWorkspace'
+import type {
+  ToolChangeSetSummary,
+  ToolEffectReceiptPayload
+} from '@share/cache/AItype/states/toolEffect'
 import {
   buildAgentToolModelMessage,
   parseAgentToolResultEnvelope
@@ -33,10 +37,24 @@ import {
   markTurnForFinalization,
   shouldFinalizeToolLoop
 } from '../../execution/turnExecutionLifecycle'
-import { withDurableToolReceipt, withSuccessfulToolUse } from '../../state/turnWorkspace'
+import {
+  withDurableToolReceipt,
+  withSuccessfulToolUse,
+  withToolChangeSetSummary
+} from '../../state/turnWorkspace'
 import { buildDurableToolEffectCheckpointState } from '../../execution/durableToolEffectCheckpoint'
 import { mainAgentTurnVersionService } from '../../../runtime/version/mainAgentTurnVersionService'
 import { mainAgentRunControlService } from '../../../runtime/mainAgentRunControlService'
+import { runWithToolEffectExecutionContext } from '../../../../toolEffects/toolEffectExecutionContext'
+import type { ToolEffectExecutionContext } from '../../../../toolEffects/toolEffectExecutionContext'
+import {
+  listToolEffectsByCallId,
+  persistPlannedToolEffect,
+  settleOpenToolEffectsForCall,
+  settlePlannedToolEffect
+} from '../../../../toolEffects/toolEffectReceiptService'
+import { AppDataSource } from '../../../../../database'
+import { getToolChangeSetSummary } from '../../../../toolEffects/toolChangeSetService'
 
 const isSensitiveToolByMetadata = (metadata?: {
   readOnly?: boolean
@@ -127,6 +145,48 @@ const getErrorRetryCondition = (
   }
   return 'none'
 }
+
+const DEFINITIVE_NO_EFFECT_ERROR_CODES = new Set<AgentToolErrorCode>([
+  'INVALID_TOOL_INPUT',
+  'TOOL_NOT_AVAILABLE',
+  'CALL_LIMIT_REACHED',
+  'NOT_FOUND',
+  'REVISION_CONFLICT',
+  'PERMISSION_DENIED',
+  'CONFIRMATION_REQUIRED',
+  'CONFIRMATION_EXPIRED'
+])
+
+const resolveUnsuccessfulToolEffectStatus = (
+  code: AgentToolErrorCode | undefined
+): 'failed' | 'unknown' =>
+  code && DEFINITIVE_NO_EFFECT_ERROR_CODES.has(code) ? 'failed' : 'unknown'
+
+const toWorkspaceDurableReceipt = (
+  effect: ToolEffectReceiptPayload
+): TurnWorkspaceDurableToolReceipt => ({
+  receiptId: effect.id,
+  changeSetId: effect.changeSetId,
+  toolCallId: effect.toolCallId,
+  effectKey: effect.effectKey,
+  toolName: effect.toolName,
+  operation: effect.operation,
+  subject: effect.subject,
+  completion: effect.status === 'completed' ? 'complete' : 'partial',
+  completionState: effect.status === 'completed' ? 'completed' : 'failed',
+  effectStatus: effect.status,
+  beforeRevision: effect.beforeRevision,
+  afterRevision: effect.afterRevision,
+  beforeRef: effect.beforeRef,
+  afterRef: effect.afterRef,
+  summary: effect.summary,
+  retryable: false,
+  evidenceRef: effect.evidenceRef,
+  diffRef: effect.diffRef,
+  resultRef: effect.resultRef,
+  payload: effect.payload,
+  persistedAt: effect.persistedAt
+})
 
 const buildSourceRefs = (
   toolName: string,
@@ -781,7 +841,20 @@ export async function toolNode(
       toolCallCounts[tool.name] = (toolCallCounts[tool.name] ?? 0) + 1
     }
 
-    let durableReceipt: TurnWorkspaceDurableToolReceipt | undefined
+    let durableReceipts: TurnWorkspaceDurableToolReceipt[] = []
+    let changeSetSummary: ToolChangeSetSummary | null = null
+    const effectExecutionContext: ToolEffectExecutionContext | undefined =
+      tool.agentMetadata.readOnly === false && nextWorkspace
+        ? {
+            eventId: nextWorkspace.eventId,
+            turnId: nextWorkspace.turnId,
+            changeSetId: `${nextWorkspace.eventId}:turn:${nextWorkspace.turnId}`,
+            sessionId: nextWorkspace.sessionId,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            recoveryMode: tool.agentMetadata.effectRecovery ?? 'best_effort'
+          }
+        : undefined
     const finishDurableToolExecution =
       tool.agentMetadata.readOnly === false
         ? mainAgentRunControlService.beginDurableToolExecution()
@@ -794,9 +867,153 @@ export async function toolNode(
       })
       // 暂时使用 any 后续添加类型守卫
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await (tool as any).invoke(toolCall.args)
+      const invokeTool = async (): Promise<unknown> => (tool as any).invoke(toolCall.args)
+      if (effectExecutionContext) {
+        const planned = await persistPlannedToolEffect(AppDataSource, effectExecutionContext)
+        if (!planned.created) {
+          throw new Error(
+            `Tool effect ${planned.receipt.id} is already ${planned.receipt.status}; refusing to replay ${toolCall.name}.`
+          )
+        }
+      }
+      const result = effectExecutionContext
+        ? await runWithToolEffectExecutionContext(effectExecutionContext, invokeTool)
+        : await invokeTool()
       const envelope = parseAgentToolResultEnvelope(result)
-      const modelResultContent = buildAgentToolModelMessage(toolCall.name, envelope, result)
+      if (effectExecutionContext) {
+        const receipt = envelope?.receipt
+        await settlePlannedToolEffect(AppDataSource, effectExecutionContext, {
+          status:
+            envelope?.ok === false
+              ? resolveUnsuccessfulToolEffectStatus(envelope.error?.code)
+              : 'completed',
+          operation: receipt?.operation ?? receipt?.kind ?? toolCall.name,
+          subject: receipt?.subject?.id
+            ? {
+                type: receipt.subject.type,
+                id: receipt.subject.id,
+                label: receipt.subject.label
+              }
+            : {
+                type: receipt?.subject?.type ?? 'tool_call',
+                id: toolCall.id,
+                label: receipt?.subject?.label
+              },
+          summary:
+            receipt?.summary ??
+            (envelope?.ok === false
+              ? envelope.error?.message || envelope.message || `${toolCall.name} failed.`
+              : `${toolCall.name} completed.`),
+          evidenceRef: receipt?.evidenceRef,
+          payload: receipt?.payload
+        })
+      }
+      const persistedEffectReceipts =
+        tool.agentMetadata.readOnly === false
+          ? await listToolEffectsByCallId(AppDataSource, {
+              eventId: nextWorkspace?.eventId ?? state.turnWorkspace?.eventId ?? '',
+              turnId: nextWorkspace?.turnId ?? state.turnWorkspace?.turnId ?? 0,
+              toolCallId: toolCall.id
+            })
+          : []
+      const persistedEffectReceipt =
+        persistedEffectReceipts.find((effect) => effect.status === 'unknown') ??
+        persistedEffectReceipts[persistedEffectReceipts.length - 1] ??
+        null
+      changeSetSummary = effectExecutionContext
+        ? await getToolChangeSetSummary(AppDataSource, effectExecutionContext.changeSetId)
+        : null
+      const persistedAgentReceipt =
+        persistedEffectReceipts.length > 1 && changeSetSummary
+          ? {
+              kind: 'tool_change_set',
+              operation: `${persistedEffectReceipts.length} tool effects`,
+              subject: {
+                type: 'change_set',
+                id: changeSetSummary.id,
+                label: changeSetSummary.title
+              },
+              completion:
+                changeSetSummary.outcome === 'completed'
+                  ? ('complete' as const)
+                  : changeSetSummary.outcome === 'failed'
+                    ? ('failed' as const)
+                    : ('partial' as const),
+              summary: changeSetSummary.summaries.join('；'),
+              retryable: false,
+              payload: {
+                changeSetId: changeSetSummary.id,
+                outcome: changeSetSummary.outcome,
+                effectCount: changeSetSummary.effectCount,
+                subjectTypes: changeSetSummary.subjectTypes
+              }
+            }
+          : persistedEffectReceipt
+            ? {
+                kind: 'persisted_tool_effect',
+                operation: persistedEffectReceipt.operation,
+                subject: persistedEffectReceipt.subject,
+                completion:
+                  persistedEffectReceipt.status === 'completed'
+                    ? ('complete' as const)
+                    : persistedEffectReceipt.status === 'unknown'
+                      ? ('partial' as const)
+                      : ('failed' as const),
+                summary: persistedEffectReceipt.summary,
+                retryable: false,
+                evidenceRef: persistedEffectReceipt.evidenceRef,
+                payload: persistedEffectReceipt.payload
+              }
+            : null
+      const effectOverridesEnvelopeFailure = Boolean(
+        persistedEffectReceipt?.status === 'completed' && envelope?.ok === false
+      )
+      const effectOutcomeUnknown = persistedEffectReceipt?.status === 'unknown'
+      const effectiveToolOk =
+        effectOverridesEnvelopeFailure || (!effectOutcomeUnknown && envelope?.ok !== false)
+      const hasAggregatedEffects = persistedEffectReceipts.length > 1 && changeSetSummary !== null
+      const modelResultContent = effectOutcomeUnknown
+        ? JSON.stringify(
+            {
+              ok: false,
+              toolName: toolCall.name,
+              error: {
+                code: 'TOOL_EFFECT_UNKNOWN',
+                message:
+                  'The tool outcome could not be confirmed. Do not repeat this side effect automatically.',
+                retryable: false
+              },
+              receipt: persistedAgentReceipt
+            },
+            null,
+            2
+          )
+        : effectOverridesEnvelopeFailure
+          ? JSON.stringify(
+              {
+                ok: true,
+                toolName: toolCall.name,
+                message:
+                  'The side effect was committed and recorded, but the tool response failed validation. Do not repeat the write.',
+                receipt: persistedAgentReceipt,
+                responseWarning: envelope?.error
+              },
+              null,
+              2
+            )
+          : hasAggregatedEffects
+            ? JSON.stringify(
+                {
+                  ok: effectiveToolOk,
+                  toolName: toolCall.name,
+                  message:
+                    changeSetSummary?.summaries.join('；') || `${toolCall.name} effects recorded.`,
+                  receipt: persistedAgentReceipt
+                },
+                null,
+                2
+              )
+            : buildAgentToolModelMessage(toolCall.name, envelope, result)
       const toolEntry = toolEntries[toolCall.name]
       const activatedToolsetsFromEnvelope =
         toolCall.name === 'activate_toolset' &&
@@ -828,25 +1045,45 @@ export async function toolNode(
         toolCallId: toolCall.id,
         toolName: toolCall.name,
         args: toolCall.args,
-        ok: envelope?.ok !== false,
-        summary: buildResultSummary(toolCall.name, envelope, result),
-        receipt: envelope?.receipt,
-        completionState: envelope?.completion.state,
+        ok: effectiveToolOk,
+        summary:
+          persistedEffectReceipt?.summary ?? buildResultSummary(toolCall.name, envelope, result),
+        receipt: persistedAgentReceipt ?? envelope?.receipt,
+        completionState:
+          persistedEffectReceipt?.status === 'completed'
+            ? 'completed'
+            : persistedEffectReceipt?.status === 'unknown'
+              ? 'failed'
+              : envelope?.completion.state,
         evidenceRefs: sourceRefs.map((ref) =>
           [ref.type, ref.id, ref.url].filter(Boolean).join(':')
         ),
         startedAt: actionStartedAt,
-        fallbackRetryable: envelope?.error?.retryable ?? false,
-        retryCondition: getErrorRetryCondition(envelope?.error?.code)
+        fallbackRetryable:
+          persistedEffectReceipt?.status === 'completed' || effectOutcomeUnknown
+            ? false
+            : (envelope?.error?.retryable ?? false),
+        retryCondition:
+          persistedEffectReceipt?.status === 'completed' || effectOutcomeUnknown
+            ? 'none'
+            : getErrorRetryCondition(envelope?.error?.code)
       })
       executedTools.push({
         name: toolCall.name,
-        ok: envelope?.ok ?? null,
+        ok: effectiveToolOk,
         message: envelope?.message ?? null,
-        receipt: envelope?.receipt?.summary ?? null,
+        receipt: persistedEffectReceipt?.summary ?? envelope?.receipt?.summary ?? null,
         completionSemantics: envelope?.completion.semantics ?? null,
-        completionState: envelope?.completion.state ?? null,
-        completionFinal: envelope?.completion.final ?? null,
+        completionState:
+          persistedEffectReceipt?.status === 'completed'
+            ? 'completed'
+            : effectOutcomeUnknown
+              ? 'failed'
+              : (envelope?.completion.state ?? null),
+        completionFinal:
+          persistedEffectReceipt?.status === 'completed' || effectOutcomeUnknown
+            ? true
+            : (envelope?.completion.final ?? null),
         searchMode:
           typeof envelope?.data === 'object' && envelope?.data && 'searchMode' in envelope.data
             ? (envelope.data as any).searchMode
@@ -877,18 +1114,18 @@ export async function toolNode(
       })
       traceArtifact('toolNode', {
         title: `产物: toolNode ${toolCall.name} 返回`,
-        summary:
-          envelope?.ok === false
-            ? `${toolCall.name} 返回失败：${envelope.error?.message || envelope.message}`
-            : `${toolCall.name} 已返回结果`,
+        summary: !effectiveToolOk
+          ? `${toolCall.name} 返回失败：${envelope?.error?.message || envelope?.message || '结果未知'}`
+          : `${toolCall.name} 已返回结果`,
         data: {
           toolName: toolCall.name,
           toolCallId: toolCall.id,
           args: toolCall.args ?? {},
-          ok: envelope?.ok ?? null,
+          ok: effectiveToolOk,
           message: envelope?.message ?? null,
           error: envelope?.error ?? null,
           receipt: envelope?.receipt ?? null,
+          persistedEffectReceipt,
           completion: envelope?.completion ?? null,
           nextSuggestions: envelope?.nextSuggestions ?? [],
           meta: envelope?.meta ?? null,
@@ -897,9 +1134,9 @@ export async function toolNode(
       })
       emitAgentStage({
         stageId,
-        label: getToolStageLabel(tool, toolCall.name, envelope?.ok === false ? 'error' : 'done'),
-        status: envelope?.ok === false ? 'error' : 'done',
-        detail: envelope?.ok === false ? envelope.error?.message || envelope.message : undefined
+        label: getToolStageLabel(tool, toolCall.name, effectiveToolOk ? 'done' : 'error'),
+        status: effectiveToolOk ? 'done' : 'error',
+        detail: effectiveToolOk ? undefined : envelope?.error?.message || envelope?.message
       })
       toolMessages.push(
         (() => {
@@ -907,13 +1144,12 @@ export async function toolNode(
             content: modelResultContent,
             toolCallId: toolCall.id,
             name: toolCall.name,
-            status: envelope?.ok === false ? 'error' : 'success'
+            status: effectiveToolOk ? 'success' : 'error'
           })
           if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
-          const retention =
-            envelope?.ok === false
-              ? 'ephemeral'
-              : (tool.agentMetadata.contextRetention ?? 'ephemeral')
+          const retention = !effectiveToolOk
+            ? 'ephemeral'
+            : (tool.agentMetadata.contextRetention ?? 'ephemeral')
           if (retention !== 'none') {
             const data =
               envelope?.data && typeof envelope.data === 'object'
@@ -927,7 +1163,7 @@ export async function toolNode(
               ),
               toolName: toolCall.name,
               retention,
-              ok: envelope?.ok ?? null,
+              ok: effectiveToolOk,
               argsSummary: stringifyCompact(toolCall.args ?? {}),
               resultSummary:
                 retention === 'evidence'
@@ -940,27 +1176,51 @@ export async function toolNode(
           return toolMessage
         })()
       )
-      if (
-        tool.agentMetadata.readOnly === false &&
-        envelope?.ok !== false &&
-        toolCall.id
-      ) {
-        durableReceipt = {
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          operation: envelope?.receipt?.operation || envelope?.receipt?.kind || toolCall.name,
-          subject: envelope?.receipt?.subject,
-          completion: envelope?.receipt?.completion ?? 'complete',
-          completionState: envelope?.completion.state ?? 'completed',
-          summary:
-            envelope?.receipt?.summary || buildResultSummary(toolCall.name, envelope, result),
-          retryable: envelope?.receipt?.retryable ?? false,
-          evidenceRef: envelope?.receipt?.evidenceRef,
-          payload: envelope?.receipt?.payload,
-          persistedAt: new Date().toISOString()
+      if (tool.agentMetadata.readOnly === false && toolCall.id) {
+        durableReceipts = persistedEffectReceipts
+          .filter((effect) => effect.status === 'completed' || effect.status === 'unknown')
+          .map(toWorkspaceDurableReceipt)
+        if (durableReceipts.length === 0 && envelope?.ok !== false) {
+          durableReceipts = [
+            {
+              toolCallId: toolCall.id,
+              effectKey: 'primary',
+              toolName: toolCall.name,
+              operation: envelope?.receipt?.operation || envelope?.receipt?.kind || toolCall.name,
+              subject: envelope?.receipt?.subject,
+              completion: envelope?.receipt?.completion ?? 'complete',
+              completionState: envelope?.completion.state ?? 'completed',
+              summary:
+                envelope?.receipt?.summary || buildResultSummary(toolCall.name, envelope, result),
+              retryable: envelope?.receipt?.retryable ?? false,
+              evidenceRef: envelope?.receipt?.evidenceRef,
+              payload: envelope?.receipt?.payload,
+              persistedAt: new Date().toISOString()
+            }
+          ]
         }
       }
     } catch (error) {
+      if (effectExecutionContext) {
+        await settleOpenToolEffectsForCall(AppDataSource, effectExecutionContext, {
+          status: 'unknown',
+          summary: error instanceof Error ? error.message : String(error)
+        })
+        const persistedEffects = await listToolEffectsByCallId(AppDataSource, {
+          eventId: effectExecutionContext.eventId,
+          turnId: effectExecutionContext.turnId,
+          toolCallId: effectExecutionContext.toolCallId
+        })
+        durableReceipts = persistedEffects
+          .filter((effect) => effect.status === 'completed' || effect.status === 'unknown')
+          .map(toWorkspaceDurableReceipt)
+        if (durableReceipts.length > 0) {
+          changeSetSummary = await getToolChangeSetSummary(
+            AppDataSource,
+            effectExecutionContext.changeSetId
+          )
+        }
+      }
       const invocationError = describeInvocationError(error, tool.agentMetadata.inputSummary)
       // ✅ 错误信息返回给 LLM，而不是静默失败
       traceError('toolNode', error, {
@@ -1031,11 +1291,16 @@ export async function toolNode(
     }
 
     try {
-      if (durableReceipt && nextWorkspace) {
-        nextWorkspace = withDurableToolReceipt(
-          withSuccessfulToolUse(nextWorkspace, durableReceipt.toolName),
-          durableReceipt
-        )
+      if (durableReceipts.length > 0 && nextWorkspace) {
+        for (const durableReceipt of durableReceipts) {
+          nextWorkspace = withDurableToolReceipt(
+            withSuccessfulToolUse(nextWorkspace, durableReceipt.toolName),
+            durableReceipt
+          )
+        }
+        if (changeSetSummary) {
+          nextWorkspace = withToolChangeSetSummary(nextWorkspace, changeSetSummary)
+        }
         await mainAgentTurnVersionService.checkpointAfterDurableToolEffect(
           buildDurableToolEffectCheckpointState(state, {
             messages: toolMessages,

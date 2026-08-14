@@ -7,15 +7,18 @@ import { resolveMainAgentTurnRecovery } from '../version/turnRecoveryPolicy'
 import type { MainAgentEvent } from '@share/cache/AItype/states/taskLifecycleState'
 import { persistCancelledPausedTurn } from '../version/turnVersionPersistence'
 import { AppDataSource } from '../../../../database'
+import {
+  hasUnknownToolEffectsForEvent,
+  reconcileOrphanedPlannedToolEffects
+} from '../../../toolEffects/toolEffectReceiptService'
 
 const getConsumer = (eventType: 'user_message' | 'background_persona_stage') =>
   eventType === 'user_message' ? 'chat_runtime' : 'background_persona_stage_consumer'
 
-const getRecoveryFailureSummary = (
-  eventType: 'user_message' | 'background_persona_stage'
-) => eventType === 'user_message'
-  ? 'user_message_reconciled_failed_during_startup'
-  : 'background_persona_stage_reconciled_failed_during_startup'
+const getRecoveryFailureSummary = (eventType: 'user_message' | 'background_persona_stage') =>
+  eventType === 'user_message'
+    ? 'user_message_reconciled_failed_during_startup'
+    : 'background_persona_stage_reconciled_failed_during_startup'
 
 class MainAgentEventRecoveryService {
   async reconcileLegacyPausedTurn(): Promise<void> {
@@ -31,6 +34,7 @@ class MainAgentEventRecoveryService {
   }
 
   async reconcileTurnOwnedEvents(): Promise<void> {
+    await reconcileOrphanedPlannedToolEffects(AppDataSource)
     const processingEvents = await mainAgentEventLogService.listProcessingEvents()
 
     for (const event of processingEvents) {
@@ -43,7 +47,8 @@ class MainAgentEventRecoveryService {
         eventType: event.type,
         eventStatus: 'processing',
         turnStatus: turn?.status ?? null,
-        headKind: turn ? await mainAgentTurnVersionService.getHeadKind(turn.id) : null
+        headKind: turn ? await mainAgentTurnVersionService.getHeadKind(turn.id) : null,
+        hasUnknownToolEffects: await hasUnknownToolEffectsForEvent(AppDataSource, event.id)
       })
 
       if (decision.action === 'reconcile_completed_event' && turn) {
@@ -87,10 +92,7 @@ class MainAgentEventRecoveryService {
         continue
       }
 
-      if (
-        notification.status === 'consumed' &&
-        notification.mainAgentEventId === event.id
-      ) {
+      if (notification.status === 'consumed' && notification.mainAgentEventId === event.id) {
         await mainAgentEventLogService.markCompleted(event.id, {
           consumer: 'task_notification_consumer',
           summary: 'task_notification_committed_during_startup_recovery'

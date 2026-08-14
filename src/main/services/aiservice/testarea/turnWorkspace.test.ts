@@ -10,7 +10,8 @@ import {
   withMemoryMessagesDraft,
   withMemorySlotsDraft,
   withObservationDraft,
-  withSuccessfulToolUse
+  withSuccessfulToolUse,
+  withToolChangeSetSummary
 } from '../agentrsystem/state/turnWorkspace'
 import { buildDurableToolEffectCheckpointState } from '../agentrsystem/execution/durableToolEffectCheckpoint'
 import { shouldBypassInteractivePerception } from '../agentrsystem/node/instantperceptionnode/instantPerceptionRouting'
@@ -132,4 +133,53 @@ test('durable tool receipts survive interruption checkpoints without duplication
 
   assert.equal(checkpoint.messages.length, 2)
   assert.equal(checkpoint.turnWorkspace?.draft.durableToolReceipts[0]?.payload?.revision, 9)
+})
+
+test('change set summary survives the same workspace checkpoint as durable receipts', () => {
+  const workspace = withToolChangeSetSummary(createWorkspace(), {
+    id: 'event-1:turn:7',
+    scopeType: 'turn',
+    scopeId: 'event-1:7',
+    eventId: 'event-1',
+    turnId: 7,
+    sessionId: 'default',
+    lifecycle: 'open',
+    outcome: 'partial',
+    effectCount: 3,
+    counts: { planned: 0, completed: 2, failed: 1, aborted: 0, unknown: 0 },
+    subjectTypes: ['document', 'image'],
+    summaries: ['更新文档', '替换图片', '地图更新失败'],
+    createdAt: '2026-08-14T00:00:00.000Z'
+  })
+
+  assert.equal(workspace.draft.changeSet?.outcome, 'partial')
+  assert.deepEqual(workspace.draft.changeSet?.subjectTypes, ['document', 'image'])
+})
+
+test('one tool call preserves multiple effect receipts by effect identity', () => {
+  const base = {
+    toolCallId: 'call-batch-edit',
+    toolName: 'edit_world_assets',
+    completion: 'complete' as const,
+    completionState: 'completed' as const,
+    summary: '完成修改',
+    retryable: false,
+    persistedAt: '2026-08-14T00:00:00.000Z'
+  }
+  let workspace = withDurableToolReceipt(createWorkspace(), {
+    ...base,
+    receiptId: 'receipt-document',
+    effectKey: 'document:doc-1',
+    operation: '更新文档',
+    subject: { type: 'document', id: 'doc-1' }
+  })
+  workspace = withDurableToolReceipt(workspace, {
+    ...base,
+    receiptId: 'receipt-image',
+    effectKey: 'image:image-1',
+    operation: '替换图片',
+    subject: { type: 'image', id: 'image-1' }
+  })
+
+  assert.equal(workspace.draft.durableToolReceipts.length, 2)
 })

@@ -1,5 +1,6 @@
 import { DynamicStructuredTool, tool } from '@langchain/core/tools'
 import { z } from 'zod'
+import type { ToolEffectRecoveryMode } from '@share/cache/AItype/states/toolEffect'
 
 export type AgentToolRiskLevel = 'low' | 'medium' | 'high'
 export type AgentToolCompletionSemantics = 'definitive' | 'eventual'
@@ -24,6 +25,7 @@ export type AgentToolErrorCode =
   | 'RATE_LIMITED'
   | 'TIMEOUT'
   | 'TEMPORARY_UNAVAILABLE'
+  | 'TOOL_EFFECT_UNKNOWN'
   | 'INTERNAL_ERROR'
 
 export type AgentToolErrorPayload = {
@@ -84,6 +86,7 @@ export interface AgentToolMetadata {
   idempotent?: boolean
   completionSemantics?: AgentToolCompletionSemantics
   contextRetention?: AgentToolContextRetention
+  effectRecovery?: ToolEffectRecoveryMode
   uiStage?: AgentToolUiStage
 }
 

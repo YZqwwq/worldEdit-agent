@@ -1,6 +1,7 @@
 import type { MemorySlotSnapshot } from './memorySlots'
 import type { PersonaState } from './personalState'
 import type { InteractionObservationSnapshot } from './interactionObservation'
+import type { ToolChangeSetSummary } from './toolEffect'
 
 export type TurnWorkspaceMemoryMessage = {
   role: 'user' | 'ai'
@@ -13,7 +14,10 @@ export type MainAgentFinalResponse = {
 }
 
 export type TurnWorkspaceDurableToolReceipt = {
+  receiptId?: string
+  changeSetId?: string
   toolCallId: string
+  effectKey?: string
   toolName: string
   operation: string
   subject?: {
@@ -23,9 +27,16 @@ export type TurnWorkspaceDurableToolReceipt = {
   }
   completion: 'complete' | 'partial' | 'failed'
   completionState: 'accepted' | 'running' | 'awaiting_input' | 'completed' | 'failed'
+  effectStatus?: 'planned' | 'completed' | 'failed' | 'aborted' | 'unknown'
+  beforeRevision?: number
+  afterRevision?: number
+  beforeRef?: string
+  afterRef?: string
   summary: string
   retryable: boolean
   evidenceRef?: string
+  diffRef?: string
+  resultRef?: string
   payload?: Record<string, unknown>
   persistedAt: string
 }
@@ -45,6 +56,7 @@ export type TurnWorkspace = {
     memoryMessages: TurnWorkspaceMemoryMessage[]
     successfulToolNames: string[]
     durableToolReceipts: TurnWorkspaceDurableToolReceipt[]
+    changeSet?: ToolChangeSetSummary
     observations: InteractionObservationSnapshot[]
   }
 }

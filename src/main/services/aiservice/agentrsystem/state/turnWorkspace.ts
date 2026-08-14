@@ -4,6 +4,7 @@ import type {
   MainAgentFinalResponse,
   TurnWorkspace
 } from '@share/cache/AItype/states/turnWorkspace'
+import type { ToolChangeSetSummary } from '@share/cache/AItype/states/toolEffect'
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
@@ -92,10 +93,23 @@ export const withDurableToolReceipt = (
     ...workspace.draft,
     durableToolReceipts: [
       ...(workspace.draft.durableToolReceipts ?? []).filter(
-        (item) => item.toolCallId !== receipt.toolCallId
+        (item) =>
+          (item.receiptId ?? `${item.toolCallId}:${item.effectKey ?? 'primary'}`) !==
+          (receipt.receiptId ?? `${receipt.toolCallId}:${receipt.effectKey ?? 'primary'}`)
       ),
       clone(receipt)
     ]
+  }
+})
+
+export const withToolChangeSetSummary = (
+  workspace: TurnWorkspace,
+  changeSet: ToolChangeSetSummary
+): TurnWorkspace => ({
+  ...workspace,
+  draft: {
+    ...workspace.draft,
+    changeSet: clone(changeSet)
   }
 })
 

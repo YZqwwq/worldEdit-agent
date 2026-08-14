@@ -61,10 +61,7 @@ export const listWorldDocumentsTool = defineAgentTool({
       '需要读取人物、国家等实体文档时，同时传入 worldId 和 entityId。',
       '需要读取世界基础设定时只传 worldId。'
     ],
-    examples: [
-      '{"worldId":"world-id","entityId":"entity-id"}',
-      '{"worldId":"world-id"}'
-    ],
+    examples: ['{"worldId":"world-id","entityId":"entity-id"}', '{"worldId":"world-id"}'],
     riskLevel: 'low',
     readOnly: true,
     idempotent: true,
@@ -168,8 +165,7 @@ export const createWorldDocumentTool = defineAgentTool({
   metadata: {
     whenToUse: ['用户明确要求创建新的世界观或实体文档'],
     whenNotToUse: ['只是讨论文档内容，或目标文档已经存在'],
-    inputSummary:
-      '提供 worldId 和标题；创建实体文档时增加 entityId，可选父文档和 HTML 正文。',
+    inputSummary: '提供 worldId 和标题；创建实体文档时增加 entityId，可选父文档和 HTML 正文。',
     outputSummary: '返回新文档和初始 revision。',
     usageContract: [
       '参数必须直接放在调用顶层，不要传入 owner 嵌套对象或 JSON 字符串。',
@@ -182,6 +178,7 @@ export const createWorldDocumentTool = defineAgentTool({
     riskLevel: 'medium',
     readOnly: false,
     idempotent: false,
+    effectRecovery: 'same_database_transaction',
     contextRetention: 'evidence',
     uiStage: {
       label: '创建文档',
@@ -190,12 +187,18 @@ export const createWorldDocumentTool = defineAgentTool({
     }
   },
   async execute(input) {
-    const document = await worldEntityDocumentService.createDocument({
-      owner: toDocumentOwner(input),
-      parentDocumentId: input.parentDocumentId,
-      title: input.title,
-      contentHtml: input.contentHtml
-    })
+    const document = await worldEntityDocumentService.createDocument(
+      {
+        owner: toDocumentOwner(input),
+        parentDocumentId: input.parentDocumentId,
+        title: input.title,
+        contentHtml: input.contentHtml
+      },
+      {
+        operation: '创建世界观文档',
+        summary: `创建文档「${input.title}」`
+      }
+    )
     worldEntityDocumentChangePublisher.publish({
       changeType: 'created',
       documentId: document.id,
@@ -247,6 +250,7 @@ export const updateWorldDocumentTool = defineAgentTool({
     riskLevel: 'medium',
     readOnly: false,
     idempotent: false,
+    effectRecovery: 'same_database_transaction',
     contextRetention: 'evidence',
     uiStage: {
       label: '更新文档',
@@ -255,13 +259,19 @@ export const updateWorldDocumentTool = defineAgentTool({
     }
   },
   async execute(input) {
-    const document = await worldEntityDocumentService.updateDocument({
-      documentId: input.documentId,
-      expectedRevision: input.expectedRevision,
-      title: input.title,
-      contentHtml: input.contentHtml,
-      contentFormat: 'html'
-    })
+    const document = await worldEntityDocumentService.updateDocument(
+      {
+        documentId: input.documentId,
+        expectedRevision: input.expectedRevision,
+        title: input.title,
+        contentHtml: input.contentHtml,
+        contentFormat: 'html'
+      },
+      {
+        operation: '更新世界观文档',
+        summary: input.changeSummary
+      }
+    )
     worldEntityDocumentChangePublisher.publish({
       changeType: 'updated',
       documentId: document.id,
@@ -307,6 +317,7 @@ export const renameWorldDocumentTool = defineAgentTool({
     riskLevel: 'medium',
     readOnly: false,
     idempotent: false,
+    effectRecovery: 'same_database_transaction',
     contextRetention: 'evidence',
     uiStage: {
       label: '重命名文档',
@@ -315,11 +326,17 @@ export const renameWorldDocumentTool = defineAgentTool({
     }
   },
   async execute(input) {
-    const document = await worldEntityDocumentService.updateDocument({
-      documentId: input.documentId,
-      expectedRevision: input.expectedRevision,
-      title: input.title
-    })
+    const document = await worldEntityDocumentService.updateDocument(
+      {
+        documentId: input.documentId,
+        expectedRevision: input.expectedRevision,
+        title: input.title
+      },
+      {
+        operation: '重命名世界观文档',
+        summary: `文档已重命名为「${input.title}」。`
+      }
+    )
     worldEntityDocumentChangePublisher.publish({
       changeType: 'updated',
       documentId: document.id,
@@ -365,6 +382,7 @@ export const moveWorldDocumentTool = defineAgentTool({
     riskLevel: 'medium',
     readOnly: false,
     idempotent: false,
+    effectRecovery: 'same_database_transaction',
     contextRetention: 'evidence',
     uiStage: {
       label: '移动文档',
@@ -373,7 +391,10 @@ export const moveWorldDocumentTool = defineAgentTool({
     }
   },
   async execute(input) {
-    const document = await worldEntityDocumentService.moveDocument(input)
+    const document = await worldEntityDocumentService.moveDocument(input, {
+      operation: '调整世界观文档层级',
+      summary: '文档层级与顺序已更新。'
+    })
     worldEntityDocumentChangePublisher.publish({
       changeType: 'moved',
       documentId: document.id,

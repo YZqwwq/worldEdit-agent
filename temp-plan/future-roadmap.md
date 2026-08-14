@@ -47,6 +47,7 @@
 - [x] 删除失效的 `eventCommitted` 标记，Event 只由队列在 Turn 提交回执后完成。
 - [x] 有副作用工具成功后立即写入稳定回执 checkpoint；中断等待在途写工具完成回执边界，避免数据库已修改但 Workspace 无感知。
 - [ ] 建立统一副作用记录层，以持久化 `EffectReceipt` 区分 completed、failed、aborted 和 unknown，并由 `ChangeSet` 聚合同轮或同任务动作。
+  - 2026-08-14：正式 ChangeSet 表、实时 outcome 聚合、Turn seal、Workspace/模型摘要投影、一个 ToolCall 多 Effect，以及逐 Effect 的非原子外部 planned/settle 接口已完成；ABI 实测仍待完成。
 - [ ] 下一轮 Context 明确注入上一轮中断事实、部分回复和已完成工具证据。
 - [x] 在最后计算节点后建立 `ready_to_commit` Final 候选，并在正式提交事务内生成 Final Version。
 - [ ] 让带完整 HEAD 的 processing Turn 在崩溃后恢复：ready HEAD 已完成；普通 checkpoint 必须等待工具 planned action 后开放。
@@ -55,6 +56,7 @@
 - [x] 复用独立子进程强杀框架，覆盖 checkpoint、ready、Interrupted Final 提交前后队列回执边界。
 - [ ] 补完整 Electron 启动编排验收，验证恢复动作进入 fail-closed、ready commit 或终态核对路径。
 - [ ] 以世界文档验证最小 `ChangeSet + EffectReceipt`：本地业务修改与小型 Receipt 尽可能同事务，崩溃边界使用 planned/receipt/unknown；只读工具结果仍作为可丢弃的 Turn 证据。
+  - 2026-08-14：创建、更新、重命名和移动已接入同事务 completed Receipt；所有写工具调用前持久化 planned，启动时按 `same_database_transaction / best_effort` 分别收敛为 failed 或 unknown。unknown 会阻止自动重放和 ready commit。正式 ChangeSet 聚合已完成，ABI 匹配的 SQLite/强杀验收仍待执行。
 
 ### 2026-08-12 架构收口计划
 
@@ -146,7 +148,8 @@
 
 ### 工作项
 
-- [ ] 先以世界文档验证统一副作用记录层：每次写动作生成持久化 EffectReceipt，同一轮多动作由 ChangeSet 聚合。
+- [x] 先以世界文档验证统一副作用记录层：每次写动作生成持久化 EffectReceipt，同一轮多动作由 ChangeSet 聚合。
+  - 2026-08-14：正式聚合已接通，并通过通用 effectKey、subject type 和引用字段验证未来图片、地图等资源无需修改 ChangeSet 模型。
 - [ ] 设计文档版本记录，保存文档、revision、操作者、时间、变更摘要和前后版本引用。
 - [ ] 为 Agent 写入生成结构化 diff 和人类可读变更说明。
 - [ ] 支持单次变更撤销，并校验撤销目标 revision，避免覆盖后续人工编辑。

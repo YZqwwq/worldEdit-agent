@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { IsNull } from 'typeorm'
+import { IsNull, type EntityManager } from 'typeorm'
 import { AppDataSource } from '../../database'
 import { WorldRecord } from '../../../share/entity/database/WorldRecord'
 import { WorldEntityRecord } from '../../../share/entity/database/WorldEntityRecord'
@@ -13,6 +13,7 @@ import type {
   WorldEntityDocumentPayload
 } from '@share/cache/worldbuilding/worldEntityDocument'
 import { isWorldEntityDocumentOwnerType } from '@share/cache/worldbuilding/worldEntityDocument'
+import { persistCompletedToolEffect } from '../toolEffects/toolEffectReceiptService'
 
 const DEFAULT_SCHEMA_VERSION = 1
 const DEFAULT_DOCUMENT_TITLE = '新建文件'
@@ -24,6 +25,13 @@ const normalizeDocumentTitle = (value: unknown): string => {
 
 const normalizeContentHtml = (value: unknown): string => String(value ?? '').slice(0, 40000)
 const createSortKey = (): string => `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
+
+export type WorldDocumentToolEffectInput = {
+  operation: string
+  summary: string
+  payload?: Record<string, unknown>
+  compensatable?: boolean
+}
 
 export class WorldEntityDocumentRevisionConflictError extends Error {
   readonly code = 'DOCUMENT_REVISION_CONFLICT'
@@ -94,7 +102,10 @@ class WorldEntityDocumentService {
     return AppDataSource.getRepository(WorldEntityDocumentRecord)
   }
 
-  private async normalizeOwner(owner: WorldEntityDocumentOwnerRef): Promise<{
+  private async normalizeOwner(
+    owner: WorldEntityDocumentOwnerRef,
+    manager?: EntityManager
+  ): Promise<{
     ownerKind: 'world' | 'entity'
     worldId: string
     ownerEntityId: string | null
@@ -102,7 +113,9 @@ class WorldEntityDocumentService {
     const worldId = String(owner?.worldId || '').trim()
     if (!worldId) throw new Error('worldId is required')
 
-    const world = await this.worldRepo.findOneBy({ id: worldId })
+    const worldRepo = manager?.getRepository(WorldRecord) ?? this.worldRepo
+    const entityRepo = manager?.getRepository(WorldEntityRecord) ?? this.entityRepo
+    const world = await worldRepo.findOneBy({ id: worldId })
     if (!world) throw new WorldEntityDocumentNotFoundError('world', worldId)
 
     if (owner.kind === 'world') {
@@ -111,7 +124,7 @@ class WorldEntityDocumentService {
 
     const entityId = String(owner.entityId || '').trim()
     if (!entityId) throw new Error('entityId is required')
-    const entity = await this.entityRepo.findOneBy({ id: entityId })
+    const entity = await entityRepo.findOneBy({ id: entityId })
     if (!entity) throw new WorldEntityDocumentNotFoundError('entity', entityId)
     if (entity.worldId !== worldId) {
       throw new WorldEntityDocumentConstraintError(
@@ -136,12 +149,14 @@ class WorldEntityDocumentService {
       worldId: string
       ownerEntityId: string | null
     },
-    parentDocumentId: string | null | undefined
+    parentDocumentId: string | null | undefined,
+    manager?: EntityManager
   ): Promise<string | null> {
     const normalizedParentId = String(parentDocumentId || '').trim()
     if (!normalizedParentId) return null
 
-    const parent = await this.documentRepo.findOneBy({ id: normalizedParentId })
+    const documentRepo = manager?.getRepository(WorldEntityDocumentRecord) ?? this.documentRepo
+    const parent = await documentRepo.findOneBy({ id: normalizedParentId })
     if (!parent) {
       throw new WorldEntityDocumentNotFoundError('parent_document', normalizedParentId)
     }
@@ -159,14 +174,18 @@ class WorldEntityDocumentService {
     return parent.id
   }
 
-  private async collectDescendantIds(documentId: string): Promise<string[]> {
+  private async collectDescendantIds(
+    documentId: string,
+    manager?: EntityManager
+  ): Promise<string[]> {
     const descendants: string[] = []
     const queue = [documentId]
+    const documentRepo = manager?.getRepository(WorldEntityDocumentRecord) ?? this.documentRepo
 
     while (queue.length > 0) {
       const currentId = queue.shift()
       if (!currentId) continue
-      const children = await this.documentRepo.find({
+      const children = await documentRepo.find({
         where: { parentDocumentId: currentId },
         select: ['id']
       })
@@ -199,126 +218,191 @@ class WorldEntityDocumentService {
     return document ? toPayload(document) : null
   }
 
-  async createDocument(input: CreateWorldEntityDocumentInput): Promise<WorldEntityDocumentPayload> {
-    const owner = await this.normalizeOwner(input.owner)
-    const parentDocumentId = await this.assertParentDocument(owner, input.parentDocumentId)
-    const record = this.documentRepo.create({
-      id: randomUUID(),
-      ...owner,
-      parentDocumentId,
-      title: normalizeDocumentTitle(input.title),
-      contentHtml: normalizeContentHtml(input.contentHtml),
-      contentFormat: 'html',
-      sortKey: String(input.sortKey || '').trim() || createSortKey(),
-      revision: 1,
-      schemaVersion: DEFAULT_SCHEMA_VERSION
-    })
-    return toPayload(await this.documentRepo.save(record))
-  }
-
-  async updateDocument(input: UpdateWorldEntityDocumentInput): Promise<WorldEntityDocumentPayload> {
-    const normalizedDocumentId = String(input.documentId || '').trim()
-    if (!normalizedDocumentId) throw new Error('documentId is required')
-    const document = await this.documentRepo.findOneBy({ id: normalizedDocumentId })
-    if (!document) throw new WorldEntityDocumentNotFoundError('document', normalizedDocumentId)
-    const expectedRevision = Number(input.expectedRevision)
-    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
-      throw new Error('expectedRevision must be a positive integer')
-    }
-    if (document.revision !== expectedRevision) {
-      throw new WorldEntityDocumentRevisionConflictError(
-        document.id,
-        expectedRevision,
-        document.revision
+  async createDocument(
+    input: CreateWorldEntityDocumentInput,
+    effect?: WorldDocumentToolEffectInput
+  ): Promise<WorldEntityDocumentPayload> {
+    return AppDataSource.transaction(async (manager) => {
+      const documentRepo = manager.getRepository(WorldEntityDocumentRecord)
+      const owner = await this.normalizeOwner(input.owner, manager)
+      const parentDocumentId = await this.assertParentDocument(
+        owner,
+        input.parentDocumentId,
+        manager
       )
-    }
-
-    if (input.contentFormat !== undefined && input.contentFormat !== 'html') {
-      throw new Error(`Unsupported document content format: ${input.contentFormat}`)
-    }
-    const updateResult = await this.documentRepo.update(
-      { id: document.id, revision: expectedRevision },
-      {
-        title: input.title !== undefined ? normalizeDocumentTitle(input.title) : document.title,
-        contentHtml:
-          input.contentHtml !== undefined
-            ? normalizeContentHtml(input.contentHtml)
-            : document.contentHtml,
+      const record = documentRepo.create({
+        id: randomUUID(),
+        ...owner,
+        parentDocumentId,
+        title: normalizeDocumentTitle(input.title),
+        contentHtml: normalizeContentHtml(input.contentHtml),
         contentFormat: 'html',
-        revision: expectedRevision + 1
+        sortKey: String(input.sortKey || '').trim() || createSortKey(),
+        revision: 1,
+        schemaVersion: DEFAULT_SCHEMA_VERSION
+      })
+      const document = toPayload(await documentRepo.save(record))
+      if (effect) {
+        await persistCompletedToolEffect(manager, {
+          operation: effect.operation,
+          subject: { type: 'document', id: document.id, label: document.title },
+          afterRevision: document.revision,
+          summary: effect.summary,
+          evidenceRef: `document:${document.id}`,
+          payload: { ...effect.payload, documentId: document.id, revision: document.revision },
+          compensatable: effect.compensatable
+        })
       }
-    )
-    if (updateResult.affected !== 1) {
-      const current = await this.documentRepo.findOneBy({ id: document.id })
-      throw new WorldEntityDocumentRevisionConflictError(
-        document.id,
-        expectedRevision,
-        current?.revision ?? expectedRevision
-      )
-    }
-    const updated = await this.documentRepo.findOneByOrFail({ id: document.id })
-    return toPayload(updated)
+      return document
+    })
   }
 
-  async moveDocument(input: MoveWorldEntityDocumentInput): Promise<WorldEntityDocumentPayload> {
-    const normalizedDocumentId = String(input.documentId || '').trim()
-    if (!normalizedDocumentId) throw new Error('documentId is required')
-    const document = await this.documentRepo.findOneBy({ id: normalizedDocumentId })
-    if (!document) throw new WorldEntityDocumentNotFoundError('document', normalizedDocumentId)
-    const expectedRevision = Number(input.expectedRevision)
-    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
-      throw new Error('expectedRevision must be a positive integer')
-    }
-    if (document.revision !== expectedRevision) {
-      throw new WorldEntityDocumentRevisionConflictError(
-        document.id,
-        expectedRevision,
-        document.revision
-      )
-    }
-
-    const nextParentId = await this.assertParentDocument(
-      {
-        ownerKind: document.ownerKind,
-        worldId: document.worldId,
-        ownerEntityId: document.ownerEntityId
-      },
-      input.parentDocumentId
-    )
-    if (nextParentId === document.id) {
-      throw new WorldEntityDocumentConstraintError(
-        'Document cannot be moved under itself',
-        'SELF_PARENT'
-      )
-    }
-    if (nextParentId) {
-      const descendantIds = await this.collectDescendantIds(document.id)
-      if (descendantIds.includes(nextParentId)) {
-        throw new WorldEntityDocumentConstraintError(
-          'Document cannot be moved under one of its descendants',
-          'DESCENDANT_PARENT',
-          { parentDocumentId: nextParentId }
+  async updateDocument(
+    input: UpdateWorldEntityDocumentInput,
+    effect?: WorldDocumentToolEffectInput
+  ): Promise<WorldEntityDocumentPayload> {
+    return AppDataSource.transaction(async (manager) => {
+      const documentRepo = manager.getRepository(WorldEntityDocumentRecord)
+      const normalizedDocumentId = String(input.documentId || '').trim()
+      if (!normalizedDocumentId) throw new Error('documentId is required')
+      const document = await documentRepo.findOneBy({ id: normalizedDocumentId })
+      if (!document) throw new WorldEntityDocumentNotFoundError('document', normalizedDocumentId)
+      const expectedRevision = Number(input.expectedRevision)
+      if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+        throw new Error('expectedRevision must be a positive integer')
+      }
+      if (document.revision !== expectedRevision) {
+        throw new WorldEntityDocumentRevisionConflictError(
+          document.id,
+          expectedRevision,
+          document.revision
         )
       }
-    }
 
-    const updateResult = await this.documentRepo.update(
-      { id: document.id, revision: expectedRevision },
-      {
-        parentDocumentId: nextParentId,
-        sortKey: String(input.sortKey || '').trim() || document.sortKey || createSortKey(),
-        revision: expectedRevision + 1
+      if (input.contentFormat !== undefined && input.contentFormat !== 'html') {
+        throw new Error(`Unsupported document content format: ${input.contentFormat}`)
       }
-    )
-    if (updateResult.affected !== 1) {
-      const current = await this.documentRepo.findOneBy({ id: document.id })
-      throw new WorldEntityDocumentRevisionConflictError(
-        document.id,
-        expectedRevision,
-        current?.revision ?? expectedRevision
+      const updateResult = await documentRepo.update(
+        { id: document.id, revision: expectedRevision },
+        {
+          title: input.title !== undefined ? normalizeDocumentTitle(input.title) : document.title,
+          contentHtml:
+            input.contentHtml !== undefined
+              ? normalizeContentHtml(input.contentHtml)
+              : document.contentHtml,
+          contentFormat: 'html',
+          revision: expectedRevision + 1
+        }
       )
-    }
-    return toPayload(await this.documentRepo.findOneByOrFail({ id: document.id }))
+      if (updateResult.affected !== 1) {
+        const current = await documentRepo.findOneBy({ id: document.id })
+        throw new WorldEntityDocumentRevisionConflictError(
+          document.id,
+          expectedRevision,
+          current?.revision ?? expectedRevision
+        )
+      }
+      const updated = toPayload(await documentRepo.findOneByOrFail({ id: document.id }))
+      if (effect) {
+        await persistCompletedToolEffect(manager, {
+          operation: effect.operation,
+          subject: { type: 'document', id: updated.id, label: updated.title },
+          beforeRevision: expectedRevision,
+          afterRevision: updated.revision,
+          summary: effect.summary,
+          evidenceRef: `document:${updated.id}`,
+          payload: { ...effect.payload, documentId: updated.id, revision: updated.revision },
+          compensatable: effect.compensatable
+        })
+      }
+      return updated
+    })
+  }
+
+  async moveDocument(
+    input: MoveWorldEntityDocumentInput,
+    effect?: WorldDocumentToolEffectInput
+  ): Promise<WorldEntityDocumentPayload> {
+    return AppDataSource.transaction(async (manager) => {
+      const documentRepo = manager.getRepository(WorldEntityDocumentRecord)
+      const normalizedDocumentId = String(input.documentId || '').trim()
+      if (!normalizedDocumentId) throw new Error('documentId is required')
+      const document = await documentRepo.findOneBy({ id: normalizedDocumentId })
+      if (!document) throw new WorldEntityDocumentNotFoundError('document', normalizedDocumentId)
+      const expectedRevision = Number(input.expectedRevision)
+      if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+        throw new Error('expectedRevision must be a positive integer')
+      }
+      if (document.revision !== expectedRevision) {
+        throw new WorldEntityDocumentRevisionConflictError(
+          document.id,
+          expectedRevision,
+          document.revision
+        )
+      }
+
+      const nextParentId = await this.assertParentDocument(
+        {
+          ownerKind: document.ownerKind,
+          worldId: document.worldId,
+          ownerEntityId: document.ownerEntityId
+        },
+        input.parentDocumentId,
+        manager
+      )
+      if (nextParentId === document.id) {
+        throw new WorldEntityDocumentConstraintError(
+          'Document cannot be moved under itself',
+          'SELF_PARENT'
+        )
+      }
+      if (nextParentId) {
+        const descendantIds = await this.collectDescendantIds(document.id, manager)
+        if (descendantIds.includes(nextParentId)) {
+          throw new WorldEntityDocumentConstraintError(
+            'Document cannot be moved under one of its descendants',
+            'DESCENDANT_PARENT',
+            { parentDocumentId: nextParentId }
+          )
+        }
+      }
+
+      const updateResult = await documentRepo.update(
+        { id: document.id, revision: expectedRevision },
+        {
+          parentDocumentId: nextParentId,
+          sortKey: String(input.sortKey || '').trim() || document.sortKey || createSortKey(),
+          revision: expectedRevision + 1
+        }
+      )
+      if (updateResult.affected !== 1) {
+        const current = await documentRepo.findOneBy({ id: document.id })
+        throw new WorldEntityDocumentRevisionConflictError(
+          document.id,
+          expectedRevision,
+          current?.revision ?? expectedRevision
+        )
+      }
+      const updated = toPayload(await documentRepo.findOneByOrFail({ id: document.id }))
+      if (effect) {
+        await persistCompletedToolEffect(manager, {
+          operation: effect.operation,
+          subject: { type: 'document', id: updated.id, label: updated.title },
+          beforeRevision: expectedRevision,
+          afterRevision: updated.revision,
+          summary: effect.summary,
+          evidenceRef: `document:${updated.id}`,
+          payload: {
+            ...effect.payload,
+            documentId: updated.id,
+            parentDocumentId: updated.parentDocumentId,
+            revision: updated.revision
+          },
+          compensatable: effect.compensatable
+        })
+      }
+      return updated
+    })
   }
 
   async deleteDocument(input: DeleteWorldEntityDocumentInput): Promise<string[]> {
