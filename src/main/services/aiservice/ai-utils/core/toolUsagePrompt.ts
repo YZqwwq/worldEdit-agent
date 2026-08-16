@@ -69,7 +69,13 @@ export function buildToolUsageSystemPrompt(
             `输出：${metadata.outputSummary}`,
             `完成语义：${metadata.completionSemantics === 'eventual' ? '异步阶段性结果' : '本次调用给出最终结果'}`,
             `结果保留：${metadata.contextRetention}`,
-            `风险级别：${metadata.riskLevel}；只读：${metadata.readOnly ? '是' : '否'}；幂等：${metadata.idempotent ? '是' : '否'}`
+            `执行等级：${
+              metadata.executionLevel === 'confirmation_required'
+                ? '必须确认'
+                : metadata.executionLevel === 'notice'
+                  ? '执行时提示'
+                  : '无风险'
+            }`
           ]
 
           if (typeof entry.turnCallLimit === 'number') {
@@ -119,6 +125,7 @@ export function buildToolUsageSystemPrompt(
     '8. 长期记忆和阶段归档不会默认注入对话；当用户提到“之前、上次、刚才、继续、我们说过、你还记得吗”、用户曾明确纠正过事实，或当前问题需要旧结论/偏好/关系连续性时，优先调用 recall_agent_memory 回忆，不要只凭模型参数回答。',
     '9. 当没有合适工具时，再明确告诉用户当前能力边界。',
     '10. completionSemantics=eventual 的工具返回成功只表示请求被接收或推进；必须读取 completion.state，只有 completed 才是最终完成。',
+    '11. executionLevel 由工具设计固定：无风险工具可直接调用；执行时提示工具会在界面显示阶段状态但不阻塞；必须确认工具只能在系统已对同一组参数发出确认请求、且用户随后明确确认后执行。不要自行声称用户已经确认。',
     '',
     '工具能力地图：',
     capabilityMap,

@@ -121,8 +121,18 @@ npm run test:turn-recovery-process
 - [x] 拒绝访问权限与元数据不一致。
 - [x] task-context 工具不能被普通激活入口暴露。
 - [x] 单轮工具调用次数限制生效。
+- [x] 必须确认的工具强制限制为每轮一次调用。
 
 测试文件：[toolRegistryValidation.test.ts](./toolRegistryValidation.test.ts)
+
+### 工具执行等级与确认
+
+- [x] 同一工具参数生成稳定确认标识，参数变化会产生新标识。
+- [x] 模型不能在收到确认请求的同一用户轮自行重试通过。
+- [x] 只有确认请求之后的用户明确确认能授权同一组参数。
+- [x] 用户否定或取消不会被误识别为确认。
+
+测试文件：[toolExecutionProtocol.test.ts](./toolExecutionProtocol.test.ts)
 
 ### 世界观文档工具参数
 
@@ -170,6 +180,7 @@ npm run test:turn-recovery-process
 | `test:memory-archive` | `memoryArchivePolicy.test.ts` | `memory-archive-policy-test.cjs` |
 | `test:recall` | `recallSemantics.test.ts` | `recall-semantics-test.cjs` |
 | `test:tool-error` | `toolErrorProtocol.test.ts` | `tool-error-protocol-test.cjs` |
+| `test:tool-execution` | `toolExecutionProtocol.test.ts` | `tool-execution-protocol-test.cjs` |
 | `test:tool-result` | `toolModelResult.test.ts` | `tool-model-result-test.cjs` |
 | `test:tool-registry` | `toolRegistryValidation.test.ts` | `tool-registry-validation-test.cjs` |
 | `test:turn-lifecycle` | `turnExecutionLifecycle.test.ts` | `turn-execution-lifecycle-test.cjs` |
@@ -186,3 +197,6 @@ npm run test:turn-recovery-process
 3. 修复用户问题时先增加能够复现问题的失败场景，再修改实现。
 4. 新增测试文件后，将命令加入 `package.json`，并在本清单登记。
 5. 不把依赖真实网络或付费模型的探针加入默认核心回归。
+# Agent 观点产物与复合消息
+
+- `agentArtifactMessage.test.ts`：验证聊天正文与 `artifact_ref` 的序列化、恢复和错误输入收紧；确保历史上下文只携带观点摘要与 ID，不重复正文。

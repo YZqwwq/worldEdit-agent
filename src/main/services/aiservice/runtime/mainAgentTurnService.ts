@@ -8,13 +8,8 @@ import {
 } from '@share/cache/AItype/states/mainAgentMessageContent'
 import { chatMessageService } from '../chat/chatMessageService'
 import { getMainAgentContentPartsFromPersistedMessage } from '../messagecontent/mainAgentMessageContentService'
-import {
-  memoryManager,
-  type MemoryCheckpoint
-} from '../agentrsystem/manager/memory/MemoryManager'
-import {
-  createDefaultLongTermMemory
-} from '../agentrsystem/manager/memory/longTermMemoryService'
+import { memoryManager, type MemoryCheckpoint } from '../agentrsystem/manager/memory/MemoryManager'
+import { createDefaultLongTermMemory } from '../agentrsystem/manager/memory/longTermMemoryService'
 import {
   REVERTIBLE_MAIN_AGENT_TURN_STATUSES,
   type MainAgentTurnSnapshot
@@ -24,6 +19,7 @@ import {
   isTerminalMainAgentTurnStatus
 } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
 import { interactionObservationService } from '../agentrsystem/manager/personal/interactionObservationService'
+import { agentArtifactService } from '../artifacts/agentArtifactService'
 
 type SerializedMemoryCheckpoint = {
   state?: MemoryCheckpoint['state']
@@ -349,6 +345,7 @@ class MainAgentTurnService {
         (id): id is number => typeof id === 'number' && id > 0
       )
     )
+    await agentArtifactService.revertTurnArtifacts(turn.id)
 
     assertMainAgentTurnStatusTransition(turn.status, 'reverted')
     turn.status = 'reverted'

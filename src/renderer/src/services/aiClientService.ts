@@ -6,7 +6,11 @@ import {
   type MainAgentUserInputFile,
   type MainAgentUserMessageInput
 } from '../../../share/cache/AItype/states/mainAgentMessageContent'
-import type { ChatMessage, ChatMessageAttachment } from '../../../share/cache/render/aiagent/chatMessage'
+import type {
+  ChatMessage,
+  ChatMessageArtifactReference,
+  ChatMessageAttachment
+} from '../../../share/cache/render/aiagent/chatMessage'
 import { partsToMarkdown } from '../utils/aiToMarkdown'
 import type { AgentStageChunk, StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 import type { AgentTraceRecord } from '../../../share/cache/render/aiagent/agentTrace'
@@ -51,7 +55,9 @@ const buildChatAttachmentsFromContent = (
   content: MainAgentMessageContentPart[]
 ): ChatMessageAttachment[] =>
   content
-    .filter((part): part is Extract<MainAgentMessageContentPart, { type: 'file' }> => part.type === 'file')
+    .filter(
+      (part): part is Extract<MainAgentMessageContentPart, { type: 'file' }> => part.type === 'file'
+    )
     .map((part) => ({
       fileId: part.fileId,
       fileName: part.fileName,
@@ -71,9 +77,26 @@ const buildChatAttachmentsFromInput = (
     mediaType: file.mediaType || inferMainAgentFileMediaType(file)
   }))
 
+const buildChatArtifactsFromContent = (
+  content: MainAgentMessageContentPart[]
+): ChatMessageArtifactReference[] =>
+  content
+    .filter(
+      (part): part is Extract<MainAgentMessageContentPart, { type: 'artifact_ref' }> =>
+        part.type === 'artifact_ref'
+    )
+    .map((part) => ({
+      artifactId: part.artifactId,
+      artifactKind: part.artifactKind,
+      title: part.title,
+      summary: part.summary
+    }))
+
 const extractChatTextFromContent = (content: MainAgentMessageContentPart[]): string =>
   content
-    .filter((part): part is Extract<MainAgentMessageContentPart, { type: 'text' }> => part.type === 'text')
+    .filter(
+      (part): part is Extract<MainAgentMessageContentPart, { type: 'text' }> => part.type === 'text'
+    )
     .map((part) => part.text.trim())
     .filter(Boolean)
     .join('\n')
@@ -85,13 +108,16 @@ const mapHistoryToMessages = (history: any[]): ChatMessage[] =>
       typeof msg.contentJson === 'string' && msg.contentJson.trim()
         ? parseMainAgentMessageContentJson(msg.contentJson)
         : []
-    const text = contentParts.length > 0 ? extractChatTextFromContent(contentParts) : String(msg.content || '')
+    const text =
+      contentParts.length > 0 ? extractChatTextFromContent(contentParts) : String(msg.content || '')
     const attachments = contentParts.length > 0 ? buildChatAttachmentsFromContent(contentParts) : []
+    const artifacts = contentParts.length > 0 ? buildChatArtifactsFromContent(contentParts) : []
 
     return {
       id: msg.id,
       text,
       attachments,
+      artifacts,
       sender: msg.role,
       timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : undefined,
       turnId: typeof msg.turnId === 'number' ? msg.turnId : undefined,
@@ -119,7 +145,7 @@ function handleStreamChunk(chunk: StreamChunk): void {
       currentStreamingText += chunk.content
       msg.text = currentStreamingText
       break
-    
+
     case 'agent_trace':
       agentLogs.value.push(chunk.record)
       break
@@ -153,6 +179,7 @@ function handleStreamChunk(chunk: StreamChunk): void {
       isLoading.value = false
       setAgentStage(null)
       cleanupListener()
+      void refreshHistory()
       break
 
     case 'done':
@@ -163,6 +190,7 @@ function handleStreamChunk(chunk: StreamChunk): void {
       isLoading.value = false
       setAgentStage(null)
       cleanupListener()
+      void refreshHistory()
       break
   }
 }
@@ -337,7 +365,7 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
   isLoading.value = true
   agentLogs.value = [] // 清空旧日志，开始新一轮监控
   setAgentStage(null)
-  
+
   // 注册监听器
   cleanupListener() // 确保清理旧的
   stopListening = window.api.onStreamChunk(handleStreamChunk)
@@ -346,7 +374,7 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
   const aiMsgId = userMsgId + 1
   currentStreamingMessageId = aiMsgId
   currentStreamingText = '' // 重置缓冲文本
-  
+
   messages.value.push({
     id: aiMsgId,
     text: '正在思考中...',

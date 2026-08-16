@@ -44,6 +44,7 @@ import type {
   CharacterImpressionPayload,
   UpsertCharacterImpressionInput
 } from '../share/cache/worldbuilding/characterImpression'
+import type { AgentArtifactPayload } from '../share/cache/AItype/states/agentArtifact'
 
 declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
@@ -53,6 +54,7 @@ declare global {
     onStreamChunk: (callback: (chunk: StreamChunk) => void) => () => void
 
     getHistory: () => Promise<any[]>
+    getAgentArtifact: (artifactId: string) => Promise<AgentArtifactPayload | null>
     interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
     revertLastChatTurn: () => Promise<{
       ok: boolean
@@ -66,7 +68,12 @@ declare global {
     getMemorySnapshot: () => Promise<MemoryInspectionPayload>
     getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
 
-    pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number; mimeType?: string }>
+    pickFile: () => Promise<{
+      sourcePath: string
+      fileName: string
+      size: number
+      mimeType?: string
+    }>
     pickImageAsset: () => Promise<{
       sourcePath: string
       fileName: string
@@ -89,11 +96,7 @@ declare global {
       width?: number
       height?: number
     }>
-    uploadFileData: (input: {
-      fileName: string
-      mimeType?: string
-      data: ArrayBuffer
-    }) => Promise<{
+    uploadFileData: (input: { fileName: string; mimeType?: string; data: ArrayBuffer }) => Promise<{
       resourceUrl: string
       fileName: string
       size: number

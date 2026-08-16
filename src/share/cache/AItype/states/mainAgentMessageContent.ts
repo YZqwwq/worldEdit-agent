@@ -1,5 +1,6 @@
 import type { AgentWorkspaceContext } from './agentWorkspaceContext'
 import { normalizeAgentWorkspaceContext } from './agentWorkspaceContext'
+import type { AgentArtifactKind } from './agentArtifact'
 
 export type MainAgentMessageFileMediaType = 'image' | 'audio' | 'video' | 'document' | 'file'
 
@@ -34,9 +35,18 @@ export interface MainAgentFileContentPart {
   mediaType: MainAgentMessageFileMediaType
 }
 
+export interface MainAgentArtifactReferenceContentPart {
+  type: 'artifact_ref'
+  artifactId: string
+  artifactKind: AgentArtifactKind
+  title: string
+  summary?: string
+}
+
 export type MainAgentMessageContentPart =
   | MainAgentTextContentPart
   | MainAgentFileContentPart
+  | MainAgentArtifactReferenceContentPart
 
 const IMAGE_EXTENSIONS = new Set([
   '.png',
@@ -63,23 +73,9 @@ export const SUPPORTED_CHAT_IMAGE_MIME_TYPES = [
 
 export const MAX_CHAT_IMAGE_UPLOAD_BYTES = 2 * 1024 * 1024
 
-const AUDIO_EXTENSIONS = new Set([
-  '.mp3',
-  '.wav',
-  '.m4a',
-  '.aac',
-  '.flac',
-  '.ogg'
-])
+const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'])
 
-const VIDEO_EXTENSIONS = new Set([
-  '.mp4',
-  '.mov',
-  '.avi',
-  '.mkv',
-  '.webm',
-  '.m4v'
-])
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'])
 
 const DOCUMENT_EXTENSIONS = new Set([
   '.pdf',
@@ -133,7 +129,9 @@ export const inferMainAgentFileMediaType = (input: {
   fileName?: string
   mimeType?: string
 }): MainAgentMessageFileMediaType => {
-  const mimeType = String(input.mimeType || '').trim().toLowerCase()
+  const mimeType = String(input.mimeType || '')
+    .trim()
+    .toLowerCase()
   if (mimeType.startsWith('image/')) return 'image'
   if (mimeType.startsWith('audio/')) return 'audio'
   if (mimeType.startsWith('video/')) return 'video'
@@ -183,10 +181,16 @@ export const isSupportedChatImageUpload = (input: {
   }
 
   const mimeType =
-    String(input.mimeType || '').trim().toLowerCase() ||
+    String(input.mimeType || '')
+      .trim()
+      .toLowerCase() ||
     inferMimeTypeFromFileName(String(input.fileName || '')) ||
     ''
-  if (!SUPPORTED_CHAT_IMAGE_MIME_TYPES.includes(mimeType as (typeof SUPPORTED_CHAT_IMAGE_MIME_TYPES)[number])) {
+  if (
+    !SUPPORTED_CHAT_IMAGE_MIME_TYPES.includes(
+      mimeType as (typeof SUPPORTED_CHAT_IMAGE_MIME_TYPES)[number]
+    )
+  ) {
     return {
       ok: false,
       reason: '当前仅支持 PNG、JPEG、WebP、GIF、BMP、SVG、HEIC、HEIF 图片。'
@@ -204,9 +208,7 @@ export const isSupportedChatImageUpload = (input: {
   return { ok: true }
 }
 
-export const normalizeMainAgentUserInput = (
-  input: unknown
-): MainAgentUserMessageInput => {
+export const normalizeMainAgentUserInput = (input: unknown): MainAgentUserMessageInput => {
   if (typeof input === 'string') {
     return { text: input }
   }
@@ -240,8 +242,7 @@ export const normalizeMainAgentUserInput = (
         }
         const fileId = normalizeText(rawFile.fileId)
         const fileUrl = normalizeText(rawFile.fileUrl)
-        const fileName =
-          normalizeText(rawFile.fileName) || deriveFileNameFromUrl(fileUrl)
+        const fileName = normalizeText(rawFile.fileName) || deriveFileNameFromUrl(fileUrl)
 
         if (!fileId || !fileUrl || !fileName) {
           return []
@@ -317,9 +318,7 @@ export const buildMainAgentMessageContent = (
   return parts
 }
 
-export const normalizeMainAgentMessageContent = (
-  input: unknown
-): MainAgentMessageContentPart[] => {
+export const normalizeMainAgentMessageContent = (input: unknown): MainAgentMessageContentPart[] => {
   if (typeof input === 'string') {
     const text = input.trim()
     return text ? [{ type: 'text', text }] : []
@@ -373,17 +372,42 @@ export const normalizeMainAgentMessageContent = (
       ]
     }
 
+    if (raw.type === 'artifact_ref') {
+      const artifactId = normalizeText(raw.artifactId)
+      const title = normalizeText(raw.title)
+      const artifactKind: AgentArtifactKind | undefined =
+        raw.artifactKind === 'agent_opinion' ||
+        raw.artifactKind === 'analysis' ||
+        raw.artifactKind === 'proposal'
+          ? raw.artifactKind
+          : undefined
+      if (!artifactId || !title || !artifactKind) {
+        return []
+      }
+
+      return [
+        {
+          type: 'artifact_ref',
+          artifactId,
+          artifactKind,
+          title,
+          summary: normalizeText(raw.summary).slice(0, 500) || undefined
+        } satisfies MainAgentArtifactReferenceContentPart
+      ]
+    }
+
     return []
   })
 }
 
-export const hasMainAgentFileContent = (
-  content: MainAgentMessageContentPart[]
-): boolean => content.some((part) => part.type === 'file')
+export const hasMainAgentFileContent = (content: MainAgentMessageContentPart[]): boolean =>
+  content.some((part) => part.type === 'file')
 
-export const serializeMainAgentMessageContent = (
-  content: MainAgentMessageContentPart[]
-): string => JSON.stringify(normalizeMainAgentMessageContent(content))
+export const hasMainAgentArtifactContent = (content: MainAgentMessageContentPart[]): boolean =>
+  content.some((part) => part.type === 'artifact_ref')
+
+export const serializeMainAgentMessageContent = (content: MainAgentMessageContentPart[]): string =>
+  JSON.stringify(normalizeMainAgentMessageContent(content))
 
 export const parseMainAgentMessageContentJson = (
   raw: string | null | undefined

@@ -32,6 +32,7 @@ const createTool = (name: string, readOnly = true) =>
       whenToUse: ['test'],
       inputSummary: 'none',
       outputSummary: 'test result',
+      executionLevel: 'safe',
       readOnly,
       idempotent: readOnly
     },
@@ -101,6 +102,47 @@ test('registry validation rejects access and metadata disagreement', () => {
         allowedAudiences: ['main_agent']
       }),
     /readOnly=true/
+  )
+})
+
+test('confirmation-required tools must be limited to one call per turn', () => {
+  const confirmationTool = defineAgentTool({
+    name: 'delete_test_tool',
+    description: 'Test-only irreversible tool.',
+    inputSchema: z.object({}),
+    outputSchema: z.object({ ok: z.boolean() }),
+    metadata: {
+      whenToUse: ['test'],
+      inputSummary: 'none',
+      outputSummary: 'test result',
+      executionLevel: 'confirmation_required',
+      readOnly: false,
+      idempotent: false
+    },
+    execute: () => ({ ok: true })
+  })
+  const entry = createEntry('delete_test_tool', {
+    tool: confirmationTool,
+    access: 'write'
+  })
+
+  assert.throws(
+    () =>
+      validateToolRegistry({
+        registryName: 'test registry',
+        entries: [entry],
+        toolsets,
+        allowedAudiences: ['main_agent']
+      }),
+    /turnCallLimit=1/
+  )
+  assert.doesNotThrow(() =>
+    validateToolRegistry({
+      registryName: 'test registry',
+      entries: [{ ...entry, turnCallLimit: 1 }],
+      toolsets,
+      allowedAudiences: ['main_agent']
+    })
   )
 })
 

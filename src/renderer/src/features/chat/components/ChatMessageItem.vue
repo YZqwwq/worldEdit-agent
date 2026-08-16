@@ -18,24 +18,27 @@
 
       <div class="group relative min-w-0" :class="bodyClass">
         <header class="mb-1 flex flex-wrap items-center gap-1" :class="headerClass">
-        <span
-          class="inline-flex h-5 items-center rounded-sm px-2.5 text-[12px] font-bold leading-none tracking-[0.08em]"
-          :class="labelClass"
-        >
-          {{ profile.label }}
-        </span>
-        <span class="text-[13px] font-semibold leading-6 text-slate-700">
-          {{ profile.nickname }}
-        </span>
-        <span v-if="profile.statusIcon" class="text-base leading-none">
-          {{ profile.statusIcon }}
-        </span>
-        <time v-if="formattedTime" class="text-[11px] text-slate-400">
-          {{ formattedTime }}
-        </time>
+          <span
+            class="inline-flex h-5 items-center rounded-sm px-2.5 text-[12px] font-bold leading-none tracking-[0.08em]"
+            :class="labelClass"
+          >
+            {{ profile.label }}
+          </span>
+          <span class="text-[13px] font-semibold leading-6 text-slate-700">
+            {{ profile.nickname }}
+          </span>
+          <span v-if="profile.statusIcon" class="text-base leading-none">
+            {{ profile.statusIcon }}
+          </span>
+          <time v-if="formattedTime" class="text-[11px] text-slate-400">
+            {{ formattedTime }}
+          </time>
         </header>
 
-        <div class="max-w-[min(100%,960px)] rounded-[18px] border px-4 py-3 shadow-sm" :class="cardClass">
+        <div
+          class="max-w-[min(100%,960px)] rounded-[18px] border px-4 py-3 shadow-sm"
+          :class="cardClass"
+        >
           <div v-if="message.attachments?.length" class="flex flex-wrap gap-3">
             <a
               v-for="attachment in imageAttachments"
@@ -57,8 +60,19 @@
               :key="attachment.fileId"
               class="inline-flex max-w-[240px] items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700"
             >
-              <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <span
+                class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500"
+              >
+                <svg
+                  class="h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                   <path d="M14 2v6h6" />
                   <path d="M8 13h8" />
@@ -71,6 +85,17 @@
 
           <div v-if="message.text.trim()" :class="{ 'mt-3': message.attachments?.length }">
             <MdPreview :modelValue="message.text" class="chat-md-preview" theme="light" />
+          </div>
+
+          <div
+            v-if="message.artifacts?.length"
+            :class="{ 'mt-3': message.text.trim() || message.attachments?.length }"
+          >
+            <AgentArtifactReference
+              v-for="artifact in message.artifacts"
+              :key="artifact.artifactId"
+              :artifact="artifact"
+            />
           </div>
         </div>
 
@@ -94,6 +119,7 @@ import { MdPreview } from 'md-editor-v3'
 import type { ChatMessage, ChatSender } from '../../../../../share/cache/render/aiagent/chatMessage'
 import { getFrontendMessageTime } from '../../../../../main/utils/getDetailTime'
 import ChatAvatar from './ChatAvatar.vue'
+import AgentArtifactReference from './AgentArtifactReference.vue'
 import type { ChatParticipantProfile } from '../types'
 
 const props = defineProps<{
@@ -172,16 +198,18 @@ const layoutClass = computed(() =>
   isUser.value ? 'grid-cols-[minmax(0,1fr)_56px]' : 'grid-cols-[56px_minmax(0,1fr)]'
 )
 
-const avatarWrapClass = computed(() => (isUser.value ? 'justify-center order-2' : 'justify-center order-1'))
+const avatarWrapClass = computed(() =>
+  isUser.value ? 'justify-center order-2' : 'justify-center order-1'
+)
 
-const bodyClass = computed(() => (isUser.value ? 'order-1 flex flex-col items-end' : 'order-2 flex flex-col items-start'))
+const bodyClass = computed(() =>
+  isUser.value ? 'order-1 flex flex-col items-end' : 'order-2 flex flex-col items-start'
+)
 
 const headerClass = computed(() => (isUser.value ? 'justify-end text-right' : 'justify-start'))
 
 const labelClass = computed(() =>
-  profile.value.accent === 'user'
-    ? 'bg-sky-100 text-sky-800'
-    : 'bg-slate-200 text-slate-700'
+  profile.value.accent === 'user' ? 'bg-sky-100 text-sky-800' : 'bg-slate-200 text-slate-700'
 )
 
 const cardClass = computed(() =>

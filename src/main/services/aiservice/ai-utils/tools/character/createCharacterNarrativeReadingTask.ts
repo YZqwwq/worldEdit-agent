@@ -37,7 +37,7 @@ export const createCharacterNarrativeReadingTaskTool = defineAgentTool({
       '后续必须调用 read_character_narrative_task_batch，并从 firstCursor 开始按 nextCursor 顺序阅读。',
       '不要在 reading task 建立前声称已经阅读了文本；不要在 hasMore=false 前保存最终印象。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'evidence',

@@ -207,11 +207,24 @@ throw new AgentToolError({
 
 Agent 获得详细错误；用户只获得与任务有关的阶段和结果。最终回复不重复播报已经由界面显示的工具进度。
 
-## 8. 风险与幂等
+## 8. 执行等级与内部语义
+
+每个工具必须在设计时只选择一个 `executionLevel`。这是 Agent 能看到的唯一执行判断：
+
+- `safe`：只读、低成本或没有持久影响，可直接执行。
+- `notice`：会修改可恢复数据，或可能产生较高费用；不阻塞执行，但必须提供清楚的 `uiStage`。
+- `confirmation_required`：会造成不可恢复的数据或外部影响；每一组具体参数都必须先由系统请求确认，并在用户后续明确确认后执行。
+
+等级由工具作者决定，Mood、Persona 和主模型都不能提升、降低或绕过。`confirmation_required`
+工具必须设置 `turnCallLimit: 1`，一次确认只允许一次执行。
+确认票据只保存在当前应用进程中，并绑定 session、后续用户事件与完全一致的调用参数；应用重启后必须重新请求确认，不恢复旧授权。
+
+`readOnly`、`idempotent`、revision 和 effect recovery 是原子执行层的内部事实，不是第二套风险等级，
+也不应作为多维判断表暴露给 Agent。
 
 - 读取工具应声明 `readOnly: true` 和 `idempotent: true`。
 - 写入工具应明确 revision、目标对象和完成语义。
-- 删除、覆盖和不可逆操作必须是高风险工具，并经过确认策略。
+- 删除、覆盖和不可逆操作必须使用 `confirmation_required`。
 - 非幂等工具不能通过普通自动重试执行第二次。
 - 工具内部不得静默猜测歧义目标。
 
@@ -299,7 +312,7 @@ export const exampleTool = defineAgentTool({
     outputSummary: '返回是否命中及正文。',
     usageContract: ['参数保持扁平；已有 entityId 时不要重复搜索。'],
     examples: ['{"worldId":"world-id","entityId":"entity-id"}'],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'evidence',
@@ -337,7 +350,7 @@ export const exampleTool = defineAgentTool({
 - [ ] 错误说明字段、原因和重试条件。
 - [ ] 业务异常使用 `AgentToolError`，没有依赖错误字符串进行控制流判断。
 - [ ] UI 阶段提示不暴露内部实现。
-- [ ] 风险、幂等和 Context 保留设置正确。
+- [ ] 执行等级唯一且正确；内部幂等和 Context 保留设置正确。
 - [ ] completionSemantics 与真实完成时机一致；eventual 工具提供阶段状态。
 - [ ] 已加入合适工具集，没有无条件扩大常驻工具数量。
 - [ ] task_context 工具声明了明确的任务匹配条件，不能被普通激活绕过。

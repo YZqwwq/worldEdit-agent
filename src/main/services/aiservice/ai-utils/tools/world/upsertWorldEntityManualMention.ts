@@ -65,7 +65,7 @@ export const upsertWorldEntityManualMentionTool = defineAgentTool({
       '用户确认“青岚”就是人物“李青岚”的常用简称后，登记 mentionText=青岚。',
       '读到文本“世人称她为青岚剑主”后，为该人物登记 mentionText=青岚剑主，source=reading_extraction。'
     ],
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: true,
     contextRetention: 'ephemeral'

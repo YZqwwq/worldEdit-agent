@@ -4,8 +4,14 @@ import { worldEntityDocumentService } from '../../../../worldbuilding/worldEntit
 import { worldEntityDocumentChangePublisher } from '../../../../worldbuilding/worldEntityDocumentChangePublisher'
 import {
   createWorldDocumentInputSchema,
-  listWorldDocumentsInputSchema
+  listWorldDocumentsInputSchema,
+  updateWorldDocumentInputSchema
 } from './worldDocumentToolContracts'
+import {
+  worldDocumentHtmlToMarkdown,
+  worldDocumentMarkdownToHtml
+} from './worldDocumentMarkdownCodec'
+import type { WorldEntityDocumentPayload } from '@share/cache/worldbuilding/worldEntityDocument'
 
 const toDocumentOwner = (input: { worldId: string; entityId?: string }) =>
   input.entityId
@@ -25,13 +31,13 @@ const documentSummarySchema = z.object({
 })
 
 const documentSchema = documentSummarySchema.extend({
-  contentHtml: z.string(),
-  contentFormat: z.literal('html'),
+  contentMarkdown: z.string(),
+  contentFormat: z.literal('markdown'),
   schemaVersion: z.number().int().positive(),
   createdAt: z.string().optional()
 })
 
-const toSummary = (document: z.infer<typeof documentSchema>) => ({
+const toSummary = (document: WorldEntityDocumentPayload) => ({
   id: document.id,
   ownerKind: document.ownerKind,
   worldId: document.worldId,
@@ -41,6 +47,14 @@ const toSummary = (document: z.infer<typeof documentSchema>) => ({
   sortKey: document.sortKey,
   revision: document.revision,
   updatedAt: document.updatedAt
+})
+
+const toAgentDocument = (document: WorldEntityDocumentPayload): z.infer<typeof documentSchema> => ({
+  ...toSummary(document),
+  contentMarkdown: worldDocumentHtmlToMarkdown(document.contentHtml),
+  contentFormat: 'markdown',
+  schemaVersion: document.schemaVersion,
+  createdAt: document.createdAt
 })
 
 export const listWorldDocumentsTool = defineAgentTool({
@@ -62,7 +76,7 @@ export const listWorldDocumentsTool = defineAgentTool({
       '需要读取世界基础设定时只传 worldId。'
     ],
     examples: ['{"worldId":"world-id","entityId":"entity-id"}', '{"worldId":"world-id"}'],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'evidence',
@@ -106,7 +120,7 @@ export const readWorldDocumentTool = defineAgentTool({
   inputSchema: z.object({ documentId: z.string().trim().min(1) }),
   outputSchema: z.object({ found: z.boolean(), document: documentSchema.nullable() }),
   metadata: {
-    whenToUse: ['需要读取当前文档或指定文档的完整 HTML 正文', '写入前需要确认当前内容和 revision'],
+    whenToUse: ['需要读取当前文档或指定文档的完整 Markdown 正文', '写入前需要确认当前内容和 revision'],
     whenNotToUse: ['尚不知道 documentId，应先列出文档目录'],
     inputSummary: '提供 documentId。',
     outputSummary: '返回文档正文、归属和 revision。',
@@ -115,7 +129,7 @@ export const readWorldDocumentTool = defineAgentTool({
       '读取成功后直接依据正文回答、概括或评价，不要向用户播报“已经读取文档”。',
       '只有用户明确询问版本、调试信息或并发冲突时，才说明 revision 等内部状态。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'evidence',
@@ -127,7 +141,7 @@ export const readWorldDocumentTool = defineAgentTool({
   },
   async execute(input) {
     const document = await worldEntityDocumentService.getDocument(input.documentId)
-    return { found: Boolean(document), document }
+    return { found: Boolean(document), document: document ? toAgentDocument(document) : null }
   },
   successMessage(data, input) {
     return data.found
@@ -159,23 +173,24 @@ export const readWorldDocumentTool = defineAgentTool({
 
 export const createWorldDocumentTool = defineAgentTool({
   name: 'create_world_document',
-  description: 'Create a world-level or entity-level document.',
+  description: 'Create a world-level or entity-level document from Markdown content.',
   inputSchema: createWorldDocumentInputSchema,
   outputSchema: z.object({ document: documentSchema }),
   metadata: {
     whenToUse: ['用户明确要求创建新的世界观或实体文档'],
     whenNotToUse: ['只是讨论文档内容，或目标文档已经存在'],
-    inputSummary: '提供 worldId 和标题；创建实体文档时增加 entityId，可选父文档和 HTML 正文。',
+    inputSummary: '提供 worldId 和标题；创建实体文档时增加 entityId，可选父文档和 Markdown 正文。',
     outputSummary: '返回新文档和初始 revision。',
     usageContract: [
       '参数必须直接放在调用顶层，不要传入 owner 嵌套对象或 JSON 字符串。',
-      '没有 entityId 时创建世界基础设定文档；存在 entityId 时创建该实体的文档。'
+      '没有 entityId 时创建世界基础设定文档；存在 entityId 时创建该实体的文档。',
+      '正文只通过 contentMarkdown 提交，不要生成或传入 HTML。'
     ],
     examples: [
       '{"worldId":"world-id","entityId":"entity-id","title":"人物志"}',
       '{"worldId":"world-id","title":"力量体系"}'
     ],
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     effectRecovery: 'same_database_transaction',
@@ -192,7 +207,10 @@ export const createWorldDocumentTool = defineAgentTool({
         owner: toDocumentOwner(input),
         parentDocumentId: input.parentDocumentId,
         title: input.title,
-        contentHtml: input.contentHtml
+        contentHtml:
+          input.contentMarkdown === undefined
+            ? undefined
+            : worldDocumentMarkdownToHtml(input.contentMarkdown)
       },
       {
         operation: '创建世界观文档',
@@ -204,7 +222,7 @@ export const createWorldDocumentTool = defineAgentTool({
       documentId: document.id,
       revision: document.revision
     })
-    return { document }
+    return { document: toAgentDocument(document) }
   },
   buildReceipt(data) {
     return {
@@ -229,25 +247,19 @@ export const createWorldDocumentTool = defineAgentTool({
 
 export const updateWorldDocumentTool = defineAgentTool({
   name: 'update_world_document',
-  description: 'Update the title or complete HTML content of an existing world document.',
-  inputSchema: z
-    .object({
-      documentId: z.string().trim().min(1),
-      expectedRevision: z.number().int().positive(),
-      title: z.string().trim().min(1).max(120).optional(),
-      contentHtml: z.string().max(40000).optional(),
-      changeSummary: z.string().trim().min(1).max(300)
-    })
-    .refine((input) => input.title !== undefined || input.contentHtml !== undefined, {
-      message: 'title or contentHtml is required'
-    }),
+  description: 'Update the title or complete Markdown content of an existing world document.',
+  inputSchema: updateWorldDocumentInputSchema,
   outputSchema: z.object({ document: documentSchema, changeSummary: z.string() }),
   metadata: {
     whenToUse: ['用户明确要求修改当前文档或指定文档', '已经读取正文并持有匹配的 revision'],
     whenNotToUse: ['没有读取最新 revision', '用户只要求分析或提出建议'],
     inputSummary: '提供 documentId、expectedRevision、修改内容和变更摘要。',
     outputSummary: '返回更新后的文档和新 revision。',
-    riskLevel: 'medium',
+    usageContract: [
+      '先读取最新文档，再使用返回的 revision 作为 expectedRevision。',
+      'contentMarkdown 表示完整的新正文，不是 HTML、JSON 或局部补丁。'
+    ],
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     effectRecovery: 'same_database_transaction',
@@ -264,7 +276,10 @@ export const updateWorldDocumentTool = defineAgentTool({
         documentId: input.documentId,
         expectedRevision: input.expectedRevision,
         title: input.title,
-        contentHtml: input.contentHtml,
+        contentHtml:
+          input.contentMarkdown === undefined
+            ? undefined
+            : worldDocumentMarkdownToHtml(input.contentMarkdown),
         contentFormat: 'html'
       },
       {
@@ -277,7 +292,7 @@ export const updateWorldDocumentTool = defineAgentTool({
       documentId: document.id,
       revision: document.revision
     })
-    return { document, changeSummary: input.changeSummary }
+    return { document: toAgentDocument(document), changeSummary: input.changeSummary }
   },
   buildReceipt(data) {
     return {
@@ -314,7 +329,7 @@ export const renameWorldDocumentTool = defineAgentTool({
     whenNotToUse: ['同时需要修改正文，应使用 update_world_document'],
     inputSummary: '提供 documentId、expectedRevision 和新标题。',
     outputSummary: '返回重命名后的文档和新 revision。',
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     effectRecovery: 'same_database_transaction',
@@ -342,7 +357,7 @@ export const renameWorldDocumentTool = defineAgentTool({
       documentId: document.id,
       revision: document.revision
     })
-    return { document }
+    return { document: toAgentDocument(document) }
   },
   buildReceipt(data) {
     return {
@@ -379,7 +394,7 @@ export const moveWorldDocumentTool = defineAgentTool({
     whenNotToUse: ['需要把文档移动到另一个 owner；当前系统不允许跨 owner 移动'],
     inputSummary: '提供 documentId、expectedRevision、父文档和可选 sortKey。',
     outputSummary: '返回移动后的文档和新 revision。',
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     effectRecovery: 'same_database_transaction',
@@ -400,7 +415,7 @@ export const moveWorldDocumentTool = defineAgentTool({
       documentId: document.id,
       revision: document.revision
     })
-    return { document }
+    return { document: toAgentDocument(document) }
   },
   buildReceipt(data) {
     return {
@@ -436,7 +451,7 @@ export const deleteWorldDocumentTool = defineAgentTool({
     whenNotToUse: ['用户只是要求清空、改写、隐藏或移动文档'],
     inputSummary: '提供 documentId；仅确认删除整个子树时设置 recursive=true。',
     outputSummary: '返回已删除的 documentId。',
-    riskLevel: 'high',
+    executionLevel: 'confirmation_required',
     readOnly: false,
     idempotent: false,
     contextRetention: 'evidence',

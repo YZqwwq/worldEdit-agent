@@ -47,7 +47,7 @@ export const listWorldEntityManualMentionsTool = defineAgentTool({
     outputSummary:
       '返回该实体的 manual mention 列表；这些源数据会在索引重建时自动导入 BM25 索引表。',
     examples: ['查看人物“李青岚”是否已经登记“青岚”“李姑娘”等称呼。'],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

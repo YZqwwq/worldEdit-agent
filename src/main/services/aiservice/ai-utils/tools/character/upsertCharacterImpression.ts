@@ -31,7 +31,7 @@ export const upsertCharacterImpressionTool = defineAgentTool({
       'structuredText 必须保留证据来源章节，列出关键 documentId/path，避免无来源断言。',
       'updateMarker 第一版可以传空字符串，后续增量更新机制再填入。'
     ],
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     completionSemantics: 'definitive',

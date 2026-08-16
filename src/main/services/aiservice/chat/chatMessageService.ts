@@ -2,6 +2,7 @@ import { AppDataSource } from '../../../database'
 import { Message } from '@share/entity/database/Message'
 import {
   hasMainAgentFileContent,
+  hasMainAgentArtifactContent,
   normalizeMainAgentMessageContent,
   serializeMainAgentMessageContent,
   type MainAgentMessageContentPart
@@ -52,7 +53,11 @@ class ChatMessageService {
         ? serializeMainAgentMessageContent(contentParts)
         : serializeMainAgentMessageContent([{ type: 'text', text: content }])
     message.type =
-      contentParts.length > 1 || hasMainAgentFileContent(contentParts) ? 'structured' : 'text'
+      contentParts.length > 1 ||
+      hasMainAgentFileContent(contentParts) ||
+      hasMainAgentArtifactContent(contentParts)
+        ? 'structured'
+        : 'text'
     message.sessionId = sessionId
     message.turnId = options?.turnId ?? message.turnId ?? null
     message.status = options?.status ?? 'committed'
@@ -181,9 +186,7 @@ class ChatMessageService {
     }
 
     const messages = await this.repo.find({
-      where: role
-        ? { eventId: trimmed, role }
-        : { eventId: trimmed }
+      where: role ? { eventId: trimmed, role } : { eventId: trimmed }
     })
     if (messages.length === 0) {
       return

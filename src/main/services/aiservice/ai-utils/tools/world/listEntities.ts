@@ -37,7 +37,7 @@ export const listEntitiesTool = defineAgentTool({
     examples: [
       '先调用 list_worlds 获取 worldId，再调用 list_entities 查看该世界中的人物或国家列表。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

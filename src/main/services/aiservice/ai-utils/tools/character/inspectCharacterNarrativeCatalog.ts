@@ -35,7 +35,7 @@ export const inspectCharacterNarrativeCatalogTool = defineAgentTool({
       '如果用户只关心部分主题、指定章节、某类事件或某个关系，从 selectableItems 中选择 document 或 document_tree。',
       '如果用户要求“重新认识/重新评价/更新印象”，应先检查目录，再根据问题决定 full 或 selective。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'evidence',

@@ -24,7 +24,7 @@ import {
 import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEmitter'
 import { getCurrentDetailTime, getDetailTime } from '../../../../../utils/getDetailTime'
 import { applyScenePerceptionToMemorySlots } from '../../state/sceneContextAdapter'
-import { resolveContextualToolsets } from './contextualToolActivation'
+import { resolveWorkspaceProfile } from '../../workspaceProfileRegistry'
 import { buildActionPolicyPrompt } from '../../../prompt/main_agent/persona/actionPolicyPrompt'
 import { buildSceneCharacterPrompt } from '../../../prompt/main_agent/persona/sceneCharacterPrompt'
 
@@ -210,7 +210,8 @@ export async function contextNode(
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
   const currentTimeContext = formatCurrentContextTime()
   const currentUserMessageCreatedAt = getCurrentUserMessageCreatedAt(state)
-  const contextualToolsets = resolveContextualToolsets(state.workspaceContext)
+  const workspaceProfile = resolveWorkspaceProfile(state.workspaceContext)
+  const contextualToolsets = workspaceProfile?.autoToolsets ?? []
   const toolActivationState = await resolveMainAgentToolActivationState({
     ...state,
     activeToolsets: [...(state.activeToolsets ?? []), ...contextualToolsets],
@@ -224,7 +225,8 @@ export async function contextNode(
       state.instantPerception?.detectors.persona.status === 'fulfilled' &&
       state.instantPerception.detectors.persona.producedStateKeys.includes('personaPolicy')
         ? effectiveSlotSnapshot.ai_mood.current
-        : undefined
+        : undefined,
+    effectiveMetrics: state.personaPolicy?.metrics.effective
   })
   appendPromptSection({
     id: 'persona-anchor',
@@ -307,6 +309,20 @@ export async function contextNode(
     })
   }
 
+  if (workspaceProfile?.relatedToolsets.length) {
+    appendPromptSection({
+      id: 'workspace-related-capabilities',
+      duty: 'instruction',
+      kind: 'tool_rule',
+      source: 'workspaceProfileRegistry',
+      content: [
+        '当前工作环境的按需关联能力：',
+        ...workspaceProfile.relatedToolsets.map((toolset) => `- ${toolset.id}：${toolset.reason}`),
+        '这些工具集没有因进入页面而自动挂载。只有本轮任务确实需要时，才通过工具底图查询并激活；不要为了扩大上下文而机械调用。'
+      ].join('\n')
+    })
+  }
+
   if (state.taskLifecycle?.activeTask) {
     appendPromptSection({
       id: 'active-task',
@@ -379,7 +395,7 @@ export async function contextNode(
       id: 'scene-character',
       duty: 'instruction',
       kind: 'scene_character_posture',
-      source: 'sceneCharacterRegistry',
+      source: 'workspaceProfileRegistry',
       content: sceneCharacterPrompt,
       capturedAt: state.personaPolicy?.generatedAt
     })

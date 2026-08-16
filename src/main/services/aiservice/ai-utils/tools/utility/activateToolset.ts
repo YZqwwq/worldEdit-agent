@@ -42,7 +42,7 @@ export const activateToolsetTool = defineAgentTool({
       '激活成功后，下一次模型循环才能看到该工具集里的真实工具 schema。',
       '如果 missingToolsets 非空，不要编造这些工具集的能力。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'ephemeral'

@@ -2,7 +2,7 @@ import { DynamicStructuredTool, tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import type { ToolEffectRecoveryMode } from '@share/cache/AItype/states/toolEffect'
 
-export type AgentToolRiskLevel = 'low' | 'medium' | 'high'
+export type AgentToolExecutionLevel = 'confirmation_required' | 'notice' | 'safe'
 export type AgentToolCompletionSemantics = 'definitive' | 'eventual'
 export type AgentToolCompletionState =
   | 'accepted'
@@ -81,7 +81,7 @@ export interface AgentToolMetadata {
   outputSummary: string
   usageContract?: string[]
   examples?: string[]
-  riskLevel?: AgentToolRiskLevel
+  executionLevel: AgentToolExecutionLevel
   readOnly?: boolean
   idempotent?: boolean
   completionSemantics?: AgentToolCompletionSemantics
@@ -111,7 +111,7 @@ export type AgentToolResultEnvelope<TData> = {
   meta: {
     toolName: string
     timestamp: string
-    riskLevel: AgentToolRiskLevel
+    executionLevel: AgentToolExecutionLevel
     readOnly: boolean
     idempotent: boolean
     completionSemantics: AgentToolCompletionSemantics
@@ -152,12 +152,12 @@ export type AgentTool<
   agentMetadata: Required<
     Pick<
       AgentToolMetadata,
-      'riskLevel' | 'readOnly' | 'idempotent' | 'completionSemantics' | 'contextRetention'
+      'executionLevel' | 'readOnly' | 'idempotent' | 'completionSemantics' | 'contextRetention'
     >
   > &
     Omit<
       AgentToolMetadata,
-      'riskLevel' | 'readOnly' | 'idempotent' | 'completionSemantics' | 'contextRetention'
+      'executionLevel' | 'readOnly' | 'idempotent' | 'completionSemantics' | 'contextRetention'
     >
   baseDescription: string
   inputSchema: TInputSchema
@@ -182,7 +182,7 @@ const normalizeMetadata = (metadata: AgentToolMetadata): AgentTool['agentMetadat
   const readOnly = metadata.readOnly ?? false
   return {
     ...metadata,
-    riskLevel: metadata.riskLevel ?? 'low',
+    executionLevel: metadata.executionLevel,
     readOnly,
     idempotent: metadata.idempotent ?? false,
     completionSemantics: metadata.completionSemantics ?? 'definitive',
@@ -228,6 +228,7 @@ const buildToolDescription = (
     )
   }
   lines.push(`Context retention: ${metadata.contextRetention}`)
+  lines.push(`Execution level: ${metadata.executionLevel}`)
 
   return lines.join('\n')
 }
@@ -386,7 +387,7 @@ const buildSuccessEnvelope = <TData>(
   meta: {
     toolName,
     timestamp: new Date().toISOString(),
-    riskLevel: metadata.riskLevel,
+    executionLevel: metadata.executionLevel,
     readOnly: metadata.readOnly,
     idempotent: metadata.idempotent,
     completionSemantics: metadata.completionSemantics,
@@ -429,7 +430,7 @@ const buildFailureEnvelope = (
   meta: {
     toolName,
     timestamp: new Date().toISOString(),
-    riskLevel: metadata.riskLevel,
+    executionLevel: metadata.executionLevel,
     readOnly: metadata.readOnly,
     idempotent: metadata.idempotent,
     completionSemantics: metadata.completionSemantics,
@@ -462,10 +463,12 @@ export function parseAgentToolResultEnvelope<TData = unknown>(
   const meta = isRecord(parsed.meta) ? parsed.meta : null
   const toolName = typeof meta?.toolName === 'string' ? meta.toolName.trim() : ''
   const timestamp = typeof meta?.timestamp === 'string' ? meta.timestamp.trim() : ''
-  const riskLevel =
-    meta?.riskLevel === 'low' || meta?.riskLevel === 'medium' || meta?.riskLevel === 'high'
-      ? meta.riskLevel
-      : 'low'
+  const executionLevel: AgentToolExecutionLevel | null =
+    meta?.executionLevel === 'confirmation_required' ||
+    meta?.executionLevel === 'notice' ||
+    meta?.executionLevel === 'safe'
+      ? meta.executionLevel
+      : null
   const readOnly = typeof meta?.readOnly === 'boolean' ? meta.readOnly : false
   const idempotent = typeof meta?.idempotent === 'boolean' ? meta.idempotent : false
   const completionSemantics = meta?.completionSemantics === 'eventual' ? 'eventual' : 'definitive'
@@ -489,7 +492,7 @@ export function parseAgentToolResultEnvelope<TData = unknown>(
           : 'completed'
         : 'failed'
 
-  if (!toolName || !timestamp) {
+  if (!toolName || !timestamp || !executionLevel) {
     return null
   }
 
@@ -523,7 +526,7 @@ export function parseAgentToolResultEnvelope<TData = unknown>(
     meta: {
       toolName,
       timestamp,
-      riskLevel,
+      executionLevel,
       readOnly,
       idempotent,
       completionSemantics,

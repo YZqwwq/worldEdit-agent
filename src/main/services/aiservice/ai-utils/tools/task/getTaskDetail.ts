@@ -107,7 +107,7 @@ export const getTaskDetailTool = defineAgentTool({
     examples: [
       '当用户问“刚才那个任务为什么没继续跑”时，调用 get_task_detail 读取 execution 和 trace 摘要。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

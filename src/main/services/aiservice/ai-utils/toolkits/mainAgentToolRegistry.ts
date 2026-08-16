@@ -47,6 +47,10 @@ import {
   renameWorldDocumentTool,
   updateWorldDocumentTool
 } from '../tools/document/worldDocumentTools'
+import {
+  publishAgentArtifactTool,
+  readAgentArtifactTool
+} from '../tools/artifact/agentArtifactTools'
 
 export const mainAgentToolsets: ToolsetRegistryEntry[] = [
   {
@@ -257,6 +261,16 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     ],
     quickAccessEligible: true,
     quickAccessScope: 'toolset'
+  },
+  {
+    id: 'agent_artifact',
+    title: 'Agent 观点产物工具集',
+    summary: '创建、保存并读取可点击的 Agent 观点、分析或建议文档。',
+    tags: ['agent', 'artifact', 'opinion', 'analysis', '观点', '分析', '交互文档'],
+    activationHints: ['文档编辑场景默认挂载；需要独立保存、展示或回看完整观点时使用。'],
+    whenToUse: ['需要保存和展示较长观点', '需要重新读取之前发布的观点产物'],
+    whenNotToUse: ['简单交流即可回答', '需要修改用户正式世界观文档'],
+    discoverable: true
   }
 ]
 
@@ -502,7 +516,7 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     {
       tool: readWorldDocumentTool,
       access: 'read' as const,
-      summary: '读取指定文档的 HTML 正文和 revision。'
+      summary: '读取指定文档的 Markdown 正文和 revision。'
     },
     {
       tool: createWorldDocumentTool,
@@ -542,7 +556,8 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     activationMode: 'manual' as const,
     enabled: true,
     quickAccessEligible: true,
-    quickAccessScope: 'toolset' as const
+    quickAccessScope: 'toolset' as const,
+    turnCallLimit: tool.agentMetadata.executionLevel === 'confirmation_required' ? 1 : undefined
   })),
   {
     key: listWorldEntityManualMentionsTool.name,
@@ -685,6 +700,34 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     activationMode: 'manual',
     enabled: true,
     quickAccessEligible: true
+  },
+  {
+    key: publishAgentArtifactTool.name,
+    tool: publishAgentArtifactTool,
+    toolsetId: 'agent_artifact',
+    category: 'agent_artifact',
+    capabilityLayer: 'domain',
+    capabilityGroup: 'Agent 观点产物',
+    capabilitySummary: '将较长观点发布为可点击、可回看的独立产物。',
+    audience: 'main_agent',
+    access: 'write',
+    activationMode: 'manual',
+    enabled: true,
+    turnCallLimit: 2
+  },
+  {
+    key: readAgentArtifactTool.name,
+    tool: readAgentArtifactTool,
+    toolsetId: 'agent_artifact',
+    category: 'agent_artifact',
+    capabilityLayer: 'domain',
+    capabilityGroup: 'Agent 观点产物',
+    capabilitySummary: '按 artifactId 重新读取之前发布的完整观点。',
+    audience: 'main_agent',
+    access: 'read',
+    activationMode: 'manual',
+    enabled: true,
+    turnCallLimit: 2
   }
 ]
 

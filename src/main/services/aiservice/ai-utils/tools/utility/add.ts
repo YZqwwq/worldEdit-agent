@@ -16,7 +16,7 @@ export const addTool = defineAgentTool({
     whenNotToUse: ['问题不是简单加法', '需要复杂推理或外部数据而不是算术'],
     inputSummary: '提供 a 和 b 两个数字。',
     outputSummary: '返回 sum 字段。',
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

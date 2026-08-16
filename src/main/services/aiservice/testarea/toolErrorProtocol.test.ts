@@ -13,6 +13,7 @@ const createFailingTool = (name: string, execute: () => never) =>
       whenToUse: ['test'],
       inputSummary: 'value',
       outputSummary: 'never succeeds',
+      executionLevel: 'notice',
       readOnly: false
     },
     execute
@@ -28,6 +29,7 @@ test('invalid tool output returns a non-retryable structured error', async () =>
       whenToUse: ['test'],
       inputSummary: 'none',
       outputSummary: 'invalid test output',
+      executionLevel: 'safe',
       readOnly: true
     },
     execute: () => ({ ok: false }) as never

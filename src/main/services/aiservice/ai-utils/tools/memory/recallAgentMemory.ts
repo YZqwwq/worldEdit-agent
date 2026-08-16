@@ -60,7 +60,7 @@ export const recallAgentMemoryTool = defineAgentTool({
       '不同来源或不同时期的记忆可能互相矛盾；不要由检索排序替用户决定真相，应结合来源和当前表达重新判断。',
       '如果 matches 为空或不相关，应向用户澄清；不要为了同一问题在同一轮重复调用。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'evidence'

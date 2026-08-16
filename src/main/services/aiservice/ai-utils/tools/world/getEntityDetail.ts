@@ -31,7 +31,7 @@ export const getEntityDetailTool = defineAgentTool({
     examples: [
       '先通过 list_entities 找到 entityId，再调用 get_entity_detail 读取完整组件和关系。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

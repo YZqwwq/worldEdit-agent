@@ -100,7 +100,7 @@ export const getActiveTaskContextTool = defineAgentTool({
     examples: [
       '在用户补充 world 名之前，先调用本工具确认当前 task 是否真的在等待 worldName。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

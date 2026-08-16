@@ -109,7 +109,7 @@ export const listCharactersTool = defineAgentTool({
       '提供 worldId + name 查找某个世界中的人物',
       '只提供 keyword 或 abilities，在所有世界中筛出可能的人物'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

@@ -14,6 +14,10 @@ import { toolUsageStatsService } from '../../ai-utils/toolkits/toolUsageStatsSer
 import { resolveTurnWorkspaceCommitPolicy } from './turnCommitPolicy'
 import { persistFinalTurnVersionWithManager } from '../version/turnVersionPersistence'
 import { sealTurnChangeSetWithManager } from '../../../toolEffects/toolChangeSetService'
+import { agentArtifactService } from '../../artifacts/agentArtifactService'
+import type { AgentArtifactRecord } from '@share/entity/database/AgentArtifactRecord'
+import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAgentMessageContentService'
+import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
 
 export type MainAgentTurnCommitInput = Pick<
   MainAgentCommitTurnEffect,
@@ -59,7 +63,11 @@ class MainAgentTurnCommitter {
       return
     }
 
-    const memoryMessages = await this.resolveMemoryMessages(input)
+    const turnArtifacts =
+      input.status === 'failed'
+        ? []
+        : await agentArtifactService.listForTurn(input.eventId, input.turnId)
+    const memoryMessages = await this.resolveMemoryMessages(input, turnArtifacts)
     const observationDrafts = await this.resolveObservationDrafts(input)
     await memoryManager.commitTurnAtomically(memoryMessages, async (manager) => {
       const eventRepo = manager.getRepository(MainAgentEventRecord)
@@ -74,6 +82,13 @@ class MainAgentTurnCommitter {
         throw new Error(`Turn ${input.turnId} does not belong to event ${input.eventId}`)
       }
 
+      if (input.status === 'failed') {
+        await agentArtifactService.discardTurnDrafts(input.eventId, input.turnId, manager)
+      }
+      const committedArtifacts =
+        input.status === 'failed'
+          ? []
+          : await agentArtifactService.commitTurnArtifacts(input.eventId, input.turnId, manager)
       let aiMessageId = turn.aiMessageId
       if (input.finalResponse?.content.trim()) {
         let aiMessage = await messageRepo.findOne({
@@ -86,11 +101,13 @@ class MainAgentTurnCommitter {
         })
         if (!aiMessage) aiMessage = messageRepo.create()
         aiMessage.role = 'ai'
-        aiMessage.content = input.finalResponse.content
-        aiMessage.contentJson = serializeMainAgentMessageContent([
-          { type: 'text', text: input.finalResponse.content }
-        ])
-        aiMessage.type = 'text'
+        const contentParts = this.buildResponseContentParts(
+          input.finalResponse.content,
+          committedArtifacts
+        )
+        aiMessage.content = parseMainAgentContentForPersistence(contentParts)
+        aiMessage.contentJson = serializeMainAgentMessageContent(contentParts)
+        aiMessage.type = contentParts.length > 1 ? 'structured' : 'text'
         aiMessage.requestId = input.finalResponse.messageId
         aiMessage.sessionId = input.sessionId
         aiMessage.turnId = input.turnId
@@ -226,12 +243,32 @@ class MainAgentTurnCommitter {
   }
 
   private async resolveMemoryMessages(
-    input: MainAgentTurnCommitInput
+    input: MainAgentTurnCommitInput,
+    artifacts: AgentArtifactRecord[]
   ): Promise<Array<{ role: 'user' | 'ai'; content: string }>> {
     if (input.status === 'failed') return []
     if (input.consumer === 'background_persona_stage_consumer') return []
+    const artifactContext = this.formatArtifactContext(artifacts)
     if (input.workspace?.draft.memoryMessages.length) {
-      return input.workspace.draft.memoryMessages
+      const messages = input.workspace.draft.memoryMessages.map((message) => ({ ...message }))
+      if (artifactContext) {
+        let lastAiIndex = -1
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          if (messages[index].role === 'ai') {
+            lastAiIndex = index
+            break
+          }
+        }
+        if (lastAiIndex >= 0) {
+          messages[lastAiIndex].content = `${messages[lastAiIndex].content}\n\n${artifactContext}`
+        } else if (input.finalResponse?.content.trim()) {
+          messages.push({
+            role: 'ai',
+            content: `${input.finalResponse.content}\n\n${artifactContext}`
+          })
+        }
+      }
+      return messages
     }
 
     const turn = await AppDataSource.getRepository(MainAgentTurnRecord).findOneBy({
@@ -245,9 +282,43 @@ class MainAgentTurnCommitter {
       if (userMessage?.content.trim()) messages.push({ role: 'user', content: userMessage.content })
     }
     if (input.finalResponse?.content.trim()) {
-      messages.push({ role: 'ai', content: input.finalResponse.content })
+      messages.push({
+        role: 'ai',
+        content: artifactContext
+          ? `${input.finalResponse.content}\n\n${artifactContext}`
+          : input.finalResponse.content
+      })
     }
     return messages
+  }
+
+  private buildResponseContentParts(
+    text: string,
+    artifacts: AgentArtifactRecord[]
+  ): MainAgentMessageContentPart[] {
+    return [
+      { type: 'text', text },
+      ...artifacts.map(
+        (artifact): MainAgentMessageContentPart => ({
+          type: 'artifact_ref',
+          artifactId: artifact.id,
+          artifactKind: artifact.kind,
+          title: artifact.title,
+          summary: artifact.summary || undefined
+        })
+      )
+    ]
+  }
+
+  private formatArtifactContext(artifacts: AgentArtifactRecord[]): string {
+    if (artifacts.length === 0) return ''
+    return [
+      '本轮关联的 Agent 观点产物：',
+      ...artifacts.map(
+        (artifact) =>
+          `- ${artifact.id}《${artifact.title}》${artifact.summary ? `：${artifact.summary}` : ''}`
+      )
+    ].join('\n')
   }
 
   private async resolveObservationDrafts(

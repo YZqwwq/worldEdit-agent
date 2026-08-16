@@ -8,11 +8,12 @@ import {
   loadMoodPrompt,
   resolveExpressionPromptProfile
 } from '../../../prompt/main_agent/agentPromptService'
-import { applyCharacterMoodBoundary, FAMILA_CHARACTER_MOOD_BOUNDARY } from './characterMoodBoundary'
-import { inferMoodAssessment } from './moodAssessmentService'
+import { applyCharacterMoodBoundary, FAMILA_CHARACTER_MOOD_BOUNDARY } from './moodDynamicsBoundary'
+import { inferMoodAppraisal } from './moodAppraisalService'
+import { compileMoodAssessment } from './emotionDynamicsCompiler'
 import { reconcilePersonaState } from './personaEvolutionService'
-import { applyMoodDeltaToMetrics, buildPolicy } from './personaPolicyCompiler'
-import { applySceneCharacterToMetrics, resolveSceneCharacter } from './sceneCharacterRegistry'
+import { applyMoodExpressionDeltaToMetrics, buildPolicy } from './personaPolicyCompiler'
+import { resolveWorkspaceProfile } from '../../workspaceProfileRegistry'
 import type { InstantPerceptionContext } from '../instantperceptionnode/instantPerceptionContext'
 import { getObservationText } from './personaObservationUtils'
 import {
@@ -27,8 +28,9 @@ import {
  *
  * personaNode 仍然是 AI 人格侧的统一入口，内部按职责委托给：
  * - personaEvolutionService: 从观测更新长期/会话/瞬时人格参数。
- * - moodAssessmentService: 根据情绪规则和上下文生成本轮 AI 侧情绪。
- * - characterMoodBoundary: 将原始情绪裁剪回角色稳定边界。
+ * - moodAppraisalService: 只评价用户消息和用户交互事件。
+ * - emotionDynamicsCompiler: 负责情绪刺激、惯性、衰减和状态投影。
+ * - moodDynamicsBoundary: 将原始情绪裁剪回角色稳定边界。
  * - personaPolicyCompiler: 编译本轮采样、工具、行动和记忆策略。
  */
 export async function personaNode(
@@ -57,7 +59,8 @@ export async function personaNode(
   ]
   const slots = getEffectiveMemorySlots(state.turnWorkspace)
   const effectiveSlots = applyScenePerceptionToMemorySlots(slots)
-  const sceneCharacter = resolveSceneCharacter(state.workspaceContext)
+  const workspaceProfile = resolveWorkspaceProfile(state.workspaceContext)
+  const sceneCharacter = workspaceProfile?.scenePolicy
   const expressionProfileDefinition = resolveExpressionPromptProfile(effectiveSlots)
   const expressionProfile = await loadExpressionPromptProfile(expressionProfileDefinition.id)
 
@@ -73,7 +76,8 @@ export async function personaNode(
       observations,
       slots,
       effectiveSlots,
-      sceneCharacter: sceneCharacter?.policy ?? null,
+      workspaceProfile: workspaceProfile?.id ?? null,
+      sceneCharacter: sceneCharacter ?? null,
       scenePerception: effectiveSlots.scene_perception
     }
   })
@@ -101,44 +105,41 @@ export async function personaNode(
   })
 
   const baseMetrics = reconciled.state.metrics
-  const sceneMetrics = applySceneCharacterToMetrics(baseMetrics, sceneCharacter)
-  const sceneAdjustedPersonaState = {
-    ...reconciled.state,
-    metrics: sceneMetrics
-  }
   const nowIso = new Date().toISOString()
-  const rawMoodAssessment = await inferMoodAssessment({
+  const appraisal = await inferMoodAppraisal({
     moodPrompt,
     observations,
+    currentUserText: perceptionContext.currentUserText,
     recentDialogue: perceptionContext.recentDialogue,
+    previousMood: effectiveSlots.ai_mood.current
+  })
+  const rawMoodAssessment = compileMoodAssessment({
+    appraisal,
     previousMood: effectiveSlots.ai_mood.current,
-    state: sceneAdjustedPersonaState,
-    slots: effectiveSlots,
-    signals: reconciled.appliedSignals,
-    scene: sceneCharacter?.policy,
     nowIso
   })
   const moodAssessment = applyCharacterMoodBoundary(
     rawMoodAssessment,
-    FAMILA_CHARACTER_MOOD_BOUNDARY,
-    effectiveSlots
+    FAMILA_CHARACTER_MOOD_BOUNDARY
   )
-  const effectiveMetrics = applyMoodDeltaToMetrics(sceneMetrics, moodAssessment.参数偏移)
+  const effectiveMetrics = applyMoodExpressionDeltaToMetrics(
+    baseMetrics,
+    moodAssessment.expressionDelta
+  )
   const policy = buildPolicy(
     baseMetrics,
-    sceneMetrics,
     effectiveMetrics,
     moodAssessment,
     reconciled.appliedSignals,
     nowIso,
-    sceneCharacter?.policy
+    sceneCharacter
   )
 
   const nextSlots = {
     ...slots,
     ai_mood: {
       current: moodAssessment,
-      updatedAt: moodAssessment.生成时间
+      updatedAt: moodAssessment.generatedAt
     }
   }
   const workspaceWithPersona = withPersonaDraft(state.turnWorkspace, reconciled.state)
@@ -148,17 +149,20 @@ export async function personaNode(
     title: '人格状态: personaNode',
     summary:
       `信号=${reconciled.appliedSignals.length}` +
-      `，主情绪=${moodAssessment.主情绪}` +
-      (moodAssessment.副情绪 ? `/${moodAssessment.副情绪}` : '') +
-      `，强度=${moodAssessment.强度.toFixed(2)}`,
+      `，主情绪=${moodAssessment.primaryEmotion}` +
+      (moodAssessment.secondaryEmotion ? `/${moodAssessment.secondaryEmotion}` : '') +
+      `，强度=${moodAssessment.intensity.toFixed(2)}`,
     data: {
       signalLabels: reconciled.appliedSignals.map((signal) => signal.user_signal),
-      情绪状态: {
-        主情绪: moodAssessment.主情绪,
-        副情绪: moodAssessment.副情绪,
-        强度: moodAssessment.强度,
-        行为叙事: moodAssessment.行为叙事,
-        情绪向量: moodAssessment.情绪向量
+      appraisal: moodAssessment.appraisal,
+      shortTerm: moodAssessment.shortTerm,
+      slowMood: moodAssessment.slowMood,
+      relationship: moodAssessment.relationship,
+      projection: {
+        primaryEmotion: moodAssessment.primaryEmotion,
+        secondaryEmotion: moodAssessment.secondaryEmotion,
+        intensity: moodAssessment.intensity,
+        narrative: moodAssessment.narrative
       }
     }
   })
@@ -170,17 +174,16 @@ export async function personaNode(
       `，温度偏移=${policy.sampling.temperatureOffset.toFixed(2)}`,
     data: {
       baseMetrics,
-      sceneMetrics,
       effectiveMetrics,
-      sceneCharacter: sceneCharacter?.policy ?? null,
+      workspaceProfile: workspaceProfile?.id ?? null,
+      sceneCharacter: sceneCharacter ?? null,
       expressionProfile: {
         id: expressionProfile.id,
         title: expressionProfile.title,
         summary: expressionProfile.summary
       },
       sampling: policy.sampling,
-      action: policy.action,
-      tool: policy.tool
+      action: policy.action
     }
   })
 

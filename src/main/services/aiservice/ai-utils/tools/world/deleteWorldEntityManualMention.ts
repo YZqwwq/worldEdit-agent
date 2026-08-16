@@ -31,7 +31,7 @@ export const deleteWorldEntityManualMentionTool = defineAgentTool({
     whenNotToUse: ['还没有 mention id，应先调用 list_world_entity_manual_mentions'],
     inputSummary: '提供 manual mention id。',
     outputSummary: '返回 deleted，并说明索引会在下一次 search/rebuild 自动刷新。',
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: true,
     contextRetention: 'ephemeral'

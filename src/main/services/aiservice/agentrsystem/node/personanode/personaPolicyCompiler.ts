@@ -7,96 +7,88 @@ import type {
 } from '@share/cache/AItype/states/personaPolicy'
 import { clamp, clamp01, roundTo } from './personaMath'
 import type { PersonaSignal } from './personaTypes'
-import { applySceneActionBias } from './sceneCharacterRegistry'
+import { applyWorkspaceSceneActionBias } from '../../workspaceProfileRegistry'
 
-export const applyMoodDeltaToMetrics = (
+// Mood only modulates expression-facing metrics. It never changes stable autonomy/risk.
+export const applyMoodExpressionDeltaToMetrics = (
   metrics: PersonaMetrics,
-  delta: MoodAssessment['参数偏移']
+  delta: MoodAssessment['expressionDelta']
 ): PersonaMetrics => ({
-  autonomy_level: clamp01(roundTo(metrics.autonomy_level + delta.自主性)),
-  verbosity_index: clamp01(roundTo(metrics.verbosity_index + delta.详略度)),
-  risk_tolerance: clamp01(roundTo(metrics.risk_tolerance + delta.探索性)),
-  formality_score: clamp01(roundTo(metrics.formality_score + delta.正式度))
+  autonomy_level: metrics.autonomy_level,
+  verbosity_index: clamp01(roundTo(metrics.verbosity_index + delta.verbosity)),
+  risk_tolerance: metrics.risk_tolerance,
+  formality_score: clamp01(roundTo(metrics.formality_score + delta.formality))
 })
 
-const buildActionPolicy = (
-  effectiveMetrics: PersonaMetrics,
-  moodAssessment: MoodAssessment
+const buildBaseActionPolicy = (metrics: PersonaMetrics): PersonaActionPolicy => ({
+  autonomyDrive: roundTo(metrics.autonomy_level),
+  caution: roundTo(
+    clamp(0.18 + (1 - metrics.risk_tolerance) * 0.5 + (1 - metrics.autonomy_level) * 0.12, 0, 1)
+  ),
+  clarificationNeed: roundTo(clamp(0.16 + (1 - metrics.autonomy_level) * 0.34, 0, 1)),
+  evidenceNeed: roundTo(clamp(0.22 + (1 - metrics.risk_tolerance) * 0.46, 0, 1)),
+  recallNeed: roundTo(clamp(0.22 + metrics.formality_score * 0.12, 0, 1)),
+  writeConservatism: roundTo(clamp(0.2 + (1 - metrics.risk_tolerance) * 0.56, 0, 1)),
+  toolPersistence: roundTo(
+    clamp(metrics.autonomy_level * 0.48 + metrics.risk_tolerance * 0.32, 0, 1)
+  )
+})
+
+const applyMoodActionBias = (
+  action: PersonaActionPolicy,
+  mood: MoodAssessment
 ): PersonaActionPolicy => {
-  const tension = moodAssessment.情绪向量.紧张度
-  const frustration = moodAssessment.情绪向量.受挫度
-  const focus = moodAssessment.情绪向量.专注度
-  const restraint = moodAssessment.表达调制.收束度
-  const clarification = moodAssessment.表达调制.澄清需求
+  const shortTerm = mood.shortTerm
+  const slowMood = mood.slowMood
+  const relationship = mood.relationship
+  const modulation = mood.expressionModulation
+  const confidence = clamp01(mood.appraisal.confidence / 3)
+  const apply = (value: number, delta: number): number =>
+    clamp01(roundTo(value + delta * confidence))
 
   return {
-    autonomyDrive: roundTo(clamp(effectiveMetrics.autonomy_level * 0.78 + focus * 0.22, 0, 1)),
-    caution: roundTo(
-      clamp(
-        0.36 +
-          (1 - effectiveMetrics.risk_tolerance) * 0.32 +
-          (1 - effectiveMetrics.autonomy_level) * 0.16 +
-          restraint * 0.1 +
-          tension * 0.12 +
-          frustration * 0.08,
-        0,
-        1
-      )
+    autonomyDrive: action.autonomyDrive,
+    caution: apply(
+      action.caution,
+      slowMood.tension * 0.1 + slowMood.stress * 0.08 + shortTerm.fear * 0.06
     ),
-    clarificationNeed: roundTo(
-      clamp(
-        clarification * 0.72 + (1 - effectiveMetrics.autonomy_level) * 0.18 + tension * 0.1,
-        0,
-        1
-      )
+    clarificationNeed: apply(
+      action.clarificationNeed,
+      modulation.clarificationNeed * 0.14 + shortTerm.surprise * 0.05
     ),
-    evidenceNeed: roundTo(
-      clamp(
-        0.28 + (1 - effectiveMetrics.risk_tolerance) * 0.28 + focus * 0.2 + tension * 0.12,
-        0,
-        1
-      )
+    evidenceNeed: apply(
+      action.evidenceNeed,
+      shortTerm.interest * 0.07 + slowMood.tension * 0.05
     ),
-    recallNeed: roundTo(
-      clamp(0.24 + restraint * 0.18 + focus * 0.16 + moodAssessment.情绪向量.亲近度 * 0.12, 0, 1)
+    recallNeed: apply(
+      action.recallNeed,
+      relationship.affinity * 0.035 + shortTerm.hurt * 0.035
     ),
-    writeConservatism: roundTo(
-      clamp(
-        0.3 + (1 - effectiveMetrics.risk_tolerance) * 0.34 + restraint * 0.16 + frustration * 0.12,
-        0,
-        1
-      )
+    writeConservatism: apply(
+      action.writeConservatism,
+      modulation.contraction * 0.1 + shortTerm.frustration * 0.06
     ),
-    toolPersistence: roundTo(
-      clamp(
-        effectiveMetrics.autonomy_level * 0.32 +
-          effectiveMetrics.risk_tolerance * 0.26 +
-          focus * 0.24 -
-          frustration * 0.12,
-        0,
-        1
-      )
-    )
+    toolPersistence: action.toolPersistence
   }
 }
 
-// 将人格数值和情绪评估编译为本轮运行策略，供主模型采样、工具调用和记忆系统使用。
+// Stable persona creates the baseline; mood and scene each contribute one bounded action bias.
 export const buildPolicy = (
   baseMetrics: PersonaMetrics,
-  sceneMetrics: PersonaMetrics,
   effectiveMetrics: PersonaMetrics,
   moodAssessment: MoodAssessment,
   signals: PersonaSignal[],
   nowIso: string,
   scene?: PersonaScenePolicy
 ): PersonaPolicy => {
-  const moodAdjustedAction = buildActionPolicy(effectiveMetrics, moodAssessment)
-  const action = applySceneActionBias(moodAdjustedAction, scene)
+  const baseAction = buildBaseActionPolicy(baseMetrics)
+  const moodAdjustedAction = applyMoodActionBias(baseAction, moodAssessment)
+  const action = applyWorkspaceSceneActionBias(moodAdjustedAction, scene)
   const temperatureOffset = roundTo(
     clamp(
-      (effectiveMetrics.risk_tolerance - 0.5) * 0.24 +
-        (effectiveMetrics.autonomy_level - 0.5) * 0.08 -
-        (effectiveMetrics.formality_score - 0.5) * 0.08,
+      (baseMetrics.risk_tolerance - 0.5) * 0.24 +
+        (baseMetrics.autonomy_level - 0.5) * 0.08 -
+        (baseMetrics.formality_score - 0.5) * 0.08,
       -0.2,
       0.2
     )
@@ -106,19 +98,10 @@ export const buildPolicy = (
     generatedAt: nowIso,
     metrics: {
       base: baseMetrics,
-      scene: sceneMetrics,
       effective: effectiveMetrics
     },
     sampling: {
       temperatureOffset
-    },
-    tool: {
-      confirmBeforeSensitiveTools:
-        moodAdjustedAction.caution >= 0.58 || moodAdjustedAction.writeConservatism >= 0.62,
-      allowRiskyTools:
-        baseMetrics.risk_tolerance >= 0.5 &&
-        moodAdjustedAction.caution < 0.66 &&
-        moodAdjustedAction.writeConservatism < 0.7
     },
     action,
     scene,

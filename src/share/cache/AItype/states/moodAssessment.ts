@@ -1,57 +1,98 @@
-export type 情绪标签 =
-  | '平淡'
-  | '轻愉悦'
-  | '高兴'
-  | '轻兴奋'
-  | '兴奋'
-  | '惊讶'
-  | '轻度伤感'
-  | '悲伤'
-  | '受挫'
-  | '愤怒'
-  | '焦虑'
-  | '紧张'
+export const MOOD_EVENT_KINDS = [
+  'gain',
+  'loss',
+  'obstacle',
+  'threat',
+  'novelty',
+  'norm_violation',
+  'relationship_event',
+  'neutral'
+] as const
 
-export interface 情绪向量 {
-  愉悦度: number
-  激活度: number
-  紧张度: number
-  受挫度: number
-  亲近度: number
-  专注度: number
+export type MoodEventKind = (typeof MOOD_EVENT_KINDS)[number]
+
+export const MOOD_AGENCIES = ['self', 'user', 'other', 'environment', 'mixed', 'unknown'] as const
+export type MoodAgency = (typeof MOOD_AGENCIES)[number]
+
+export const MOOD_CONTROL_SIGNALS = ['unknown', 'strengthened', 'unchanged', 'weakened'] as const
+export type MoodControlSignal = (typeof MOOD_CONTROL_SIGNALS)[number]
+
+export type SignedAppraisalLevel = -2 | -1 | 0 | 1 | 2
+export type AppraisalLevel = 0 | 1 | 2 | 3
+
+export interface MoodEventAppraisal {
+  eventKind: MoodEventKind
+  valence: SignedAppraisalLevel
+  salience: AppraisalLevel
+  novelty: AppraisalLevel
+  futureProspect: SignedAppraisalLevel
+  agency: MoodAgency
+  normImpact: SignedAppraisalLevel
+  relationshipImpact: SignedAppraisalLevel
+  controlSignal: MoodControlSignal
+  confidence: AppraisalLevel
 }
 
-export interface 情绪参数偏移 {
-  自主性: number
-  详略度: number
-  探索性: number
-  正式度: number
+export interface ShortTermEmotionState {
+  joy: number
+  interest: number
+  surprise: number
+  fear: number
+  anger: number
+  frustration: number
+  sadness: number
+  disgust: number
+  hurt: number
 }
 
-export interface 情绪表达调制 {
-  关系靠近度: number
-  表达温度: number
-  收束度: number
-  想象开放度: number
-  澄清需求: number
+export interface SlowMoodState {
+  positiveTone: number
+  tension: number
+  stress: number
+  helplessness: number
+  boredom: number
 }
 
-export interface 情绪来源 {
-  用户情绪?: string
-  对话模式?: string
-  交互状态?: string
-  信号: string[]
+export interface RelationshipEmotionState {
+  trust: number
+  affinity: number
+  respect: number
+  attachment: number
+  resentment: number
+}
+
+export type MoodLabel =
+  | 'calm'
+  | keyof ShortTermEmotionState
+  | 'tension'
+  | 'stress'
+  | 'helplessness'
+  | 'boredom'
+
+export interface MoodExpressionDelta {
+  verbosity: number
+  formality: number
+}
+
+export interface MoodExpressionModulation {
+  relationalCloseness: number
+  warmth: number
+  contraction: number
+  imaginativeOpenness: number
+  clarificationNeed: number
 }
 
 export interface MoodAssessment {
-  生成时间: string
-  主情绪: 情绪标签
-  副情绪?: 情绪标签
-  情绪向量: 情绪向量
-  强度: number
-  置信度: number
-  行为叙事: string
-  参数偏移: 情绪参数偏移
-  表达调制: 情绪表达调制
-  来源: 情绪来源
+  version: 2
+  generatedAt: string
+  appraisal: MoodEventAppraisal
+  shortTerm: ShortTermEmotionState
+  slowMood: SlowMoodState
+  relationship: RelationshipEmotionState
+  primaryEmotion: MoodLabel
+  secondaryEmotion?: MoodLabel
+  intensity: number
+  narrative: string
+  expressionDelta: MoodExpressionDelta
+  expressionModulation: MoodExpressionModulation
 }

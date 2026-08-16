@@ -19,7 +19,7 @@ import {
   orchestrateMainAgentEvent,
   type MainAgentEventOrchestrationDependencies
 } from '../runtime/orchestration/mainAgentEventOrchestration'
-import { resolveContextualToolsets } from '../agentrsystem/node/contextnode/contextualToolActivation'
+import { resolveWorkspaceProfile } from '../agentrsystem/workspaceProfileRegistry'
 
 const CURRENT_DOCUMENT_CONTEXT = {
   pageKind: 'document' as const,
@@ -141,23 +141,31 @@ test('document discussion keeps one coherent path from page snapshot to final co
 })
 
 test('the current document page activates the document capability package', () => {
-  const activeToolsets = resolveContextualToolsets(CURRENT_DOCUMENT_CONTEXT)
+  const profile = resolveWorkspaceProfile(CURRENT_DOCUMENT_CONTEXT)
 
-  assert.deepEqual(activeToolsets, ['world_document_editor'])
+  assert.equal(profile?.id, 'document_editing')
+  assert.deepEqual(profile?.autoToolsets, ['world_document_editor', 'agent_artifact'])
+  assert.deepEqual(
+    profile?.relatedToolsets.map((toolset) => toolset.id),
+    ['world_read', 'character_narrative_reader']
+  )
 })
 
 test('an interrupted turn commits its stable workspace and interruption boundary', async () => {
   const event = createScenarioEvent()
   const appliedEffects: MainAgentEffect[] = []
   const workspace = withDurableToolReceipt(
-    withSuccessfulToolUse(createTurnWorkspace({
-      eventId: event.id,
-      turnId: 501,
-      sessionId: event.sessionId,
-      runId: 'run-interrupted',
-      memorySlots: createDefaultMemorySlots(),
-      persona: null
-    }), 'update_world_document'),
+    withSuccessfulToolUse(
+      createTurnWorkspace({
+        eventId: event.id,
+        turnId: 501,
+        sessionId: event.sessionId,
+        runId: 'run-interrupted',
+        memorySlots: createDefaultMemorySlots(),
+        persona: null
+      }),
+      'update_world_document'
+    ),
     {
       toolCallId: 'call-update-document',
       toolName: 'update_world_document',
@@ -201,10 +209,10 @@ test('an interrupted turn commits its stable workspace and interruption boundary
   const result = await orchestrateMainAgentEvent(event, dependencies)
 
   assert.equal(result.summary, 'user_message_interrupted')
-  assert.deepEqual(appliedEffects.map((effect) => effect.type), [
-    'commit_turn',
-    'stream_interrupted'
-  ])
+  assert.deepEqual(
+    appliedEffects.map((effect) => effect.type),
+    ['commit_turn', 'stream_interrupted']
+  )
   const commit = appliedEffects.find((effect) => effect.type === 'commit_turn')
   assert.equal(commit?.type, 'commit_turn')
   assert.equal(commit?.status, 'interrupted')

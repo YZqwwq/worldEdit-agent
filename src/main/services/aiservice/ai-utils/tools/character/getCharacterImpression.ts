@@ -24,7 +24,7 @@ export const getCharacterImpressionTool = defineAgentTool({
     ],
     inputSummary: '提供 characterEntityId。',
     outputSummary: '返回 found 和 impression。impression 包含 structuredText、updateMarker、时间戳。',
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'evidence',

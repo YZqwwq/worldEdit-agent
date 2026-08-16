@@ -28,7 +28,7 @@ export const continueActiveChildAgentTool = defineAgentTool({
     outputSummary:
       '返回 accepted、taskId、executionId、executorKind、status、summary、nextAction，表示当前 active 子 agent 已被续跑。',
     examples: ['当人物编辑子 agent 缺少 worldName，用户补充“方舟终章”后，调用本工具继续后台执行。'],
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     completionSemantics: 'eventual'

@@ -25,7 +25,7 @@ export const upsertCharacterProfileTool = defineAgentTool({
       '先读取人物详情，再调用 upsert_character_profile 更新 summary 或 description。',
       '当 editingDirection=character_deeds 时，应优先使用该工具把人物事迹写入 description。'
     ],
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     completionSemantics: 'definitive'

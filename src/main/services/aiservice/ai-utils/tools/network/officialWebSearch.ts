@@ -272,7 +272,7 @@ export const officialWebSearchTool = defineAgentTool({
       '用户问“最近 AI 领域有哪些重要新闻”，调用 official_web_search。',
       '用户问“OpenAI 最新模型发布了吗”，调用 official_web_search。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'notice',
     readOnly: true,
     idempotent: false,
     completionSemantics: 'definitive',

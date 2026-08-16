@@ -11,7 +11,16 @@ import {
   type WorldFocusTaskType,
   type MemorySlotSnapshot
 } from '@share/cache/AItype/states/memorySlots'
-import type { MoodAssessment, 情绪标签 } from '@share/cache/AItype/states/moodAssessment'
+import {
+  MOOD_AGENCIES,
+  MOOD_CONTROL_SIGNALS,
+  MOOD_EVENT_KINDS,
+  type MoodAssessment,
+  type MoodLabel,
+  type RelationshipEmotionState,
+  type ShortTermEmotionState,
+  type SlowMoodState
+} from '@share/cache/AItype/states/moodAssessment'
 import type { WorldEntityType } from '@share/cache/worldbuilding/worldbuilding'
 import type { EntityManager } from 'typeorm'
 import { AppDataSource } from '../../../../../database'
@@ -88,23 +97,65 @@ const isBoolean = (value: unknown): value is boolean => typeof value === 'boolea
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value))
 
-const EMOTION_LABELS: 情绪标签[] = [
-  '平淡',
-  '轻愉悦',
-  '高兴',
-  '轻兴奋',
-  '兴奋',
-  '惊讶',
-  '轻度伤感',
-  '悲伤',
-  '受挫',
-  '愤怒',
-  '焦虑',
-  '紧张'
+const MOOD_LABELS: MoodLabel[] = [
+  'calm',
+  'joy',
+  'interest',
+  'surprise',
+  'fear',
+  'anger',
+  'frustration',
+  'sadness',
+  'disgust',
+  'hurt',
+  'tension',
+  'stress',
+  'helplessness',
+  'boredom'
 ]
 
-const isEmotionLabel = (value: unknown): value is 情绪标签 =>
-  typeof value === 'string' && EMOTION_LABELS.includes(value as 情绪标签)
+const SHORT_TERM_KEYS: Array<keyof ShortTermEmotionState> = [
+  'joy',
+  'interest',
+  'surprise',
+  'fear',
+  'anger',
+  'frustration',
+  'sadness',
+  'disgust',
+  'hurt'
+]
+const SLOW_MOOD_KEYS: Array<keyof SlowMoodState> = [
+  'positiveTone',
+  'tension',
+  'stress',
+  'helplessness',
+  'boredom'
+]
+const RELATIONSHIP_KEYS: Array<keyof RelationshipEmotionState> = [
+  'trust',
+  'affinity',
+  'respect',
+  'attachment',
+  'resentment'
+]
+
+const isMoodLabel = (value: unknown): value is MoodLabel =>
+  typeof value === 'string' && MOOD_LABELS.includes(value as MoodLabel)
+
+const parseUnitState = <K extends string>(
+  value: unknown,
+  keys: readonly K[]
+): Record<K, number> | undefined => {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const next = {} as Record<K, number>
+  for (const key of keys) {
+    if (!isNumber(raw[key])) return undefined
+    next[key] = clamp01(raw[key])
+  }
+  return next
+}
 
 const parseMoodAssessment = (value: unknown): MoodAssessment | undefined => {
   if (!value || typeof value !== 'object') {
@@ -112,60 +163,76 @@ const parseMoodAssessment = (value: unknown): MoodAssessment | undefined => {
   }
 
   const raw = value as Record<string, any>
-  const vector = raw.情绪向量
-  const delta = raw.参数偏移
-  const modulation = raw.表达调制
-  const source = raw.来源
+  const appraisal = raw.appraisal
+  const shortTerm = parseUnitState(raw.shortTerm, SHORT_TERM_KEYS)
+  const slowMood = parseUnitState(raw.slowMood, SLOW_MOOD_KEYS)
+  const relationship = parseUnitState(raw.relationship, RELATIONSHIP_KEYS)
+  const delta = raw.expressionDelta
+  const modulation = raw.expressionModulation
 
   if (
-    !isString(raw.生成时间) ||
-    !isEmotionLabel(raw.主情绪) ||
-    (raw.副情绪 !== undefined && !isEmotionLabel(raw.副情绪)) ||
-    !vector ||
-    typeof vector !== 'object' ||
+    raw.version !== 2 ||
+    !isString(raw.generatedAt) ||
+    !isMoodLabel(raw.primaryEmotion) ||
+    (raw.secondaryEmotion !== undefined && !isMoodLabel(raw.secondaryEmotion)) ||
+    !appraisal ||
+    typeof appraisal !== 'object' ||
+    !MOOD_EVENT_KINDS.includes(appraisal.eventKind) ||
+    !MOOD_AGENCIES.includes(appraisal.agency) ||
+    !MOOD_CONTROL_SIGNALS.includes(appraisal.controlSignal) ||
+    !shortTerm ||
+    !slowMood ||
+    !relationship ||
     !delta ||
     typeof delta !== 'object' ||
     !modulation ||
-    typeof modulation !== 'object' ||
-    !source ||
-    typeof source !== 'object'
+    typeof modulation !== 'object'
   ) {
     return undefined
   }
 
   return {
-    生成时间: raw.生成时间,
-    主情绪: raw.主情绪,
-    副情绪: raw.副情绪,
-    情绪向量: {
-      愉悦度: clamp01(isNumber(vector.愉悦度) ? vector.愉悦度 : 0),
-      激活度: clamp01(isNumber(vector.激活度) ? vector.激活度 : 0),
-      紧张度: clamp01(isNumber(vector.紧张度) ? vector.紧张度 : 0),
-      受挫度: clamp01(isNumber(vector.受挫度) ? vector.受挫度 : 0),
-      亲近度: clamp01(isNumber(vector.亲近度) ? vector.亲近度 : 0),
-      专注度: clamp01(isNumber(vector.专注度) ? vector.专注度 : 0)
+    version: 2,
+    generatedAt: raw.generatedAt,
+    appraisal: {
+      eventKind: appraisal.eventKind,
+      valence: [-2, -1, 0, 1, 2].includes(appraisal.valence) ? appraisal.valence : 0,
+      salience: [0, 1, 2, 3].includes(appraisal.salience) ? appraisal.salience : 0,
+      novelty: [0, 1, 2, 3].includes(appraisal.novelty) ? appraisal.novelty : 0,
+      futureProspect: [-2, -1, 0, 1, 2].includes(appraisal.futureProspect)
+        ? appraisal.futureProspect
+        : 0,
+      agency: appraisal.agency,
+      normImpact: [-2, -1, 0, 1, 2].includes(appraisal.normImpact) ? appraisal.normImpact : 0,
+      relationshipImpact: [-2, -1, 0, 1, 2].includes(appraisal.relationshipImpact)
+        ? appraisal.relationshipImpact
+        : 0,
+      controlSignal: appraisal.controlSignal,
+      confidence: [0, 1, 2, 3].includes(appraisal.confidence) ? appraisal.confidence : 0
     },
-    强度: clamp01(isNumber(raw.强度) ? raw.强度 : 0),
-    置信度: clamp01(isNumber(raw.置信度) ? raw.置信度 : 0),
-    行为叙事: isString(raw.行为叙事) ? raw.行为叙事 : '',
-    参数偏移: {
-      自主性: isNumber(delta.自主性) ? delta.自主性 : 0,
-      详略度: isNumber(delta.详略度) ? delta.详略度 : 0,
-      探索性: isNumber(delta.探索性) ? delta.探索性 : 0,
-      正式度: isNumber(delta.正式度) ? delta.正式度 : 0
+    shortTerm,
+    slowMood,
+    relationship,
+    primaryEmotion: raw.primaryEmotion,
+    secondaryEmotion: raw.secondaryEmotion,
+    intensity: clamp01(isNumber(raw.intensity) ? raw.intensity : 0),
+    narrative: isString(raw.narrative) ? raw.narrative : '',
+    expressionDelta: {
+      verbosity: isNumber(delta.verbosity) ? delta.verbosity : 0,
+      formality: isNumber(delta.formality) ? delta.formality : 0
     },
-    表达调制: {
-      关系靠近度: clamp01(isNumber(modulation.关系靠近度) ? modulation.关系靠近度 : 0),
-      表达温度: clamp01(isNumber(modulation.表达温度) ? modulation.表达温度 : 0),
-      收束度: clamp01(isNumber(modulation.收束度) ? modulation.收束度 : 0),
-      想象开放度: clamp01(isNumber(modulation.想象开放度) ? modulation.想象开放度 : 0),
-      澄清需求: clamp01(isNumber(modulation.澄清需求) ? modulation.澄清需求 : 0)
-    },
-    来源: {
-      用户情绪: isString(source.用户情绪) ? source.用户情绪 : undefined,
-      对话模式: isString(source.对话模式) ? source.对话模式 : undefined,
-      交互状态: isString(source.交互状态) ? source.交互状态 : undefined,
-      信号: Array.isArray(source.信号) ? source.信号.filter(isString) : []
+    expressionModulation: {
+      relationalCloseness: clamp01(
+        isNumber(modulation.relationalCloseness) ? modulation.relationalCloseness : 0
+      ),
+      warmth: clamp01(isNumber(modulation.warmth) ? modulation.warmth : 0),
+      contraction: clamp01(isNumber(modulation.contraction) ? modulation.contraction : 0),
+      imaginativeOpenness: clamp01(
+        isNumber(modulation.imaginativeOpenness) ? modulation.imaginativeOpenness : 0
+      ),
+      clarificationNeed: clamp01(
+        isNumber(modulation.clarificationNeed) ? modulation.clarificationNeed : 0
+      )
     }
   }
 }

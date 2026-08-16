@@ -37,7 +37,7 @@ export const delegateCharacterEditorTool = defineAgentTool({
       '如果上一轮已经通过 list_characters 或 get_entity_detail 确认了 entityId/worldId，本轮委派时应直接传 entityId + worldId，而不是只传 characterName。',
       '当用户要求补全某个角色的人物事迹时，可传 characterName + worldName + editingDirection=character_deeds，让子 agent 优先更新 character_profile.description。'
     ],
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     completionSemantics: 'eventual'

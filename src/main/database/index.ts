@@ -27,6 +27,7 @@ import { WorldEntityMentionIndexRecord } from '../../share/entity/database/World
 import { WorldEntityManualMentionRecord } from '../../share/entity/database/WorldEntityManualMentionRecord'
 import { MainAgentToolEffectReceiptRecord } from '../../share/entity/database/MainAgentToolEffectReceiptRecord'
 import { MainAgentChangeSetRecord } from '../../share/entity/database/MainAgentChangeSetRecord'
+import { AgentArtifactRecord } from '../../share/entity/database/AgentArtifactRecord'
 import { migrateWorldEntityDocuments } from './migrations/migrateWorldEntityDocuments'
 
 // 数据库文件路径：UserData/database.sqlite
@@ -62,6 +63,7 @@ export const AppDataSource = new DataSource({
     WorldEntityDocumentRecord,
     MainAgentToolEffectReceiptRecord,
     MainAgentChangeSetRecord,
+    AgentArtifactRecord,
     CharacterImpressionRecord,
     ToolUsageStatsRecord
   ],

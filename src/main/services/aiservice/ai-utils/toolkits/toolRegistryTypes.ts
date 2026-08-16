@@ -251,6 +251,14 @@ export const validateToolRegistry = (options: ToolRegistryValidationOptions): vo
       errors.push(`Write tool "${label}" must declare agentMetadata.readOnly=false.`)
     }
     if (
+      entry.tool.agentMetadata.executionLevel === 'confirmation_required' &&
+      entry.turnCallLimit !== 1
+    ) {
+      errors.push(
+        `Confirmation-required tool "${label}" must declare turnCallLimit=1 so one confirmation cannot authorize repeated execution.`
+      )
+    }
+    if (
       entry.turnCallLimit !== undefined &&
       (!Number.isInteger(entry.turnCallLimit) || entry.turnCallLimit < 1)
     ) {

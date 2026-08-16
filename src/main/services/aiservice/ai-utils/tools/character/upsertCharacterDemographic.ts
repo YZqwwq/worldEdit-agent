@@ -21,7 +21,7 @@ export const upsertCharacterDemographicTool = defineAgentTool({
     inputSummary: '提供 entityId 和要写入 character_demographic.basicInfo 的 patch 字段。',
     outputSummary: '返回更新后的 character_demographic 组件。',
     examples: ['先读取人物详情，再调用 upsert_character_demographic 更新 basicInfo.fields.gender。'],
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     completionSemantics: 'definitive'

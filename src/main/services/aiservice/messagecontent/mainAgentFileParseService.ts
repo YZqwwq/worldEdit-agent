@@ -67,9 +67,7 @@ const parseImageCaptionWithSmallModel = async (
   }
 }
 
-const parseFilePartForPersistence = async (
-  file: MainAgentFileContentPart
-): Promise<string> => {
+const parseFilePartForPersistence = async (file: MainAgentFileContentPart): Promise<string> => {
   if (file.mediaType === 'image') {
     const caption = await parseImageCaptionWithSmallModel(file)
     if (caption) {
@@ -91,6 +89,13 @@ export const parseMainAgentContentForStorage = async (
       if (text) {
         lines.push(text)
       }
+      continue
+    }
+
+    if (part.type === 'artifact_ref') {
+      lines.push(
+        `agent_artifact: ${part.artifactId} - ${part.title}${part.summary ? ` - ${part.summary}` : ''}`
+      )
       continue
     }
 

@@ -58,7 +58,7 @@ export const searchEntitiesTool = defineAgentTool({
     examples: [
       '用户说“星港联邦的首都”，可先用 worldName + keyword + entityType=city 搜索候选实体。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

@@ -57,7 +57,7 @@ export const saveCharacterNarrativeImpressionTool = defineAgentTool({
       '保存前必须确认阅读任务已经覆盖本次 mission 所需范围；如果 hasMore=true，不要保存最终印象。',
       '写入成功后可以告诉用户人物印象已保存，但不要声称修改了人物设定正文。'
     ],
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     completionSemantics: 'definitive',

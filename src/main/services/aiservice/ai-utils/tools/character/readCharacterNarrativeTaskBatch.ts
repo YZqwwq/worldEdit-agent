@@ -35,7 +35,7 @@ export const readCharacterNarrativeTaskBatchTool = defineAgentTool({
       '如果目标是刷新人物印象，最终 structuredText 必须综合所有已读 unit，而不是只复述最后一批文本。',
       '不要重复读取同一个 cursor，除非上一轮工具失败。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'evidence',

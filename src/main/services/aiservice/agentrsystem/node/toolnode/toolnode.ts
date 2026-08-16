@@ -9,7 +9,10 @@ import {
   buildAgentToolModelMessage,
   parseAgentToolResultEnvelope
 } from '../../../ai-utils/core/agentTool'
-import type { AgentToolErrorCode } from '../../../ai-utils/core/agentTool'
+import type {
+  AgentToolErrorCode,
+  AgentToolExecutionLevel
+} from '../../../ai-utils/core/agentTool'
 import {
   getMainAgentToolEntry,
   getMainAgentTools,
@@ -55,28 +58,12 @@ import {
 } from '../../../../toolEffects/toolEffectReceiptService'
 import { AppDataSource } from '../../../../../database'
 import { getToolChangeSetSummary } from '../../../../toolEffects/toolChangeSetService'
-
-const isSensitiveToolByMetadata = (metadata?: {
-  readOnly?: boolean
-  riskLevel?: 'low' | 'medium' | 'high'
-  idempotent?: boolean
-}): boolean => {
-  if (!metadata) return false
-  return (
-    metadata.readOnly === false || metadata.riskLevel === 'medium' || metadata.riskLevel === 'high'
-  )
-}
-
-const isRiskyToolByMetadata = (metadata?: {
-  readOnly?: boolean
-  riskLevel?: 'low' | 'medium' | 'high'
-  idempotent?: boolean
-}): boolean => {
-  if (!metadata) return false
-  return (
-    metadata.riskLevel === 'high' || (metadata.readOnly === false && metadata.idempotent === false)
-  )
-}
+import {
+  buildToolConfirmationKey,
+  consumeToolConfirmation,
+  getLatestHumanMessageText,
+  registerToolConfirmationRequest
+} from './toolExecutionProtocol'
 
 const compact = (value: string, max = 900): string => {
   const normalized = String(value || '')
@@ -414,7 +401,6 @@ export async function toolNode(
   const activeToolTranscriptIds = [
     typeof lastMessage.id === 'string' && lastMessage.id ? lastMessage.id : ''
   ].filter(Boolean)
-  const toolPolicy = state.personaPolicy?.tool
   const toolActivationState = await resolveMainAgentToolActivationState(state)
   const tools = getMainAgentTools(toolActivationState)
   const toolEntries = getVisibleMainAgentToolEntryMap(toolActivationState)
@@ -500,8 +486,21 @@ export async function toolNode(
     const actionId = randomUUID()
     const actionStartedAt = new Date().toISOString()
     const registeredEntry = getMainAgentToolEntry(toolCall.name)
-    const toolEntryForPolicy = toolEntries[toolCall.name] ?? registeredEntry
-    const toolMetadataForPolicy = toolEntryForPolicy?.tool.agentMetadata
+    const toolEntryForExecution = toolEntries[toolCall.name] ?? registeredEntry
+    const executionLevel: AgentToolExecutionLevel =
+      toolEntryForExecution?.tool.agentMetadata.executionLevel ?? 'confirmation_required'
+    const confirmationKey = buildToolConfirmationKey(toolCall.name, toolCall.args)
+    const confirmationSessionId = state.turnWorkspace?.sessionId ?? 'default'
+    const confirmationEventId = state.turnWorkspace?.eventId ?? ''
+    const confirmationGranted =
+      Boolean(tools[toolCall.name]) && executionLevel === 'confirmation_required'
+        ? consumeToolConfirmation({
+            sessionId: confirmationSessionId,
+            eventId: confirmationEventId,
+            confirmationKey,
+            userText: getLatestHumanMessageText(state.messages)
+          })
+        : false
     const stageId = `tool-${toolCall.id ?? randomUUID()}-${toolCall.name}`
     traceState('toolNode', {
       title: `状态: toolNode 调用 ${toolCall.name}`,
@@ -519,14 +518,34 @@ export async function toolNode(
     })
 
     if (
-      toolPolicy?.confirmBeforeSensitiveTools &&
       Boolean(tools[toolCall.name]) &&
-      isSensitiveToolByMetadata(toolMetadataForPolicy)
+      executionLevel === 'confirmation_required' &&
+      !confirmationGranted
     ) {
+      registerToolConfirmationRequest({
+        sessionId: confirmationSessionId,
+        eventId: confirmationEventId,
+        confirmationKey
+      })
+      const content = JSON.stringify({
+        ok: false,
+        toolName: toolCall.name,
+        error: {
+          code: 'CONFIRMATION_REQUIRED',
+          message: '该操作不可恢复。必须先向用户展示本次操作及目标，并等待用户在后续消息中明确确认。',
+          retryable: true,
+          details: {
+            confirmationKey,
+            args: toolCall.args ?? {}
+          }
+        },
+        nextSuggestions: [
+          '用自然语言向用户说明将执行的具体操作和目标。',
+          '等待用户明确确认；不要在当前轮自行重试。',
+          '用户确认后，使用完全相同的参数重新调用一次。'
+        ]
+      })
       if (toolCall.id) {
-        const content =
-          `Tool "${toolCall.name}" requires user confirmation under current persona policy. ` +
-          'Ask user to confirm before executing this sensitive action.'
         const toolMessage = createToolMessage({
           content,
           toolCallId: toolCall.id,
@@ -551,80 +570,23 @@ export async function toolNode(
       }
       traceDecision('toolNode', {
         title: `决策: toolNode 拦截 ${toolCall.name}`,
-        summary: `${toolCall.name} 需要用户确认，已拦截`,
+        summary: `${toolCall.name} 的工具协议要求明确确认`,
         data: {
           toolName: toolCall.name,
           toolCallId: toolCall.id ?? null,
-          reason: 'confirm_before_sensitive_tools',
+          reason: 'tool_protocol_confirmation_required',
+          confirmationKey,
           args: toolCall.args ?? {}
         }
       })
       emitAgentStage({
         stageId,
-        label: `${toolCall.name} 等待用户确认`,
-        status: 'error'
+        label: `${toolCall.name} 等待明确确认`,
+        status: 'done'
       })
-      recordExecution({
-        actionId,
-        toolCallId: toolCall.id ?? actionId,
-        toolName: toolCall.name,
-        args: toolCall.args,
-        ok: false,
-        status: 'partial',
-        summary: '当前策略要求用户确认后才能执行此操作。',
-        startedAt: actionStartedAt,
-        fallbackRetryable: true
-      })
-      continue
-    }
-
-    if (
-      toolPolicy &&
-      Boolean(tools[toolCall.name]) &&
-      !toolPolicy.allowRiskyTools &&
-      isRiskyToolByMetadata(toolMetadataForPolicy)
-    ) {
-      if (toolCall.id) {
-        const content =
-          `Tool "${toolCall.name}" is blocked by current risk policy. ` +
-          'Please provide a safer alternative or ask user for explicit override.'
-        const toolMessage = createToolMessage({
-          content,
-          toolCallId: toolCall.id,
-          name: toolCall.name,
-          status: 'error'
-        })
-        toolMessages.push(toolMessage)
-        if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
-        pendingToolContext.push({
-          id: randomUUID(),
-          toolCallId: toolCall.id,
-          transcriptMessageIds: [lastMessage.id, toolMessage.id].filter(
-            (id): id is string => typeof id === 'string' && id.length > 0
-          ),
-          toolName: toolCall.name,
-          retention: 'ephemeral',
-          ok: false,
-          argsSummary: stringifyCompact(toolCall.args ?? {}),
-          resultSummary: content,
-          createdAtLoop: state.llmCalls ?? 0
-        })
+      if (registeredEntry) {
+        toolCallCounts = incrementToolTurnCallCount(registeredEntry, toolCallCounts)
       }
-      traceDecision('toolNode', {
-        title: `决策: toolNode 拦截 ${toolCall.name}`,
-        summary: `${toolCall.name} 被当前风险策略阻止`,
-        data: {
-          toolName: toolCall.name,
-          toolCallId: toolCall.id ?? null,
-          reason: 'risk_policy_blocked',
-          args: toolCall.args ?? {}
-        }
-      })
-      emitAgentStage({
-        stageId,
-        label: `${toolCall.name} 已被当前策略拦截`,
-        status: 'error'
-      })
       recordExecution({
         actionId,
         toolCallId: toolCall.id ?? actionId,
@@ -632,9 +594,9 @@ export async function toolNode(
         args: toolCall.args,
         ok: false,
         status: 'partial',
-        summary: '当前风险策略阻止了此操作，需要更安全的替代方案或用户明确授权。',
+        summary: '工具协议要求用户对本次不可恢复操作进行明确确认。',
         startedAt: actionStartedAt,
-        fallbackRetryable: true
+        fallbackRetryable: false
       })
       continue
     }

@@ -35,7 +35,7 @@ export const upsertCharacterDescriptionTool = defineAgentTool({
     examples: [
       '先读取人物详情，再调用 upsert_character_description 更新人物经历与叙事描述。'
     ],
-    riskLevel: 'medium',
+    executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
     completionSemantics: 'definitive'

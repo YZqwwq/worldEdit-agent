@@ -54,6 +54,7 @@ import type { UpsertCharacterImpressionInput } from '@share/cache/worldbuilding/
 import { taskService } from '../task/taskService'
 import { createConfiguredModelRuntime } from './model-adapters/modelProviderAdapter'
 import { contentToText } from './messageoutput/transformRespones'
+import { agentArtifactService } from './artifacts/agentArtifactService'
 
 type UploadResult = {
   resourceUrl: string
@@ -123,9 +124,21 @@ const readImageDimensions = (sourcePath: string): { width?: number; height?: num
 }
 
 const ensureSupportedImageAsset = (fileName: string, mimeType?: string): void => {
-  const normalizedMime = String(mimeType || '').trim().toLowerCase()
+  const normalizedMime = String(mimeType || '')
+    .trim()
+    .toLowerCase()
   const normalizedExt = extname(fileName).trim().toLowerCase()
-  const allowedExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.svg', '.heic', '.heif'])
+  const allowedExts = new Set([
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.webp',
+    '.gif',
+    '.bmp',
+    '.svg',
+    '.heic',
+    '.heif'
+  ])
   const allowedMimes = new Set([
     'image/png',
     'image/jpeg',
@@ -186,7 +199,9 @@ const copyImageAssetToUploadDir = async (sourcePath: string): Promise<ImageAsset
 }
 
 const inferExtensionFromMimeType = (mimeType?: string): string => {
-  const normalized = String(mimeType || '').trim().toLowerCase()
+  const normalized = String(mimeType || '')
+    .trim()
+    .toLowerCase()
   if (normalized === 'image/png') return '.png'
   if (normalized === 'image/jpeg') return '.jpg'
   if (normalized === 'image/webp') return '.webp'
@@ -210,7 +225,9 @@ const sanitizeRelativeDir = (value: string | undefined): string => {
 }
 
 const writeUploadDataToDir = async (input: UploadDataInput): Promise<UploadResult> => {
-  const fileName = String(input.fileName || '').trim() || `pasted-image${inferExtensionFromMimeType(input.mimeType)}`
+  const fileName =
+    String(input.fileName || '').trim() ||
+    `pasted-image${inferExtensionFromMimeType(input.mimeType)}`
   const mimeType = String(input.mimeType || '').trim() || inferMimeTypeFromFileName(fileName)
   const byteLength = input.data?.byteLength ?? 0
   const validation = isSupportedChatImageUpload({
@@ -336,6 +353,10 @@ export function initializeAIEndpoints(): void {
     return aiService.getHistory()
   })
 
+  ipcMain.handle('ai:getArtifact', (_event, artifactId: string) => {
+    return agentArtifactService.getById(String(artifactId || '').trim())
+  })
+
   ipcMain.handle('ai:interruptCurrentRun', () => {
     return aiService.interruptCurrentRun()
   })
@@ -386,7 +407,11 @@ export function initializeAIEndpoints(): void {
 
   ipcMain.handle(
     'config:testModelSpeed',
-    async (_event, input: ModelConfigInput, target: ModelSpeedTestTarget): Promise<ModelSpeedTestResult> => {
+    async (
+      _event,
+      input: ModelConfigInput,
+      target: ModelSpeedTestTarget
+    ): Promise<ModelSpeedTestResult> => {
       return runModelSpeedTest(input, target)
     }
   )
@@ -426,9 +451,12 @@ export function initializeAIEndpoints(): void {
     return worldbuildingService.getSchemaCatalog()
   })
 
-  ipcMain.handle('world:listEntities', async (_event, worldId: string, type?: WorldEntityPayload['type']) => {
-    return worldbuildingService.listEntities(worldId, type)
-  })
+  ipcMain.handle(
+    'world:listEntities',
+    async (_event, worldId: string, type?: WorldEntityPayload['type']) => {
+      return worldbuildingService.listEntities(worldId, type)
+    }
+  )
 
   ipcMain.handle('world:createEntity', async (_event, input: CreateWorldEntityInput) => {
     return worldbuildingService.createEntity(input)
@@ -453,12 +481,9 @@ export function initializeAIEndpoints(): void {
     }
   )
 
-  ipcMain.handle(
-    'world:createRelation',
-    async (_event, input: CreateWorldEntityRelationInput) => {
-      return worldbuildingService.createRelation(input)
-    }
-  )
+  ipcMain.handle('world:createRelation', async (_event, input: CreateWorldEntityRelationInput) => {
+    return worldbuildingService.createRelation(input)
+  })
 
   ipcMain.handle('worldEntityDocument:list', async (_event, owner: WorldEntityDocumentOwnerRef) => {
     return worldEntityDocumentService.listDocuments(owner)
@@ -500,21 +525,18 @@ export function initializeAIEndpoints(): void {
     }
   )
 
-  ipcMain.handle(
-    'worldEntityDocument:move',
-    async (event, input: MoveWorldEntityDocumentInput) => {
-      const document = await worldEntityDocumentService.moveDocument(input)
-      worldEntityDocumentChangePublisher.publish(
-        {
-          changeType: 'moved',
-          documentId: document.id,
-          revision: document.revision
-        },
-        { excludeWebContentsId: event.sender.id }
-      )
-      return document
-    }
-  )
+  ipcMain.handle('worldEntityDocument:move', async (event, input: MoveWorldEntityDocumentInput) => {
+    const document = await worldEntityDocumentService.moveDocument(input)
+    worldEntityDocumentChangePublisher.publish(
+      {
+        changeType: 'moved',
+        documentId: document.id,
+        revision: document.revision
+      },
+      { excludeWebContentsId: event.sender.id }
+    )
+    return document
+  })
 
   ipcMain.handle(
     'worldEntityDocument:delete',
@@ -560,26 +582,35 @@ export function initializeAIEndpoints(): void {
     return copyToUploadDir(sourcePath)
   })
 
-  ipcMain.handle('file:uploadData', async (_event, input: UploadDataInput): Promise<UploadResult> => {
-    if (!input || typeof input !== 'object' || !(input.data instanceof ArrayBuffer)) {
-      throw new Error('Invalid file payload')
+  ipcMain.handle(
+    'file:uploadData',
+    async (_event, input: UploadDataInput): Promise<UploadResult> => {
+      if (!input || typeof input !== 'object' || !(input.data instanceof ArrayBuffer)) {
+        throw new Error('Invalid file payload')
+      }
+      return writeUploadDataToDir(input)
     }
-    return writeUploadDataToDir(input)
-  })
+  )
 
-  ipcMain.handle('resource:uploadData', async (_event, input: UploadDataInput): Promise<UploadResult> => {
-    if (!input || typeof input !== 'object' || !(input.data instanceof ArrayBuffer)) {
-      throw new Error('Invalid resource payload')
+  ipcMain.handle(
+    'resource:uploadData',
+    async (_event, input: UploadDataInput): Promise<UploadResult> => {
+      if (!input || typeof input !== 'object' || !(input.data instanceof ArrayBuffer)) {
+        throw new Error('Invalid resource payload')
+      }
+      return writeResourceDataToDir(input)
     }
-    return writeResourceDataToDir(input)
-  })
+  )
 
-  ipcMain.handle('resource:readBinary', async (_event, resourceUrl: string): Promise<ReadBinaryResult> => {
-    if (!resourceUrl || typeof resourceUrl !== 'string') {
-      throw new Error('Invalid resource url')
+  ipcMain.handle(
+    'resource:readBinary',
+    async (_event, resourceUrl: string): Promise<ReadBinaryResult> => {
+      if (!resourceUrl || typeof resourceUrl !== 'string') {
+        throw new Error('Invalid resource url')
+      }
+      return readResourceBinary(resourceUrl)
     }
-    return readResourceBinary(resourceUrl)
-  })
+  )
 
   ipcMain.handle('file:pick', async (): Promise<PickResult> => {
     const result = await dialog.showOpenDialog({
@@ -658,12 +689,15 @@ export function initializeAIEndpoints(): void {
     return copyToUploadDir(sourcePath)
   })
 
-  ipcMain.handle('imageAsset:upload', async (_event, sourcePath: string): Promise<ImageAssetResult> => {
-    if (!sourcePath || typeof sourcePath !== 'string') {
-      throw new Error('Invalid file path')
+  ipcMain.handle(
+    'imageAsset:upload',
+    async (_event, sourcePath: string): Promise<ImageAssetResult> => {
+      if (!sourcePath || typeof sourcePath !== 'string') {
+        throw new Error('Invalid file path')
+      }
+      return copyImageAssetToUploadDir(sourcePath)
     }
-    return copyImageAssetToUploadDir(sourcePath)
-  })
+  )
 
   ipcMain.handle('file:delete', async (_event, resourceUrl: string): Promise<boolean> => {
     if (!resourceUrl || typeof resourceUrl !== 'string') {

@@ -33,10 +33,7 @@ const MIME_TYPE_BY_EXTENSION: Record<string, string> = {
 }
 
 const humanizeFileStem = (fileName: string): string => {
-  return basename(fileName, extname(fileName))
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return basename(fileName, extname(fileName)).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 export const resolvePersistedFilePath = (file: MainAgentFileContentPart): string => {
@@ -47,10 +44,7 @@ export const resolvePersistedFilePath = (file: MainAgentFileContentPart): string
   }
 }
 
-export const formatFileLine = (
-  file: MainAgentFileContentPart,
-  description?: string
-): string => {
+export const formatFileLine = (file: MainAgentFileContentPart, description?: string): string => {
   const filePath = resolvePersistedFilePath(file)
   const normalizedDescription = String(description || humanizeFileStem(file.fileName)).trim()
   return normalizedDescription
@@ -112,14 +106,25 @@ export const parseMainAgentContentForPersistence = (
 ): string => {
   const normalized = normalizeMainAgentMessageContent(content)
   const textBlocks = normalized
-    .filter((part): part is Extract<MainAgentMessageContentPart, { type: 'text' }> => part.type === 'text')
+    .filter(
+      (part): part is Extract<MainAgentMessageContentPart, { type: 'text' }> => part.type === 'text'
+    )
     .map((part) => part.text.trim())
     .filter(Boolean)
   const fileLines = normalized
     .filter((part): part is MainAgentFileContentPart => part.type === 'file')
     .map((part) => formatFileLine(part))
+  const artifactLines = normalized
+    .filter(
+      (part): part is Extract<MainAgentMessageContentPart, { type: 'artifact_ref' }> =>
+        part.type === 'artifact_ref'
+    )
+    .map(
+      (part) =>
+        `agent_artifact: ${part.artifactId} - ${part.title}${part.summary ? ` - ${part.summary}` : ''}`
+    )
 
-  return [...textBlocks, ...fileLines].filter(Boolean).join('\n')
+  return [...textBlocks, ...fileLines, ...artifactLines].filter(Boolean).join('\n')
 }
 
 export const getMainAgentPersistenceTextFromPersistedMessage = (
@@ -168,6 +173,14 @@ export const buildQwenInputContent = async (
           text: part.text
         })
       }
+      continue
+    }
+
+    if (part.type === 'artifact_ref') {
+      parts.push({
+        type: 'text',
+        text: `Agent artifact ${part.artifactId}: ${part.title}${part.summary ? ` - ${part.summary}` : ''}`
+      })
       continue
     }
 

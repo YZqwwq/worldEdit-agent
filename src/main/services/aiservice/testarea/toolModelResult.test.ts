@@ -18,6 +18,7 @@ test('read-only tools expose the complete validated result to the next model cal
       whenToUse: ['test'],
       inputSummary: 'none',
       outputSummary: 'full test content',
+      executionLevel: 'safe',
       readOnly: true,
       idempotent: true
     },
@@ -49,6 +50,7 @@ test('write tools return a receipt projection instead of echoing a full write pa
       whenToUse: ['test'],
       inputSummary: 'content',
       outputSummary: 'write receipt',
+      executionLevel: 'notice',
       readOnly: false,
       idempotent: false
     },
@@ -77,6 +79,7 @@ test('usage rules and legal examples are visible in the model-facing tool descri
       whenToUse: ['需要读取测试实体'],
       inputSummary: '提供扁平的 entityId。',
       outputSummary: '返回测试结果。',
+      executionLevel: 'safe',
       usageContract: ['不要把参数对象序列化成字符串。'],
       examples: ['{"entityId":"entity-a"}'],
       readOnly: true,
@@ -101,6 +104,7 @@ test('eventual tools expose a non-final accepted state until explicitly complete
       whenToUse: ['test'],
       inputSummary: 'state',
       outputSummary: 'task state',
+      executionLevel: 'notice',
       readOnly: false,
       completionSemantics: 'eventual'
     },
@@ -134,6 +138,7 @@ test('eventual tools default to accepted rather than pretending to be complete',
       whenToUse: ['test'],
       inputSummary: 'none',
       outputSummary: 'accepted task',
+      executionLevel: 'notice',
       readOnly: false,
       completionSemantics: 'eventual'
     },

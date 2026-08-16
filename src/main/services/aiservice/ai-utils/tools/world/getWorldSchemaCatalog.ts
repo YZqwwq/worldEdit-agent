@@ -33,7 +33,7 @@ export const getWorldSchemaCatalogTool = defineAgentTool({
     examples: [
       '先调用 get_world_schema_catalog，再决定如何创建人物组件或建立实体关系。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

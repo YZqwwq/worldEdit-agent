@@ -38,7 +38,7 @@ export const resolveWorldByNameTool = defineAgentTool({
     examples: [
       '用户说“方舟终章”，先调用 resolve_world_by_name 解析出对应 worldId，再继续查实体。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

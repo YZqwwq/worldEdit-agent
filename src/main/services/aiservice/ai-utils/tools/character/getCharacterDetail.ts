@@ -22,7 +22,7 @@ export const getCharacterDetailTool = defineAgentTool({
     outputSummary:
       '返回 found 和 detail。detail 中包含 character 的 entity、components、relations。',
     examples: ['先调用 get_character_detail 读取角色完整档案，再决定如何更新 profile 或 demographic。'],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

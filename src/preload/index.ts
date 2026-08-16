@@ -45,6 +45,7 @@ import type {
   CharacterImpressionPayload,
   UpsertCharacterImpressionInput
 } from '../share/cache/worldbuilding/characterImpression'
+import type { AgentArtifactPayload } from '../share/cache/AItype/states/agentArtifact'
 
 // Local type to ensure availability in this module
 type Api = {
@@ -55,6 +56,7 @@ type Api = {
 
   // 获取历史记录
   getHistory: () => Promise<any[]>
+  getAgentArtifact: (artifactId: string) => Promise<AgentArtifactPayload | null>
   interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
   revertLastChatTurn: () => Promise<{
     ok: boolean
@@ -91,11 +93,7 @@ type Api = {
     width?: number
     height?: number
   }>
-  uploadFileData: (input: {
-    fileName: string
-    mimeType?: string
-    data: ArrayBuffer
-  }) => Promise<{
+  uploadFileData: (input: { fileName: string; mimeType?: string; data: ArrayBuffer }) => Promise<{
     resourceUrl: string
     fileName: string
     size: number
@@ -189,11 +187,11 @@ type Api = {
 const api: Api = {
   sendMessageStream: (message: MainAgentUserMessageInput) =>
     ipcRenderer.send('ai:sendMessageStream', message),
-  
+
   onStreamChunk: (callback) => {
     const subscription = (_event: IpcRendererEvent, chunk: StreamChunk) => callback(chunk)
     ipcRenderer.on('ai:streamChunk', subscription)
-    
+
     // 返回 cleanup 函数
     return () => {
       ipcRenderer.removeListener('ai:streamChunk', subscription)
@@ -201,6 +199,7 @@ const api: Api = {
   },
 
   getHistory: () => ipcRenderer.invoke('ai:getHistory'),
+  getAgentArtifact: (artifactId) => ipcRenderer.invoke('ai:getArtifact', artifactId),
   interruptCurrentRun: () => ipcRenderer.invoke('ai:interruptCurrentRun'),
   revertLastChatTurn: () => ipcRenderer.invoke('ai:revertLastChatTurn'),
   clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
@@ -239,23 +238,15 @@ const api: Api = {
   getWorldEntityDetail: (entityId) => ipcRenderer.invoke('world:getEntityDetail', entityId),
   upsertWorldEntityComponent: (input) => ipcRenderer.invoke('world:upsertComponent', input),
   createWorldEntityRelation: (input) => ipcRenderer.invoke('world:createRelation', input),
-  listWorldEntityDocuments: (owner) =>
-    ipcRenderer.invoke('worldEntityDocument:list', owner),
-  getWorldEntityDocument: (documentId) =>
-    ipcRenderer.invoke('worldEntityDocument:get', documentId),
-  createWorldEntityDocument: (input) =>
-    ipcRenderer.invoke('worldEntityDocument:create', input),
-  updateWorldEntityDocument: (input) =>
-    ipcRenderer.invoke('worldEntityDocument:update', input),
-  moveWorldEntityDocument: (input) =>
-    ipcRenderer.invoke('worldEntityDocument:move', input),
-  deleteWorldEntityDocument: (input) =>
-    ipcRenderer.invoke('worldEntityDocument:delete', input),
+  listWorldEntityDocuments: (owner) => ipcRenderer.invoke('worldEntityDocument:list', owner),
+  getWorldEntityDocument: (documentId) => ipcRenderer.invoke('worldEntityDocument:get', documentId),
+  createWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:create', input),
+  updateWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:update', input),
+  moveWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:move', input),
+  deleteWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:delete', input),
   onWorldEntityDocumentChanged: (callback) => {
-    const subscription = (
-      _event: IpcRendererEvent,
-      change: WorldEntityDocumentChangeEvent
-    ) => callback(change)
+    const subscription = (_event: IpcRendererEvent, change: WorldEntityDocumentChangeEvent) =>
+      callback(change)
     ipcRenderer.on('worldEntityDocument:changed', subscription)
     return () => {
       ipcRenderer.removeListener('worldEntityDocument:changed', subscription)
@@ -263,8 +254,7 @@ const api: Api = {
   },
   getCharacterImpression: (characterEntityId) =>
     ipcRenderer.invoke('characterImpression:get', characterEntityId),
-  upsertCharacterImpression: (input) =>
-    ipcRenderer.invoke('characterImpression:upsert', input)
+  upsertCharacterImpression: (input) => ipcRenderer.invoke('characterImpression:upsert', input)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

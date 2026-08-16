@@ -117,7 +117,7 @@ export const queryToolCatalogTool = defineAgentTool({
       '拿到候选工具集后，如确实需要其中能力，再调用 activate_toolset。',
       '不要把未返回的工具集当成已存在能力。'
     ],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'ephemeral'

@@ -36,7 +36,7 @@ export const listWorldsTool = defineAgentTool({
     outputSummary:
       '返回 count 和 worlds 数组。每个 world 包含 id、name、summary、status、schemaVersion、updatedAt、createdAt。',
     examples: ['先调用 list_worlds，再决定后续对哪个世界进行查询或写入。'],
-    riskLevel: 'low',
+    executionLevel: 'safe',
     readOnly: true,
     idempotent: true
   },

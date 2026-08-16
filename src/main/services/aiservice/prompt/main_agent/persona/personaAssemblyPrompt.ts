@@ -1,5 +1,9 @@
 import type { MoodAssessment } from '@share/cache/AItype/states/moodAssessment'
-import { getDefaultExpressionPrompt } from './expressionPromptProfiles'
+import type { PersonaMetrics } from '@share/cache/AItype/states/personalState'
+import {
+  getDefaultExpressionPrompt,
+  GLOBAL_EXPRESSION_CONTRACT
+} from './expressionPromptProfiles'
 import { formatField, indentBlock, trimOr } from '../shared/promptTextUtils'
 
 const buildCharacterAnchorPrompt = (characterPrompt: string): string => {
@@ -19,79 +23,105 @@ const toCadence = (assessment: MoodAssessment | null | undefined): string => {
     return 'plain_still'
   }
   if (
-    assessment.主情绪 === '紧张' ||
-    assessment.主情绪 === '焦虑' ||
-    assessment.主情绪 === '受挫' ||
-    assessment.表达调制.收束度 >= 0.72
+    assessment.primaryEmotion === 'tension' ||
+    assessment.primaryEmotion === 'stress' ||
+    assessment.primaryEmotion === 'frustration' ||
+    assessment.expressionModulation.contraction >= 0.72
   ) {
     return 'tight_contained'
   }
-  if ((assessment.主情绪 === '兴奋' || assessment.主情绪 === '轻兴奋') && assessment.强度 >= 0.58) {
+  if (
+    (assessment.primaryEmotion === 'joy' || assessment.primaryEmotion === 'interest') &&
+    assessment.intensity >= 0.58
+  ) {
     return 'bright_lifted'
   }
-  if (
-    (assessment.主情绪 === '轻愉悦' || assessment.主情绪 === '高兴') &&
-    assessment.表达调制.收束度 <= 0.45
-  ) {
+  if (assessment.primaryEmotion === 'joy' && assessment.expressionModulation.contraction <= 0.64) {
     return 'soft_flowing'
   }
   return 'plain_still'
 }
 
 const toStructureTendency = (assessment: MoodAssessment | null | undefined): string => {
-  if ((assessment?.表达调制.澄清需求 ?? 0) >= 0.7) return 'context_first'
-  if ((assessment?.参数偏移.详略度 ?? 0) <= -0.06) return 'conclusion_first'
+  if ((assessment?.expressionModulation.clarificationNeed ?? 0) >= 0.7) return 'context_first'
   return 'balanced'
 }
 
-const toExpansionTendency = (assessment: MoodAssessment | null | undefined): string => {
-  if ((assessment?.参数偏移.详略度 ?? 0) <= -0.06 || (assessment?.表达调制.收束度 ?? 0.5) >= 0.76) {
+const toExpansionTendency = (
+  assessment: MoodAssessment | null | undefined,
+  metrics: PersonaMetrics | null | undefined
+): string => {
+  if (
+    (metrics?.verbosity_index ?? 0.5) <= 0.38 ||
+    (assessment?.expressionModulation.contraction ?? 0.5) >= 0.76
+  ) {
     return 'reduced_expansion'
   }
   if (
-    (assessment?.参数偏移.详略度 ?? 0) >= 0.06 &&
-    (assessment?.表达调制.想象开放度 ?? 0.5) >= 0.68
+    (metrics?.verbosity_index ?? 0.5) >= 0.64 &&
+    (assessment?.expressionModulation.imaginativeOpenness ?? 0.5) >= 0.68
   ) {
     return 'rich_expansion'
   }
   return 'moderate_expansion'
 }
 
-const buildExpressionDirections = (assessment: MoodAssessment | null | undefined): string[] => {
+const buildExpressionDirections = (
+  assessment: MoodAssessment | null | undefined,
+  metrics: PersonaMetrics | null | undefined
+): string[] => {
   if (!assessment) {
-    return ['保持稳定、自然的表达，不额外表演情绪。']
+    const stableDirections = ['保持稳定、自然的表达，不额外表演情绪。']
+    if ((metrics?.formality_score ?? 0.5) >= 0.65) {
+      stableDirections.push('表达保持较高正式度，术语和判断边界清楚。')
+    } else if ((metrics?.formality_score ?? 0.5) <= 0.35) {
+      stableDirections.push('表达可以自然口语化，但保持准确。')
+    }
+    if ((metrics?.verbosity_index ?? 0.5) <= 0.38) {
+      stableDirections.push('只展开完成本轮回应所必需的内容。')
+    } else if ((metrics?.verbosity_index ?? 0.5) >= 0.64) {
+      stableDirections.push('可以补充有价值的关联与细节，但不要偏离当前问题。')
+    }
+    return stableDirections
   }
 
   const directions: string[] = []
-  const { 关系靠近度, 表达温度, 收束度, 想象开放度 } = assessment.表达调制
+  const { relationalCloseness, warmth, contraction, imaginativeOpenness } =
+    assessment.expressionModulation
 
-  if (关系靠近度 >= 0.64) {
+  if ((metrics?.formality_score ?? 0.5) >= 0.65) {
+    directions.push('表达保持较高正式度，术语和判断边界清楚，避免随意口语。')
+  } else if ((metrics?.formality_score ?? 0.5) <= 0.35) {
+    directions.push('表达可以自然口语化，但保持准确，不使用轻佻或含混措辞。')
+  }
+
+  if (relationalCloseness >= 0.64) {
     directions.push('关系姿态可以略微靠近，增加自然承接感，但不要显得黏连或急切。')
-  } else if (关系靠近度 <= 0.48) {
+  } else if (relationalCloseness <= 0.48) {
     directions.push('保持适度关系距离，回应清楚而不冷漠。')
   } else {
     directions.push('保持稳定、自然的关系距离。')
   }
 
-  if (表达温度 >= 0.62) {
+  if (warmth >= 0.62) {
     directions.push('措辞可以更温和，但不要夸张热情。')
-  } else if (表达温度 <= 0.46) {
+  } else if (warmth <= 0.46) {
     directions.push('减少情绪修饰，仍保留基本温度，避免尖锐或疏离。')
   } else {
     directions.push('使用克制而有在场感的表达温度。')
   }
 
-  if (收束度 >= 0.78) {
+  if (contraction >= 0.78) {
     directions.push('表达明显收束：减少铺垫、修饰和旁支，句子更短，边界更清楚。')
-  } else if (收束度 <= 0.64) {
+  } else if (contraction <= 0.64) {
     directions.push('表达可以适度舒展，但仍保持结构和重点。')
   } else {
     directions.push('保持中等收束，先处理核心内容，再补必要说明。')
   }
 
-  if (想象开放度 >= 0.6) {
+  if (imaginativeOpenness >= 0.6) {
     directions.push('语言可以稍有想象力，但不能替代事实判断。')
-  } else if (想象开放度 <= 0.4) {
+  } else if (imaginativeOpenness <= 0.4) {
     directions.push('降低语言联想和修辞，优先准确、直接地表达。')
   }
 
@@ -111,7 +141,7 @@ const buildExpressionDirections = (assessment: MoodAssessment | null | undefined
     directions.push('优先给出结论或当前最有用的回应。')
   }
 
-  const expansion = toExpansionTendency(assessment)
+  const expansion = toExpansionTendency(assessment, metrics)
   if (expansion === 'reduced_expansion') {
     directions.push('只展开完成本轮回应所必需的内容。')
   } else if (expansion === 'rich_expansion') {
@@ -130,9 +160,9 @@ const buildMoodAssessmentPrompt = (assessment: MoodAssessment | null | undefined
     '【MoodAssessment】',
     'priority: runtime_modulation',
     'visibility_rule: internal_only_do_not_repeat_raw_labels_to_user',
-    formatField('主情绪', assessment.主情绪),
-    formatField('副情绪', assessment.副情绪),
-    formatField('行为叙事', assessment.行为叙事)
+    formatField('primary_emotion', assessment.primaryEmotion),
+    formatField('secondary_emotion', assessment.secondaryEmotion),
+    formatField('state_narrative', assessment.narrative)
   ].filter(Boolean)
 
   return lines.join('\n')
@@ -141,18 +171,24 @@ const buildMoodAssessmentPrompt = (assessment: MoodAssessment | null | undefined
 const buildExpressionProjectionPrompt = (input: {
   expressionPrompt: string
   moodAssessment?: MoodAssessment | null | undefined
+  effectiveMetrics?: PersonaMetrics | null | undefined
 }): string => {
   const contractPrompt =
     indentBlock(trimOr(input.expressionPrompt, getDefaultExpressionPrompt())) ?? '  (empty)'
+  const globalContractPrompt = indentBlock(GLOBAL_EXPRESSION_CONTRACT) ?? '  (empty)'
 
   const lines = [
     '【ExpressionProjection】',
     'priority: user_visible_realization',
+    'global_expression_contract:',
+    globalContractPrompt,
     'current_expression_directions:',
-    ...buildExpressionDirections(input.moodAssessment).map((direction) => `- ${direction}`),
+    ...buildExpressionDirections(input.moodAssessment, input.effectiveMetrics).map(
+      (direction) => `- ${direction}`
+    ),
     'projection_rule: realize CharacterAnchor through MoodAssessment; keep emotional influence subtle, embodied, and non-performative',
     'suppression_rule: do not directly report internal emotion labels, intensity, vectors, deltas, or modulation fields to the user',
-    'output_contract:',
+    'active_expression_profile:',
     contractPrompt
   ].filter(Boolean)
 
@@ -163,6 +199,7 @@ export const buildPersonaAssemblyPrompt = (input: {
   characterPrompt: string
   expressionPrompt: string
   moodAssessment?: MoodAssessment | null | undefined
+  effectiveMetrics?: PersonaMetrics | null | undefined
 }): string => {
   const parts = buildPersonaAssemblyPromptParts(input)
 
@@ -179,6 +216,7 @@ export const buildPersonaAssemblyPromptParts = (input: {
   characterPrompt: string
   expressionPrompt: string
   moodAssessment?: MoodAssessment | null | undefined
+  effectiveMetrics?: PersonaMetrics | null | undefined
 }): PersonaAssemblyPromptParts => {
   const characterPrompt = trimOr(input.characterPrompt, '(empty)')
   const expressionPrompt = trimOr(input.expressionPrompt, getDefaultExpressionPrompt())
@@ -195,7 +233,8 @@ export const buildPersonaAssemblyPromptParts = (input: {
       : '',
     buildExpressionProjectionPrompt({
       expressionPrompt,
-      moodAssessment: input.moodAssessment
+      moodAssessment: input.moodAssessment,
+      effectiveMetrics: input.effectiveMetrics
     })
   ].filter(Boolean)
 
