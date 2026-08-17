@@ -32,6 +32,12 @@ import type {
 import { worldbuildingService } from '../worldbuilding/worldbuildingService'
 import { worldEntityDocumentService } from '../worldbuilding/worldEntityDocumentService'
 import { worldEntityDocumentChangePublisher } from '../worldbuilding/worldEntityDocumentChangePublisher'
+import {
+  commitWorldDocumentChangeSet,
+  getWorldDocumentCommitDetail,
+  listWorldDocumentCommitHistory,
+  restoreWorldDocumentCommit
+} from '../worldbuilding/worldDocumentVersionRepositoryService'
 import { characterImpressionService } from '../worldbuilding/characterImpressionService'
 import type {
   CreateWorldEntityInput,
@@ -51,6 +57,7 @@ import type {
   WorldEntityDocumentOwnerRef
 } from '@share/cache/worldbuilding/worldEntityDocument'
 import type { UpsertCharacterImpressionInput } from '@share/cache/worldbuilding/characterImpression'
+import type { RestoreWorldDocumentCommitInput } from '@share/cache/worldbuilding/worldDocumentHistory'
 import { taskService } from '../task/taskService'
 import { createConfiguredModelRuntime } from './model-adapters/modelProviderAdapter'
 import { contentToText } from './messageoutput/transformRespones'
@@ -512,7 +519,21 @@ export function initializeAIEndpoints(): void {
   ipcMain.handle(
     'worldEntityDocument:update',
     async (event, input: UpdateWorldEntityDocumentInput) => {
-      const document = await worldEntityDocumentService.updateDocument(input)
+      const historySessionId = String(input.historySessionId || '').trim()
+      const document = await worldEntityDocumentService.updateDocument(
+        input,
+        undefined,
+        historySessionId
+          ? {
+              changeSetId: `human:${historySessionId}`,
+              deferCommit: true,
+              editSource:
+                input.contentHtml === undefined
+                  ? undefined
+                  : { format: 'html_editor', content: input.contentHtml }
+            }
+          : undefined
+      )
       worldEntityDocumentChangePublisher.publish(
         {
           changeType: 'updated',
@@ -525,8 +546,39 @@ export function initializeAIEndpoints(): void {
     }
   )
 
+  ipcMain.handle('worldEntityDocument:commitHistorySession', async (_event, sessionId: string) => {
+    const normalizedSessionId = String(sessionId || '').trim()
+    if (!normalizedSessionId) return
+    await commitWorldDocumentChangeSet(`human:${normalizedSessionId}`, 'human')
+  })
+
+  ipcMain.handle(
+    'worldEntityDocument:history:list',
+    async (_event, worldId: string, limit?: number) =>
+      listWorldDocumentCommitHistory(worldId, limit)
+  )
+
+  ipcMain.handle('worldEntityDocument:history:get', async (_event, commitId: string) =>
+    getWorldDocumentCommitDetail(commitId)
+  )
+
+  ipcMain.handle(
+    'worldEntityDocument:history:restore',
+    async (_event, input: RestoreWorldDocumentCommitInput) => restoreWorldDocumentCommit(input)
+  )
+
   ipcMain.handle('worldEntityDocument:move', async (event, input: MoveWorldEntityDocumentInput) => {
-    const document = await worldEntityDocumentService.moveDocument(input)
+    const historySessionId = String(input.historySessionId || '').trim()
+    const document = await worldEntityDocumentService.moveDocument(
+      input,
+      undefined,
+      historySessionId
+        ? {
+            changeSetId: `human:${historySessionId}`,
+            deferCommit: true
+          }
+        : undefined
+    )
     worldEntityDocumentChangePublisher.publish(
       {
         changeType: 'moved',

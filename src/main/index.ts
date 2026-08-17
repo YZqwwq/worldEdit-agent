@@ -9,6 +9,7 @@ import { registerAppResourceProtocol } from './protocols/resourceProtocol'
 import { taskRecoveryService } from './services/task/taskRecoveryService'
 import { subAgentExecutionQueueService } from './services/task/queue/subAgentExecutionQueueService'
 import { mainAgentEventRecoveryService } from './services/aiservice/runtime/queue/mainAgentEventRecoveryQueueService'
+import { commitPendingWorldDocumentChangeSets } from './services/worldbuilding/worldDocumentVersionRepositoryService'
 
 function createWindow(): void {
   // Create the browser window.
@@ -68,6 +69,7 @@ app.whenReady().then(async () => {
 
   // 初始化数据库
   await initDatabase()
+  await commitPendingWorldDocumentChangeSets()
 
   await initMemoryStorage()
   registerAppResourceProtocol()

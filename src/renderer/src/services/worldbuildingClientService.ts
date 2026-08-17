@@ -23,6 +23,12 @@ import type {
   WorldEntityDocumentOwnerRef,
   WorldEntityDocumentPayload
 } from '@share/cache/worldbuilding/worldEntityDocument'
+import type {
+  RestoreWorldDocumentCommitInput,
+  RestoreWorldDocumentCommitResult,
+  WorldDocumentCommitDetailPayload,
+  WorldDocumentCommitHistoryPayload
+} from '@share/cache/worldbuilding/worldDocumentHistory'
 
 export const worldbuildingClientService = {
   listWorlds(): Promise<WorldPayload[]> {
@@ -59,10 +65,7 @@ export const worldbuildingClientService = {
     return window.api.getWorldSchemaCatalog()
   },
 
-  listEntities(
-    worldId: string,
-    type?: WorldEntityPayload['type']
-  ): Promise<WorldEntityPayload[]> {
+  listEntities(worldId: string, type?: WorldEntityPayload['type']): Promise<WorldEntityPayload[]> {
     return window.api.listWorldEntities(worldId, type)
   },
 
@@ -120,5 +123,26 @@ export const worldbuildingClientService = {
 
   deleteWorldEntityDocument(input: DeleteWorldEntityDocumentInput): Promise<void> {
     return window.api.deleteWorldEntityDocument(input)
+  },
+
+  commitWorldEntityDocumentHistorySession(sessionId: string): Promise<void> {
+    return window.api.commitWorldEntityDocumentHistorySession(sessionId)
+  },
+
+  listWorldDocumentCommitHistory(
+    worldId: string,
+    limit?: number
+  ): Promise<WorldDocumentCommitHistoryPayload> {
+    return window.api.listWorldDocumentCommitHistory(worldId, limit)
+  },
+
+  getWorldDocumentCommitDetail(commitId: string): Promise<WorldDocumentCommitDetailPayload | null> {
+    return window.api.getWorldDocumentCommitDetail(commitId)
+  },
+
+  restoreWorldDocumentCommit(
+    input: RestoreWorldDocumentCommitInput
+  ): Promise<RestoreWorldDocumentCommitResult> {
+    return window.api.restoreWorldDocumentCommit(input)
   }
 }

@@ -28,6 +28,10 @@ import { WorldEntityManualMentionRecord } from '../../share/entity/database/Worl
 import { MainAgentToolEffectReceiptRecord } from '../../share/entity/database/MainAgentToolEffectReceiptRecord'
 import { MainAgentChangeSetRecord } from '../../share/entity/database/MainAgentChangeSetRecord'
 import { AgentArtifactRecord } from '../../share/entity/database/AgentArtifactRecord'
+import { WorldDocumentContentVersionRecord } from '../../share/entity/database/WorldDocumentContentVersionRecord'
+import { WorldDocumentTreeObjectRecord } from '../../share/entity/database/WorldDocumentTreeObjectRecord'
+import { WorldDocumentCommitRecord } from '../../share/entity/database/WorldDocumentCommitRecord'
+import { WorldDocumentChangeRecord } from '../../share/entity/database/WorldDocumentChangeRecord'
 import { migrateWorldEntityDocuments } from './migrations/migrateWorldEntityDocuments'
 
 // 数据库文件路径：UserData/database.sqlite
@@ -64,6 +68,10 @@ export const AppDataSource = new DataSource({
     MainAgentToolEffectReceiptRecord,
     MainAgentChangeSetRecord,
     AgentArtifactRecord,
+    WorldDocumentContentVersionRecord,
+    WorldDocumentTreeObjectRecord,
+    WorldDocumentCommitRecord,
+    WorldDocumentChangeRecord,
     CharacterImpressionRecord,
     ToolUsageStatsRecord
   ],

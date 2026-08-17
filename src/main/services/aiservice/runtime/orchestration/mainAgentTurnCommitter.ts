@@ -18,6 +18,7 @@ import { agentArtifactService } from '../../artifacts/agentArtifactService'
 import type { AgentArtifactRecord } from '@share/entity/database/AgentArtifactRecord'
 import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAgentMessageContentService'
 import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
+import { commitWorldDocumentChangeSetWithManager } from '../../../worldbuilding/worldDocumentVersionService'
 
 export type MainAgentTurnCommitInput = Pick<
   MainAgentCommitTurnEffect,
@@ -177,7 +178,10 @@ class MainAgentTurnCommitter {
         await eventRepo.save(event)
       }
 
-      await sealTurnChangeSetWithManager(manager, input.eventId, input.turnId)
+      const changeSet = await sealTurnChangeSetWithManager(manager, input.eventId, input.turnId)
+      if (changeSet) {
+        await commitWorldDocumentChangeSetWithManager(manager, changeSet.id, 'agent')
+      }
 
       const finalVersion = await persistFinalTurnVersionWithManager(manager, {
         turn,

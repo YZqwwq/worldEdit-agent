@@ -45,6 +45,12 @@ import type {
   UpsertCharacterImpressionInput
 } from '../share/cache/worldbuilding/characterImpression'
 import type { AgentArtifactPayload } from '../share/cache/AItype/states/agentArtifact'
+import type {
+  RestoreWorldDocumentCommitInput,
+  RestoreWorldDocumentCommitResult,
+  WorldDocumentCommitDetailPayload,
+  WorldDocumentCommitHistoryPayload
+} from '../share/cache/worldbuilding/worldDocumentHistory'
 
 declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
@@ -176,6 +182,17 @@ declare global {
       input: MoveWorldEntityDocumentInput
     ) => Promise<WorldEntityDocumentPayload>
     deleteWorldEntityDocument: (input: DeleteWorldEntityDocumentInput) => Promise<void>
+    commitWorldEntityDocumentHistorySession: (sessionId: string) => Promise<void>
+    listWorldDocumentCommitHistory: (
+      worldId: string,
+      limit?: number
+    ) => Promise<WorldDocumentCommitHistoryPayload>
+    getWorldDocumentCommitDetail: (
+      commitId: string
+    ) => Promise<WorldDocumentCommitDetailPayload | null>
+    restoreWorldDocumentCommit: (
+      input: RestoreWorldDocumentCommitInput
+    ) => Promise<RestoreWorldDocumentCommitResult>
     onWorldEntityDocumentChanged: (
       callback: (change: WorldEntityDocumentChangeEvent) => void
     ) => () => void

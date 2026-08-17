@@ -20,9 +20,12 @@ npm run test:turn-version
 
 # 独立进程故障注入与崩溃恢复（不在默认核心回归中）
 npm run test:turn-recovery-process
+
+# Git 式文档内容、树提交与恢复
+RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 ```
 
-`test:turn-recovery-process` 必须使用与 `better-sqlite3` 编译 ABI 一致的运行时。Electron 重建后的 native 模块不能由普通 Node 直接加载；出现 `NODE_MODULE_VERSION` 不一致时属于测试运行环境问题，不代表故障边界断言已经执行。
+`test:turn-recovery-process` 和启用 SQLite 的 `test:document-version` 必须使用与 `better-sqlite3` 编译 ABI 一致的运行时。Electron 重建后的 native 模块不能由普通 Node 直接加载；出现 `NODE_MODULE_VERSION` 不一致时属于测试运行环境问题，不代表故障边界断言已经执行。
 
 ## 文件组织
 

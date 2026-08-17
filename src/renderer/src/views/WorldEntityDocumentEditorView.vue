@@ -19,7 +19,9 @@
         >
           <span class="sidebar-icon back-icon" aria-hidden="true">‹</span>
         </button>
-        <span class="sidebar-world-name" :title="worldDetail?.name">{{ worldDetail?.name || '世界文档库' }}</span>
+        <span class="sidebar-world-name" :title="worldDetail?.name">{{
+          worldDetail?.name || '世界文档库'
+        }}</span>
         <button type="button" class="sidebar-menu-btn" aria-label="更多">...</button>
       </header>
 
@@ -32,11 +34,7 @@
               aria-label="选择文本分类"
               @change="handleDocumentScopeChange"
             >
-              <option
-                v-for="option in entityTypeOptions"
-                :key="option.value"
-                :value="option.value"
-              >
+              <option v-for="option in entityTypeOptions" :key="option.value" :value="option.value">
                 {{ option.label }}
               </option>
             </select>
@@ -152,7 +150,9 @@
                 @click="activateCatalogEntity(entity)"
               >
                 <span>{{ entity.name }}</span>
-                <small v-if="selectedEntityType === 'all'">{{ getEntityTypeLabel(entity.type) }}</small>
+                <small v-if="selectedEntityType === 'all'">{{
+                  getEntityTypeLabel(entity.type)
+                }}</small>
               </button>
               <button
                 type="button"
@@ -191,7 +191,8 @@
               :class="{
                 active: row.id === activeDocumentId,
                 dragging: row.id === draggingDocumentId,
-                'drop-before': dropTarget?.documentId === row.id && dropTarget.position === 'before',
+                'drop-before':
+                  dropTarget?.documentId === row.id && dropTarget.position === 'before',
                 'drop-after': dropTarget?.documentId === row.id && dropTarget.position === 'after',
                 'drop-inside': dropTarget?.documentId === row.id && dropTarget.position === 'inside'
               }"
@@ -203,32 +204,34 @@
               @drop.prevent="handleNarrativeDrop"
               @dragend="clearNarrativeDragState"
             >
-            <button
-              type="button"
-              class="catalog-tree-item"
-              @click="selectNarrativeDocument(row.id)"
-            >
-              <span class="catalog-tree-caret" aria-hidden="true">{{ row.children.length ? '⌄' : '' }}</span>
-              <span class="catalog-tree-title">{{ row.title }}</span>
-            </button>
-            <button
-              type="button"
-              class="catalog-row-action"
-              aria-label="新建子文件"
-              title="新建子文件"
-              @click.stop="createNarrativeDocument(row.id)"
-            >
-              +
-            </button>
-            <button
-              type="button"
-              class="catalog-row-action danger"
-              aria-label="删除文件"
-              title="删除文件"
-              @click.stop="openNarrativeDeleteConfirm(row.id)"
-            >
-              ×
-            </button>
+              <button
+                type="button"
+                class="catalog-tree-item"
+                @click="selectNarrativeDocument(row.id)"
+              >
+                <span class="catalog-tree-caret" aria-hidden="true">{{
+                  row.children.length ? '⌄' : ''
+                }}</span>
+                <span class="catalog-tree-title">{{ row.title }}</span>
+              </button>
+              <button
+                type="button"
+                class="catalog-row-action"
+                aria-label="新建子文件"
+                title="新建子文件"
+                @click.stop="createNarrativeDocument(row.id)"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                class="catalog-row-action danger"
+                aria-label="删除文件"
+                title="删除文件"
+                @click.stop="openNarrativeDeleteConfirm(row.id)"
+              >
+                ×
+              </button>
             </div>
           </template>
         </div>
@@ -247,14 +250,17 @@
     <section class="narrative-main">
       <div class="format-toolbar" role="toolbar" aria-label="文本编辑工具栏">
         <div class="toolbar-group toolbar-group-primary">
-          <button type="button" class="toolbar-add-btn" aria-label="新增文件" @click="createNarrativeDocument()">+</button>
+          <button
+            type="button"
+            class="toolbar-add-btn"
+            aria-label="新增文件"
+            @click="createNarrativeDocument()"
+          >
+            +
+          </button>
         </div>
 
-        <div
-          v-for="(group, groupIndex) in toolbarGroups"
-          :key="groupIndex"
-          class="toolbar-group"
-        >
+        <div v-for="(group, groupIndex) in toolbarGroups" :key="groupIndex" class="toolbar-group">
           <button
             v-for="item in group"
             :key="item.label"
@@ -289,13 +295,24 @@
           >
             AI
           </button>
+          <button
+            type="button"
+            class="toolbar-tool history-panel-toggle"
+            :class="{ active: showNarrativeHistoryPanel }"
+            :aria-pressed="showNarrativeHistoryPanel"
+            aria-label="打开文档版本历史"
+            title="版本历史"
+            @click="toggleNarrativeHistoryPanel"
+          >
+            历史
+          </button>
         </div>
       </div>
 
       <main
         v-if="activeDocument"
         class="editor-workspace"
-        :class="{ 'ai-panel-open': showNarrativeAiPanel }"
+        :class="{ 'ai-panel-open': showNarrativeAiPanel || showNarrativeHistoryPanel }"
       >
         <WorldRichTextAppearancePanel
           v-if="showAppearancePanel"
@@ -330,11 +347,10 @@
               @stats-change="characterEditorStats = $event"
             />
           </div>
-
         </section>
 
         <div
-          v-if="showNarrativeAiPanel"
+          v-if="showNarrativeAiPanel || showNarrativeHistoryPanel"
           class="narrative-ai-resizer"
           role="separator"
           aria-orientation="vertical"
@@ -345,6 +361,106 @@
 
         <aside v-if="showNarrativeAiPanel" class="narrative-ai-panel">
           <CompactAIChatPanel @close="showNarrativeAiPanel = false" />
+        </aside>
+
+        <aside v-else-if="showNarrativeHistoryPanel" class="narrative-history-panel">
+          <header class="history-panel-head">
+            <div>
+              <strong>版本历史</strong>
+              <small>整个世界文档库</small>
+            </div>
+            <button
+              type="button"
+              aria-label="关闭版本历史"
+              @click="showNarrativeHistoryPanel = false"
+            >
+              ×
+            </button>
+          </header>
+
+          <div v-if="historyLoading" class="history-panel-state">正在读取历史...</div>
+          <div v-else-if="historyError" class="history-panel-state error">{{ historyError }}</div>
+          <div v-else-if="documentHistory.commits.length === 0" class="history-panel-state">
+            尚无正式版本
+          </div>
+          <div v-else class="history-panel-body">
+            <nav class="history-commit-list" aria-label="文档版本列表">
+              <button
+                v-for="commit in documentHistory.commits"
+                :key="commit.id"
+                type="button"
+                class="history-commit-item"
+                :class="{ active: selectedHistoryCommitId === commit.id }"
+                @click="selectHistoryCommit(commit.id)"
+              >
+                <span class="history-commit-title">{{
+                  commit.summary || `版本 #${commit.sequence}`
+                }}</span>
+                <span class="history-commit-meta">
+                  #{{ commit.sequence }} · {{ historyOriginLabel(commit.origin) }} ·
+                  {{ formatHistoryTime(commit.createdAt) }}
+                </span>
+                <span class="history-commit-count">{{ commit.changeCount }} 项变化</span>
+              </button>
+            </nav>
+
+            <section class="history-detail">
+              <div v-if="historyDetailLoading" class="history-panel-state">正在生成 Diff...</div>
+              <template v-else-if="selectedHistoryDetail">
+                <header class="history-detail-head">
+                  <div>
+                    <strong>版本 #{{ selectedHistoryDetail.commit.sequence }}</strong>
+                    <small>{{ selectedHistoryDetail.commit.summary }}</small>
+                  </div>
+                  <button
+                    type="button"
+                    class="history-restore-btn"
+                    :disabled="
+                      restoringHistory ||
+                      selectedHistoryDetail.commit.id === documentHistory.headCommitId
+                    "
+                    @click="showHistoryRestoreConfirm = true"
+                  >
+                    {{
+                      selectedHistoryDetail.commit.id === documentHistory.headCommitId
+                        ? '当前版本'
+                        : '恢复到这里'
+                    }}
+                  </button>
+                </header>
+
+                <article
+                  v-for="change in selectedHistoryDetail.changes"
+                  :key="change.id"
+                  class="history-change"
+                >
+                  <header>
+                    <span class="history-operation" :class="change.operation">
+                      {{ historyOperationLabel(change.operation) }}
+                    </span>
+                    <strong>{{
+                      change.after?.title || change.before?.title || '未命名文档'
+                    }}</strong>
+                  </header>
+                  <p v-if="describeHistoryMetadataChange(change)">
+                    {{ describeHistoryMetadataChange(change) }}
+                  </p>
+                  <div v-if="change.contentDiff" class="history-diff">
+                    <div class="history-diff-summary">
+                      <span class="added">+{{ change.contentDiff.addedLines }}</span>
+                      <span class="removed">-{{ change.contentDiff.removedLines }}</span>
+                    </div>
+                    <pre><span
+                      v-for="(line, index) in change.contentDiff.lines"
+                      :key="index"
+                      :class="line.kind"
+                    >{{ line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : ' ' }} {{ line.text }}
+</span></pre>
+                  </div>
+                </article>
+              </template>
+            </section>
+          </div>
         </aside>
 
         <aside v-else class="outline-panel">
@@ -368,9 +484,7 @@
         <button type="button" @click="createNarrativeDocument()">新建文档</button>
       </main>
 
-      <main v-else class="editor-loading">
-        从左侧选择一个实体以打开文档
-      </main>
+      <main v-else class="editor-loading">从左侧选择一个实体以打开文档</main>
     </section>
 
     <ConfirmDialog
@@ -384,6 +498,17 @@
       :loading="deletingNarrativeDocument"
       @confirm="confirmDeleteNarrativeDocument"
       @cancel="cancelNarrativeDeleteConfirm"
+    />
+    <ConfirmDialog
+      v-model="showHistoryRestoreConfirm"
+      title="恢复整个文档库？"
+      :message="historyRestoreConfirmMessage"
+      confirm-text="创建恢复版本"
+      loading-text="正在恢复..."
+      icon="warning"
+      size="lg"
+      :loading="restoringHistory"
+      @confirm="confirmHistoryRestore"
     />
   </div>
 </template>
@@ -405,6 +530,13 @@ import {
   type WorldEntityDocumentChangeEvent,
   type WorldEntityDocumentPayload
 } from '@share/cache/worldbuilding/worldEntityDocument'
+import type {
+  WorldDocumentCommitChangePayload,
+  WorldDocumentCommitDetailPayload,
+  WorldDocumentCommitHistoryPayload,
+  WorldDocumentHistoryOperation,
+  WorldDocumentHistoryOrigin
+} from '@share/cache/worldbuilding/worldDocumentHistory'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import { agentWorkspaceContextService } from '../services/agentWorkspaceContextService'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
@@ -437,8 +569,7 @@ type DocumentCatalogScope = WorldEntityDocumentOwnerType | 'all' | 'basic_settin
 
 const NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY =
   'worldedit.worldEntityDocuments.sidebarWidthRatio.v1'
-const NARRATIVE_AI_PANEL_WIDTH_STORAGE_KEY =
-  'worldedit.worldEntityDocuments.aiPanelWidth.v1'
+const NARRATIVE_AI_PANEL_WIDTH_STORAGE_KEY = 'worldedit.worldEntityDocuments.aiPanelWidth.v1'
 const DEFAULT_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.185
 const MIN_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.1
 const MAX_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.2
@@ -473,14 +604,25 @@ const dropTarget = ref<{ documentId: string; position: NarrativeDropPosition } |
 const narrativeSidebarWidth = ref(356)
 const resizingNarrativeSidebar = ref(false)
 const showNarrativeAiPanel = ref(false)
+const showNarrativeHistoryPanel = ref(false)
 const narrativeAiPanelWidth = ref(DEFAULT_NARRATIVE_AI_PANEL_WIDTH)
 const resizingNarrativeAiPanel = ref(false)
+const historyLoading = ref(false)
+const historyDetailLoading = ref(false)
+const historyError = ref('')
+const documentHistory = ref<WorldDocumentCommitHistoryPayload>({ commits: [] })
+const selectedHistoryCommitId = ref('')
+const selectedHistoryDetail = ref<WorldDocumentCommitDetailPayload | null>(null)
+const showHistoryRestoreConfirm = ref(false)
+const restoringHistory = ref(false)
 
 let syncingFromDetail = false
 let narrativeAutosaveTimer: ReturnType<typeof setTimeout> | null = null
+let narrativeHistoryCommitTimer: ReturnType<typeof setTimeout> | null = null
 let narrativeSaveQueued = false
 let lastSavedNarrativeSignature = ''
 let removeDocumentChangeListener: (() => void) | null = null
+let narrativeHistorySessionId = crypto.randomUUID()
 
 const worldId = computed(() => String(route.params.worldId || ''))
 const entityId = computed(() => String(route.params.entityId || ''))
@@ -521,7 +663,9 @@ const catalogEntities = computed(() => {
   const query = entitySearchQuery.value.trim().toLocaleLowerCase()
   return worldEntities.value
     .filter((entity) => isWorldEntityDocumentOwnerType(entity.type))
-    .filter((entity) => selectedEntityType.value === 'all' || entity.type === selectedEntityType.value)
+    .filter(
+      (entity) => selectedEntityType.value === 'all' || entity.type === selectedEntityType.value
+    )
     .filter((entity) => !query || entity.name.toLocaleLowerCase().includes(query))
     .sort((a, b) => {
       const typeCompare =
@@ -559,9 +703,7 @@ const activeDocumentOwner = computed<WorldEntityDocumentOwnerRef | null>(() => {
     return { kind: 'world', worldId: worldId.value }
   }
   const entity = entityDetail.value?.entity
-  return entity
-    ? { kind: 'entity', worldId: worldId.value, entityId: entity.id }
-    : null
+  return entity ? { kind: 'entity', worldId: worldId.value, entityId: entity.id } : null
 })
 
 watch(
@@ -600,9 +742,7 @@ watch(
 
 const canCreateNarrativeDocument = computed(() => Boolean(activeDocumentOwner.value))
 const currentDocumentOwnerLabel = computed(() =>
-  isBasicSettingsScope.value
-    ? '基础设定'
-    : entityDetail.value?.entity.name || '世界文档'
+  isBasicSettingsScope.value ? '基础设定' : entityDetail.value?.entity.name || '世界文档'
 )
 const narrativeTree = computed<NarrativeTreeNode[]>(() => {
   const byParent = new Map<string, WorldEntityDocumentPayload[]>()
@@ -789,7 +929,9 @@ const persistNarrativeAiPanelWidth = (): void => {
 
 const persistNarrativeSidebarWidth = (): void => {
   if (typeof window === 'undefined') return
-  const ratio = clampNarrativeSidebarRatio(narrativeSidebarWidth.value / getNarrativeViewportWidth())
+  const ratio = clampNarrativeSidebarRatio(
+    narrativeSidebarWidth.value / getNarrativeViewportWidth()
+  )
   window.localStorage.setItem(NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY, ratio.toFixed(4))
 }
 
@@ -848,6 +990,141 @@ const startNarrativeAiPanelResize = (event: MouseEvent): void => {
 
 const toggleNarrativeAiPanel = (): void => {
   showNarrativeAiPanel.value = !showNarrativeAiPanel.value
+  if (showNarrativeAiPanel.value) showNarrativeHistoryPanel.value = false
+}
+
+const historyOriginLabel = (origin: WorldDocumentHistoryOrigin): string => {
+  if (origin === 'agent') return 'Agent'
+  if (origin === 'human') return '手动编辑'
+  return '系统'
+}
+
+const historyOperationLabel = (operation: WorldDocumentHistoryOperation): string => {
+  if (operation === 'create') return '新增'
+  if (operation === 'delete') return '删除'
+  if (operation === 'move') return '移动'
+  if (operation === 'mixed') return '组合修改'
+  return '修改'
+}
+
+const formatHistoryTime = (value: string): string => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+
+const describeHistoryMetadataChange = (change: WorldDocumentCommitChangePayload): string => {
+  if (!change.before && change.after) return `加入到「${change.after.title}」所在目录。`
+  if (change.before && !change.after) return `从文档树删除「${change.before.title}」。`
+  if (!change.before || !change.after) return ''
+  const descriptions: string[] = []
+  if (change.before.title !== change.after.title) {
+    descriptions.push(`重命名：${change.before.title} → ${change.after.title}`)
+  }
+  if (change.before.parentDocumentId !== change.after.parentDocumentId) {
+    descriptions.push('文档位置发生变化')
+  } else if (change.before.sortKey !== change.after.sortKey) {
+    descriptions.push('文档顺序发生变化')
+  }
+  return descriptions.join('；')
+}
+
+const selectHistoryCommit = async (commitId: string): Promise<void> => {
+  selectedHistoryCommitId.value = commitId
+  selectedHistoryDetail.value = null
+  historyDetailLoading.value = true
+  try {
+    selectedHistoryDetail.value =
+      await worldbuildingClientService.getWorldDocumentCommitDetail(commitId)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '读取版本详情失败'
+  } finally {
+    historyDetailLoading.value = false
+  }
+}
+
+const loadNarrativeHistory = async (preferredCommitId?: string): Promise<void> => {
+  if (!worldId.value) return
+  historyLoading.value = true
+  historyError.value = ''
+  try {
+    const history = await worldbuildingClientService.listWorldDocumentCommitHistory(
+      worldId.value,
+      50
+    )
+    documentHistory.value = history
+    const targetId =
+      (preferredCommitId && history.commits.some((commit) => commit.id === preferredCommitId)
+        ? preferredCommitId
+        : history.commits[0]?.id) ?? ''
+    if (targetId) await selectHistoryCommit(targetId)
+    else {
+      selectedHistoryCommitId.value = ''
+      selectedHistoryDetail.value = null
+    }
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '读取版本历史失败'
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+const toggleNarrativeHistoryPanel = async (): Promise<void> => {
+  showNarrativeHistoryPanel.value = !showNarrativeHistoryPanel.value
+  if (!showNarrativeHistoryPanel.value) return
+  showNarrativeAiPanel.value = false
+  clearNarrativeAutosave()
+  await saveNarrative(true, { fallbackBlankTitle: true })
+  await loadNarrativeHistory()
+}
+
+const historyRestoreConfirmMessage = computed(() => {
+  const commit = selectedHistoryDetail.value?.commit
+  if (!commit) return '系统会创建一个新的恢复版本，不会删除现有历史。'
+  return `将整个世界文档库恢复到版本 #${commit.sequence}。这可能同时恢复、移动或删除多份文档。系统会创建一个新的恢复版本，现有历史不会被删除。`
+})
+
+const reloadNarrativeDocumentsAfterRestore = async (): Promise<void> => {
+  const owner = activeDocumentOwner.value
+  if (!owner) return
+  const previousDocumentId = activeDocumentId.value
+  const documents = await worldbuildingClientService.listWorldEntityDocuments(owner)
+  narrativeDocuments.value = documents
+  syncNarrativeFromDocument(
+    documents.find((document) => document.id === previousDocumentId) ?? documents[0] ?? null
+  )
+}
+
+const confirmHistoryRestore = async (): Promise<void> => {
+  const targetCommitId = selectedHistoryDetail.value?.commit.id
+  if (!targetCommitId || restoringHistory.value) return
+  restoringHistory.value = true
+  historyError.value = ''
+  try {
+    clearNarrativeAutosave()
+    await saveNarrative(true, { fallbackBlankTitle: true })
+    const freshHistory = await worldbuildingClientService.listWorldDocumentCommitHistory(
+      worldId.value,
+      1
+    )
+    if (!freshHistory.headCommitId) throw new Error('当前文档历史缺少可恢复的 HEAD。')
+    const result = await worldbuildingClientService.restoreWorldDocumentCommit({
+      targetCommitId,
+      expectedHeadCommitId: freshHistory.headCommitId
+    })
+    showHistoryRestoreConfirm.value = false
+    await reloadNarrativeDocumentsAfterRestore()
+    await loadNarrativeHistory(result.commit.id)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '恢复文档历史失败'
+  } finally {
+    restoringHistory.value = false
+  }
 }
 
 useAppTitleBar(
@@ -889,7 +1166,10 @@ const handleNarrativeTitleBlur = (): void => {
 }
 
 const getLegacyNarrativeHtml = (): string => {
-  const profile = getCharacterComponentByType<CharacterProfileData>(entityDetail.value, 'character_profile')
+  const profile = getCharacterComponentByType<CharacterProfileData>(
+    entityDetail.value,
+    'character_profile'
+  )
   return String(profile?.data?.description || '')
 }
 
@@ -898,8 +1178,13 @@ const syncAppearanceFromDetail = (): void => {
     characterEditorAppearance.value = DEFAULT_WORLD_RICH_TEXT_APPEARANCE
     return
   }
-  const profile = getCharacterComponentByType<CharacterProfileData>(entityDetail.value, 'character_profile')
-  characterEditorAppearance.value = normalizeWorldRichTextAppearance(profile?.data?.editorAppearance)
+  const profile = getCharacterComponentByType<CharacterProfileData>(
+    entityDetail.value,
+    'character_profile'
+  )
+  characterEditorAppearance.value = normalizeWorldRichTextAppearance(
+    profile?.data?.editorAppearance
+  )
 }
 
 const syncNarrativeFromDocument = (document: WorldEntityDocumentPayload | null): void => {
@@ -960,7 +1245,9 @@ const canMoveNarrativeDocumentToParent = (
 const applyNarrativeDocumentUpdates = (updates: WorldEntityDocumentPayload[]): void => {
   if (updates.length === 0) return
   const updateMap = new Map(updates.map((document) => [document.id, document]))
-  narrativeDocuments.value = narrativeDocuments.value.map((document) => updateMap.get(document.id) ?? document)
+  narrativeDocuments.value = narrativeDocuments.value.map(
+    (document) => updateMap.get(document.id) ?? document
+  )
 }
 
 const moveDocumentsIntoOrderedSiblings = async (
@@ -968,18 +1255,20 @@ const moveDocumentsIntoOrderedSiblings = async (
   orderedSiblingIds: string[]
 ): Promise<void> => {
   const uniqueSiblingIds = [...new Set(orderedSiblingIds)]
+  const historySessionId = crypto.randomUUID()
   const updates = await Promise.all(
     uniqueSiblingIds.map((documentId, index) =>
       worldbuildingClientService.moveWorldEntityDocument({
         documentId,
-        expectedRevision:
-          narrativeDocumentById.value.get(documentId)?.revision ?? 1,
+        expectedRevision: narrativeDocumentById.value.get(documentId)?.revision ?? 1,
         parentDocumentId,
-        sortKey: createSortKeyForIndex(index)
+        sortKey: createSortKeyForIndex(index),
+        historySessionId
       })
     )
   )
   applyNarrativeDocumentUpdates(updates)
+  await worldbuildingClientService.commitWorldEntityDocumentHistorySession(historySessionId)
 }
 
 const placeNarrativeDocument = async (
@@ -1026,7 +1315,8 @@ const handleNarrativeDragOver = (documentId: string, event: DragEvent): void => 
   const position = getNarrativeDropPosition(event)
   const targetDocument = getNarrativeDocument(documentId)
   if (!targetDocument) return
-  const parentDocumentId = position === 'inside' ? targetDocument.id : targetDocument.parentDocumentId || null
+  const parentDocumentId =
+    position === 'inside' ? targetDocument.id : targetDocument.parentDocumentId || null
   if (!canMoveNarrativeDocumentToParent(draggedId, parentDocumentId)) {
     dropTarget.value = null
     return
@@ -1173,9 +1463,7 @@ const loadDocumentWorkspace = async (): Promise<void> => {
       isWorldEntityDocumentOwnerType(entity.type)
     )
     const initialEntity =
-      documentEntities.find((entity) => entity.id === entityId.value) ??
-      documentEntities[0] ??
-      null
+      documentEntities.find((entity) => entity.id === entityId.value) ?? documentEntities[0] ?? null
     if (!initialEntity) {
       await loadEntityDetail('')
       return
@@ -1256,7 +1544,8 @@ const selectNarrativeDocument = async (documentId: string): Promise<void> => {
   if (documentId === activeDocumentId.value) return
   clearNarrativeAutosave()
   await saveNarrative(true, { fallbackBlankTitle: true })
-  const nextDocument = narrativeDocuments.value.find((document) => document.id === documentId) ?? null
+  const nextDocument =
+    narrativeDocuments.value.find((document) => document.id === documentId) ?? null
   syncNarrativeFromDocument(nextDocument)
 }
 
@@ -1335,7 +1624,10 @@ const saveNarrative = async (
   options: { fallbackBlankTitle?: boolean } = {}
 ): Promise<void> => {
   if (!canSaveNarrative.value || !activeDocument.value) return
-  if (!force && narrativeAutosaveSignature.value === lastSavedNarrativeSignature) return
+  if (narrativeAutosaveSignature.value === lastSavedNarrativeSignature) {
+    if (force) await commitNarrativeHistorySession()
+    return
+  }
   if (savingNarrative.value) {
     narrativeSaveQueued = true
     return
@@ -1355,17 +1647,17 @@ const saveNarrative = async (
       expectedRevision: activeDocument.value.revision,
       ...(titleForSave ? { title: titleForSave } : {}),
       contentHtml: characterDescriptionInput.value,
-      contentFormat: 'html'
+      contentFormat: 'html',
+      historySessionId: narrativeHistorySessionId
     })
     replaceNarrativeDocument(updated)
     lastSavedNarrativeSignature = signatureAtSave
     narrativeSaveState.value = 'saved'
+    if (force) await commitNarrativeHistorySession()
+    else scheduleNarrativeHistoryCommit()
   } catch (error) {
     narrativeSaveState.value = 'error'
-    if (
-      error instanceof Error &&
-      error.message.toLocaleLowerCase().includes('revision conflict')
-    ) {
+    if (error instanceof Error && error.message.toLocaleLowerCase().includes('revision conflict')) {
       externalDocumentConflict.value = true
       clearNarrativeAutosave()
     }
@@ -1379,6 +1671,30 @@ const saveNarrative = async (
   }
 }
 
+const clearNarrativeHistoryCommit = (): void => {
+  if (narrativeHistoryCommitTimer) {
+    clearTimeout(narrativeHistoryCommitTimer)
+    narrativeHistoryCommitTimer = null
+  }
+}
+
+const commitNarrativeHistorySession = async (): Promise<void> => {
+  clearNarrativeHistoryCommit()
+  const sessionId = narrativeHistorySessionId
+  await worldbuildingClientService.commitWorldEntityDocumentHistorySession(sessionId)
+  if (sessionId === narrativeHistorySessionId) narrativeHistorySessionId = crypto.randomUUID()
+}
+
+const scheduleNarrativeHistoryCommit = (delay = 5000): void => {
+  clearNarrativeHistoryCommit()
+  narrativeHistoryCommitTimer = setTimeout(() => {
+    narrativeHistoryCommitTimer = null
+    void commitNarrativeHistorySession().catch(() => {
+      narrativeSaveState.value = 'error'
+    })
+  }, delay)
+}
+
 const clearNarrativeAutosave = (): void => {
   if (narrativeAutosaveTimer) {
     clearTimeout(narrativeAutosaveTimer)
@@ -1389,8 +1705,10 @@ const clearNarrativeAutosave = (): void => {
 const scheduleNarrativeAutosave = (delay = 700): void => {
   if (syncingFromDetail || externalDocumentConflict.value || !activeDocument.value) return
   clearNarrativeAutosave()
+  clearNarrativeHistoryCommit()
   if (narrativeTitleFocused.value) return
-  if (!canSaveNarrative.value || narrativeAutosaveSignature.value === lastSavedNarrativeSignature) return
+  if (!canSaveNarrative.value || narrativeAutosaveSignature.value === lastSavedNarrativeSignature)
+    return
   narrativeSaveState.value = 'idle'
   narrativeAutosaveTimer = setTimeout(() => {
     narrativeAutosaveTimer = null
@@ -1409,8 +1727,7 @@ const belongsToActiveOwner = (document: WorldEntityDocumentPayload): boolean => 
 }
 
 const hasUnsavedNarrativeChanges = (): boolean =>
-  savingNarrative.value ||
-  narrativeAutosaveSignature.value !== lastSavedNarrativeSignature
+  savingNarrative.value || narrativeAutosaveSignature.value !== lastSavedNarrativeSignature
 
 const handleExternalDocumentChange = async (
   change: WorldEntityDocumentChangeEvent
@@ -1435,9 +1752,7 @@ const handleExternalDocumentChange = async (
     return
   }
 
-  const document = await worldbuildingClientService.getWorldEntityDocument(
-    change.documentId
-  )
+  const document = await worldbuildingClientService.getWorldEntityDocument(change.documentId)
   if (!document || !belongsToActiveOwner(document)) return
   if (document.id === activeDocumentId.value) {
     if (hasUnsavedNarrativeChanges()) {
@@ -1468,6 +1783,7 @@ watch(narrativeAutosaveSignature, () => {
 
 onBeforeUnmount(() => {
   clearNarrativeAutosave()
+  void commitNarrativeHistorySession().catch(() => undefined)
   stopNarrativeSidebarResize()
   stopNarrativeAiPanelResize()
   window.removeEventListener('resize', syncNarrativeSidebarWidthBounds)
@@ -1501,7 +1817,9 @@ useKeyboardShortcut(
   width: 100vw;
   height: 100%;
   display: grid;
-  grid-template-columns: var(--narrative-sidebar-width) var(--narrative-sidebar-resizer-width) minmax(0, 1fr);
+  grid-template-columns:
+    var(--narrative-sidebar-width) var(--narrative-sidebar-resizer-width)
+    minmax(0, 1fr);
   overflow: hidden;
   background: var(--wb-narrative-bg);
   color: var(--wb-narrative-text);
@@ -2029,6 +2347,19 @@ useKeyboardShortcut(
   color: #315cff;
 }
 
+.history-panel-toggle {
+  min-width: 42px;
+  margin-left: 2px;
+  border: 1px solid transparent;
+  font-weight: 700;
+}
+
+.history-panel-toggle.active {
+  border-color: rgba(49, 92, 255, 0.22);
+  background: rgba(49, 92, 255, 0.09);
+  color: #315cff;
+}
+
 .editor-counts,
 .autosave-hint {
   color: var(--wb-narrative-text-faint);
@@ -2157,6 +2488,261 @@ useKeyboardShortcut(
   height: 100%;
   overflow: hidden;
   background: #ffffff;
+}
+
+.narrative-history-panel {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f8f9fb;
+}
+
+.history-panel-head,
+.history-detail-head,
+.history-change > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.history-panel-head {
+  min-height: 56px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+}
+
+.history-panel-head > div,
+.history-detail-head > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.history-panel-head strong,
+.history-detail-head strong {
+  color: var(--wb-narrative-text);
+  font-size: 14px;
+}
+
+.history-panel-head small,
+.history-detail-head small {
+  overflow: hidden;
+  color: var(--wb-narrative-text-faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-panel-head button {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--wb-narrative-text-muted);
+  font-size: 18px;
+}
+
+.history-panel-head button:hover {
+  background: #eef1f5;
+}
+
+.history-panel-state {
+  padding: 24px 16px;
+  color: var(--wb-narrative-text-faint);
+  font-size: 12px;
+  text-align: center;
+}
+
+.history-panel-state.error {
+  color: #c24141;
+}
+
+.history-panel-body {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.history-commit-list {
+  max-height: 190px;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+}
+
+.history-commit-item {
+  width: 100%;
+  padding: 9px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-bottom: 1px solid #f0f1f3;
+  text-align: left;
+}
+
+.history-commit-item:hover,
+.history-commit-item.active {
+  background: #f1f4ff;
+}
+
+.history-commit-item.active {
+  box-shadow: inset 3px 0 #315cff;
+}
+
+.history-commit-title {
+  overflow: hidden;
+  color: var(--wb-narrative-text);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-commit-meta,
+.history-commit-count {
+  color: var(--wb-narrative-text-faint);
+  font-size: 10px;
+}
+
+.history-detail {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.history-detail-head {
+  margin-bottom: 12px;
+}
+
+.history-restore-btn {
+  flex-shrink: 0;
+  padding: 6px 9px;
+  border: 1px solid #cdd6ff;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #315cff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.history-restore-btn:disabled {
+  border-color: #e1e4e8;
+  color: #a1a7b0;
+  cursor: default;
+}
+
+.history-change {
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--wb-narrative-border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.history-change > header {
+  justify-content: flex-start;
+}
+
+.history-change > header strong {
+  overflow: hidden;
+  color: var(--wb-narrative-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-change > p {
+  margin: 7px 0 0;
+  color: var(--wb-narrative-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.history-operation {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #eef1f5;
+  color: #5d6673;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.history-operation.create {
+  background: #e8f8ef;
+  color: #16834b;
+}
+
+.history-operation.delete {
+  background: #fff0f0;
+  color: #c24141;
+}
+
+.history-operation.move {
+  background: #eef1ff;
+  color: #315cff;
+}
+
+.history-diff {
+  margin-top: 9px;
+  overflow: hidden;
+  border: 1px solid #e4e7eb;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.history-diff-summary {
+  padding: 5px 8px;
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid #e4e7eb;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.history-diff-summary .added {
+  color: #16834b;
+}
+
+.history-diff-summary .removed {
+  color: #c24141;
+}
+
+.history-diff pre {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  color: #414854;
+  font:
+    10px/1.55 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+}
+
+.history-diff pre span {
+  min-height: 16px;
+  padding: 0 7px;
+  display: block;
+}
+
+.history-diff pre span.added {
+  background: #eaf8ef;
+  color: #147a45;
+}
+
+.history-diff pre span.removed {
+  background: #fff0f0;
+  color: #b83b3b;
 }
 
 .outline-panel h2 {
@@ -2329,6 +2915,10 @@ useKeyboardShortcut(
   .outline-panel,
   .narrative-ai-resizer,
   .narrative-ai-panel {
+    display: none;
+  }
+
+  .narrative-history-panel {
     display: none;
   }
 

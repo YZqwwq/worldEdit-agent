@@ -120,7 +120,10 @@ export const readWorldDocumentTool = defineAgentTool({
   inputSchema: z.object({ documentId: z.string().trim().min(1) }),
   outputSchema: z.object({ found: z.boolean(), document: documentSchema.nullable() }),
   metadata: {
-    whenToUse: ['需要读取当前文档或指定文档的完整 Markdown 正文', '写入前需要确认当前内容和 revision'],
+    whenToUse: [
+      '需要读取当前文档或指定文档的完整 Markdown 正文',
+      '写入前需要确认当前内容和 revision'
+    ],
     whenNotToUse: ['尚不知道 documentId，应先列出文档目录'],
     inputSummary: '提供 documentId。',
     outputSummary: '返回文档正文、归属和 revision。',
@@ -214,7 +217,11 @@ export const createWorldDocumentTool = defineAgentTool({
       },
       {
         operation: '创建世界观文档',
-        summary: `创建文档「${input.title}」`
+        summary: `创建文档「${input.title}」`,
+        editSource: {
+          format: 'markdown',
+          content: input.contentMarkdown ?? ''
+        }
       }
     )
     worldEntityDocumentChangePublisher.publish({
@@ -284,7 +291,11 @@ export const updateWorldDocumentTool = defineAgentTool({
       },
       {
         operation: '更新世界观文档',
-        summary: input.changeSummary
+        summary: input.changeSummary,
+        editSource:
+          input.contentMarkdown === undefined
+            ? undefined
+            : { format: 'markdown', content: input.contentMarkdown }
       }
     )
     worldEntityDocumentChangePublisher.publish({
@@ -462,7 +473,11 @@ export const deleteWorldDocumentTool = defineAgentTool({
     }
   },
   async execute(input) {
-    const deletedDocumentIds = await worldEntityDocumentService.deleteDocument(input)
+    const deletedDocumentIds = await worldEntityDocumentService.deleteDocument(input, {
+      operation: '删除世界观文档',
+      summary: '删除世界观文档及其子文档。',
+      compensatable: true
+    })
     worldEntityDocumentChangePublisher.publish({
       changeType: 'deleted',
       documentId: input.documentId,

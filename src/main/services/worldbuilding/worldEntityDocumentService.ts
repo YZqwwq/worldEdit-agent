@@ -14,6 +14,12 @@ import type {
 } from '@share/cache/worldbuilding/worldEntityDocument'
 import { isWorldEntityDocumentOwnerType } from '@share/cache/worldbuilding/worldEntityDocument'
 import { persistCompletedToolEffect } from '../toolEffects/toolEffectReceiptService'
+import { getToolEffectExecutionContext } from '../toolEffects/toolEffectExecutionContext'
+import {
+  commitWorldDocumentChangeSetWithManager,
+  stageWorldDocumentChangeWithManager,
+  type WorldDocumentEditSource
+} from './worldDocumentVersionService'
 
 const DEFAULT_SCHEMA_VERSION = 1
 const DEFAULT_DOCUMENT_TITLE = '新建文件'
@@ -31,6 +37,31 @@ export type WorldDocumentToolEffectInput = {
   summary: string
   payload?: Record<string, unknown>
   compensatable?: boolean
+  editSource?: WorldDocumentEditSource
+}
+
+export type WorldDocumentHistoryOptions = {
+  changeSetId: string
+  deferCommit?: boolean
+  editSource?: WorldDocumentEditSource
+}
+
+const resolveHistoryContext = (
+  effect?: WorldDocumentToolEffectInput,
+  history?: WorldDocumentHistoryOptions
+): {
+  changeSetId: string
+  deferCommit: boolean
+  origin: 'agent' | 'human'
+  editSource?: WorldDocumentEditSource
+} => {
+  const toolContext = getToolEffectExecutionContext()
+  return {
+    changeSetId: history?.changeSetId ?? toolContext?.changeSetId ?? `human:${randomUUID()}`,
+    deferCommit: history?.deferCommit ?? Boolean(toolContext),
+    origin: toolContext ? 'agent' : 'human',
+    editSource: history?.editSource ?? effect?.editSource
+  }
 }
 
 export class WorldEntityDocumentRevisionConflictError extends Error {
@@ -220,7 +251,8 @@ class WorldEntityDocumentService {
 
   async createDocument(
     input: CreateWorldEntityDocumentInput,
-    effect?: WorldDocumentToolEffectInput
+    effect?: WorldDocumentToolEffectInput,
+    history?: WorldDocumentHistoryOptions
   ): Promise<WorldEntityDocumentPayload> {
     return AppDataSource.transaction(async (manager) => {
       const documentRepo = manager.getRepository(WorldEntityDocumentRecord)
@@ -241,7 +273,8 @@ class WorldEntityDocumentService {
         revision: 1,
         schemaVersion: DEFAULT_SCHEMA_VERSION
       })
-      const document = toPayload(await documentRepo.save(record))
+      const savedRecord = await documentRepo.save(record)
+      const document = toPayload(savedRecord)
       if (effect) {
         await persistCompletedToolEffect(manager, {
           operation: effect.operation,
@@ -253,13 +286,33 @@ class WorldEntityDocumentService {
           compensatable: effect.compensatable
         })
       }
+      const historyContext = resolveHistoryContext(effect, history)
+      await stageWorldDocumentChangeWithManager(manager, {
+        changeSetId: historyContext.changeSetId,
+        operation: 'create',
+        before: null,
+        after: savedRecord,
+        source: historyContext.editSource ?? {
+          format: 'html_editor',
+          content: savedRecord.contentHtml
+        },
+        summary: effect?.summary ?? `创建文档「${document.title}」`
+      })
+      if (!historyContext.deferCommit) {
+        await commitWorldDocumentChangeSetWithManager(
+          manager,
+          historyContext.changeSetId,
+          historyContext.origin
+        )
+      }
       return document
     })
   }
 
   async updateDocument(
     input: UpdateWorldEntityDocumentInput,
-    effect?: WorldDocumentToolEffectInput
+    effect?: WorldDocumentToolEffectInput,
+    history?: WorldDocumentHistoryOptions
   ): Promise<WorldEntityDocumentPayload> {
     return AppDataSource.transaction(async (manager) => {
       const documentRepo = manager.getRepository(WorldEntityDocumentRecord)
@@ -302,7 +355,8 @@ class WorldEntityDocumentService {
           current?.revision ?? expectedRevision
         )
       }
-      const updated = toPayload(await documentRepo.findOneByOrFail({ id: document.id }))
+      const updatedRecord = await documentRepo.findOneByOrFail({ id: document.id })
+      const updated = toPayload(updatedRecord)
       if (effect) {
         await persistCompletedToolEffect(manager, {
           operation: effect.operation,
@@ -315,13 +369,36 @@ class WorldEntityDocumentService {
           compensatable: effect.compensatable
         })
       }
+      const historyContext = resolveHistoryContext(effect, history)
+      await stageWorldDocumentChangeWithManager(manager, {
+        changeSetId: historyContext.changeSetId,
+        operation: 'update',
+        before: document,
+        after: updatedRecord,
+        source:
+          input.contentHtml !== undefined
+            ? (historyContext.editSource ?? {
+                format: 'html_editor',
+                content: updatedRecord.contentHtml
+              })
+            : undefined,
+        summary: effect?.summary ?? `更新文档「${updated.title}」`
+      })
+      if (!historyContext.deferCommit) {
+        await commitWorldDocumentChangeSetWithManager(
+          manager,
+          historyContext.changeSetId,
+          historyContext.origin
+        )
+      }
       return updated
     })
   }
 
   async moveDocument(
     input: MoveWorldEntityDocumentInput,
-    effect?: WorldDocumentToolEffectInput
+    effect?: WorldDocumentToolEffectInput,
+    history?: WorldDocumentHistoryOptions
   ): Promise<WorldEntityDocumentPayload> {
     return AppDataSource.transaction(async (manager) => {
       const documentRepo = manager.getRepository(WorldEntityDocumentRecord)
@@ -383,7 +460,8 @@ class WorldEntityDocumentService {
           current?.revision ?? expectedRevision
         )
       }
-      const updated = toPayload(await documentRepo.findOneByOrFail({ id: document.id }))
+      const updatedRecord = await documentRepo.findOneByOrFail({ id: document.id })
+      const updated = toPayload(updatedRecord)
       if (effect) {
         await persistCompletedToolEffect(manager, {
           operation: effect.operation,
@@ -401,31 +479,82 @@ class WorldEntityDocumentService {
           compensatable: effect.compensatable
         })
       }
+      const historyContext = resolveHistoryContext(effect, history)
+      await stageWorldDocumentChangeWithManager(manager, {
+        changeSetId: historyContext.changeSetId,
+        operation: 'move',
+        before: document,
+        after: updatedRecord,
+        summary: effect?.summary ?? `移动文档「${updated.title}」`
+      })
+      if (!historyContext.deferCommit) {
+        await commitWorldDocumentChangeSetWithManager(
+          manager,
+          historyContext.changeSetId,
+          historyContext.origin
+        )
+      }
       return updated
     })
   }
 
-  async deleteDocument(input: DeleteWorldEntityDocumentInput): Promise<string[]> {
-    const normalizedDocumentId = String(input.documentId || '').trim()
-    if (!normalizedDocumentId) throw new Error('documentId is required')
-    const document = await this.documentRepo.findOneBy({ id: normalizedDocumentId })
-    if (!document) throw new WorldEntityDocumentNotFoundError('document', normalizedDocumentId)
+  async deleteDocument(
+    input: DeleteWorldEntityDocumentInput,
+    effect?: WorldDocumentToolEffectInput,
+    history?: WorldDocumentHistoryOptions
+  ): Promise<string[]> {
+    return AppDataSource.transaction(async (manager) => {
+      const documentRepo = manager.getRepository(WorldEntityDocumentRecord)
+      const normalizedDocumentId = String(input.documentId || '').trim()
+      if (!normalizedDocumentId) throw new Error('documentId is required')
+      const document = await documentRepo.findOneBy({ id: normalizedDocumentId })
+      if (!document) throw new WorldEntityDocumentNotFoundError('document', normalizedDocumentId)
 
-    const descendantIds = await this.collectDescendantIds(document.id)
-    if (descendantIds.length > 0 && !input.recursive) {
-      throw new WorldEntityDocumentConstraintError(
-        'Document has children; pass recursive=true to delete the subtree',
-        'RECURSIVE_DELETE_REQUIRED',
-        { descendantCount: descendantIds.length }
-      )
-    }
-    const idsToDelete = [document.id, ...descendantIds]
-    await this.documentRepo
-      .createQueryBuilder()
-      .delete()
-      .where('id IN (:...idsToDelete)', { idsToDelete })
-      .execute()
-    return idsToDelete
+      const descendantIds = await this.collectDescendantIds(document.id, manager)
+      if (descendantIds.length > 0 && !input.recursive) {
+        throw new WorldEntityDocumentConstraintError(
+          'Document has children; pass recursive=true to delete the subtree',
+          'RECURSIVE_DELETE_REQUIRED',
+          { descendantCount: descendantIds.length }
+        )
+      }
+      const idsToDelete = [document.id, ...descendantIds]
+      const deletedRecords = await documentRepo.findByIds(idsToDelete)
+      const historyContext = resolveHistoryContext(effect, history)
+      await documentRepo
+        .createQueryBuilder()
+        .delete()
+        .where('id IN (:...idsToDelete)', { idsToDelete })
+        .execute()
+      for (const deletedRecord of deletedRecords) {
+        await stageWorldDocumentChangeWithManager(manager, {
+          changeSetId: historyContext.changeSetId,
+          operation: 'delete',
+          before: deletedRecord,
+          after: null,
+          summary: effect?.summary ?? `删除文档「${deletedRecord.title}」`
+        })
+      }
+      if (effect) {
+        await persistCompletedToolEffect(manager, {
+          operation: effect.operation,
+          subject: { type: 'document', id: document.id, label: document.title },
+          beforeRevision: document.revision,
+          summary: effect.summary,
+          evidenceRef: `document:${document.id}`,
+          payload: { ...effect.payload, documentId: document.id, deletedDocumentIds: idsToDelete },
+          compensatable: effect.compensatable
+        })
+      }
+      if (!historyContext.deferCommit) {
+        await commitWorldDocumentChangeSetWithManager(
+          manager,
+          historyContext.changeSetId,
+          historyContext.origin
+        )
+      }
+      return idsToDelete
+    })
   }
 }
 

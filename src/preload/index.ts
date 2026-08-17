@@ -46,6 +46,12 @@ import type {
   UpsertCharacterImpressionInput
 } from '../share/cache/worldbuilding/characterImpression'
 import type { AgentArtifactPayload } from '../share/cache/AItype/states/agentArtifact'
+import type {
+  RestoreWorldDocumentCommitInput,
+  RestoreWorldDocumentCommitResult,
+  WorldDocumentCommitDetailPayload,
+  WorldDocumentCommitHistoryPayload
+} from '../share/cache/worldbuilding/worldDocumentHistory'
 
 // Local type to ensure availability in this module
 type Api = {
@@ -174,6 +180,17 @@ type Api = {
     input: MoveWorldEntityDocumentInput
   ) => Promise<WorldEntityDocumentPayload>
   deleteWorldEntityDocument: (input: DeleteWorldEntityDocumentInput) => Promise<void>
+  commitWorldEntityDocumentHistorySession: (sessionId: string) => Promise<void>
+  listWorldDocumentCommitHistory: (
+    worldId: string,
+    limit?: number
+  ) => Promise<WorldDocumentCommitHistoryPayload>
+  getWorldDocumentCommitDetail: (
+    commitId: string
+  ) => Promise<WorldDocumentCommitDetailPayload | null>
+  restoreWorldDocumentCommit: (
+    input: RestoreWorldDocumentCommitInput
+  ) => Promise<RestoreWorldDocumentCommitResult>
   onWorldEntityDocumentChanged: (
     callback: (change: WorldEntityDocumentChangeEvent) => void
   ) => () => void
@@ -244,6 +261,14 @@ const api: Api = {
   updateWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:update', input),
   moveWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:move', input),
   deleteWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:delete', input),
+  commitWorldEntityDocumentHistorySession: (sessionId) =>
+    ipcRenderer.invoke('worldEntityDocument:commitHistorySession', sessionId),
+  listWorldDocumentCommitHistory: (worldId, limit) =>
+    ipcRenderer.invoke('worldEntityDocument:history:list', worldId, limit),
+  getWorldDocumentCommitDetail: (commitId) =>
+    ipcRenderer.invoke('worldEntityDocument:history:get', commitId),
+  restoreWorldDocumentCommit: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:history:restore', input),
   onWorldEntityDocumentChanged: (callback) => {
     const subscription = (_event: IpcRendererEvent, change: WorldEntityDocumentChangeEvent) =>
       callback(change)

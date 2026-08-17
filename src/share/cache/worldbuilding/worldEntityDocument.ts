@@ -57,6 +57,8 @@ export interface UpdateWorldEntityDocumentInput {
   title?: string
   contentHtml?: string
   contentFormat?: WorldEntityDocumentContentFormat
+  /** Groups renderer autosaves into one user-visible document history commit. */
+  historySessionId?: string
 }
 
 export interface MoveWorldEntityDocumentInput {
@@ -64,6 +66,8 @@ export interface MoveWorldEntityDocumentInput {
   expectedRevision: number
   parentDocumentId?: string | null
   sortKey?: string
+  /** Groups one drag/reorder operation into a single tree history commit. */
+  historySessionId?: string
 }
 
 export interface DeleteWorldEntityDocumentInput {
