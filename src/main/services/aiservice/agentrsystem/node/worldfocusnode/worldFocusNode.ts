@@ -591,7 +591,7 @@ export async function worldFocusNode(
   const slots = getEffectiveMemorySlots(state.turnWorkspace)
 
   try {
-    const resolution = await resolveFocus(text, perceptionContext.recentDialogue, slots)
+    const resolution = await resolveFocus(text, perceptionContext.recentHistory, slots)
     if (resolution.type !== 'resolved') {
       const nextSlots = {
         ...slots,

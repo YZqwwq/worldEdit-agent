@@ -1,6 +1,9 @@
 import type { CharacterMoodBoundary, MoodRange } from '@share/cache/AItype/states/characterMoodBoundary'
 import type {
   MoodAssessment,
+  MoodCoreState,
+  MoodExpressionDelta,
+  MoodExpressionModulation,
   MoodLabel,
   RelationshipEmotionState,
   ShortTermEmotionState,
@@ -74,7 +77,7 @@ export const FAMILA_CHARACTER_MOOD_BOUNDARY: CharacterMoodBoundary = {
     warmth: { min: 0.4, max: 0.72 },
     contraction: { min: 0.58, max: 0.92 },
     imaginativeOpenness: { min: 0.3, max: 0.72 },
-    clarificationNeed: { min: 0.2, max: 0.82 }
+    contextFirstTendency: { min: 0.2, max: 0.82 }
   },
   expressionDeltaBounds: {
     verbosity: { min: -0.1, max: 0.12 },
@@ -142,13 +145,13 @@ export const projectMoodLabels = (
   }
 }
 
-export const applyCharacterMoodBoundary = (
-  assessment: MoodAssessment,
+export const constrainMoodCoreState = (
+  state: MoodCoreState,
   boundary: CharacterMoodBoundary
-): MoodAssessment => {
-  const shortTerm = { ...assessment.shortTerm }
-  const slowMood = { ...assessment.slowMood }
-  const relationship = { ...assessment.relationship }
+): MoodCoreState => {
+  const shortTerm = { ...state.shortTerm }
+  const slowMood = { ...state.slowMood }
+  const relationship = { ...state.relationship }
 
   for (const key of Object.keys(shortTerm) as Array<keyof ShortTermEmotionState>) {
     shortTerm[key] = clampWithRange(shortTerm[key], boundary.shortTermBounds[key])
@@ -160,48 +163,47 @@ export const applyCharacterMoodBoundary = (
     relationship[key] = clampWithRange(relationship[key], boundary.relationshipBounds[key])
   }
 
-  const expressionDelta = {
+  return { shortTerm, slowMood, relationship }
+}
+
+export const constrainMoodExpressionDelta = (
+  delta: MoodExpressionDelta,
+  boundary: CharacterMoodBoundary
+): MoodExpressionDelta => ({
     verbosity: clampWithRange(
-      assessment.expressionDelta.verbosity,
+      delta.verbosity,
       boundary.expressionDeltaBounds.verbosity
     ),
     formality: clampWithRange(
-      assessment.expressionDelta.formality,
+      delta.formality,
       boundary.expressionDeltaBounds.formality
     )
-  }
-  const expressionModulation = {
+  })
+
+export const constrainMoodExpressionModulation = (
+  modulation: MoodExpressionModulation,
+  boundary: CharacterMoodBoundary
+): MoodExpressionModulation => ({
     relationalCloseness: clampWithRange(
-      assessment.expressionModulation.relationalCloseness,
+      modulation.relationalCloseness,
       boundary.expressionModulationBounds.relationalCloseness
     ),
     warmth: clampWithRange(
-      assessment.expressionModulation.warmth,
+      modulation.warmth,
       boundary.expressionModulationBounds.warmth
     ),
     contraction: clampWithRange(
-      assessment.expressionModulation.contraction,
+      modulation.contraction,
       boundary.expressionModulationBounds.contraction
     ),
     imaginativeOpenness: clampWithRange(
-      assessment.expressionModulation.imaginativeOpenness,
+      modulation.imaginativeOpenness,
       boundary.expressionModulationBounds.imaginativeOpenness
     ),
-    clarificationNeed: clampWithRange(
-      assessment.expressionModulation.clarificationNeed,
-      boundary.expressionModulationBounds.clarificationNeed
+    contextFirstTendency: clampWithRange(
+      modulation.contextFirstTendency,
+      boundary.expressionModulationBounds.contextFirstTendency
     )
-  }
-
-  return {
-    ...assessment,
-    ...projectMoodLabels(shortTerm, slowMood, boundary),
-    shortTerm,
-    slowMood,
-    relationship,
-    expressionDelta,
-    expressionModulation
-  }
-}
+  })
 
 export const normalizeMoodLevel = roundUnit

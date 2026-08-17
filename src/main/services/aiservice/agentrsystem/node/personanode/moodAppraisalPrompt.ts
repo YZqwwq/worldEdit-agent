@@ -7,7 +7,7 @@ export interface MoodAppraisalPromptInput {
   moodPrompt: string
   observations: InteractionObservationSnapshot[]
   currentUserText: string
-  recentDialogue: RecentDialogueMessage[]
+  recentHistory: RecentDialogueMessage[]
   previousMood?: MoodAssessment | null | undefined
 }
 
@@ -51,7 +51,7 @@ ${input.moodPrompt.trim() || '(empty)'}
 ${input.currentUserText.trim() || '(none)'}
 
 近期对话背景（只用于理解指代和关系连续性，不作为新事件重复评价）：
-${input.recentDialogue.length ? JSON.stringify(input.recentDialogue) : '(none)'}
+${input.recentHistory.length ? JSON.stringify(input.recentHistory) : '(none)'}
 
 用户交互事件：
 ${buildInteractionDigest(input.observations)}

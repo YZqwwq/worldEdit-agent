@@ -13,9 +13,9 @@
 ## 当前优先级
 
 1. 建立文档版本、Diff、撤销基座，并接入 Markdown 文档编辑工具包。
-2. 修正 Mood 边界后的派生一致性与慢速心境生效方式。
-3. 完成 Turn 恢复、EffectReceipt 和提交后动作的真实进程验收。
-4. 治理 Quick Access、工具目录和 Context 预算。
+2. 完成 Turn 恢复、EffectReceipt 和提交后动作的真实进程验收。
+3. 治理 Quick Access、工具目录和 Context 预算。
+4. 收口 Mood 配置、降级观测与评价输入规模。
 5. 将长期记忆升级为可追溯的重要事件。
 
 ## 维护规则

@@ -10,7 +10,7 @@ export type RecentDialogueMessage = {
 
 export type InstantPerceptionContext = {
   currentUserText: string
-  recentDialogue: RecentDialogueMessage[]
+  recentHistory: RecentDialogueMessage[]
 }
 
 const RECENT_DIALOGUE_MESSAGE_LIMIT = 8
@@ -36,7 +36,7 @@ export const buildInstantPerceptionContext = async (
 ): Promise<InstantPerceptionContext> => {
   const currentUserText = getCurrentUserText(state)
   const snapshot = await memoryManager.getSnapshot()
-  const recentDialogue = snapshot.shortTerm
+  const recentHistory = snapshot.shortTerm
     .slice(-RECENT_DIALOGUE_MESSAGE_LIMIT)
     .map(
       (message): RecentDialogueMessage => ({
@@ -46,15 +46,8 @@ export const buildInstantPerceptionContext = async (
     )
     .filter((message) => message.text.length > 0)
 
-  if (currentUserText) {
-    recentDialogue.push({
-      role: 'user',
-      text: compact(currentUserText)
-    })
-  }
-
   return {
     currentUserText,
-    recentDialogue
+    recentHistory
   }
 }

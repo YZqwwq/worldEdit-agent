@@ -257,7 +257,7 @@ export async function sceneNode(
         new HumanMessage(
           buildScenePrompt({
             currentUserText,
-            recentMessages: perceptionContext.recentDialogue,
+            recentMessages: perceptionContext.recentHistory,
             previousScene: slots.scene_perception,
             memoryWorldFocus,
             activeTask: state.taskLifecycle?.activeTask

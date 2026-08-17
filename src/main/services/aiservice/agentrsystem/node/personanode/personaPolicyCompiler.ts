@@ -8,6 +8,11 @@ import type {
 import { clamp, clamp01, roundTo } from './personaMath'
 import type { PersonaSignal } from './personaTypes'
 import { applyWorkspaceSceneActionBias } from '../../workspaceProfileRegistry'
+import {
+  DEFAULT_RELATIONSHIP,
+  DEFAULT_SHORT_TERM,
+  DEFAULT_SLOW_MOOD
+} from './moodDynamicsBoundary'
 
 // Mood only modulates expression-facing metrics. It never changes stable autonomy/risk.
 export const applyMoodExpressionDeltaToMetrics = (
@@ -27,7 +32,7 @@ const buildBaseActionPolicy = (metrics: PersonaMetrics): PersonaActionPolicy => 
   ),
   clarificationNeed: roundTo(clamp(0.16 + (1 - metrics.autonomy_level) * 0.34, 0, 1)),
   evidenceNeed: roundTo(clamp(0.22 + (1 - metrics.risk_tolerance) * 0.46, 0, 1)),
-  recallNeed: roundTo(clamp(0.22 + metrics.formality_score * 0.12, 0, 1)),
+  recallNeed: 0.28,
   writeConservatism: roundTo(clamp(0.2 + (1 - metrics.risk_tolerance) * 0.56, 0, 1)),
   toolPersistence: roundTo(
     clamp(metrics.autonomy_level * 0.48 + metrics.risk_tolerance * 0.32, 0, 1)
@@ -41,32 +46,38 @@ const applyMoodActionBias = (
   const shortTerm = mood.shortTerm
   const slowMood = mood.slowMood
   const relationship = mood.relationship
-  const modulation = mood.expressionModulation
-  const confidence = clamp01(mood.appraisal.confidence / 3)
-  const apply = (value: number, delta: number): number =>
-    clamp01(roundTo(value + delta * confidence))
+  const delta = (value: number, baseline: number): number => value - baseline
+  const apply = (value: number, adjustment: number): number =>
+    clamp01(roundTo(value + adjustment))
 
   return {
     autonomyDrive: action.autonomyDrive,
     caution: apply(
       action.caution,
-      slowMood.tension * 0.1 + slowMood.stress * 0.08 + shortTerm.fear * 0.06
+      delta(slowMood.tension, DEFAULT_SLOW_MOOD.tension) * 0.1 +
+        delta(slowMood.stress, DEFAULT_SLOW_MOOD.stress) * 0.08 +
+        delta(shortTerm.fear, DEFAULT_SHORT_TERM.fear) * 0.06
     ),
     clarificationNeed: apply(
       action.clarificationNeed,
-      modulation.clarificationNeed * 0.14 + shortTerm.surprise * 0.05
+      delta(slowMood.tension, DEFAULT_SLOW_MOOD.tension) * 0.08 +
+        delta(shortTerm.frustration, DEFAULT_SHORT_TERM.frustration) * 0.06 +
+        delta(shortTerm.surprise, DEFAULT_SHORT_TERM.surprise) * 0.05
     ),
     evidenceNeed: apply(
       action.evidenceNeed,
-      shortTerm.interest * 0.07 + slowMood.tension * 0.05
+      delta(shortTerm.interest, DEFAULT_SHORT_TERM.interest) * 0.07 +
+        delta(slowMood.tension, DEFAULT_SLOW_MOOD.tension) * 0.05
     ),
     recallNeed: apply(
       action.recallNeed,
-      relationship.affinity * 0.035 + shortTerm.hurt * 0.035
+      delta(relationship.affinity, DEFAULT_RELATIONSHIP.affinity) * 0.035 +
+        delta(shortTerm.hurt, DEFAULT_SHORT_TERM.hurt) * 0.035
     ),
     writeConservatism: apply(
       action.writeConservatism,
-      modulation.contraction * 0.1 + shortTerm.frustration * 0.06
+      delta(slowMood.stress, DEFAULT_SLOW_MOOD.stress) * 0.08 +
+        delta(shortTerm.frustration, DEFAULT_SHORT_TERM.frustration) * 0.06
     ),
     toolPersistence: action.toolPersistence
   }

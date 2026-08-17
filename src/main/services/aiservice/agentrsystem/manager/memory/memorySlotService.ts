@@ -230,8 +230,12 @@ const parseMoodAssessment = (value: unknown): MoodAssessment | undefined => {
       imaginativeOpenness: clamp01(
         isNumber(modulation.imaginativeOpenness) ? modulation.imaginativeOpenness : 0
       ),
-      clarificationNeed: clamp01(
-        isNumber(modulation.clarificationNeed) ? modulation.clarificationNeed : 0
+      contextFirstTendency: clamp01(
+        isNumber(modulation.contextFirstTendency)
+          ? modulation.contextFirstTendency
+          : isNumber(modulation.clarificationNeed)
+            ? modulation.clarificationNeed
+            : 0
       )
     }
   }

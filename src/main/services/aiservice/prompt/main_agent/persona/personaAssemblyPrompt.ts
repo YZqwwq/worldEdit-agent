@@ -43,7 +43,7 @@ const toCadence = (assessment: MoodAssessment | null | undefined): string => {
 }
 
 const toStructureTendency = (assessment: MoodAssessment | null | undefined): string => {
-  if ((assessment?.expressionModulation.clarificationNeed ?? 0) >= 0.7) return 'context_first'
+  if ((assessment?.expressionModulation.contextFirstTendency ?? 0) >= 0.7) return 'context_first'
   return 'balanced'
 }
 

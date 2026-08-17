@@ -1,4 +1,5 @@
 import type {
+  MoodCoreState,
   MoodAssessment,
   MoodEventAppraisal,
   MoodExpressionDelta,
@@ -8,11 +9,15 @@ import type {
   ShortTermEmotionState,
   SlowMoodState
 } from '@share/cache/AItype/states/moodAssessment'
+import type { CharacterMoodBoundary } from '@share/cache/AItype/states/characterMoodBoundary'
 import { clamp, roundSigned, roundUnit } from './personaMath'
 import {
   DEFAULT_RELATIONSHIP,
   DEFAULT_SHORT_TERM,
   DEFAULT_SLOW_MOOD,
+  constrainMoodCoreState,
+  constrainMoodExpressionDelta,
+  constrainMoodExpressionModulation,
   projectMoodLabels
 } from './moodDynamicsBoundary'
 
@@ -33,7 +38,13 @@ interface CompileMoodAssessmentInput {
   appraisal: MoodEventAppraisal
   previousMood?: MoodAssessment | null | undefined
   nowIso: string
+  boundary: CharacterMoodBoundary
 }
+
+type MoodDerivedProjection = Omit<
+  MoodAssessment,
+  'version' | 'generatedAt' | 'appraisal' | keyof MoodCoreState
+>
 
 const hoursBetween = (from: string | undefined, to: string): number => {
   if (!from) return 0
@@ -166,32 +177,51 @@ const updateSlowMood = (
   }
 
   const salience = normalizeLevel(appraisal.salience)
-  const novelty = normalizeLevel(appraisal.novelty)
   const control = controlLevel(appraisal)
   const negativeFuture = Math.max(0, -normalizeSigned(appraisal.futureProspect))
-  const target: SlowMoodState = {
-    positiveTone: roundUnit(
-      clamp(
-        0.48 + shortTerm.joy * 0.42 - shortTerm.sadness * 0.26 - shortTerm.hurt * 0.12,
-        0,
-        1
-      )
-    ),
-    tension: roundUnit(
-      clamp(shortTerm.fear * 0.58 + shortTerm.surprise * 0.18 + shortTerm.frustration * 0.24, 0, 1)
-    ),
-    stress: roundUnit(
-      clamp(shortTerm.frustration * 0.46 + shortTerm.fear * 0.3 + shortTerm.hurt * 0.14 + salience * 0.1, 0, 1)
-    ),
-    helplessness: roundUnit(
-      clamp((shortTerm.frustration * 0.4 + shortTerm.sadness * 0.36 + negativeFuture * 0.24) * (1 - control * 0.62), 0, 1)
-    ),
-    boredom: roundUnit(
-      appraisal.eventKind === 'neutral'
-        ? clamp((1 - salience) * 0.62 + (1 - novelty) * 0.24, 0, 1)
-        : DEFAULT_SLOW_MOOD.boredom
-    )
-  }
+  const target: SlowMoodState =
+    appraisal.eventKind === 'neutral'
+      ? { ...DEFAULT_SLOW_MOOD }
+      : {
+          positiveTone: roundUnit(
+            clamp(
+              0.48 + shortTerm.joy * 0.42 - shortTerm.sadness * 0.26 - shortTerm.hurt * 0.12,
+              0,
+              1
+            )
+          ),
+          tension: roundUnit(
+            clamp(
+              shortTerm.fear * 0.58 +
+                shortTerm.surprise * 0.18 +
+                shortTerm.frustration * 0.24,
+              0,
+              1
+            )
+          ),
+          stress: roundUnit(
+            clamp(
+              shortTerm.frustration * 0.46 +
+                shortTerm.fear * 0.3 +
+                shortTerm.hurt * 0.14 +
+                salience * 0.1,
+              0,
+              1
+            )
+          ),
+          helplessness: roundUnit(
+            clamp(
+              (shortTerm.frustration * 0.4 +
+                shortTerm.sadness * 0.36 +
+                negativeFuture * 0.24) *
+                (1 - control * 0.62),
+              0,
+              1
+            )
+          ),
+          // 厌倦需要独立的重复/低投入证据，不能由普通 neutral 自动制造。
+          boredom: DEFAULT_SLOW_MOOD.boredom
+        }
 
   const influence = normalizeLevel(appraisal.confidence) * (0.06 + salience * 0.18)
   const next = {} as SlowMoodState
@@ -253,10 +283,23 @@ const deriveExpressionDelta = (
   slowMood: SlowMoodState
 ): MoodExpressionDelta => ({
   verbosity: roundSigned(
-    clamp(shortTerm.joy * 0.06 + shortTerm.interest * 0.08 - shortTerm.frustration * 0.1 - slowMood.stress * 0.08, -0.18, 0.18)
+    clamp(
+      (shortTerm.joy - DEFAULT_SHORT_TERM.joy) * 0.06 +
+        (shortTerm.interest - DEFAULT_SHORT_TERM.interest) * 0.08 -
+        (shortTerm.frustration - DEFAULT_SHORT_TERM.frustration) * 0.1 -
+        (slowMood.stress - DEFAULT_SLOW_MOOD.stress) * 0.08,
+      -0.18,
+      0.18
+    )
   ),
   formality: roundSigned(
-    clamp(slowMood.tension * 0.08 + shortTerm.frustration * 0.05 - shortTerm.joy * 0.035, -0.18, 0.18)
+    clamp(
+      (slowMood.tension - DEFAULT_SLOW_MOOD.tension) * 0.08 +
+        (shortTerm.frustration - DEFAULT_SHORT_TERM.frustration) * 0.05 -
+        (shortTerm.joy - DEFAULT_SHORT_TERM.joy) * 0.035,
+      -0.18,
+      0.18
+    )
   )
 })
 
@@ -277,7 +320,7 @@ const deriveExpressionModulation = (
   imaginativeOpenness: roundUnit(
     0.34 + shortTerm.interest * 0.28 + shortTerm.joy * 0.14 - slowMood.tension * 0.16 - slowMood.stress * 0.14
   ),
-  clarificationNeed: roundUnit(
+  contextFirstTendency: roundUnit(
     0.28 + slowMood.tension * 0.22 + shortTerm.frustration * 0.16 + shortTerm.surprise * 0.1
   )
 })
@@ -299,28 +342,49 @@ const MOOD_DESCRIPTIONS: Record<MoodLabel, string> = {
   boredom: '当前投入感较低，表达保持简洁，不额外制造热度。'
 }
 
+const deriveMoodProjection = (
+  state: MoodCoreState,
+  boundary: CharacterMoodBoundary
+): MoodDerivedProjection => {
+  const labels = projectMoodLabels(state.shortTerm, state.slowMood, boundary)
+  return {
+    ...labels,
+    intensity: deriveIntensity(state.shortTerm, state.slowMood),
+    narrative: MOOD_DESCRIPTIONS[labels.primaryEmotion],
+    expressionDelta: constrainMoodExpressionDelta(
+      deriveExpressionDelta(state.shortTerm, state.slowMood),
+      boundary
+    ),
+    expressionModulation: constrainMoodExpressionModulation(
+      deriveExpressionModulation(state.shortTerm, state.slowMood, state.relationship),
+      boundary
+    )
+  }
+}
+
 export const compileMoodAssessment = (input: CompileMoodAssessmentInput): MoodAssessment => {
-  const shortTerm = updateShortTerm(input.appraisal, input.previousMood, input.nowIso)
-  const slowMood = updateSlowMood(input.appraisal, shortTerm, input.previousMood, input.nowIso)
-  const relationship = updateRelationship(
+  const rawShortTerm = updateShortTerm(input.appraisal, input.previousMood, input.nowIso)
+  const rawSlowMood = updateSlowMood(input.appraisal, rawShortTerm, input.previousMood, input.nowIso)
+  const rawRelationship = updateRelationship(
     input.appraisal,
-    shortTerm,
+    rawShortTerm,
     input.previousMood,
     input.nowIso
   )
-  const labels = projectMoodLabels(shortTerm, slowMood)
+  const state = constrainMoodCoreState(
+    {
+      shortTerm: rawShortTerm,
+      slowMood: rawSlowMood,
+      relationship: rawRelationship
+    },
+    input.boundary
+  )
 
   return {
     version: 2,
     generatedAt: input.nowIso,
     appraisal: input.appraisal,
-    shortTerm,
-    slowMood,
-    relationship,
-    ...labels,
-    intensity: deriveIntensity(shortTerm, slowMood),
-    narrative: MOOD_DESCRIPTIONS[labels.primaryEmotion],
-    expressionDelta: deriveExpressionDelta(shortTerm, slowMood),
-    expressionModulation: deriveExpressionModulation(shortTerm, slowMood, relationship)
+    ...state,
+    ...deriveMoodProjection(state, input.boundary)
   }
 }

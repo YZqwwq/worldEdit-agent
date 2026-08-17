@@ -8,7 +8,7 @@ import {
   loadMoodPrompt,
   resolveExpressionPromptProfile
 } from '../../../prompt/main_agent/agentPromptService'
-import { applyCharacterMoodBoundary, FAMILA_CHARACTER_MOOD_BOUNDARY } from './moodDynamicsBoundary'
+import { FAMILA_CHARACTER_MOOD_BOUNDARY } from './moodDynamicsBoundary'
 import { inferMoodAppraisal } from './moodAppraisalService'
 import { compileMoodAssessment } from './emotionDynamicsCompiler'
 import { reconcilePersonaState } from './personaEvolutionService'
@@ -99,7 +99,7 @@ export async function personaNode(
     signalContext: contextualUserObservation
       ? {
           observationId: contextualUserObservation.id,
-          recentDialogue: perceptionContext.recentDialogue
+          recentDialogue: perceptionContext.recentHistory
         }
       : undefined
   })
@@ -110,18 +110,15 @@ export async function personaNode(
     moodPrompt,
     observations,
     currentUserText: perceptionContext.currentUserText,
-    recentDialogue: perceptionContext.recentDialogue,
+    recentHistory: perceptionContext.recentHistory,
     previousMood: effectiveSlots.ai_mood.current
   })
-  const rawMoodAssessment = compileMoodAssessment({
+  const moodAssessment = compileMoodAssessment({
     appraisal,
     previousMood: effectiveSlots.ai_mood.current,
-    nowIso
+    nowIso,
+    boundary: FAMILA_CHARACTER_MOOD_BOUNDARY
   })
-  const moodAssessment = applyCharacterMoodBoundary(
-    rawMoodAssessment,
-    FAMILA_CHARACTER_MOOD_BOUNDARY
-  )
   const effectiveMetrics = applyMoodExpressionDeltaToMetrics(
     baseMetrics,
     moodAssessment.expressionDelta

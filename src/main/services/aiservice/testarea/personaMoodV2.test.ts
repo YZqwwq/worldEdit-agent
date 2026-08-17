@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { MoodEventAppraisal } from '@share/cache/AItype/states/moodAssessment'
+import type { CharacterMoodBoundary } from '@share/cache/AItype/states/characterMoodBoundary'
 import type { InteractionObservationSnapshot } from '@share/cache/AItype/states/interactionObservation'
 import type { PersonaActionPolicy } from '@share/cache/AItype/states/personaPolicy'
 import { buildActionPolicyPrompt } from '../prompt/main_agent/persona/actionPolicyPrompt'
 import { buildPersonaAssemblyPromptParts } from '../prompt/main_agent/persona/personaAssemblyPrompt'
 import { buildSceneCharacterPrompt } from '../prompt/main_agent/persona/sceneCharacterPrompt'
 import {
-  applyCharacterMoodBoundary,
+  DEFAULT_RELATIONSHIP,
   DEFAULT_SHORT_TERM,
+  DEFAULT_SLOW_MOOD,
   FAMILA_CHARACTER_MOOD_BOUNDARY
 } from '../agentrsystem/node/personanode/moodDynamicsBoundary'
 import {
@@ -21,6 +23,7 @@ import {
 } from '../agentrsystem/node/personanode/personaPolicyCompiler'
 import { resolveWorkspaceProfile } from '../agentrsystem/workspaceProfileRegistry'
 import { buildMoodAppraisalPrompt } from '../agentrsystem/node/personanode/moodAppraisalPrompt'
+import { getExpressionPromptProfileById } from '../prompt/main_agent/persona/expressionPromptProfiles'
 
 const appraisal = (overrides: Partial<MoodEventAppraisal> = {}): MoodEventAppraisal => ({
   ...NEUTRAL_MOOD_APPRAISAL,
@@ -30,12 +33,10 @@ const appraisal = (overrides: Partial<MoodEventAppraisal> = {}): MoodEventApprai
 const compile = (
   event: MoodEventAppraisal,
   previousMood?: ReturnType<typeof compileMoodAssessment>,
-  nowIso = '2026-08-16T00:00:00.000Z'
+  nowIso = '2026-08-16T00:00:00.000Z',
+  boundary: CharacterMoodBoundary = FAMILA_CHARACTER_MOOD_BOUNDARY
 ) =>
-  applyCharacterMoodBoundary(
-    compileMoodAssessment({ appraisal: event, previousMood, nowIso }),
-    FAMILA_CHARACTER_MOOD_BOUNDARY
-  )
+  compileMoodAssessment({ appraisal: event, previousMood, nowIso, boundary })
 
 test('low-confidence appraisal cannot cause a sharp emotional jump', () => {
   const event = {
@@ -75,11 +76,72 @@ test('appraisal prompt includes user interaction events and excludes task result
     moodPrompt: '保持低振幅。',
     observations,
     currentUserText: '先停一下。',
-    recentDialogue: [{ role: 'user', text: '先停一下。' }]
+    recentHistory: [{ role: 'assistant', text: '我先继续说明。' }]
   })
 
   assert.match(prompt, /用户要求中断当前回答/)
   assert.doesNotMatch(prompt, /internal tool result must stay out of mood/)
+  assert.equal(prompt.match(/先停一下。/g)?.length, 1)
+})
+
+test('character boundary is applied before every derived mood projection', () => {
+  const lockRanges = <T extends object>(state: T): { [K in keyof T]: { min: number; max: number } } => {
+    const ranges = {} as { [K in keyof T]: { min: number; max: number } }
+    for (const key of Object.keys(state) as Array<keyof T>) {
+      const value = state[key]
+      if (typeof value !== 'number') throw new Error(`Mood state ${String(key)} must be numeric`)
+      ranges[key] = { min: value, max: value }
+    }
+    return ranges
+  }
+  const lockedBoundary: CharacterMoodBoundary = {
+    ...FAMILA_CHARACTER_MOOD_BOUNDARY,
+    shortTermBounds: lockRanges(DEFAULT_SHORT_TERM),
+    slowMoodBounds: lockRanges(DEFAULT_SLOW_MOOD),
+    relationshipBounds: lockRanges(DEFAULT_RELATIONSHIP)
+  }
+  const severe = compile(
+    appraisal({
+      eventKind: 'obstacle',
+      valence: -2,
+      salience: 3,
+      novelty: 3,
+      futureProspect: -2,
+      agency: 'user',
+      confidence: 3
+    }),
+    undefined,
+    '2026-08-16T00:00:00.000Z',
+    lockedBoundary
+  )
+  const baseline = compile(
+    NEUTRAL_MOOD_APPRAISAL,
+    undefined,
+    '2026-08-16T00:00:00.000Z',
+    lockedBoundary
+  )
+
+  assert.deepEqual(severe.shortTerm, DEFAULT_SHORT_TERM)
+  assert.deepEqual(severe.slowMood, DEFAULT_SLOW_MOOD)
+  assert.deepEqual(severe.relationship, DEFAULT_RELATIONSHIP)
+  assert.deepEqual(
+    {
+      primaryEmotion: severe.primaryEmotion,
+      secondaryEmotion: severe.secondaryEmotion,
+      intensity: severe.intensity,
+      narrative: severe.narrative,
+      expressionDelta: severe.expressionDelta,
+      expressionModulation: severe.expressionModulation
+    },
+    {
+      primaryEmotion: baseline.primaryEmotion,
+      secondaryEmotion: baseline.secondaryEmotion,
+      intensity: baseline.intensity,
+      narrative: baseline.narrative,
+      expressionDelta: baseline.expressionDelta,
+      expressionModulation: baseline.expressionModulation
+    }
+  )
 })
 
 test('missing evidence decays short emotion toward baseline instead of resetting it', () => {
@@ -117,6 +179,46 @@ test('repeated explicit failure feedback accumulates slow stress and helplessnes
   assert.ok(third.slowMood.helplessness > first.slowMood.helplessness)
 })
 
+test('accumulated slow mood still affects action after a low-confidence ordinary message', () => {
+  const failure = appraisal({
+    eventKind: 'obstacle',
+    valence: -2,
+    salience: 3,
+    futureProspect: -2,
+    agency: 'user',
+    controlSignal: 'weakened',
+    confidence: 3
+  })
+  const first = compile(failure)
+  const stressed = compile(failure, first, '2026-08-16T00:01:00.000Z')
+  const ordinary = compile(NEUTRAL_MOOD_APPRAISAL, stressed, '2026-08-16T00:02:00.000Z')
+  const baseline = compile(NEUTRAL_MOOD_APPRAISAL)
+  const metrics = {
+    autonomy_level: 0.5,
+    verbosity_index: 0.5,
+    risk_tolerance: 0.5,
+    formality_score: 0.5
+  }
+  const ordinaryPolicy = buildPolicy(metrics, metrics, ordinary, [], '2026-08-16T00:02:00.000Z')
+  const baselinePolicy = buildPolicy(metrics, metrics, baseline, [], '2026-08-16T00:00:00.000Z')
+
+  assert.equal(ordinary.appraisal.confidence, 0)
+  assert.ok(ordinary.slowMood.stress > DEFAULT_SLOW_MOOD.stress)
+  assert.ok(ordinaryPolicy.action.caution > baselinePolicy.action.caution)
+  assert.ok(ordinaryPolicy.action.writeConservatism > baselinePolicy.action.writeConservatism)
+})
+
+test('ordinary neutral dialogue does not accumulate boredom', () => {
+  const ordinary = appraisal({ eventKind: 'neutral', salience: 1, novelty: 0, confidence: 3 })
+  let mood = compile(ordinary)
+  for (let index = 1; index < 12; index += 1) {
+    mood = compile(ordinary, mood, `2026-08-16T00:${String(index).padStart(2, '0')}:00.000Z`)
+  }
+
+  assert.deepEqual(mood.slowMood, DEFAULT_SLOW_MOOD)
+  assert.deepEqual(mood.expressionDelta, { verbosity: 0, formality: 0 })
+})
+
 test('relationship injury changes trust slowly and raises hurt', () => {
   const injury = appraisal({
     eventKind: 'relationship_event',
@@ -148,6 +250,22 @@ test('mood expression deltas never rewrite autonomy or risk', () => {
   assert.equal(effective.autonomy_level, base.autonomy_level)
   assert.equal(effective.risk_tolerance, base.risk_tolerance)
   assert.equal(policy.action.toolPersistence, 0.208)
+})
+
+test('formality remains an expression metric and does not change recall behavior', () => {
+  const mood = compile(NEUTRAL_MOOD_APPRAISAL)
+  const informal = {
+    autonomy_level: 0.5,
+    verbosity_index: 0.5,
+    risk_tolerance: 0.5,
+    formality_score: 0.1
+  }
+  const formal = { ...informal, formality_score: 0.9 }
+
+  assert.equal(
+    buildPolicy(informal, informal, mood, [], '2026-08-16T00:00:00.000Z').action.recallNeed,
+    buildPolicy(formal, formal, mood, [], '2026-08-16T00:00:00.000Z').action.recallNeed
+  )
 })
 
 test('main-agent prompt receives semantic projection without raw state scores', () => {
@@ -214,4 +332,12 @@ test('document workspace still activates the registered scene policy', () => {
   assert.match(prompt, /创作联想/)
   assert.match(prompt, /独立内容载体/)
   assert.doesNotMatch(prompt, /观点产物|publish_agent_artifact/)
+})
+
+test('expression profiles only describe presentation and do not steer cognition or action', () => {
+  const reflective = getExpressionPromptProfileById('reflective_discussion').prompt
+
+  assert.doesNotMatch(reflective, /思考会更加深入|更乐观一点|更偏代价|分题材提示|尽量不会提出意见/)
+  assert.match(reflective, /措辞|表达|呈现|节奏/)
+  assert.match(reflective, /不改变观点所依据的事实与推理/)
 })

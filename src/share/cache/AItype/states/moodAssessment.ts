@@ -79,16 +79,19 @@ export interface MoodExpressionModulation {
   warmth: number
   contraction: number
   imaginativeOpenness: number
-  clarificationNeed: number
+  contextFirstTendency: number
 }
 
-export interface MoodAssessment {
-  version: 2
-  generatedAt: string
-  appraisal: MoodEventAppraisal
+export interface MoodCoreState {
   shortTerm: ShortTermEmotionState
   slowMood: SlowMoodState
   relationship: RelationshipEmotionState
+}
+
+export interface MoodAssessment extends MoodCoreState {
+  version: 2
+  generatedAt: string
+  appraisal: MoodEventAppraisal
   primaryEmotion: MoodLabel
   secondaryEmotion?: MoodLabel
   intensity: number

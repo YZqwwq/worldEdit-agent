@@ -107,7 +107,7 @@ export async function userMoodNode(
         new HumanMessage(
           buildUserMoodPrompt({
             currentUserText,
-            recentMessages: perceptionContext.recentDialogue
+            recentMessages: perceptionContext.recentHistory
           })
         )
       ],
