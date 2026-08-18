@@ -17,6 +17,7 @@ import { persistCompletedToolEffect } from '../toolEffects/toolEffectReceiptServ
 import { getToolEffectExecutionContext } from '../toolEffects/toolEffectExecutionContext'
 import {
   commitWorldDocumentChangeSetWithManager,
+  ensureWorldDocumentBaselineWithManager,
   stageWorldDocumentChangeWithManager,
   type WorldDocumentEditSource
 } from './worldDocumentVersionService'
@@ -262,6 +263,7 @@ class WorldEntityDocumentService {
         input.parentDocumentId,
         manager
       )
+      await ensureWorldDocumentBaselineWithManager(manager, owner.worldId)
       const record = documentRepo.create({
         id: randomUUID(),
         ...owner,
@@ -335,6 +337,7 @@ class WorldEntityDocumentService {
       if (input.contentFormat !== undefined && input.contentFormat !== 'html') {
         throw new Error(`Unsupported document content format: ${input.contentFormat}`)
       }
+      await ensureWorldDocumentBaselineWithManager(manager, document.worldId)
       const updateResult = await documentRepo.update(
         { id: document.id, revision: expectedRevision },
         {
@@ -444,6 +447,8 @@ class WorldEntityDocumentService {
         }
       }
 
+      await ensureWorldDocumentBaselineWithManager(manager, document.worldId)
+
       const updateResult = await documentRepo.update(
         { id: document.id, revision: expectedRevision },
         {
@@ -521,6 +526,7 @@ class WorldEntityDocumentService {
       const idsToDelete = [document.id, ...descendantIds]
       const deletedRecords = await documentRepo.findByIds(idsToDelete)
       const historyContext = resolveHistoryContext(effect, history)
+      await ensureWorldDocumentBaselineWithManager(manager, document.worldId)
       await documentRepo
         .createQueryBuilder()
         .delete()

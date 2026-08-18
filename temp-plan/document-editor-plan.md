@@ -10,7 +10,7 @@ Agent 统一以 Markdown 读取和写作文档。版本历史与 Diff 只保存�
 
 ## 跨设备接续摘要（2026-08-18）
 
-当前阶段：Git 式文档版本基座、历史查询、Diff 展示、整库恢复和编辑器串行保存已经实现；版本快照隔离尚未修复，Markdown 语义编辑工具尚未开始。
+当前阶段：Git 式文档版本基座、历史查询、Diff、整库/选择性恢复、检查点、独立设定方案、三方合并、撤销、摘取、版本包交换、完整性检查和不可达对象清理已经实现；Markdown 语义编辑工具尚未开始。
 
 切换设备前注意：当前工作区仍有大量未提交变更，包括测试目录迁移、跨平台 Electron 测试入口、3 秒自动保存、串行强制保存和历史 Session 提交队列。必须先提交并推送全部新增、删除和移动文件，否则另一台设备只拉取已有提交无法获得本阶段实现。
 
@@ -32,7 +32,7 @@ Agent 统一以 Markdown 读取和写作文档。版本历史与 Diff 只保存�
 - `npm run test:document-version` 的 2 项纯 Diff 测试通过。
 - 最新完整 `npm run test:agent-core` 通过。
 
-环境限制：Mac/Windows 共用的 Electron 测试入口已经建立，但当前设备下载 Electron 压缩包超时，原生 SQLite 测试尚未真实执行。换到可访问 Electron 下载源的网络后，使用 Node 20.19.5 完成 `npm ci`、`npm run rebuild`，再执行：
+跨平台 Electron 测试工具已经建立统一套件清单和原生 ABI 预检。Windows x64 已真实执行完整矩阵；macOS 仍需使用本机安装的依赖复验。换到另一平台后，使用项目要求的 Node 版本完成 `npm ci`、`npm run rebuild`，再执行：
 
 ```bash
 npm run test:integration:electron
@@ -106,7 +106,7 @@ npm run test:integration:electron
 - Agent 多次文档工具修改随 Turn ChangeSet 暂存，在 Turn 完整提交或中断提交时形成一个世界提交。
 - 人工编辑停止输入约 3 秒后自动保存工作区；连续输入在空闲约 5 秒、强制保存或离开页面时形成一次提交。
 - 一次拖拽引起的多个同级排序更新使用同一历史会话，不拆成多个提交。
-- 当前进程重启时会直接收口尚未封口的暂存变更；待调整为先恢复所属 Turn，再决定提交边界。
+- 进程重启时先恢复并判定所属 Turn，再分类处理暂存变更；运行中的 Agent ChangeSet 保持暂存，只有终态 Turn 与人工会话会被幂等封口。
 - 已具备按旧提交重建文档树并创建新提交的底层恢复能力；恢复不会改写或删除旧历史。
 - 已提供世界提交历史与提交详情 API，返回每次提交涉及的文档、树元数据变化和编辑态 Diff。
 - 编辑器已加入版本历史面板，可以查看人工/Agent 提交、逐文档变化以及新增/删除行数。
@@ -119,30 +119,36 @@ npm run test:integration:electron
 - 历史与恢复能力尚未开放为 Agent 工具，当前只由编辑器用户操作。
 - 历史面板首版只读取最近 50 个用户可见提交，尚未增加分页和按文档筛选。
 - 编辑态长期统一为 Markdown 还是保留编辑器源格式仍需结合富文本节点审计决定。
-- 已建立 Mac/Windows 共用的 Electron 测试入口；当前设备仍缺完整 Electron 可执行文件，完成依赖安装后才能执行原生 SQLite 集成测试。
+- 已建立 macOS/Windows 共用的 Electron 测试入口；Windows x64 已通过完整原生 SQLite 与故障恢复矩阵，macOS 仍需在对应设备使用本机依赖复验。
 - 当前开发环境仍依赖 TypeORM `synchronize` 建表，正式发布前需要显式迁移。
 
 ### 下一阶段：版本基座加固
 
-#### P0：ChangeSet 快照隔离
+ChangeSet 快照隔离已经完成：新 Commit 只由 HEAD Tree 与当前 ChangeSet 派生，业务写入前确保 Baseline，TreeEntry 保存独立 revision；未提交的其他工作态不会混入当前提交，较晚封口的旧 ChangeSet 不会回退父 Tree 中更新的同一文档。
 
-当前封口会重新读取实时文档表和全局最新 ContentVersion。Agent 只修改 A 时，如果用户同期保存 B，Agent Commit 可能包含未声明的 B 工作态；恢复该 Commit 可能连带影响 B。
+进一步完成的基座加固：
 
-修复边界：新 Commit 必须由“当前 HEAD Tree + 当前 ChangeSet”确定。未变化文档复用父 Tree 的确定 source；Tree 构建不得回退读取实时文档或全局最新 ContentVersion。TreeEntry 补充 `revision`，旧 Tree 回退使用 ContentVersion revision。父 Tree 中同一文档已被更高 revision 更新时保留父状态，不让较晚封口的旧 ChangeSet 倒退用户内容。每个世界首次启用历史时应在业务修改前建立 Baseline。
+- ChangeSet 一旦形成 Commit 即永久封口，迟到写入会让同一事务中的文档修改回滚，并返回 `CHANGESET_CLOSED`。
+- Markdown/HTML 编辑源必须与实际工作区正文一致，禁止历史源和可见内容分叉。
+- 恢复比较包含 schemaVersion，恢复后的 revision 保持递增。
+- Electron 使用单实例锁保护单写者模型；SQLite 启用 WAL、`busy_timeout`、外键检查和 NORMAL synchronous。
+- 新增应用版 `fsck`，检查 Commit 父链、sequence、Tree/Content 哈希、对象引用、ChangeRecord 归属和不可达对象；通过 Main/Preload/Renderer 服务开放诊断报告。
+- 文档历史高频查询索引进入显式迁移账本；迁移可重复执行且只记录一次。
 
-验收：Agent 修改 A、用户修改 B 时，Agent ChangeSet 只声明 A；若 B 已正式提交则通过父 Commit 自然继承，未提交的 B 工作态不得进入 Agent Commit；同一文档的更新 revision 不会被旧 ChangeSet 回退。
+#### P0：macOS 原生矩阵待执行
 
-#### P0：跨平台原生测试未执行
+测试源码和统一 runner 可在 macOS/Windows 复用，但 `better-sqlite3` 与 Electron 二进制必须在各平台单独安装和重建。Windows x64 已通过原生环境预检和全部 Electron 集成套件，包括 SQLite 事务、文档树恢复、Turn Version、Effect 强杀恢复与 Turn 强杀恢复。macOS 尚无真实执行证据。
 
-测试源码和运行器可在 Mac/Windows 复用，但 `better-sqlite3` 与 Electron 二进制必须在各平台单独安装和重建。当前只验证了测试 bundle、类型检查和普通 Node 回归，SQLite 事务、树恢复、自动保存聚合与强杀恢复仍缺真实执行证据。
+验收：macOS 使用本机 `npm ci`、`npm run rebuild` 后完整通过 `npm run test:integration:electron`，不能复制 Windows 的原生 `node_modules`。
 
-验收：Mac 或 Windows 至少一端完整通过 `npm run test:integration:electron`；另一平台随后执行同一命令，不能复制原生 `node_modules`。
+#### 已完成：启动恢复顺序
 
-#### P0：启动恢复顺序
+- 启动流程先执行 Agent Turn 恢复与旧暂停状态对账，再处理文档 staged ChangeSet。
+- 人工会话可以在启动时封口；Agent ChangeSet 只有在所属 Turn 已完成、已中断、失败或取消后才会形成正式文档提交。
+- 仍在排队或运行的 Turn 保持 staged；缺少 ChangeSet/Turn 归属或归属不一致的记录保持 staged，不由启动过程猜测提交。
+- 已存在 Commit 的重复对账会补齐 ChangeRecord 的 committed 状态，不制造第二个提交。
 
-应用当前在 Agent Turn 恢复前直接封口全部 staged ChangeSet。进程崩溃时仍在进行的 Turn 可能被提前标记成正式历史。启动流程应先恢复或判定所属 Turn，再处理它的 staged 记录；用户中断属于带原因的正常完成，不需要独立业务终态。
-
-验收：进行中的 Turn 不会被启动流程提前封口；已经完成但队列尚未确认的 Turn 只做幂等对账。
+验收已覆盖：人工、终态 Agent、运行中 Agent、孤儿 ChangeSet 四类启动恢复，以及提交幂等性。
 
 #### P1：性能与存储成本
 
@@ -152,6 +158,59 @@ npm run test:integration:electron
 - 删除后恢复的 revision 不保证严格单调；正式发布前仍需 TypeORM 显式迁移，不能长期依赖 `synchronize`。
 
 验收：增加 10/100/1000 文档的提交与恢复基准；历史增长后详情和 staged 查询不退化为全表扫描；revision 与 sequence 冲突有确定处理。
+
+## 应用专用 Git 演进
+
+目标不是复制命令行 Git，而是让世界观创作获得同等级别的可追踪、可试验、可恢复和可合并能力。
+
+### P0：状态与精确恢复
+
+- 提供世界版本状态：HEAD、当前 staged ChangeSet、涉及文档、来源和未封口原因。
+- 支持只恢复一次 Commit 中选中的文档或子树，并生成新的恢复 Commit。
+- 支持命名检查点，相当于面向用户的 Tag，例如“第一卷定稿”“力量体系重构前”。
+- Commit 增加稳定作者、Turn/Session 来源、恢复来源和操作意图，不把内部 ID 暴露给普通 UI。
+
+当前进度：编辑器历史工作台已提供 HEAD/待封口/完整性状态、版本搜索、当前文档筛选、任意版本比较、命名检查点和按文档/目录选择性恢复。恢复来源及操作意图写入 Commit；恢复始终产生新 Commit。
+
+### P1：平行设定草案
+
+- Branch 对用户表现为“设定方案”或“草案线”，用于尝试不同人物走向、国家关系和力量体系。
+- 主工作区只跟踪一个活动方案；切换前必须处理 staged 内容，不允许静默覆盖。
+- 分支共享不可变 Content/Tree 对象，仅增加 Ref 和独立 HEAD，不复制正文。
+
+当前进度：已建立独立方案 Ref 与活动 HEAD；可从任意版本创建、重命名、删除和切换方案。切换前强制封口人工会话，有 staged 变更时后端拒绝检出；检出复用不可变 Tree/Content 且不制造伪 Commit。
+
+### P1：三方合并
+
+- 使用共同祖先、当前方案和待合并方案做三方比较。
+- 首先按 documentId、树位置和 revision 判定结构冲突，再按 Markdown 标题/段落生成内容冲突。
+- 无冲突修改自动合并；冲突以应用内交互文档呈现，由用户或 Agent 明确解决后形成 Merge Commit。
+- 人物关系等结构化数据未来进入同一世界 ChangeSet，但使用各自的 Merge Driver。
+
+当前进度：已按共同祖先、当前方案和来源方案生成三方预览。不同文档的单边变化自动合并；同一 Markdown 文档中互不重叠的行/段落变化由三方 Merge Driver 自动合并。重叠修改、删除/修改、超大文档和非 Markdown 编辑源继续按整份文档显式选择当前侧或来源侧。确认后生成包含第二父提交的 Merge Commit。
+
+### P2：创作增强
+
+- 文档章节级 provenance/blame：能回答某段设定由用户、Agent 或哪次任务产生。
+- Agent 修改前自动创建轻量检查点，长任务可在一个 ChangeSet 内保存多个不可见恢复点。
+- 支持对比任意两个检查点、按实体筛选历史、按章节查看演变。
+- 为重大设定冲突建立语义检查，但语义结果只做提示，不代替确定性版本判断。
+
+### P2：存储与交换
+
+- ChangeRecord 改为引用前后 ContentVersion，避免重复保存正文。
+- 批量加载 Tree/Content，逐步实现变化路径重建、对象压缩和可达性 GC。
+- 提供世界版本包导出/导入；远端同步建立在对象和 Ref 协议上，不直接暴露系统 Git 仓库。
+- 在所有业务表具备显式迁移后关闭 TypeORM `synchronize`；关闭前迁移账本只接管已登记模块，不能宣称全库迁移完成。
+
+当前进度：已支持带格式版本号和整体 SHA-256 摘要的 JSON 版本包，包含方案/检查点 Ref 与 Commit、Change、Tree、Content 对象。导入会复验包摘要和全部内容寻址对象，只接受同一世界且当前历史为版本包前缀的情况；已有历史下导入为非活动方案，不覆盖当前工作区。全局 GC 在完整性检查通过后只清理任何提交都不可达的 Tree/Content。密码学签名、远端协商和对象压缩尚未实现。
+
+### 已完成：面向提交的操作
+
+- `restore`：把整个世界、文档或目录恢复到旧状态并创建新提交。
+- `revert`：反向应用某次提交涉及的文档状态并创建新提交。
+- `cherry-pick`：把某次提交涉及的文档状态摘取到当前方案并创建新提交。
+- 三者都校验当前活动方案 HEAD；旧提交、分支和检查点保持不可变。
 
 ## P0：Markdown 编辑工具包
 
@@ -194,4 +253,4 @@ npm run test:integration:electron
 
 ## 接续入口
 
-下一步优先完成 ChangeSet 快照隔离；换到合适网络后补跑跨平台 Electron 集成测试，再处理启动恢复。前三项稳定后接入 `replace_text` 与 `replace_section`；选择性单文档恢复没有明确场景时继续暂缓。
+下一步接入 `replace_text` 与 `replace_section`；macOS 设备上补跑同一 Electron 集成矩阵。选择性单文档恢复没有明确场景时继续暂缓。

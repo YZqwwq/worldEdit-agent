@@ -46,10 +46,26 @@ import type {
 } from '../share/cache/worldbuilding/characterImpression'
 import type { AgentArtifactPayload } from '../share/cache/AItype/states/agentArtifact'
 import type {
+  ApplyWorldDocumentMergeInput,
+  ApplyWorldDocumentCommitInput,
+  CompareWorldDocumentCommitsInput,
+  CreateWorldDocumentBranchInput,
+  RenameWorldDocumentBranchInput,
+  PreviewWorldDocumentMergeInput,
   RestoreWorldDocumentCommitInput,
   RestoreWorldDocumentCommitResult,
+  SaveWorldDocumentCheckpointInput,
+  WorldDocumentCheckpointPayload,
+  WorldDocumentBranchPayload,
+  WorldDocumentCommitComparisonPayload,
   WorldDocumentCommitDetailPayload,
-  WorldDocumentCommitHistoryPayload
+  WorldDocumentCommitHistoryPayload,
+  WorldDocumentIntegrityReport,
+  WorldDocumentGarbageCollectionResult,
+  WorldDocumentVersionPackageImportResult,
+  WorldDocumentMergePreviewPayload,
+  WorldDocumentCommitSummary,
+  WorldDocumentVersionStatusPayload
 } from '../share/cache/worldbuilding/worldDocumentHistory'
 
 declare global {
@@ -183,6 +199,7 @@ declare global {
     ) => Promise<WorldEntityDocumentPayload>
     deleteWorldEntityDocument: (input: DeleteWorldEntityDocumentInput) => Promise<void>
     commitWorldEntityDocumentHistorySession: (sessionId: string) => Promise<void>
+    initializeWorldDocumentHistory: (worldId: string) => Promise<WorldDocumentCommitSummary>
     listWorldDocumentCommitHistory: (
       worldId: string,
       limit?: number
@@ -190,8 +207,46 @@ declare global {
     getWorldDocumentCommitDetail: (
       commitId: string
     ) => Promise<WorldDocumentCommitDetailPayload | null>
+    inspectWorldDocumentHistory: (worldId?: string) => Promise<WorldDocumentIntegrityReport>
+    pruneWorldDocumentHistory: (
+      dryRun?: boolean
+    ) => Promise<WorldDocumentGarbageCollectionResult>
+    getWorldDocumentVersionStatus: (worldId: string) => Promise<WorldDocumentVersionStatusPayload>
+    listWorldDocumentCheckpoints: (worldId: string) => Promise<WorldDocumentCheckpointPayload[]>
+    saveWorldDocumentCheckpoint: (
+      input: SaveWorldDocumentCheckpointInput
+    ) => Promise<WorldDocumentCheckpointPayload>
+    deleteWorldDocumentCheckpoint: (checkpointId: string) => Promise<void>
+    compareWorldDocumentCommits: (
+      input: CompareWorldDocumentCommitsInput
+    ) => Promise<WorldDocumentCommitComparisonPayload>
+    createWorldDocumentBranch: (
+      input: CreateWorldDocumentBranchInput
+    ) => Promise<WorldDocumentBranchPayload>
+    renameWorldDocumentBranch: (
+      input: RenameWorldDocumentBranchInput
+    ) => Promise<WorldDocumentBranchPayload>
+    deleteWorldDocumentBranch: (branchId: string) => Promise<void>
+    switchWorldDocumentBranch: (branchId: string) => Promise<WorldDocumentBranchPayload>
+    previewWorldDocumentMerge: (
+      input: PreviewWorldDocumentMergeInput
+    ) => Promise<WorldDocumentMergePreviewPayload>
+    applyWorldDocumentMerge: (
+      input: ApplyWorldDocumentMergeInput
+    ) => Promise<WorldDocumentCommitSummary>
+    exportWorldDocumentHistory: (
+      worldId: string
+    ) => Promise<{ saved: boolean; filePath?: string }>
+    importWorldDocumentHistory: (worldId: string) => Promise<{
+      imported: boolean
+      filePath?: string
+      report?: WorldDocumentVersionPackageImportResult
+    }>
     restoreWorldDocumentCommit: (
       input: RestoreWorldDocumentCommitInput
+    ) => Promise<RestoreWorldDocumentCommitResult>
+    applyWorldDocumentCommit: (
+      input: ApplyWorldDocumentCommitInput
     ) => Promise<RestoreWorldDocumentCommitResult>
     onWorldEntityDocumentChanged: (
       callback: (change: WorldEntityDocumentChangeEvent) => void

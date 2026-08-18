@@ -5,6 +5,8 @@ export type WorldDocumentChangeOperation = 'create' | 'update' | 'move' | 'delet
 @Entity('world_document_change')
 @Index(['changeSetId', 'documentId'], { unique: true })
 @Index(['changeSetId', 'status'])
+@Index('IDX_world_document_change_status_updated', ['status', 'updatedAt'])
+@Index('IDX_world_document_change_commit', ['commitId'])
 export class WorldDocumentChangeRecord {
   @PrimaryColumn({ type: 'text' })
   id!: string

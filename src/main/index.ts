@@ -9,7 +9,7 @@ import { registerAppResourceProtocol } from './protocols/resourceProtocol'
 import { taskRecoveryService } from './services/task/taskRecoveryService'
 import { subAgentExecutionQueueService } from './services/task/queue/subAgentExecutionQueueService'
 import { mainAgentEventRecoveryService } from './services/aiservice/runtime/queue/mainAgentEventRecoveryQueueService'
-import { commitPendingWorldDocumentChangeSets } from './services/worldbuilding/worldDocumentVersionRepositoryService'
+import { reconcilePendingWorldDocumentChangeSets } from './services/worldbuilding/worldDocumentVersionRepositoryService'
 
 function createWindow(): void {
   // Create the browser window.
@@ -50,10 +50,23 @@ function createWindow(): void {
   }
 }
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const [mainWindow] = BrowserWindow.getAllWindows()
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  })
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(async () => {
+  app.whenReady().then(async () => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -69,7 +82,6 @@ app.whenReady().then(async () => {
 
   // 初始化数据库
   await initDatabase()
-  await commitPendingWorldDocumentChangeSets()
 
   await initMemoryStorage()
   registerAppResourceProtocol()
@@ -79,6 +91,7 @@ app.whenReady().then(async () => {
   await subAgentExecutionQueueService.enqueueQueuedExecutions()
   await mainAgentEventRecoveryService.reconcileTurnOwnedEvents()
   await mainAgentEventRecoveryService.reconcileLegacyPausedTurn()
+  await reconcilePendingWorldDocumentChangeSets()
   await mainAgentEventRecoveryService.reconcileTaskNotificationEvents()
   await mainAgentEventRecoveryService.enqueueQueuedEvents()
   await taskRecoveryService.enqueuePendingNotifications()
@@ -90,7 +103,8 @@ app.whenReady().then(async () => {
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
+  })
+}
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits

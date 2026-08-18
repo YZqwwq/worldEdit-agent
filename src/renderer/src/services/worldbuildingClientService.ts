@@ -24,10 +24,26 @@ import type {
   WorldEntityDocumentPayload
 } from '@share/cache/worldbuilding/worldEntityDocument'
 import type {
+  ApplyWorldDocumentMergeInput,
+  ApplyWorldDocumentCommitInput,
+  CompareWorldDocumentCommitsInput,
+  CreateWorldDocumentBranchInput,
+  RenameWorldDocumentBranchInput,
+  PreviewWorldDocumentMergeInput,
   RestoreWorldDocumentCommitInput,
   RestoreWorldDocumentCommitResult,
+  SaveWorldDocumentCheckpointInput,
+  WorldDocumentCheckpointPayload,
+  WorldDocumentBranchPayload,
+  WorldDocumentCommitComparisonPayload,
   WorldDocumentCommitDetailPayload,
-  WorldDocumentCommitHistoryPayload
+  WorldDocumentCommitHistoryPayload,
+  WorldDocumentIntegrityReport,
+  WorldDocumentGarbageCollectionResult,
+  WorldDocumentVersionPackageImportResult,
+  WorldDocumentMergePreviewPayload,
+  WorldDocumentCommitSummary,
+  WorldDocumentVersionStatusPayload
 } from '@share/cache/worldbuilding/worldDocumentHistory'
 
 export const worldbuildingClientService = {
@@ -129,6 +145,10 @@ export const worldbuildingClientService = {
     return window.api.commitWorldEntityDocumentHistorySession(sessionId)
   },
 
+  initializeWorldDocumentHistory(worldId: string): Promise<WorldDocumentCommitSummary> {
+    return window.api.initializeWorldDocumentHistory(worldId)
+  },
+
   listWorldDocumentCommitHistory(
     worldId: string,
     limit?: number
@@ -140,9 +160,89 @@ export const worldbuildingClientService = {
     return window.api.getWorldDocumentCommitDetail(commitId)
   },
 
+  inspectWorldDocumentHistory(worldId?: string): Promise<WorldDocumentIntegrityReport> {
+    return window.api.inspectWorldDocumentHistory(worldId)
+  },
+
+  pruneWorldDocumentHistory(dryRun = true): Promise<WorldDocumentGarbageCollectionResult> {
+    return window.api.pruneWorldDocumentHistory(dryRun)
+  },
+
+  getWorldDocumentVersionStatus(worldId: string): Promise<WorldDocumentVersionStatusPayload> {
+    return window.api.getWorldDocumentVersionStatus(worldId)
+  },
+
+  listWorldDocumentCheckpoints(worldId: string): Promise<WorldDocumentCheckpointPayload[]> {
+    return window.api.listWorldDocumentCheckpoints(worldId)
+  },
+
+  saveWorldDocumentCheckpoint(
+    input: SaveWorldDocumentCheckpointInput
+  ): Promise<WorldDocumentCheckpointPayload> {
+    return window.api.saveWorldDocumentCheckpoint(input)
+  },
+
+  deleteWorldDocumentCheckpoint(checkpointId: string): Promise<void> {
+    return window.api.deleteWorldDocumentCheckpoint(checkpointId)
+  },
+
+  compareWorldDocumentCommits(
+    input: CompareWorldDocumentCommitsInput
+  ): Promise<WorldDocumentCommitComparisonPayload> {
+    return window.api.compareWorldDocumentCommits(input)
+  },
+
+  createWorldDocumentBranch(
+    input: CreateWorldDocumentBranchInput
+  ): Promise<WorldDocumentBranchPayload> {
+    return window.api.createWorldDocumentBranch(input)
+  },
+
+  renameWorldDocumentBranch(
+    input: RenameWorldDocumentBranchInput
+  ): Promise<WorldDocumentBranchPayload> {
+    return window.api.renameWorldDocumentBranch(input)
+  },
+
+  deleteWorldDocumentBranch(branchId: string): Promise<void> {
+    return window.api.deleteWorldDocumentBranch(branchId)
+  },
+
+  switchWorldDocumentBranch(branchId: string): Promise<WorldDocumentBranchPayload> {
+    return window.api.switchWorldDocumentBranch(branchId)
+  },
+
+  previewWorldDocumentMerge(
+    input: PreviewWorldDocumentMergeInput
+  ): Promise<WorldDocumentMergePreviewPayload> {
+    return window.api.previewWorldDocumentMerge(input)
+  },
+
+  applyWorldDocumentMerge(input: ApplyWorldDocumentMergeInput): Promise<WorldDocumentCommitSummary> {
+    return window.api.applyWorldDocumentMerge(input)
+  },
+
+  exportWorldDocumentHistory(worldId: string): Promise<{ saved: boolean; filePath?: string }> {
+    return window.api.exportWorldDocumentHistory(worldId)
+  },
+
+  importWorldDocumentHistory(worldId: string): Promise<{
+    imported: boolean
+    filePath?: string
+    report?: WorldDocumentVersionPackageImportResult
+  }> {
+    return window.api.importWorldDocumentHistory(worldId)
+  },
+
   restoreWorldDocumentCommit(
     input: RestoreWorldDocumentCommitInput
   ): Promise<RestoreWorldDocumentCommitResult> {
     return window.api.restoreWorldDocumentCommit(input)
+  },
+
+  applyWorldDocumentCommit(
+    input: ApplyWorldDocumentCommitInput
+  ): Promise<RestoreWorldDocumentCommitResult> {
+    return window.api.applyWorldDocumentCommit(input)
   }
 }

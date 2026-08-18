@@ -1,5 +1,5 @@
 const { existsSync } = require('node:fs')
-const { resolve } = require('node:path')
+const { isAbsolute, relative, resolve } = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 const [targetArgument, ...environmentArguments] = process.argv.slice(2)
@@ -7,6 +7,7 @@ if (!targetArgument) {
   throw new Error('Usage: node scripts/test/run-electron-test.cjs <compiled-test> [KEY=VALUE ...]')
 }
 
+const workspaceRoot = resolve(__dirname, '..', '..')
 const electronPath = require('electron')
 if (!existsSync(electronPath)) {
   throw new Error(
@@ -26,12 +27,18 @@ for (const argument of environmentArguments) {
   environment[argument.slice(0, separator)] = argument.slice(separator + 1)
 }
 
-const bootstrap = resolve(process.cwd(), 'scripts/node-test-bootstrap.cjs')
-const target = resolve(process.cwd(), targetArgument)
+const bootstrap = resolve(workspaceRoot, 'scripts/node-test-bootstrap.cjs')
+const target = isAbsolute(targetArgument) ? targetArgument : resolve(workspaceRoot, targetArgument)
+const targetRelativePath = relative(workspaceRoot, target)
+if (targetRelativePath.startsWith('..') || isAbsolute(targetRelativePath)) {
+  throw new Error(`Electron test target must stay inside the workspace: ${target}`)
+}
+if (!existsSync(target)) throw new Error(`Electron test target does not exist: ${target}`)
 const result = spawnSync(electronPath, [bootstrap, target], {
-  cwd: process.cwd(),
+  cwd: workspaceRoot,
   env: environment,
-  stdio: 'inherit'
+  stdio: 'inherit',
+  windowsHide: true
 })
 
 if (result.error) throw result.error

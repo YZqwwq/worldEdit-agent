@@ -34,8 +34,23 @@ import { worldEntityDocumentService } from '../worldbuilding/worldEntityDocument
 import { worldEntityDocumentChangePublisher } from '../worldbuilding/worldEntityDocumentChangePublisher'
 import {
   commitWorldDocumentChangeSet,
+  compareWorldDocumentCommits,
+  applyWorldDocumentMerge,
+  applyWorldDocumentCommit,
+  createWorldDocumentBranch,
+  deleteWorldDocumentBranch,
+  deleteWorldDocumentCheckpoint,
   getWorldDocumentCommitDetail,
+  getWorldDocumentVersionStatus,
+  initializeWorldDocumentHistory,
+  inspectWorldDocumentHistory,
   listWorldDocumentCommitHistory,
+  listWorldDocumentCheckpoints,
+  saveWorldDocumentCheckpoint,
+  previewWorldDocumentMerge,
+  pruneUnreachableWorldDocumentObjects,
+  renameWorldDocumentBranch,
+  switchWorldDocumentBranch,
   restoreWorldDocumentCommit
 } from '../worldbuilding/worldDocumentVersionRepositoryService'
 import { characterImpressionService } from '../worldbuilding/characterImpressionService'
@@ -57,11 +72,25 @@ import type {
   WorldEntityDocumentOwnerRef
 } from '@share/cache/worldbuilding/worldEntityDocument'
 import type { UpsertCharacterImpressionInput } from '@share/cache/worldbuilding/characterImpression'
-import type { RestoreWorldDocumentCommitInput } from '@share/cache/worldbuilding/worldDocumentHistory'
+import type {
+  ApplyWorldDocumentMergeInput,
+  ApplyWorldDocumentCommitInput,
+  CompareWorldDocumentCommitsInput,
+  CreateWorldDocumentBranchInput,
+  RenameWorldDocumentBranchInput,
+  PreviewWorldDocumentMergeInput,
+  RestoreWorldDocumentCommitInput,
+  SaveWorldDocumentCheckpointInput
+} from '@share/cache/worldbuilding/worldDocumentHistory'
 import { taskService } from '../task/taskService'
 import { createConfiguredModelRuntime } from './model-adapters/modelProviderAdapter'
 import { contentToText } from './messageoutput/transformRespones'
 import { agentArtifactService } from './artifacts/agentArtifactService'
+import {
+  buildWorldDocumentVersionPackageWithDataSource,
+  importWorldDocumentVersionPackageWithDataSource
+} from '../worldbuilding/worldDocumentVersionPackageService'
+import { AppDataSource } from '../../database'
 
 type UploadResult = {
   resourceUrl: string
@@ -553,6 +582,11 @@ export function initializeAIEndpoints(): void {
   })
 
   ipcMain.handle(
+    'worldEntityDocument:history:initialize',
+    async (_event, worldId: string) => initializeWorldDocumentHistory(worldId)
+  )
+
+  ipcMain.handle(
     'worldEntityDocument:history:list',
     async (_event, worldId: string, limit?: number) =>
       listWorldDocumentCommitHistory(worldId, limit)
@@ -560,6 +594,95 @@ export function initializeAIEndpoints(): void {
 
   ipcMain.handle('worldEntityDocument:history:get', async (_event, commitId: string) =>
     getWorldDocumentCommitDetail(commitId)
+  )
+
+  ipcMain.handle('worldEntityDocument:history:inspect', async (_event, worldId?: string) =>
+    inspectWorldDocumentHistory(worldId)
+  )
+  ipcMain.handle('worldEntityDocument:history:gc', async (_event, dryRun = true) =>
+    pruneUnreachableWorldDocumentObjects(Boolean(dryRun))
+  )
+
+  ipcMain.handle('worldEntityDocument:history:status', async (_event, worldId: string) =>
+    getWorldDocumentVersionStatus(worldId)
+  )
+
+  ipcMain.handle('worldEntityDocument:history:checkpoints', async (_event, worldId: string) =>
+    listWorldDocumentCheckpoints(worldId)
+  )
+
+  ipcMain.handle(
+    'worldEntityDocument:history:checkpoint:save',
+    async (_event, input: SaveWorldDocumentCheckpointInput) => saveWorldDocumentCheckpoint(input)
+  )
+
+  ipcMain.handle(
+    'worldEntityDocument:history:checkpoint:delete',
+    async (_event, checkpointId: string) => deleteWorldDocumentCheckpoint(checkpointId)
+  )
+
+  ipcMain.handle(
+    'worldEntityDocument:history:compare',
+    async (_event, input: CompareWorldDocumentCommitsInput) => compareWorldDocumentCommits(input)
+  )
+
+  ipcMain.handle(
+    'worldEntityDocument:history:branch:create',
+    async (_event, input: CreateWorldDocumentBranchInput) => createWorldDocumentBranch(input)
+  )
+
+  ipcMain.handle(
+    'worldEntityDocument:history:branch:switch',
+    async (_event, branchId: string) => switchWorldDocumentBranch(branchId)
+  )
+  ipcMain.handle(
+    'worldEntityDocument:history:branch:rename',
+    async (_event, input: RenameWorldDocumentBranchInput) => renameWorldDocumentBranch(input)
+  )
+  ipcMain.handle(
+    'worldEntityDocument:history:branch:delete',
+    async (_event, branchId: string) => deleteWorldDocumentBranch(branchId)
+  )
+
+  ipcMain.handle(
+    'worldEntityDocument:history:merge:preview',
+    async (_event, input: PreviewWorldDocumentMergeInput) => previewWorldDocumentMerge(input)
+  )
+
+  ipcMain.handle(
+    'worldEntityDocument:history:merge:apply',
+    async (_event, input: ApplyWorldDocumentMergeInput) => applyWorldDocumentMerge(input)
+  )
+
+  ipcMain.handle('worldEntityDocument:history:export', async (_event, worldId: string) => {
+    const payload = await buildWorldDocumentVersionPackageWithDataSource(AppDataSource, worldId)
+    const result = await dialog.showSaveDialog({
+      title: '导出世界文档版本包',
+      defaultPath: `world-document-history-${worldId}.json`,
+      filters: [{ name: 'WorldEdit 版本包', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePath) return { saved: false }
+    await writeFile(result.filePath, JSON.stringify(payload, null, 2), 'utf8')
+    return { saved: true, filePath: result.filePath }
+  })
+  ipcMain.handle('worldEntityDocument:history:import', async (_event, worldId: string) => {
+    const result = await dialog.showOpenDialog({
+      title: '导入世界文档版本包',
+      properties: ['openFile'],
+      filters: [{ name: 'WorldEdit 版本包', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePaths[0]) return { imported: false }
+    const content = await readFile(result.filePaths[0], 'utf8')
+    const report = await importWorldDocumentVersionPackageWithDataSource(
+      AppDataSource,
+      JSON.parse(content),
+      worldId
+    )
+    return { imported: true, filePath: result.filePaths[0], report }
+  })
+  ipcMain.handle(
+    'worldEntityDocument:history:apply-commit',
+    async (_event, input: ApplyWorldDocumentCommitInput) => applyWorldDocumentCommit(input)
   )
 
   ipcMain.handle(

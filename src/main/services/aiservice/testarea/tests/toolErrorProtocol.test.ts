@@ -83,6 +83,32 @@ test('document revision conflicts are normalized without domain coupling', async
   })
 })
 
+test('closed document change sets return a deterministic non-retryable conflict', async () => {
+  class ChangeSetClosedError extends Error {
+    readonly code = 'CHANGESET_CLOSED'
+    readonly retryable = false
+    constructor(
+      readonly changeSetId: string,
+      readonly worldId: string,
+      readonly commitId: string
+    ) {
+      super('change set is closed')
+    }
+  }
+
+  const tool = createFailingTool('closed_change_set_tool', () => {
+    throw new ChangeSetClosedError('turn:7', 'world-a', 'commit-a')
+  })
+  const envelope = parseAgentToolResultEnvelope(await tool.invoke({ value: 'x' }))
+  assert.equal(envelope?.error?.code, 'CHANGESET_CLOSED')
+  assert.equal(envelope?.error?.retryable, false)
+  assert.deepEqual(envelope?.error?.details, {
+    changeSetId: 'turn:7',
+    worldId: 'world-a',
+    commitId: 'commit-a'
+  })
+})
+
 test('unknown exceptions become non-retryable internal errors', async () => {
   const tool = createFailingTool('internal_error_tool', () => {
     throw new Error('unexpected failure')

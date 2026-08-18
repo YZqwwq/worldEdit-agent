@@ -24,11 +24,26 @@ npm run test:turn-version
 # Electron ABI 下的全部 SQLite、原子事务与崩溃恢复测试
 npm run test:integration:electron
 
+# 只验证 Electron、Node、better-sqlite3 与 SQLite ABI
+npm run test:integration:preflight
+
 # 只运行 Git 式文档内容、树提交与恢复
 npm run test:document-version:electron
+
+# 通过统一 runner 运行指定套件
+node scripts/test/run-electron-suite.cjs document-version
+
+# 查看统一 runner 支持的套件
+node scripts/test/run-electron-suite.cjs --list
 ```
 
-Electron 集成入口由 `scripts/test/run-electron-test.cjs` 解析当前平台的 Electron 可执行文件并注入环境变量，Mac 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci` 和 `npm run rebuild`，不能跨平台复制 `node_modules`。普通 Node 回归保留快速逻辑测试，SQLite 用例只在 Electron 入口中强制启用。
+Electron 集成入口由 `scripts/test/run-electron-suite.cjs` 维护平台无关的测试清单，`run-electron-test.cjs` 解析当前平台的 Electron 可执行文件并注入环境变量。运行完整矩阵前会执行原生环境预检，输出平台、架构、Electron、Node、ABI modules 与 SQLite 版本，并实际打开一次内存 SQLite。
+
+macOS 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci` 和 `npm run rebuild`，不能跨平台复制 `node_modules`。普通 Node 回归保留快速逻辑测试，SQLite 用例只在 Electron 入口中强制启用。故障恢复套件会创建嵌套子进程，在受限沙箱中可能收到 `EPERM`；这代表执行环境禁止故障注入，不代表业务断言失败。
+
+当前统一套件：`tool-effect`、`document-version`、`turn-version`、`tool-effect-recovery`、`turn-recovery`。
+
+`document-version` 覆盖跨任务隔离、启动恢复和历史完整性：未提交的其他文档工作态不能进入当前提交；较晚封口的旧 ChangeSet 不能回退父 Tree 中 revision 更高的同一文档；启动时只有人工会话和终态 Agent 会封口，运行中与无归属 ChangeSet 保持暂存。已封口 ChangeSet 拒绝迟到写入，历史源与工作区内容必须一致，恢复包含 schemaVersion，并通过应用版 `fsck` 检查对象哈希、提交图和 ChangeRecord 引用。选择性恢复只影响勾选文档，目录会扩展到后代；独立设定方案维护各自 HEAD，三方合并记录双父提交，Markdown 非重叠修改可自动合并，重叠修改必须显式解决；撤销和摘取只创建新提交，不重写旧历史。对象 GC 只删除全局不可达 Tree/Content；版本包覆盖整体摘要、篡改拒绝、导入恢复和重复导入幂等。迁移账本与历史索引具备幂等测试。
 
 ## 文件组织
 
@@ -117,6 +132,7 @@ Electron 集成入口由 `scripts/test/run-electron-test.cjs` 解析当前平台
 - [x] 非法输出转换为不可重试的结构化错误。
 - [x] 业务错误保留错误码、可重试性和恢复建议。
 - [x] 文档 revision 冲突被统一识别。
+- [x] 已封口的文档 ChangeSet 返回不可重试的结构化冲突。
 - [x] 未知异常转换为内部错误，不诱导盲目重试。
 
 测试文件：[toolErrorProtocol.test.ts](./tests/toolErrorProtocol.test.ts)

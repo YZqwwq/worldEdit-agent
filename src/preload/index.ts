@@ -47,10 +47,26 @@ import type {
 } from '../share/cache/worldbuilding/characterImpression'
 import type { AgentArtifactPayload } from '../share/cache/AItype/states/agentArtifact'
 import type {
+  ApplyWorldDocumentMergeInput,
+  ApplyWorldDocumentCommitInput,
+  CompareWorldDocumentCommitsInput,
+  CreateWorldDocumentBranchInput,
+  RenameWorldDocumentBranchInput,
+  PreviewWorldDocumentMergeInput,
   RestoreWorldDocumentCommitInput,
   RestoreWorldDocumentCommitResult,
+  SaveWorldDocumentCheckpointInput,
+  WorldDocumentCheckpointPayload,
+  WorldDocumentBranchPayload,
+  WorldDocumentCommitComparisonPayload,
   WorldDocumentCommitDetailPayload,
-  WorldDocumentCommitHistoryPayload
+  WorldDocumentCommitHistoryPayload,
+  WorldDocumentIntegrityReport,
+  WorldDocumentGarbageCollectionResult,
+  WorldDocumentVersionPackageImportResult,
+  WorldDocumentMergePreviewPayload,
+  WorldDocumentCommitSummary,
+  WorldDocumentVersionStatusPayload
 } from '../share/cache/worldbuilding/worldDocumentHistory'
 
 // Local type to ensure availability in this module
@@ -181,6 +197,7 @@ type Api = {
   ) => Promise<WorldEntityDocumentPayload>
   deleteWorldEntityDocument: (input: DeleteWorldEntityDocumentInput) => Promise<void>
   commitWorldEntityDocumentHistorySession: (sessionId: string) => Promise<void>
+  initializeWorldDocumentHistory: (worldId: string) => Promise<WorldDocumentCommitSummary>
   listWorldDocumentCommitHistory: (
     worldId: string,
     limit?: number
@@ -188,8 +205,40 @@ type Api = {
   getWorldDocumentCommitDetail: (
     commitId: string
   ) => Promise<WorldDocumentCommitDetailPayload | null>
+  inspectWorldDocumentHistory: (worldId?: string) => Promise<WorldDocumentIntegrityReport>
+  pruneWorldDocumentHistory: (dryRun?: boolean) => Promise<WorldDocumentGarbageCollectionResult>
+  getWorldDocumentVersionStatus: (worldId: string) => Promise<WorldDocumentVersionStatusPayload>
+  listWorldDocumentCheckpoints: (worldId: string) => Promise<WorldDocumentCheckpointPayload[]>
+  saveWorldDocumentCheckpoint: (
+    input: SaveWorldDocumentCheckpointInput
+  ) => Promise<WorldDocumentCheckpointPayload>
+  deleteWorldDocumentCheckpoint: (checkpointId: string) => Promise<void>
+  compareWorldDocumentCommits: (
+    input: CompareWorldDocumentCommitsInput
+  ) => Promise<WorldDocumentCommitComparisonPayload>
+  createWorldDocumentBranch: (
+    input: CreateWorldDocumentBranchInput
+  ) => Promise<WorldDocumentBranchPayload>
+  renameWorldDocumentBranch: (
+    input: RenameWorldDocumentBranchInput
+  ) => Promise<WorldDocumentBranchPayload>
+  deleteWorldDocumentBranch: (branchId: string) => Promise<void>
+  switchWorldDocumentBranch: (branchId: string) => Promise<WorldDocumentBranchPayload>
+  previewWorldDocumentMerge: (
+    input: PreviewWorldDocumentMergeInput
+  ) => Promise<WorldDocumentMergePreviewPayload>
+  applyWorldDocumentMerge: (input: ApplyWorldDocumentMergeInput) => Promise<WorldDocumentCommitSummary>
+  exportWorldDocumentHistory: (worldId: string) => Promise<{ saved: boolean; filePath?: string }>
+  importWorldDocumentHistory: (worldId: string) => Promise<{
+    imported: boolean
+    filePath?: string
+    report?: WorldDocumentVersionPackageImportResult
+  }>
   restoreWorldDocumentCommit: (
     input: RestoreWorldDocumentCommitInput
+  ) => Promise<RestoreWorldDocumentCommitResult>
+  applyWorldDocumentCommit: (
+    input: ApplyWorldDocumentCommitInput
   ) => Promise<RestoreWorldDocumentCommitResult>
   onWorldEntityDocumentChanged: (
     callback: (change: WorldEntityDocumentChangeEvent) => void
@@ -263,12 +312,46 @@ const api: Api = {
   deleteWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:delete', input),
   commitWorldEntityDocumentHistorySession: (sessionId) =>
     ipcRenderer.invoke('worldEntityDocument:commitHistorySession', sessionId),
+  initializeWorldDocumentHistory: (worldId) =>
+    ipcRenderer.invoke('worldEntityDocument:history:initialize', worldId),
   listWorldDocumentCommitHistory: (worldId, limit) =>
     ipcRenderer.invoke('worldEntityDocument:history:list', worldId, limit),
   getWorldDocumentCommitDetail: (commitId) =>
     ipcRenderer.invoke('worldEntityDocument:history:get', commitId),
+  inspectWorldDocumentHistory: (worldId) =>
+    ipcRenderer.invoke('worldEntityDocument:history:inspect', worldId),
+  pruneWorldDocumentHistory: (dryRun = true) =>
+    ipcRenderer.invoke('worldEntityDocument:history:gc', dryRun),
+  getWorldDocumentVersionStatus: (worldId) =>
+    ipcRenderer.invoke('worldEntityDocument:history:status', worldId),
+  listWorldDocumentCheckpoints: (worldId) =>
+    ipcRenderer.invoke('worldEntityDocument:history:checkpoints', worldId),
+  saveWorldDocumentCheckpoint: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:history:checkpoint:save', input),
+  deleteWorldDocumentCheckpoint: (checkpointId) =>
+    ipcRenderer.invoke('worldEntityDocument:history:checkpoint:delete', checkpointId),
+  compareWorldDocumentCommits: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:history:compare', input),
+  createWorldDocumentBranch: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:history:branch:create', input),
+  renameWorldDocumentBranch: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:history:branch:rename', input),
+  deleteWorldDocumentBranch: (branchId) =>
+    ipcRenderer.invoke('worldEntityDocument:history:branch:delete', branchId),
+  switchWorldDocumentBranch: (branchId) =>
+    ipcRenderer.invoke('worldEntityDocument:history:branch:switch', branchId),
+  previewWorldDocumentMerge: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:history:merge:preview', input),
+  applyWorldDocumentMerge: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:history:merge:apply', input),
+  exportWorldDocumentHistory: (worldId) =>
+    ipcRenderer.invoke('worldEntityDocument:history:export', worldId),
+  importWorldDocumentHistory: (worldId) =>
+    ipcRenderer.invoke('worldEntityDocument:history:import', worldId),
   restoreWorldDocumentCommit: (input) =>
     ipcRenderer.invoke('worldEntityDocument:history:restore', input),
+  applyWorldDocumentCommit: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:history:apply-commit', input),
   onWorldEntityDocumentChanged: (callback) => {
     const subscription = (_event: IpcRendererEvent, change: WorldEntityDocumentChangeEvent) =>
       callback(change)

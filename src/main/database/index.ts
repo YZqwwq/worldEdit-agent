@@ -32,7 +32,10 @@ import { WorldDocumentContentVersionRecord } from '../../share/entity/database/W
 import { WorldDocumentTreeObjectRecord } from '../../share/entity/database/WorldDocumentTreeObjectRecord'
 import { WorldDocumentCommitRecord } from '../../share/entity/database/WorldDocumentCommitRecord'
 import { WorldDocumentChangeRecord } from '../../share/entity/database/WorldDocumentChangeRecord'
+import { WorldDocumentCheckpointRecord } from '../../share/entity/database/WorldDocumentCheckpointRecord'
+import { WorldDocumentBranchRecord } from '../../share/entity/database/WorldDocumentBranchRecord'
 import { migrateWorldEntityDocuments } from './migrations/migrateWorldEntityDocuments'
+import { runAppSchemaMigrations } from './migrations/runAppSchemaMigrations'
 
 // 数据库文件路径：UserData/database.sqlite
 const dbPath = join(app.getPath('userData'), 'database.sqlite')
@@ -72,6 +75,8 @@ export const AppDataSource = new DataSource({
     WorldDocumentTreeObjectRecord,
     WorldDocumentCommitRecord,
     WorldDocumentChangeRecord,
+    WorldDocumentCheckpointRecord,
+    WorldDocumentBranchRecord,
     CharacterImpressionRecord,
     ToolUsageStatsRecord
   ],
@@ -84,6 +89,11 @@ export const initDatabase = async (): Promise<void> => {
     if (!AppDataSource.isInitialized) {
       migrateWorldEntityDocuments(dbPath)
       await AppDataSource.initialize()
+      await AppDataSource.query('PRAGMA journal_mode = WAL')
+      await AppDataSource.query('PRAGMA synchronous = NORMAL')
+      await AppDataSource.query('PRAGMA foreign_keys = ON')
+      await AppDataSource.query('PRAGMA busy_timeout = 5000')
+      await runAppSchemaMigrations(AppDataSource)
       console.log('Data Source has been initialized!')
       console.log('Database path:', dbPath)
     }

@@ -300,11 +300,11 @@
             class="toolbar-tool history-panel-toggle"
             :class="{ active: showNarrativeHistoryPanel }"
             :aria-pressed="showNarrativeHistoryPanel"
-            aria-label="打开文档版本历史"
-            title="版本历史"
+            aria-label="打开文档版本"
+            title="版本"
             @click="toggleNarrativeHistoryPanel"
           >
-            历史
+            版本
           </button>
         </div>
       </div>
@@ -366,17 +366,103 @@
         <aside v-else-if="showNarrativeHistoryPanel" class="narrative-history-panel">
           <header class="history-panel-head">
             <div>
-              <strong>版本历史</strong>
-              <small>整个世界文档库</small>
+              <strong>版本</strong>
+              <small>{{ activeDocumentBranch?.name || '整个世界文档库' }}</small>
             </div>
             <button
               type="button"
-              aria-label="关闭版本历史"
+              aria-label="关闭版本"
               @click="showNarrativeHistoryPanel = false"
             >
               ×
             </button>
           </header>
+
+          <section v-if="versionStatus" class="history-status-bar">
+            <select
+              :value="versionStatus.branches.find((branch) => branch.active)?.id"
+              aria-label="当前设定方案"
+              @change="switchDocumentBranch(($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="branch in versionStatus.branches" :key="branch.id" :value="branch.id">
+                {{ branch.name }}
+              </option>
+            </select>
+            <span>HEAD #{{ versionStatus.head?.sequence ?? 0 }}</span>
+            <span v-if="versionStatus.pending.documentCount">
+              {{ versionStatus.pending.documentCount }} 份文档待封口
+            </span>
+            <span :class="versionStatus.integrity.ok ? 'healthy' : 'unhealthy'">
+              {{ versionStatus.integrity.ok ? '历史完整' : '历史需检查' }}
+            </span>
+          </section>
+
+          <details class="history-management">
+            <summary>版本管理</summary>
+            <div class="history-tools">
+              <input v-model="activeBranchDraftName" maxlength="60" placeholder="当前方案名称" />
+              <button type="button" :disabled="!canRenameActiveBranch" @click="renameActiveDocumentBranch">重命名</button>
+              <input v-model="branchDraftName" maxlength="60" placeholder="新方案名称" />
+              <button type="button" :disabled="!branchDraftName.trim()" @click="createDocumentBranch">新建方案</button>
+              <select v-model="mergeSourceBranchId" aria-label="待合并方案">
+                <option value="">选择待合并方案</option>
+                <option
+                  v-for="branch in versionStatus?.branches.filter((item) => !item.active) ?? []"
+                  :key="branch.id"
+                  :value="branch.id"
+                >{{ branch.name }}</option>
+              </select>
+              <button type="button" :disabled="!mergeSourceBranchId" @click="previewDocumentMerge">合并方案</button>
+              <button type="button" :disabled="!mergeSourceBranchId" @click="showBranchDeleteConfirm = true">删除方案</button>
+              <select v-model="comparisonBaseCommitId" aria-label="比较基准版本">
+                <option value="">选择比较基准</option>
+                <option v-for="commit in documentHistory.commits" :key="commit.id" :value="commit.id">
+                  #{{ commit.sequence }} {{ commit.summary }}
+                </option>
+              </select>
+              <button
+                type="button"
+                :disabled="!comparisonBaseCommitId || comparisonBaseCommitId === selectedHistoryCommitId"
+                @click="compareSelectedHistory"
+              >比较</button>
+              <input v-model="checkpointDraftName" maxlength="80" placeholder="检查点名称" />
+              <button type="button" :disabled="!checkpointDraftName.trim()" @click="createCheckpointForSelected">保存检查点</button>
+              <button type="button" title="导出完整版本历史" @click="exportDocumentHistory">导出版本</button>
+              <button type="button" title="校验并导入版本包" @click="importDocumentHistory">导入版本</button>
+              <button type="button" title="检查并清理不可达版本对象" @click="previewDocumentHistoryCleanup">清理对象</button>
+            </div>
+          </details>
+
+          <section v-if="mergePreview" class="history-merge-preview">
+            <header>
+              <strong>合并「{{ mergePreview.sourceBranch.name }}」</strong>
+              <span>{{ mergePreview.autoMergedDocumentIds.length }} 项可自动合并</span>
+            </header>
+            <article v-for="conflict in mergePreview.conflicts" :key="conflict.documentId">
+              <strong>{{ conflict.title }}</strong>
+              <small>{{ conflict.reason === 'delete_modify' ? '删除与修改冲突' : '双方都修改了此文档' }}</small>
+              <div>
+                <label><input v-model="mergeResolutions[conflict.documentId]" type="radio" :name="`merge-${conflict.documentId}`" value="current" />保留当前方案</label>
+                <label><input v-model="mergeResolutions[conflict.documentId]" type="radio" :name="`merge-${conflict.documentId}`" value="incoming" />采用来源方案</label>
+              </div>
+            </article>
+            <footer>
+              <button type="button" @click="mergePreview = null">取消</button>
+              <button type="button" :disabled="!canApplyMerge" @click="applyDocumentMerge">确认合并</button>
+            </footer>
+          </section>
+
+          <div v-if="documentCheckpoints.length" class="history-checkpoints">
+            <button
+              v-for="checkpoint in documentCheckpoints"
+              :key="checkpoint.id"
+              type="button"
+              @click="selectHistoryCommit(checkpoint.commitId)"
+            >
+              <span>{{ checkpoint.name }}</span>
+              <small @click.stop="removeCheckpoint(checkpoint.id)">×</small>
+            </button>
+          </div>
 
           <div v-if="historyLoading" class="history-panel-state">正在读取历史...</div>
           <div v-else-if="historyError" class="history-panel-state error">{{ historyError }}</div>
@@ -384,79 +470,141 @@
             尚无正式版本
           </div>
           <div v-else class="history-panel-body">
-            <nav class="history-commit-list" aria-label="文档版本列表">
-              <button
-                v-for="commit in documentHistory.commits"
-                :key="commit.id"
-                type="button"
-                class="history-commit-item"
-                :class="{ active: selectedHistoryCommitId === commit.id }"
-                @click="selectHistoryCommit(commit.id)"
-              >
-                <span class="history-commit-title">{{
-                  commit.summary || `版本 #${commit.sequence}`
-                }}</span>
-                <span class="history-commit-meta">
-                  #{{ commit.sequence }} · {{ historyOriginLabel(commit.origin) }} ·
-                  {{ formatHistoryTime(commit.createdAt) }}
-                </span>
-                <span class="history-commit-count">{{ commit.changeCount }} 项变化</span>
-              </button>
-            </nav>
+            <section class="version-tree-section">
+              <header class="history-tree-head">
+                <strong>版本树</strong>
+                <label>
+                  <input v-model="historyCurrentDocumentOnly" type="checkbox" /> 当前文档
+                </label>
+              </header>
+              <input
+                v-model="historySearchQuery"
+                class="history-tree-search"
+                type="search"
+                placeholder="搜索版本"
+              />
+              <nav class="history-commit-list" aria-label="版本树">
+                <button
+                  v-for="(commit, commitIndex) in filteredHistoryCommits"
+                  :key="commit.id"
+                  type="button"
+                  class="history-commit-item"
+                  :class="{ active: selectedHistoryCommitId === commit.id }"
+                  @click="selectHistoryCommit(commit.id)"
+                >
+                  <span class="history-graph-lane" aria-hidden="true">
+                    <i :class="{ merge: !!commit.mergeParentCommitId }" />
+                    <b v-if="commitIndex < filteredHistoryCommits.length - 1" />
+                  </span>
+                  <span class="history-commit-copy">
+                    <span class="history-commit-title">{{ commit.isBaseline ? '初始文档库' : commit.summary || `版本 #${commit.sequence}` }}</span>
+                    <span class="history-commit-meta">
+                      #{{ commit.sequence }} · {{ commit.isBaseline ? '初始版本' : historyOriginLabel(commit.origin) }} · {{ formatHistoryTime(commit.createdAt) }}
+                    </span>
+                  </span>
+                  <span class="history-commit-badges">
+                    <span v-if="commit.id === documentHistory.headCommitId" class="history-head-badge">HEAD</span>
+                    <span v-if="commit.mergeParentCommitId" class="history-merge-badge">合并</span>
+                    <span class="history-commit-count">{{ commit.changeCount }}</span>
+                  </span>
+                  <span v-if="checkpointNamesByCommit[commit.id]" class="history-checkpoint-badge">
+                    {{ checkpointNamesByCommit[commit.id] }}
+                  </span>
+                </button>
+              </nav>
+            </section>
 
-            <section class="history-detail">
+            <section class="history-detail file-tree-section">
               <div v-if="historyDetailLoading" class="history-panel-state">正在生成 Diff...</div>
               <template v-else-if="selectedHistoryDetail">
                 <header class="history-detail-head">
                   <div>
-                    <strong>版本 #{{ selectedHistoryDetail.commit.sequence }}</strong>
-                    <small>{{ selectedHistoryDetail.commit.summary }}</small>
+                    <strong>文件树</strong>
+                    <small>{{ historyComparison ? `${historyComparison.changes.length} 项差异` : selectedHistoryDetail.commit.summary }}</small>
                   </div>
-                  <button
-                    type="button"
-                    class="history-restore-btn"
-                    :disabled="
-                      restoringHistory ||
-                      selectedHistoryDetail.commit.id === documentHistory.headCommitId
-                    "
-                    @click="showHistoryRestoreConfirm = true"
-                  >
-                    {{
-                      selectedHistoryDetail.commit.id === documentHistory.headCommitId
-                        ? '当前版本'
-                        : '恢复到这里'
-                    }}
-                  </button>
+                  <div class="history-detail-actions">
+                    <button v-if="historyComparison" type="button" @click="historyComparison = null">退出比较</button>
+                    <button
+                      v-if="!historyComparison"
+                      type="button"
+                      :disabled="restoringHistory || !selectedHistoryDetail.commit.parentCommitId"
+                      title="反向应用这个版本的变化，并创建新版本"
+                      @click="requestHistoryCommitAction('revert')"
+                    >撤销此版</button>
+                    <button
+                      v-if="!historyComparison"
+                      type="button"
+                      :disabled="restoringHistory || selectedHistoryDetail.commit.id === documentHistory.headCommitId"
+                      title="把这个版本的变化应用到当前方案，并创建新版本"
+                      @click="requestHistoryCommitAction('cherry_pick')"
+                    >摘取此版</button>
+                    <button
+                      type="button"
+                      class="history-restore-btn"
+                      :disabled="restoringHistory || selectedHistoryDetail.commit.id === documentHistory.headCommitId"
+                      @click="showHistoryRestoreConfirm = true"
+                    >{{ selectedHistoryDetail.commit.id === documentHistory.headCommitId ? '当前版本' : selectedHistoryDocumentIds.length ? `恢复所选 (${selectedHistoryDocumentIds.length})` : '恢复全部' }}</button>
+                  </div>
                 </header>
 
-                <article
-                  v-for="change in selectedHistoryDetail.changes"
-                  :key="change.id"
-                  class="history-change"
-                >
+                <div v-if="historyFileTreeGroups.length" class="history-file-tree" role="tree" aria-label="文件树">
+                  <section v-for="group in historyFileTreeGroups" :key="group.key" class="history-file-group">
+                    <header>
+                      <strong>{{ group.label }}</strong>
+                      <small>{{ group.typeLabel }}</small>
+                    </header>
+                    <button
+                      v-for="item in group.items"
+                      :key="item.documentId"
+                      type="button"
+                      class="history-file-item"
+                      :class="{ active: selectedHistoryFileId === item.documentId, deleted: item.change?.operation === 'delete' }"
+                      :style="{ '--history-file-depth': item.depth }"
+                      role="treeitem"
+                      @click="selectedHistoryFileId = item.documentId"
+                    >
+                      <input
+                        v-if="!historyComparison"
+                        v-model="selectedHistoryDocumentIds"
+                        type="checkbox"
+                        :value="item.documentId"
+                        :aria-label="`选择 ${item.title}`"
+                        @click.stop
+                      />
+                      <span class="history-file-branch" aria-hidden="true">{{ item.depth ? '└' : '·' }}</span>
+                      <span class="history-file-title">{{ item.title }}</span>
+                      <span v-if="item.change" class="history-operation" :class="item.change.operation">
+                        {{ historyOperationLabel(item.change.operation) }}
+                      </span>
+                    </button>
+                  </section>
+                </div>
+                <div v-else class="history-panel-state">这个版本没有匹配的文件变化</div>
+
+                <article v-if="selectedHistoryFileState" class="history-change history-file-detail">
                   <header>
-                    <span class="history-operation" :class="change.operation">
-                      {{ historyOperationLabel(change.operation) }}
+                    <strong>{{ selectedHistoryFileState.title || '未命名文档' }}</strong>
+                    <span v-if="selectedHistoryFileChange" class="history-operation" :class="selectedHistoryFileChange.operation">
+                      {{ historyOperationLabel(selectedHistoryFileChange?.operation ?? 'update') }}
                     </span>
-                    <strong>{{
-                      change.after?.title || change.before?.title || '未命名文档'
-                    }}</strong>
                   </header>
-                  <p v-if="describeHistoryMetadataChange(change)">
-                    {{ describeHistoryMetadataChange(change) }}
+                  <p v-if="describeHistoryMetadataChange(selectedHistoryFileChange)">
+                    {{ describeHistoryMetadataChange(selectedHistoryFileChange) }}
                   </p>
-                  <div v-if="change.contentDiff" class="history-diff">
+                  <div v-if="selectedHistoryFileChange?.contentDiff" class="history-diff">
                     <div class="history-diff-summary">
-                      <span class="added">+{{ change.contentDiff.addedLines }}</span>
-                      <span class="removed">-{{ change.contentDiff.removedLines }}</span>
+                      <span class="added">+{{ selectedHistoryFileChange?.contentDiff?.addedLines ?? 0 }}</span>
+                      <span class="removed">-{{ selectedHistoryFileChange?.contentDiff?.removedLines ?? 0 }}</span>
                     </div>
                     <pre><span
-                      v-for="(line, index) in change.contentDiff.lines"
+                      v-for="(line, index) in selectedHistoryFileChange?.contentDiff?.lines ?? []"
                       :key="index"
                       :class="line.kind"
                     >{{ line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : ' ' }} {{ line.text }}
 </span></pre>
                   </div>
+                  <p v-else-if="!selectedHistoryFileChange">此文档包含在该版本中，本次提交未修改它。</p>
+                  <p v-else>本次提交只调整了文档信息或目录位置，正文没有变化。</p>
                 </article>
               </template>
             </section>
@@ -501,7 +649,7 @@
     />
     <ConfirmDialog
       v-model="showHistoryRestoreConfirm"
-      title="恢复整个文档库？"
+      :title="selectedHistoryDocumentIds.length ? '恢复所选文档？' : '恢复整个文档库？'"
       :message="historyRestoreConfirmMessage"
       confirm-text="创建恢复版本"
       loading-text="正在恢复..."
@@ -509,6 +657,38 @@
       size="lg"
       :loading="restoringHistory"
       @confirm="confirmHistoryRestore"
+    />
+    <ConfirmDialog
+      v-model="showHistoryCommitActionConfirm"
+      :title="historyCommitAction === 'revert' ? '撤销这个版本？' : '摘取这个版本？'"
+      :message="historyCommitActionMessage"
+      :confirm-text="historyCommitAction === 'revert' ? '创建撤销版本' : '创建摘取版本'"
+      loading-text="正在应用..."
+      icon="warning"
+      size="lg"
+      :loading="restoringHistory"
+      @confirm="confirmHistoryCommitAction"
+    />
+    <ConfirmDialog
+      v-model="showBranchDeleteConfirm"
+      title="删除这个设定方案？"
+      message="只会移除方案入口，不会立即删除其历史对象；其他方案和检查点仍然保留。"
+      confirm-text="删除方案"
+      loading-text="正在删除..."
+      danger
+      icon="danger"
+      :loading="branchOperationLoading"
+      @confirm="confirmDeleteDocumentBranch"
+    />
+    <ConfirmDialog
+      v-model="showHistoryCleanupConfirm"
+      title="清理无引用的版本对象？"
+      :message="historyCleanupMessage"
+      confirm-text="开始清理"
+      loading-text="正在清理..."
+      icon="warning"
+      :loading="historyCleanupLoading"
+      @confirm="confirmDocumentHistoryCleanup"
     />
   </div>
 </template>
@@ -531,11 +711,16 @@ import {
   type WorldEntityDocumentPayload
 } from '@share/cache/worldbuilding/worldEntityDocument'
 import type {
+  WorldDocumentMergePreviewPayload,
+  WorldDocumentCheckpointPayload,
+  WorldDocumentCommitComparisonPayload,
   WorldDocumentCommitChangePayload,
   WorldDocumentCommitDetailPayload,
   WorldDocumentCommitHistoryPayload,
   WorldDocumentHistoryOperation,
-  WorldDocumentHistoryOrigin
+  WorldDocumentHistoryOrigin,
+  WorldDocumentHistoryNodeState,
+  WorldDocumentVersionStatusPayload
 } from '@share/cache/worldbuilding/worldDocumentHistory'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import { agentWorkspaceContextService } from '../services/agentWorkspaceContextService'
@@ -623,7 +808,96 @@ const documentHistory = ref<WorldDocumentCommitHistoryPayload>({ commits: [] })
 const selectedHistoryCommitId = ref('')
 const selectedHistoryDetail = ref<WorldDocumentCommitDetailPayload | null>(null)
 const showHistoryRestoreConfirm = ref(false)
+const showHistoryCommitActionConfirm = ref(false)
+const historyCommitAction = ref<'revert' | 'cherry_pick' | null>(null)
 const restoringHistory = ref(false)
+const versionStatus = ref<WorldDocumentVersionStatusPayload | null>(null)
+const documentCheckpoints = ref<WorldDocumentCheckpointPayload[]>([])
+const historySearchQuery = ref('')
+const historyCurrentDocumentOnly = ref(false)
+const selectedHistoryDocumentIds = ref<string[]>([])
+const selectedHistoryFileId = ref('')
+const comparisonBaseCommitId = ref('')
+const historyComparison = ref<WorldDocumentCommitComparisonPayload | null>(null)
+const checkpointDraftName = ref('')
+const branchDraftName = ref('')
+const activeBranchDraftName = ref('')
+const showBranchDeleteConfirm = ref(false)
+const branchOperationLoading = ref(false)
+const showHistoryCleanupConfirm = ref(false)
+const historyCleanupLoading = ref(false)
+const historyCleanupPreview = ref({ removedTreeCount: 0, removedContentVersionCount: 0 })
+const mergeSourceBranchId = ref('')
+const mergePreview = ref<WorldDocumentMergePreviewPayload | null>(null)
+const mergeResolutions = ref<Record<string, 'current' | 'incoming'>>({})
+const canApplyMerge = computed(
+  () =>
+    !!mergePreview.value &&
+    mergePreview.value.conflicts.every((conflict) => !!mergeResolutions.value[conflict.documentId])
+)
+const activeDocumentBranch = computed(() =>
+  versionStatus.value?.branches.find((branch) => branch.active) ?? null
+)
+const canRenameActiveBranch = computed(() => {
+  const name = activeBranchDraftName.value.trim()
+  return !!activeDocumentBranch.value && !!name && name !== activeDocumentBranch.value.name
+})
+const historyCleanupMessage = computed(() =>
+  historyCleanupPreview.value.removedTreeCount + historyCleanupPreview.value.removedContentVersionCount === 0
+    ? '没有发现可清理的版本对象。'
+    : `将删除 ${historyCleanupPreview.value.removedTreeCount} 个无引用目录对象和 ${historyCleanupPreview.value.removedContentVersionCount} 个无引用内容版本。所有可从提交、方案或检查点访问的历史都会保留。`
+)
+
+const checkpointNamesByCommit = computed<Record<string, string>>(() =>
+  Object.fromEntries(documentCheckpoints.value.map((checkpoint) => [checkpoint.commitId, checkpoint.name]))
+)
+const filteredHistoryCommits = computed(() => {
+  const query = historySearchQuery.value.trim().toLocaleLowerCase()
+  return documentHistory.value.commits.filter((commit) => {
+    if (
+      historyCurrentDocumentOnly.value &&
+      activeDocumentId.value &&
+      !commit.isBaseline &&
+      !commit.documentIds.includes(activeDocumentId.value)
+    ) return false
+    return !query || `${commit.summary} ${commit.sequence} ${checkpointNamesByCommit.value[commit.id] ?? ''}`.toLocaleLowerCase().includes(query)
+  })
+})
+const displayedHistoryChanges = computed(() =>
+  historyComparison.value?.changes ?? selectedHistoryDetail.value?.changes ?? []
+)
+const selectedHistoryFileChange = computed(
+  () =>
+    displayedHistoryChanges.value.find(
+      (change) => change.documentId === selectedHistoryFileId.value
+    ) ?? null
+)
+const historyFileTreeStates = computed(() => {
+  const states = new Map(
+    (selectedHistoryDetail.value?.documents ?? []).map((state) => [state.documentId, state])
+  )
+  for (const change of displayedHistoryChanges.value) {
+    const state = change.after ?? change.before
+    if (state && !states.has(state.documentId)) states.set(state.documentId, state)
+  }
+  return [...states.values()]
+})
+const selectedHistoryFileState = computed(
+  () =>
+    historyFileTreeStates.value.find(
+      (state) => state.documentId === selectedHistoryFileId.value
+    ) ?? null
+)
+
+watch(
+  historyFileTreeStates,
+  (states) => {
+    if (!states.some((state) => state.documentId === selectedHistoryFileId.value)) {
+      selectedHistoryFileId.value = states[0]?.documentId ?? ''
+    }
+  },
+  { immediate: true }
+)
 
 let syncingFromDetail = false
 let narrativeAutosaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -668,6 +942,96 @@ const entityTypeOrder = new Map<WorldEntityType, number>(
 
 const getEntityTypeLabel = (type: WorldEntityType): string =>
   entityTypeOptions.find((option) => option.value === type)?.label || type
+
+type HistoryFileTreeItem = {
+  documentId: string
+  state: WorldDocumentHistoryNodeState
+  change: WorldDocumentCommitChangePayload | null
+  title: string
+  sortKey: string
+  parentDocumentId: string | null
+  depth: number
+}
+
+type HistoryFileTreeGroup = {
+  key: string
+  label: string
+  typeLabel: string
+  order: number
+  items: HistoryFileTreeItem[]
+}
+
+const historyFileTreeGroups = computed<HistoryFileTreeGroup[]>(() => {
+  const entitiesById = new Map(worldEntities.value.map((entity) => [entity.id, entity]))
+  const changesByDocumentId = new Map(
+    displayedHistoryChanges.value.map((change) => [change.documentId, change])
+  )
+  const groups = new Map<string, HistoryFileTreeGroup>()
+
+  for (const state of historyFileTreeStates.value) {
+    const entity = state.ownerEntityId ? entitiesById.get(state.ownerEntityId) : undefined
+    const groupKey = state.ownerKind === 'world' ? 'world' : `entity:${state.ownerEntityId ?? 'unknown'}`
+    let group = groups.get(groupKey)
+    if (!group) {
+      group = state.ownerKind === 'world'
+        ? { key: groupKey, label: '基础设定', typeLabel: '世界', order: -1, items: [] }
+        : {
+            key: groupKey,
+            label: entity?.name || `已删除实例 ${state.ownerEntityId?.slice(0, 8) ?? ''}`,
+            typeLabel: entity ? getEntityTypeLabel(entity.type) : '已删除实例',
+            order: entity ? entityTypeOrder.get(entity.type) ?? 999 : 999,
+            items: []
+          }
+      groups.set(groupKey, group)
+    }
+    group.items.push({
+      documentId: state.documentId,
+      state,
+      change: changesByDocumentId.get(state.documentId) ?? null,
+      title: state.title || '未命名文档',
+      sortKey: state.sortKey,
+      parentDocumentId: state.parentDocumentId,
+      depth: 0
+    })
+  }
+
+  const sortItems = (a: HistoryFileTreeItem, b: HistoryFileTreeItem): number =>
+    a.sortKey.localeCompare(b.sortKey) || a.title.localeCompare(b.title, 'zh-CN')
+
+  for (const group of groups.values()) {
+    const itemsById = new Map(group.items.map((item) => [item.documentId, item]))
+    const childrenByParent = new Map<string, HistoryFileTreeItem[]>()
+    const roots: HistoryFileTreeItem[] = []
+
+    for (const item of group.items) {
+      if (item.parentDocumentId && itemsById.has(item.parentDocumentId)) {
+        const children = childrenByParent.get(item.parentDocumentId) ?? []
+        children.push(item)
+        childrenByParent.set(item.parentDocumentId, children)
+      } else {
+        roots.push(item)
+      }
+    }
+
+    const ordered: HistoryFileTreeItem[] = []
+    const visited = new Set<string>()
+    const append = (item: HistoryFileTreeItem, depth: number): void => {
+      if (visited.has(item.documentId)) return
+      visited.add(item.documentId)
+      ordered.push({ ...item, depth })
+      for (const child of (childrenByParent.get(item.documentId) ?? []).sort(sortItems)) {
+        append(child, depth + 1)
+      }
+    }
+    for (const root of roots.sort(sortItems)) append(root, 0)
+    for (const item of group.items.sort(sortItems)) append(item, 0)
+    group.items = ordered
+  }
+
+  return [...groups.values()].sort(
+    (a, b) => a.order - b.order || a.label.localeCompare(b.label, 'zh-CN')
+  )
+})
 
 const isBasicSettingsScope = computed(() => selectedEntityType.value === 'basic_settings')
 
@@ -1030,7 +1394,10 @@ const formatHistoryTime = (value: string): string => {
   }).format(date)
 }
 
-const describeHistoryMetadataChange = (change: WorldDocumentCommitChangePayload): string => {
+const describeHistoryMetadataChange = (
+  change: WorldDocumentCommitChangePayload | null
+): string => {
+  if (!change) return ''
   if (!change.before && change.after) return `加入到「${change.after.title}」所在目录。`
   if (change.before && !change.after) return `从文档树删除「${change.before.title}」。`
   if (!change.before || !change.after) return ''
@@ -1049,6 +1416,8 @@ const describeHistoryMetadataChange = (change: WorldDocumentCommitChangePayload)
 const selectHistoryCommit = async (commitId: string): Promise<void> => {
   selectedHistoryCommitId.value = commitId
   selectedHistoryDetail.value = null
+  selectedHistoryDocumentIds.value = []
+  historyComparison.value = null
   historyDetailLoading.value = true
   try {
     selectedHistoryDetail.value =
@@ -1065,11 +1434,16 @@ const loadNarrativeHistory = async (preferredCommitId?: string): Promise<void> =
   historyLoading.value = true
   historyError.value = ''
   try {
-    const history = await worldbuildingClientService.listWorldDocumentCommitHistory(
-      worldId.value,
-      50
-    )
+    await worldbuildingClientService.initializeWorldDocumentHistory(worldId.value)
+    const [history, status, checkpoints] = await Promise.all([
+      worldbuildingClientService.listWorldDocumentCommitHistory(worldId.value, 100),
+      worldbuildingClientService.getWorldDocumentVersionStatus(worldId.value),
+      worldbuildingClientService.listWorldDocumentCheckpoints(worldId.value)
+    ])
     documentHistory.value = history
+    versionStatus.value = status
+    activeBranchDraftName.value = status.branches.find((branch) => branch.active)?.name ?? ''
+    documentCheckpoints.value = checkpoints
     const targetId =
       (preferredCommitId && history.commits.some((commit) => commit.id === preferredCommitId)
         ? preferredCommitId
@@ -1098,8 +1472,230 @@ const toggleNarrativeHistoryPanel = async (): Promise<void> => {
 const historyRestoreConfirmMessage = computed(() => {
   const commit = selectedHistoryDetail.value?.commit
   if (!commit) return '系统会创建一个新的恢复版本，不会删除现有历史。'
+  if (selectedHistoryDocumentIds.value.length) {
+    return `将版本 #${commit.sequence} 中选中的 ${selectedHistoryDocumentIds.value.length} 份文档恢复到当前工作区。选择目录时会一并恢复其子文档。系统会创建一个新版本，现有历史不会被删除。`
+  }
   return `将整个世界文档库恢复到版本 #${commit.sequence}。这可能同时恢复、移动或删除多份文档。系统会创建一个新的恢复版本，现有历史不会被删除。`
 })
+
+const historyCommitActionMessage = computed(() => {
+  const commit = selectedHistoryDetail.value?.commit
+  if (!commit || !historyCommitAction.value) return ''
+  return historyCommitAction.value === 'revert'
+    ? `系统会反向应用版本 #${commit.sequence} 涉及的文档变化，并在当前方案上创建一个新版本。原版本及后续历史都会保留。`
+    : `系统会把版本 #${commit.sequence} 涉及的文档状态应用到当前方案，并创建一个新版本。若当前内容已变化，请先通过版本比较确认差异。`
+})
+
+const requestHistoryCommitAction = (mode: 'revert' | 'cherry_pick'): void => {
+  historyCommitAction.value = mode
+  showHistoryCommitActionConfirm.value = true
+}
+
+const createCheckpointForSelected = async (): Promise<void> => {
+  const commitId = selectedHistoryCommitId.value
+  const name = checkpointDraftName.value.trim()
+  if (!commitId || !name) return
+  try {
+    await worldbuildingClientService.saveWorldDocumentCheckpoint({
+      worldId: worldId.value,
+      commitId,
+      name
+    })
+    checkpointDraftName.value = ''
+    documentCheckpoints.value = await worldbuildingClientService.listWorldDocumentCheckpoints(worldId.value)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '保存检查点失败'
+  }
+}
+
+const removeCheckpoint = async (checkpointId: string): Promise<void> => {
+  try {
+    await worldbuildingClientService.deleteWorldDocumentCheckpoint(checkpointId)
+    documentCheckpoints.value = documentCheckpoints.value.filter((item) => item.id !== checkpointId)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '删除检查点失败'
+  }
+}
+
+const switchDocumentBranch = async (branchId: string): Promise<void> => {
+  if (!branchId || versionStatus.value?.branches.find((branch) => branch.id === branchId)?.active) return
+  historyError.value = ''
+  try {
+    clearNarrativeAutosave()
+    await saveNarrative(true, { fallbackBlankTitle: true })
+    await commitNarrativeHistorySession()
+    await worldbuildingClientService.switchWorldDocumentBranch(branchId)
+    await reloadNarrativeDocumentsAfterRestore()
+    await loadNarrativeHistory()
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '切换设定方案失败'
+    await loadNarrativeHistory().catch(() => undefined)
+  }
+}
+
+const createDocumentBranch = async (): Promise<void> => {
+  const name = branchDraftName.value.trim()
+  if (!name) return
+  historyError.value = ''
+  try {
+    clearNarrativeAutosave()
+    await saveNarrative(true, { fallbackBlankTitle: true })
+    await commitNarrativeHistorySession()
+    const branch = await worldbuildingClientService.createWorldDocumentBranch({
+      worldId: worldId.value,
+      name,
+      fromCommitId: selectedHistoryCommitId.value || undefined
+    })
+    branchDraftName.value = ''
+    await switchDocumentBranch(branch.id)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '创建设定方案失败'
+  }
+}
+
+const renameActiveDocumentBranch = async (): Promise<void> => {
+  const branch = activeDocumentBranch.value
+  const name = activeBranchDraftName.value.trim()
+  if (!branch || !name || name === branch.name) return
+  branchOperationLoading.value = true
+  historyError.value = ''
+  try {
+    await worldbuildingClientService.renameWorldDocumentBranch({ branchId: branch.id, name })
+    await loadNarrativeHistory(selectedHistoryCommitId.value)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '重命名设定方案失败'
+  } finally {
+    branchOperationLoading.value = false
+  }
+}
+
+const confirmDeleteDocumentBranch = async (): Promise<void> => {
+  const branchId = mergeSourceBranchId.value
+  if (!branchId || branchOperationLoading.value) return
+  branchOperationLoading.value = true
+  historyError.value = ''
+  try {
+    await worldbuildingClientService.deleteWorldDocumentBranch(branchId)
+    mergeSourceBranchId.value = ''
+    mergePreview.value = null
+    showBranchDeleteConfirm.value = false
+    await loadNarrativeHistory(selectedHistoryCommitId.value)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '删除设定方案失败'
+  } finally {
+    branchOperationLoading.value = false
+  }
+}
+
+const previewDocumentMerge = async (): Promise<void> => {
+  if (!mergeSourceBranchId.value) return
+  historyError.value = ''
+  try {
+    clearNarrativeAutosave()
+    await saveNarrative(true, { fallbackBlankTitle: true })
+    await commitNarrativeHistorySession()
+    mergePreview.value = await worldbuildingClientService.previewWorldDocumentMerge({
+      sourceBranchId: mergeSourceBranchId.value
+    })
+    mergeResolutions.value = {}
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '生成合并预览失败'
+  }
+}
+
+const applyDocumentMerge = async (): Promise<void> => {
+  if (!mergePreview.value || !canApplyMerge.value) return
+  historyError.value = ''
+  try {
+    const commit = await worldbuildingClientService.applyWorldDocumentMerge({
+      sourceBranchId: mergePreview.value.sourceBranch.id,
+      expectedCurrentHeadCommitId: mergePreview.value.currentCommitId,
+      resolutions: { ...mergeResolutions.value }
+    })
+    mergePreview.value = null
+    mergeSourceBranchId.value = ''
+    await reloadNarrativeDocumentsAfterRestore()
+    await loadNarrativeHistory(commit.id)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '合并方案失败'
+  }
+}
+
+const exportDocumentHistory = async (): Promise<void> => {
+  try {
+    await worldbuildingClientService.exportWorldDocumentHistory(worldId.value)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '导出版本历史失败'
+  }
+}
+
+const importDocumentHistory = async (): Promise<void> => {
+  historyError.value = ''
+  try {
+    clearNarrativeAutosave()
+    await saveNarrative(true, { fallbackBlankTitle: true })
+    await commitNarrativeHistorySession()
+    const result = await worldbuildingClientService.importWorldDocumentHistory(worldId.value)
+    if (!result.imported) return
+    await reloadNarrativeDocumentsAfterRestore()
+    await loadNarrativeHistory()
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '导入版本历史失败'
+  }
+}
+
+const previewDocumentHistoryCleanup = async (): Promise<void> => {
+  historyCleanupLoading.value = true
+  historyError.value = ''
+  try {
+    historyCleanupPreview.value = await worldbuildingClientService.pruneWorldDocumentHistory(true)
+    showHistoryCleanupConfirm.value = true
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '检查版本对象失败'
+  } finally {
+    historyCleanupLoading.value = false
+  }
+}
+
+const confirmDocumentHistoryCleanup = async (): Promise<void> => {
+  if (historyCleanupLoading.value) return
+  if (
+    historyCleanupPreview.value.removedTreeCount +
+      historyCleanupPreview.value.removedContentVersionCount ===
+    0
+  ) {
+    showHistoryCleanupConfirm.value = false
+    return
+  }
+  historyCleanupLoading.value = true
+  historyError.value = ''
+  try {
+    await worldbuildingClientService.pruneWorldDocumentHistory(false)
+    showHistoryCleanupConfirm.value = false
+    await loadNarrativeHistory(selectedHistoryCommitId.value)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '清理版本对象失败'
+  } finally {
+    historyCleanupLoading.value = false
+  }
+}
+
+const compareSelectedHistory = async (): Promise<void> => {
+  if (!comparisonBaseCommitId.value || !selectedHistoryCommitId.value) return
+  historyDetailLoading.value = true
+  historyError.value = ''
+  try {
+    historyComparison.value = await worldbuildingClientService.compareWorldDocumentCommits({
+      baseCommitId: comparisonBaseCommitId.value,
+      targetCommitId: selectedHistoryCommitId.value,
+      documentIds: historyCurrentDocumentOnly.value && activeDocumentId.value ? [activeDocumentId.value] : undefined
+    })
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '比较版本失败'
+  } finally {
+    historyDetailLoading.value = false
+  }
+}
 
 const reloadNarrativeDocumentsAfterRestore = async (): Promise<void> => {
   const owner = activeDocumentOwner.value
@@ -1127,13 +1723,47 @@ const confirmHistoryRestore = async (): Promise<void> => {
     if (!freshHistory.headCommitId) throw new Error('当前文档历史缺少可恢复的 HEAD。')
     const result = await worldbuildingClientService.restoreWorldDocumentCommit({
       targetCommitId,
-      expectedHeadCommitId: freshHistory.headCommitId
+      expectedHeadCommitId: freshHistory.headCommitId,
+      documentIds: selectedHistoryDocumentIds.value.length
+        ? [...selectedHistoryDocumentIds.value]
+        : undefined
     })
     showHistoryRestoreConfirm.value = false
     await reloadNarrativeDocumentsAfterRestore()
     await loadNarrativeHistory(result.commit.id)
   } catch (error) {
     historyError.value = error instanceof Error ? error.message : '恢复文档历史失败'
+  } finally {
+    restoringHistory.value = false
+  }
+}
+
+const confirmHistoryCommitAction = async (): Promise<void> => {
+  const commitId = selectedHistoryDetail.value?.commit.id
+  const mode = historyCommitAction.value
+  if (!commitId || !mode || restoringHistory.value) return
+  restoringHistory.value = true
+  historyError.value = ''
+  try {
+    clearNarrativeAutosave()
+    await saveNarrative(true, { fallbackBlankTitle: true })
+    await commitNarrativeHistorySession()
+    const freshHistory = await worldbuildingClientService.listWorldDocumentCommitHistory(
+      worldId.value,
+      1
+    )
+    if (!freshHistory.headCommitId) throw new Error('当前文档历史缺少 HEAD。')
+    const result = await worldbuildingClientService.applyWorldDocumentCommit({
+      commitId,
+      expectedHeadCommitId: freshHistory.headCommitId,
+      mode
+    })
+    showHistoryCommitActionConfirm.value = false
+    historyCommitAction.value = null
+    await reloadNarrativeDocumentsAfterRestore()
+    await loadNarrativeHistory(result.commit.id)
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '应用历史版本失败'
   } finally {
     restoringHistory.value = false
   }
@@ -2578,6 +3208,143 @@ useKeyboardShortcut(
   color: #c24141;
 }
 
+.history-status-bar {
+  min-height: 32px;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+  color: var(--wb-narrative-text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.history-status-bar select {
+  min-width: 0;
+  max-width: 128px;
+  height: 26px;
+  border: 0;
+  background: transparent;
+  color: var(--wb-narrative-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.history-status-bar .healthy { color: #16834b; }
+.history-status-bar .unhealthy { color: #c24141; }
+
+.history-management {
+  border-bottom: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+}
+
+.history-management > summary {
+  min-height: 30px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  color: var(--wb-narrative-text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  list-style: none;
+}
+
+.history-management > summary::-webkit-details-marker { display: none; }
+.history-management > summary::before { content: '›'; margin-right: 7px; }
+.history-management[open] > summary::before { transform: rotate(90deg); }
+.history-management > summary:hover { background: #f6f7f9; color: var(--wb-narrative-text); }
+
+.history-tools {
+  padding: 4px 10px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  background: #ffffff;
+}
+
+.history-tools input[type='search'],
+.history-tools input[type='text'],
+.history-tools input:not([type]),
+.history-tools select {
+  min-width: 0;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+  color: var(--wb-narrative-text);
+  font-size: 11px;
+}
+
+.history-tools label,
+.history-tools button {
+  min-height: 28px;
+  padding: 0 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+  color: var(--wb-narrative-text-muted);
+  font-size: 10px;
+}
+
+.history-checkpoints {
+  padding: 6px 10px;
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+}
+
+.history-checkpoints button,
+.history-checkpoint-badge {
+  padding: 3px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #cdd6ff;
+  background: #f5f7ff;
+  color: #315cff;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.history-checkpoints small { font-size: 14px; }
+
+.history-merge-preview {
+  padding: 10px;
+  border-bottom: 1px solid var(--wb-narrative-border);
+  background: #fffdf5;
+  font-size: 11px;
+}
+
+.history-merge-preview > header,
+.history-merge-preview > footer,
+.history-merge-preview article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.history-merge-preview article {
+  margin-top: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 5px;
+  border: 1px solid #eadfb8;
+  background: #ffffff;
+}
+
+.history-merge-preview article small { color: var(--wb-narrative-text-faint); }
+.history-merge-preview label { display: flex; align-items: center; gap: 3px; }
+.history-merge-preview > footer { margin-top: 8px; justify-content: flex-end; }
+.history-merge-preview button { padding: 5px 8px; border: 1px solid var(--wb-narrative-border); background: #ffffff; }
+
 .history-panel-body {
   min-height: 0;
   display: flex;
@@ -2586,19 +3353,64 @@ useKeyboardShortcut(
   overflow: hidden;
 }
 
-.history-commit-list {
-  max-height: 190px;
-  overflow-y: auto;
+.version-tree-section {
+  min-height: 178px;
+  flex: 0 1 42%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border-bottom: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+}
+
+.history-tree-head {
+  min-height: 34px;
+  padding: 7px 12px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.history-tree-head strong {
+  color: var(--wb-narrative-text);
+  font-size: 12px;
+}
+
+.history-tree-head label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--wb-narrative-text-faint);
+  font-size: 10px;
+}
+
+.history-tree-search {
+  height: 28px;
+  margin: 0 10px 6px;
+  padding: 0 8px;
+  border: 1px solid var(--wb-narrative-border);
+  background: #fbfcfd;
+  color: var(--wb-narrative-text);
+  font-size: 11px;
+}
+
+.history-commit-list {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
   background: #ffffff;
 }
 
 .history-commit-item {
   width: 100%;
-  padding: 9px 13px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  min-height: 48px;
+  padding: 6px 9px 6px 5px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 5px;
   border-bottom: 1px solid #f0f1f3;
   text-align: left;
 }
@@ -2609,7 +3421,53 @@ useKeyboardShortcut(
 }
 
 .history-commit-item.active {
-  box-shadow: inset 3px 0 #315cff;
+  box-shadow: inset 2px 0 #315cff;
+}
+
+.history-graph-lane {
+  position: relative;
+  grid-row: 1 / 3;
+  align-self: stretch;
+  display: flex;
+  justify-content: center;
+}
+
+.history-graph-lane i {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  margin-top: 7px;
+  border: 2px solid #315cff;
+  border-radius: 50%;
+  background: #ffffff;
+  z-index: 2;
+}
+
+.history-graph-lane i.merge {
+  border-color: #8b5cf6;
+  box-shadow: 5px 4px 0 -2px #ffffff, 5px 4px 0 0 #8b5cf6;
+}
+
+.history-graph-lane b {
+  position: absolute;
+  top: 16px;
+  bottom: -7px;
+  left: 50%;
+  width: 1px;
+  background: #c8ced8;
+}
+
+.history-commit-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.history-commit-badges {
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .history-commit-title {
@@ -2627,15 +3485,56 @@ useKeyboardShortcut(
   font-size: 10px;
 }
 
+.history-head-badge,
+.history-merge-badge {
+  padding: 1px 4px;
+  border: 1px solid #cdd6ff;
+  color: #315cff;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.history-merge-badge {
+  border-color: #ddd1ff;
+  color: #7950c9;
+}
+
+.history-commit-item > .history-checkpoint-badge {
+  grid-column: 2 / 4;
+  width: max-content;
+  margin-top: 2px;
+}
+
 .history-detail {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 10px;
+}
+
+.file-tree-section {
+  background: #f8f9fb;
 }
 
 .history-detail-head {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+  align-items: flex-start;
+}
+
+.history-detail-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.history-detail-actions > button:not(.history-restore-btn) {
+  padding: 6px 8px;
+  border: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+  color: var(--wb-narrative-text-muted);
+  font-size: 10px;
 }
 
 .history-restore-btn {
@@ -2661,6 +3560,84 @@ useKeyboardShortcut(
   border: 1px solid var(--wb-narrative-border);
   border-radius: 8px;
   background: #ffffff;
+}
+
+.history-file-tree {
+  margin-bottom: 10px;
+  border: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+}
+
+.history-file-group + .history-file-group {
+  border-top: 1px solid var(--wb-narrative-border);
+}
+
+.history-file-group > header {
+  min-height: 32px;
+  padding: 6px 9px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #f6f7f9;
+}
+
+.history-file-group > header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--wb-narrative-text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-file-group > header small {
+  color: var(--wb-narrative-text-faint);
+  font-size: 9px;
+}
+
+.history-file-item {
+  width: 100%;
+  min-height: 31px;
+  padding: 4px 8px 4px calc(8px + var(--history-file-depth) * 14px);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border-top: 1px solid #f1f2f4;
+  text-align: left;
+}
+
+.history-file-item:hover,
+.history-file-item.active {
+  background: #eef2ff;
+}
+
+.history-file-item.active {
+  box-shadow: inset 2px 0 #315cff;
+}
+
+.history-file-item.deleted .history-file-title {
+  color: #9c5555;
+  text-decoration: line-through;
+}
+
+.history-file-branch {
+  flex-shrink: 0;
+  color: #a6adb7;
+  font-size: 10px;
+}
+
+.history-file-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--wb-narrative-text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-file-detail {
+  margin-bottom: 0;
 }
 
 .history-change > header {

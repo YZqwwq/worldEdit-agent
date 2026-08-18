@@ -1,9 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type { EntityManager } from 'typeorm'
+import type { DataSource, EntityManager } from 'typeorm'
 import { WorldEntityDocumentRecord } from '@share/entity/database/WorldEntityDocumentRecord'
+import { MainAgentChangeSetRecord } from '@share/entity/database/MainAgentChangeSetRecord'
+import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { WorldDocumentContentVersionRecord } from '@share/entity/database/WorldDocumentContentVersionRecord'
 import { WorldDocumentTreeObjectRecord } from '@share/entity/database/WorldDocumentTreeObjectRecord'
 import { WorldDocumentCommitRecord } from '@share/entity/database/WorldDocumentCommitRecord'
+import { WorldDocumentBranchRecord } from '@share/entity/database/WorldDocumentBranchRecord'
 import {
   WorldDocumentChangeRecord,
   type WorldDocumentChangeOperation
@@ -24,6 +27,33 @@ export type StageWorldDocumentChangeInput = {
   summary?: string
 }
 
+export class WorldDocumentChangeSetClosedError extends Error {
+  readonly code = 'CHANGESET_CLOSED'
+  readonly retryable = false
+
+  constructor(
+    readonly changeSetId: string,
+    readonly worldId: string,
+    readonly commitId: string
+  ) {
+    super(`Document change set is already committed: ${changeSetId}`)
+    this.name = 'WorldDocumentChangeSetClosedError'
+  }
+}
+
+export class WorldDocumentHistorySourceMismatchError extends Error {
+  readonly code = 'DOCUMENT_HISTORY_SOURCE_MISMATCH'
+  readonly retryable = false
+
+  constructor(
+    readonly changeSetId: string,
+    readonly documentId: string
+  ) {
+    super(`Document history source does not match stored content: ${documentId}`)
+    this.name = 'WorldDocumentHistorySourceMismatchError'
+  }
+}
+
 type DocumentState = {
   id: string
   ownerKind: WorldEntityDocumentRecord['ownerKind']
@@ -42,10 +72,18 @@ type TreeEntry = {
   ownerEntityId: string | null
   title: string
   sortKey: string
+  revision: number
   schemaVersion: number
   contentVersionId: string
   childrenTreeHash: string | null
 }
+
+type RestorableDocument = {
+  state: DocumentState
+  source: WorldDocumentEditSource
+}
+
+export type WorldDocumentSnapshotEntry = RestorableDocument
 
 const toState = (record: WorldEntityDocumentRecord): DocumentState => ({
   id: record.id,
@@ -116,6 +154,24 @@ export const stageWorldDocumentChangeWithManager = async (
   const worldId = input.after?.worldId ?? input.before?.worldId
   const documentId = input.after?.id ?? input.before?.id
   if (!worldId || !documentId) return
+
+  const committed = await manager.getRepository(WorldDocumentCommitRecord).findOneBy({
+    changeSetId: input.changeSetId,
+    worldId
+  })
+  if (committed) {
+    throw new WorldDocumentChangeSetClosedError(input.changeSetId, worldId, committed.id)
+  }
+
+  if (input.after && input.source) {
+    const sourceHtml =
+      input.source.format === 'markdown'
+        ? worldDocumentMarkdownToHtml(input.source.content)
+        : input.source.content
+    if (sourceHtml !== (input.after.contentHtml || '')) {
+      throw new WorldDocumentHistorySourceMismatchError(input.changeSetId, documentId)
+    }
+  }
 
   const repository = manager.getRepository(WorldDocumentChangeRecord)
   const current = await repository.findOneBy({
@@ -207,9 +263,9 @@ const ensureTreeObject = async (
 
 const materializeTree = async (
   manager: EntityManager,
-  states: DocumentState[],
-  sourceOverrides: Map<string, WorldDocumentEditSource>
+  documents: Map<string, RestorableDocument>
 ): Promise<WorldDocumentTreeObjectRecord> => {
+  const states = [...documents.values()].map((document) => document.state)
   const byParent = new Map<string | null, DocumentState[]>()
   for (const state of states) {
     const siblings = byParent.get(state.parentDocumentId) ?? []
@@ -225,17 +281,9 @@ const materializeTree = async (
   const build = async (parentId: string | null): Promise<WorldDocumentTreeObjectRecord> => {
     const entries: TreeEntry[] = []
     for (const state of byParent.get(parentId) ?? []) {
-      const latest = await latestContentVersion(manager, state.id)
-      const currentRecord =
-        latest || sourceOverrides.has(state.id)
-          ? null
-          : await manager.getRepository(WorldEntityDocumentRecord).findOneBy({ id: state.id })
-      const source =
-        sourceOverrides.get(state.id) ??
-        (latest
-          ? { format: latest.sourceFormat, content: latest.contentSource }
-          : { format: 'html_editor' as const, content: currentRecord?.contentHtml ?? '' })
-      const version = await ensureContentVersion(manager, state, source)
+      const document = documents.get(state.id)
+      if (!document) throw new Error(`Missing document snapshot for tree entry: ${state.id}`)
+      const version = await ensureContentVersion(manager, state, document.source)
       const children = (byParent.get(state.id) ?? []).filter((child) => sameOwner(child, state))
       const childrenTree = children.length > 0 ? await build(state.id) : null
       entries.push({
@@ -244,6 +292,7 @@ const materializeTree = async (
         ownerEntityId: state.ownerEntityId,
         title: state.title,
         sortKey: state.sortKey,
+        revision: state.revision,
         schemaVersion: state.schemaVersion,
         contentVersionId: version.id,
         childrenTreeHash: childrenTree?.hash ?? null
@@ -255,56 +304,167 @@ const materializeTree = async (
   return build(null)
 }
 
-const currentStatesForWorld = async (
+const currentDocumentsForWorld = async (
   manager: EntityManager,
   worldId: string
-): Promise<DocumentState[]> =>
-  (await manager.getRepository(WorldEntityDocumentRecord).findBy({ worldId })).map(toState)
-
-const buildBaselineStates = (
-  currentStates: DocumentState[],
-  changes: WorldDocumentChangeRecord[]
-): DocumentState[] => {
-  const states = new Map(currentStates.map((state) => [state.id, state]))
-  for (const change of changes) {
-    const before = parseState(change.beforeStateJson)
-    if (before) states.set(before.id, before)
-    else states.delete(change.documentId)
-  }
-  return [...states.values()]
+): Promise<Map<string, RestorableDocument>> => {
+  const records = await manager.getRepository(WorldEntityDocumentRecord).findBy({ worldId })
+  return new Map(
+    records.map((record) => [
+      record.id,
+      {
+        state: toState(record),
+        source: { format: 'html_editor' as const, content: record.contentHtml || '' }
+      }
+    ])
+  )
 }
 
-const sourceOverridesFor = (
-  changes: WorldDocumentChangeRecord[],
-  side: 'before' | 'after'
-): Map<string, WorldDocumentEditSource> => {
-  const result = new Map<string, WorldDocumentEditSource>()
+const buildFallbackBaselineDocuments = (
+  currentDocuments: Map<string, RestorableDocument>,
+  changes: WorldDocumentChangeRecord[]
+): Map<string, RestorableDocument> => {
+  const documents = new Map(currentDocuments)
   for (const change of changes) {
-    const format = side === 'before' ? change.beforeSourceFormat : change.sourceFormat
-    const content = side === 'before' ? change.beforeContentSource : change.contentSource
-    if (format && content !== null) result.set(change.documentId, { format, content })
+    const before = parseState(change.beforeStateJson)
+    if (before) {
+      documents.set(before.id, {
+        state: before,
+        source: change.beforeSourceFormat
+          ? {
+              format: change.beforeSourceFormat,
+              content: change.beforeContentSource ?? ''
+            }
+          : { format: 'html_editor', content: '' }
+      })
+    } else {
+      documents.delete(change.documentId)
+    }
   }
-  return result
+  return documents
+}
+
+const removeDocumentSubtree = (
+  documents: Map<string, RestorableDocument>,
+  documentId: string
+): void => {
+  const pending = [documentId]
+  while (pending.length > 0) {
+    const currentId = pending.shift()!
+    for (const document of documents.values()) {
+      if (document.state.parentDocumentId === currentId) pending.push(document.state.id)
+    }
+    documents.delete(currentId)
+  }
+}
+
+const applyChangesToParentDocuments = (
+  parentDocuments: Map<string, RestorableDocument>,
+  changes: WorldDocumentChangeRecord[],
+): Map<string, RestorableDocument> => {
+  const documents = new Map(parentDocuments)
+  for (const change of changes) {
+    const before = parseState(change.beforeStateJson)
+    const after = parseState(change.afterStateJson)
+    const parentDocument = documents.get(change.documentId)
+    if (!after) {
+      if (before && parentDocument && parentDocument.state.revision > before.revision) continue
+      removeDocumentSubtree(documents, change.documentId)
+      continue
+    }
+    if (parentDocument && parentDocument.state.revision >= after.revision) continue
+    const source = change.sourceFormat
+      ? { format: change.sourceFormat, content: change.contentSource ?? '' }
+      : parentDocument?.source
+    if (!source) throw new Error(`Missing content source for changed document: ${change.documentId}`)
+    documents.set(change.documentId, { state: after, source })
+  }
+  return documents
 }
 
 const createCommit = async (
   manager: EntityManager,
   input: {
     worldId: string
+    branchId?: string
     sequence: number
     parentCommitId: string | null
     changeSetId: string
     rootTreeHash: string
     origin: WorldDocumentCommitRecord['origin']
     summary: string
+    restoredFromCommitId?: string | null
+    intent?: string
   }
 ): Promise<WorldDocumentCommitRecord> =>
   manager.getRepository(WorldDocumentCommitRecord).save(
     manager.getRepository(WorldDocumentCommitRecord).create({
       id: randomUUID(),
-      ...input
+      ...input,
+      branchId: input.branchId ?? 'main',
+      restoredFromCommitId: input.restoredFromCommitId ?? null,
+      intent: input.intent?.trim() ?? ''
     })
   )
+
+export const ensureActiveWorldDocumentBranchWithManager = async (
+  manager: EntityManager,
+  worldId: string,
+  fallbackHeadCommitId: string | null = null
+): Promise<WorldDocumentBranchRecord> => {
+  const repository = manager.getRepository(WorldDocumentBranchRecord)
+  const active = await repository.findOneBy({ worldId, active: true })
+  if (active) return active
+  const existingMain = await repository.findOneBy({ worldId, name: '主方案' })
+  if (existingMain) {
+    existingMain.active = true
+    if (!existingMain.headCommitId) existingMain.headCommitId = fallbackHeadCommitId
+    return repository.save(existingMain)
+  }
+  return repository.save(
+    repository.create({
+      id: `branch:${worldId}:main`,
+      worldId,
+      name: '主方案',
+      headCommitId: fallbackHeadCommitId,
+      active: true
+    })
+  )
+}
+
+export const ensureWorldDocumentBaselineWithManager = async (
+  manager: EntityManager,
+  worldId: string
+): Promise<WorldDocumentCommitRecord> => {
+  const commitRepository = manager.getRepository(WorldDocumentCommitRecord)
+  const existing = await commitRepository.findOne({
+    where: { worldId },
+    order: { sequence: 'DESC' }
+  })
+  if (existing) {
+    await ensureActiveWorldDocumentBranchWithManager(manager, worldId, existing.id)
+    return existing
+  }
+
+  const baselineTree = await materializeTree(
+    manager,
+    await currentDocumentsForWorld(manager, worldId)
+  )
+  const branch = await ensureActiveWorldDocumentBranchWithManager(manager, worldId)
+  const baseline = await createCommit(manager, {
+    worldId,
+    branchId: branch.id,
+    sequence: 1,
+    parentCommitId: null,
+    changeSetId: `baseline:${worldId}:${randomUUID()}`,
+    rootTreeHash: baselineTree.hash,
+    origin: 'system',
+    summary: 'Imported existing document tree'
+  })
+  branch.headCommitId = baseline.id
+  await manager.getRepository(WorldDocumentBranchRecord).save(branch)
+  return baseline
+}
 
 export const commitWorldDocumentChangeSetWithManager = async (
   manager: EntityManager,
@@ -318,29 +478,42 @@ export const commitWorldDocumentChangeSetWithManager = async (
   const commits: WorldDocumentCommitRecord[] = []
   const worldIds = [...new Set(staged.map((change) => change.worldId))]
   for (const worldId of worldIds) {
+    const changes = staged.filter((change) => change.worldId === worldId)
     const existing = await manager.getRepository(WorldDocumentCommitRecord).findOneBy({
       changeSetId,
       worldId
     })
     if (existing) {
+      for (const change of changes) {
+        change.status = 'committed'
+        change.commitId = existing.id
+      }
+      await changeRepository.save(changes)
       commits.push(existing)
       continue
     }
-    const changes = staged.filter((change) => change.worldId === worldId)
-    const currentStates = await currentStatesForWorld(manager, worldId)
-    let parent = await manager.getRepository(WorldDocumentCommitRecord).findOne({
+    const latestWorldCommit = await manager.getRepository(WorldDocumentCommitRecord).findOne({
       where: { worldId },
       order: { sequence: 'DESC' }
     })
+    const branch = await ensureActiveWorldDocumentBranchWithManager(
+      manager,
+      worldId,
+      latestWorldCommit?.id ?? null
+    )
+    let parent = branch.headCommitId
+      ? await manager.getRepository(WorldDocumentCommitRecord).findOneBy({ id: branch.headCommitId })
+      : null
 
     if (!parent) {
+      const currentDocuments = await currentDocumentsForWorld(manager, worldId)
       const baselineTree = await materializeTree(
         manager,
-        buildBaselineStates(currentStates, changes),
-        sourceOverridesFor(changes, 'before')
+        buildFallbackBaselineDocuments(currentDocuments, changes)
       )
       parent = await createCommit(manager, {
         worldId,
+        branchId: branch.id,
         sequence: 1,
         parentCommitId: null,
         changeSetId: `baseline:${worldId}:${randomUUID()}`,
@@ -350,10 +523,15 @@ export const commitWorldDocumentChangeSetWithManager = async (
       })
     }
 
-    const tree = await materializeTree(manager, currentStates, sourceOverridesFor(changes, 'after'))
+    const parentDocuments = await readTreeDocuments(manager, worldId, parent.rootTreeHash)
+    const tree = await materializeTree(
+      manager,
+      applyChangesToParentDocuments(parentDocuments, changes)
+    )
     const commit = await createCommit(manager, {
       worldId,
-      sequence: parent.sequence + 1,
+      branchId: branch.id,
+      sequence: (latestWorldCommit?.sequence ?? parent.sequence) + 1,
       parentCommitId: parent.id,
       changeSetId,
       rootTreeHash: tree.hash,
@@ -369,17 +547,87 @@ export const commitWorldDocumentChangeSetWithManager = async (
       change.commitId = commit.id
     }
     await changeRepository.save(changes)
+    branch.headCommitId = commit.id
+    await manager.getRepository(WorldDocumentBranchRecord).save(branch)
     commits.push(commit)
   }
   return commits
 }
 
-type RestorableDocument = {
-  state: DocumentState
-  source: WorldDocumentEditSource
+export type PendingWorldDocumentChangeSetReconciliation = {
+  committedHuman: string[]
+  committedTerminalAgent: string[]
+  deferredActiveAgent: string[]
+  deferredUnowned: string[]
 }
 
-const readTreeDocuments = async (
+// Reverted is terminal but must never publish leftover staged document effects.
+const HISTORY_FINALIZED_TURN_STATUSES = new Set<MainAgentTurnRecord['status']>([
+  'completed',
+  'interrupted',
+  'failed',
+  'cancelled'
+])
+
+export const reconcilePendingWorldDocumentChangeSetsWithDataSource = async (
+  dataSource: DataSource
+): Promise<PendingWorldDocumentChangeSetReconciliation> => {
+  const staged = await dataSource.getRepository(WorldDocumentChangeRecord).findBy({
+    status: 'staged'
+  })
+  const changeSetIds = [...new Set(staged.map((change) => change.changeSetId))]
+  const result: PendingWorldDocumentChangeSetReconciliation = {
+    committedHuman: [],
+    committedTerminalAgent: [],
+    deferredActiveAgent: [],
+    deferredUnowned: []
+  }
+
+  for (const changeSetId of changeSetIds) {
+    if (changeSetId.startsWith('human:')) {
+      await dataSource.transaction((manager) =>
+        commitWorldDocumentChangeSetWithManager(manager, changeSetId, 'human')
+      )
+      result.committedHuman.push(changeSetId)
+      continue
+    }
+
+    const changeSet = await dataSource
+      .getRepository(MainAgentChangeSetRecord)
+      .findOneBy({ id: changeSetId })
+    if (!changeSet || changeSet.scopeType !== 'turn') {
+      result.deferredUnowned.push(changeSetId)
+      continue
+    }
+    const turn = await dataSource.getRepository(MainAgentTurnRecord).findOneBy({
+      id: changeSet.turnId
+    })
+    if (!turn || turn.eventId !== changeSet.eventId) {
+      result.deferredUnowned.push(changeSetId)
+      continue
+    }
+    if (!HISTORY_FINALIZED_TURN_STATUSES.has(turn.status)) {
+      result.deferredActiveAgent.push(changeSetId)
+      continue
+    }
+
+    await dataSource.transaction(async (manager) => {
+      const persistedChangeSet = await manager
+        .getRepository(MainAgentChangeSetRecord)
+        .findOneByOrFail({ id: changeSetId })
+      if (persistedChangeSet.lifecycle === 'open') {
+        persistedChangeSet.lifecycle = 'sealed'
+        persistedChangeSet.sealedAt = new Date()
+        await manager.getRepository(MainAgentChangeSetRecord).save(persistedChangeSet)
+      }
+      await commitWorldDocumentChangeSetWithManager(manager, changeSetId, 'agent')
+    })
+    result.committedTerminalAgent.push(changeSetId)
+  }
+  return result
+}
+
+export const readTreeDocuments = async (
   manager: EntityManager,
   worldId: string,
   treeHash: string,
@@ -403,7 +651,7 @@ const readTreeDocuments = async (
         parentDocumentId,
         title: entry.title,
         sortKey: entry.sortKey,
-        revision: content.sourceRevision,
+        revision: entry.revision ?? content.sourceRevision,
         schemaVersion: entry.schemaVersion
       },
       source: {
@@ -420,6 +668,44 @@ const readTreeDocuments = async (
 
 const sourceToStoredHtml = (source: WorldDocumentEditSource): string =>
   source.format === 'markdown' ? worldDocumentMarkdownToHtml(source.content) : source.content
+
+export const checkoutWorldDocumentCommitWithManager = async (
+  manager: EntityManager,
+  commitId: string
+): Promise<void> => {
+  const commit = await manager.getRepository(WorldDocumentCommitRecord).findOneByOrFail({ id: commitId })
+  const pending = await manager.getRepository(WorldDocumentChangeRecord).countBy({
+    worldId: commit.worldId,
+    status: 'staged'
+  })
+  if (pending > 0) throw new Error('当前方案仍有未封口编辑，请等待自动保存完成后再切换。')
+  const desired = await readTreeDocuments(manager, commit.worldId, commit.rootTreeHash)
+  const repository = manager.getRepository(WorldEntityDocumentRecord)
+  const current = new Map(
+    (await repository.findBy({ worldId: commit.worldId })).map((record) => [record.id, record])
+  )
+  for (const [documentId, document] of desired) {
+    const existing = current.get(documentId)
+    await repository.save(
+      repository.create({
+        ...(existing ?? {}),
+        id: documentId,
+        ownerKind: document.state.ownerKind,
+        worldId: document.state.worldId,
+        ownerEntityId: document.state.ownerEntityId,
+        parentDocumentId: document.state.parentDocumentId,
+        title: document.state.title,
+        contentHtml: sourceToStoredHtml(document.source),
+        contentFormat: 'html',
+        sortKey: document.state.sortKey,
+        revision: Math.max(existing?.revision ?? 0, document.state.revision) + 1,
+        schemaVersion: document.state.schemaVersion
+      })
+    )
+    current.delete(documentId)
+  }
+  if (current.size > 0) await repository.remove([...current.values()])
+}
 
 export class WorldDocumentHistoryConflictError extends Error {
   readonly code = 'DOCUMENT_HISTORY_CONFLICT'
@@ -442,14 +728,25 @@ export const restoreWorldDocumentCommitWithManager = async (
     expectedHeadCommitId: string
     changeSetId?: string
     summary?: string
+    documentIds?: string[]
+    intent?: string
+    restoredFromCommitId?: string
   }
 ): Promise<WorldDocumentCommitRecord> => {
   const commitRepository = manager.getRepository(WorldDocumentCommitRecord)
   const target = await commitRepository.findOneByOrFail({ id: input.targetCommitId })
-  const head = await commitRepository.findOne({
+  const latest = await commitRepository.findOne({
     where: { worldId: target.worldId },
     order: { sequence: 'DESC' }
   })
+  const branch = await ensureActiveWorldDocumentBranchWithManager(
+    manager,
+    target.worldId,
+    latest?.id ?? null
+  )
+  const head = branch.headCommitId
+    ? await commitRepository.findOneBy({ id: branch.headCommitId })
+    : null
   if (!head || head.id !== input.expectedHeadCommitId) {
     throw new WorldDocumentHistoryConflictError(input.expectedHeadCommitId, head?.id ?? '')
   }
@@ -457,11 +754,37 @@ export const restoreWorldDocumentCommitWithManager = async (
   const desired = await readTreeDocuments(manager, target.worldId, target.rootTreeHash)
   const documentRepository = manager.getRepository(WorldEntityDocumentRecord)
   const currentRecords = await documentRepository.findBy({ worldId: target.worldId })
-  const current = new Map(currentRecords.map((record) => [record.id, record]))
+  const allCurrent = new Map(currentRecords.map((record) => [record.id, record]))
+  const requestedIds = new Set((input.documentIds ?? []).map((id) => String(id).trim()).filter(Boolean))
+  const scopedIds = new Set<string>()
+  if (requestedIds.size > 0) {
+    const collectDescendants = (
+      roots: Set<string>,
+      entries: Iterable<{ id: string; parentDocumentId: string | null }>
+    ): void => {
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const entry of entries) {
+          if (roots.has(entry.id) || !entry.parentDocumentId || !roots.has(entry.parentDocumentId)) continue
+          roots.add(entry.id)
+          changed = true
+        }
+      }
+    }
+    requestedIds.forEach((id) => scopedIds.add(id))
+    collectDescendants(scopedIds, [...desired.values()].map((entry) => entry.state))
+    collectDescendants(scopedIds, currentRecords)
+  }
+  const inScope = (documentId: string): boolean => scopedIds.size === 0 || scopedIds.has(documentId)
+  const current = new Map(
+    [...allCurrent].filter(([documentId]) => inScope(documentId))
+  )
   const changeSetId = input.changeSetId ?? `restore:${randomUUID()}`
   const summary = input.summary?.trim() || `恢复文档树到提交 #${target.sequence}`
 
   for (const [documentId, desiredDocument] of desired) {
+    if (!inScope(documentId)) continue
     const existing = current.get(documentId) ?? null
     const storedHtml = sourceToStoredHtml(desiredDocument.source)
     if (
@@ -471,7 +794,8 @@ export const restoreWorldDocumentCommitWithManager = async (
       existing.parentDocumentId === desiredDocument.state.parentDocumentId &&
       existing.title === desiredDocument.state.title &&
       existing.sortKey === desiredDocument.state.sortKey &&
-      existing.contentHtml === storedHtml
+      existing.contentHtml === storedHtml &&
+      existing.schemaVersion === desiredDocument.state.schemaVersion
     ) {
       current.delete(documentId)
       continue
@@ -526,5 +850,48 @@ export const restoreWorldDocumentCommitWithManager = async (
 
   const [restored] = await commitWorldDocumentChangeSetWithManager(manager, changeSetId, 'human')
   if (!restored) return head
+  restored.restoredFromCommitId = input.restoredFromCommitId ?? target.id
+  restored.intent = input.intent ?? (scopedIds.size > 0 ? 'selective_restore' : 'restore')
+  await commitRepository.save(restored)
   return restored
+}
+
+export const applyWorldDocumentCommitWithManager = async (
+  manager: EntityManager,
+  input: {
+    commitId: string
+    expectedHeadCommitId: string
+    mode: 'revert' | 'cherry_pick'
+  }
+): Promise<{ commit: WorldDocumentCommitRecord; changes: WorldDocumentChangeRecord[] }> => {
+  const commitId = String(input.commitId || '').trim()
+  if (!commitId) throw new Error('commitId is required')
+  const commitRepository = manager.getRepository(WorldDocumentCommitRecord)
+  const target = await commitRepository.findOneByOrFail({ id: commitId })
+  const targetChanges = await manager.getRepository(WorldDocumentChangeRecord).findBy({
+    commitId: target.id
+  })
+  const documentIds = [...new Set(targetChanges.map((change) => change.documentId))]
+  if (documentIds.length === 0) throw new Error('该版本没有可应用的文档变化。')
+
+  const sourceCommitId = input.mode === 'revert' ? target.parentCommitId : target.id
+  if (!sourceCommitId) throw new Error('初始版本没有父版本，无法执行撤销。')
+  const source = await commitRepository.findOneByOrFail({ id: sourceCommitId })
+  if (source.worldId !== target.worldId) throw new Error('版本不属于同一世界。')
+  const summary =
+    input.mode === 'revert'
+      ? `撤销版本 #${target.sequence}${target.summary ? `：${target.summary}` : ''}`
+      : `摘取版本 #${target.sequence}${target.summary ? `：${target.summary}` : ''}`
+  const applied = await restoreWorldDocumentCommitWithManager(manager, {
+    targetCommitId: source.id,
+    expectedHeadCommitId: input.expectedHeadCommitId,
+    documentIds,
+    summary,
+    intent: input.mode,
+    restoredFromCommitId: target.id
+  })
+  const changes = await manager.getRepository(WorldDocumentChangeRecord).findBy({
+    commitId: applied.id
+  })
+  return { commit: applied, changes }
 }

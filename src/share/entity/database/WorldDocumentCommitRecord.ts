@@ -11,11 +11,17 @@ export class WorldDocumentCommitRecord {
   @Column({ type: 'text', nullable: false })
   worldId!: string
 
+  @Column({ type: 'text', nullable: false, default: 'main' })
+  branchId!: string
+
   @Column({ type: 'integer', nullable: false })
   sequence!: number
 
   @Column({ type: 'text', nullable: true })
   parentCommitId!: string | null
+
+  @Column({ type: 'text', nullable: true })
+  mergeParentCommitId!: string | null
 
   @Column({ type: 'text', nullable: false })
   changeSetId!: string
@@ -28,6 +34,12 @@ export class WorldDocumentCommitRecord {
 
   @Column({ type: 'text', nullable: false, default: '' })
   summary!: string
+
+  @Column({ type: 'text', nullable: true })
+  restoredFromCommitId!: string | null
+
+  @Column({ type: 'text', nullable: false, default: '' })
+  intent!: string
 
   @CreateDateColumn()
   createdAt!: Date

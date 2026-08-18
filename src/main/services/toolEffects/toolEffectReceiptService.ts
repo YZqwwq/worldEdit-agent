@@ -452,7 +452,11 @@ export const findToolEffectByCallId = async (
   input: { eventId: string; turnId: number; toolCallId: string }
 ): Promise<ToolEffectReceiptPayload | null> => {
   const record = await dataSource.getRepository(MainAgentToolEffectReceiptRecord).findOne({
-    where: input,
+    where: {
+      eventId: input.eventId,
+      turnId: input.turnId,
+      toolCallId: input.toolCallId
+    },
     order: { persistedAt: 'DESC' }
   })
   return record ? toPayload(record) : null
@@ -463,7 +467,11 @@ export const listToolEffectsByCallId = async (
   input: { eventId: string; turnId: number; toolCallId: string }
 ): Promise<ToolEffectReceiptPayload[]> => {
   const records = await dataSource.getRepository(MainAgentToolEffectReceiptRecord).find({
-    where: input,
+    where: {
+      eventId: input.eventId,
+      turnId: input.turnId,
+      toolCallId: input.toolCallId
+    },
     order: { persistedAt: 'ASC', id: 'ASC' }
   })
   return records.map(toPayload)
