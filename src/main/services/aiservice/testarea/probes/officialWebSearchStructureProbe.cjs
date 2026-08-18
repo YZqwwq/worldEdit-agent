@@ -4,9 +4,9 @@
  * Probe the raw response structure behind official_web_search.
  *
  * Examples:
- *   node src/main/services/aiservice/ai-utils/testarea/officialWebSearchStructureProbe.cjs --query "Bun JavaScript runtime rewrite in Rust"
- *   node src/main/services/aiservice/ai-utils/testarea/officialWebSearchStructureProbe.cjs --db "C:\\Users\\<you>\\AppData\\Roaming\\worldedit-agent\\database.sqlite"
- *   node src/main/services/aiservice/ai-utils/testarea/officialWebSearchStructureProbe.cjs --out .tmp-official-web-search.json
+ *   node src/main/services/aiservice/testarea/probes/officialWebSearchStructureProbe.cjs --query "Bun JavaScript runtime rewrite in Rust"
+ *   node src/main/services/aiservice/testarea/probes/officialWebSearchStructureProbe.cjs --db "C:\\Users\\<you>\\AppData\\Roaming\\worldedit-agent\\database.sqlite"
+ *   node src/main/services/aiservice/testarea/probes/officialWebSearchStructureProbe.cjs --out .tmp-official-web-search.json
  *
  * Config priority:
  *   CLI args > env MODEL_API_KEY/MODEL_BASE_URL/MODEL_NAME > optional --db modelconfig row.

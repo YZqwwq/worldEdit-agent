@@ -4,7 +4,7 @@ import { DataSource } from 'typeorm'
 import { MainAgentToolEffectReceiptRecord } from '@share/entity/database/MainAgentToolEffectReceiptRecord'
 import { MainAgentChangeSetRecord } from '@share/entity/database/MainAgentChangeSetRecord'
 import { WorldEntityDocumentRecord } from '@share/entity/database/WorldEntityDocumentRecord'
-import { runWithToolEffectExecutionContext } from '../../toolEffects/toolEffectExecutionContext'
+import { runWithToolEffectExecutionContext } from '../../../toolEffects/toolEffectExecutionContext'
 import {
   findCompletedToolEffectByCallId,
   listToolEffectsByCallId,
@@ -15,12 +15,12 @@ import {
   persistCompletedToolEffect,
   settleOpenToolEffectsForCall,
   settleToolEffect
-} from '../../toolEffects/toolEffectReceiptService'
+} from '../../../toolEffects/toolEffectReceiptService'
 import {
   getToolChangeSetSummary,
   resolveToolChangeSetOutcome,
   sealTurnChangeSetWithManager
-} from '../../toolEffects/toolChangeSetService'
+} from '../../../toolEffects/toolChangeSetService'
 
 const sqliteTest = (name: string, execute: () => Promise<void>): void => {
   test(name, { skip: process.env.RUN_TOOL_EFFECT_SQLITE_TESTS !== '1' }, execute)

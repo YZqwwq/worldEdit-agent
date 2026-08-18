@@ -8,10 +8,11 @@ import { DataSource } from 'typeorm'
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
+import { assertProcessTerminatedAbruptly } from '../support/processTestSupport'
 import {
   resolveMainAgentTurnRecovery,
   type MainAgentTurnRecoveryAction
-} from '../runtime/version/turnRecoveryPolicy'
+} from '../../runtime/version/turnRecoveryPolicy'
 
 const cases: Array<{
   boundary: string
@@ -54,14 +55,17 @@ for (const faultCase of cases) {
   test(`process restart resolves ${faultCase.boundary}`, async () => {
     const directory = await mkdtemp(join(tmpdir(), `worldedit-${faultCase.boundary}-`))
     const database = join(directory, 'recovery.sqlite')
-    const worker = join(process.cwd(), 'src/main/services/aiservice/testarea/.generated/turn-recovery-fault-worker.cjs')
+    const worker = join(
+      process.cwd(),
+      'src/main/services/aiservice/testarea/.generated/turn-recovery-fault-worker.cjs'
+    )
     let dataSource: DataSource | undefined
     try {
       const result = spawnSync(process.execPath, [worker, database, faultCase.boundary], {
         encoding: 'utf8',
         timeout: 15_000
       })
-      assert.equal(result.signal, 'SIGKILL', result.stderr || result.stdout)
+      assertProcessTerminatedAbruptly(result)
 
       dataSource = new DataSource({
         type: 'better-sqlite3',

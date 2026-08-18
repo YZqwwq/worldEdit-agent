@@ -14,7 +14,7 @@
  *   MODEL_BASE_URL defaults to https://dashscope.aliyuncs.com/compatible-mode/v1
  *
  * Example:
- *   node src/main/services/aiservice/ai-utils/testarea/dashscopeWebSearchDocCases.cjs --out .tmp-dashscope-doc-cases.json
+ *   node src/main/services/aiservice/testarea/probes/dashscopeWebSearchDocCases.cjs --out .tmp-dashscope-doc-cases.json
  */
 
 const fs = require('node:fs')

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { z } from 'zod'
-import { AgentToolError, defineAgentTool, parseAgentToolResultEnvelope } from '../ai-utils/core/agentTool'
+import { AgentToolError, defineAgentTool, parseAgentToolResultEnvelope } from '../../ai-utils/core/agentTool'
 
 const createFailingTool = (name: string, execute: () => never) =>
   defineAgentTool({

@@ -2,11 +2,11 @@ import { DataSource } from 'typeorm'
 import { MainAgentToolEffectReceiptRecord } from '@share/entity/database/MainAgentToolEffectReceiptRecord'
 import { MainAgentChangeSetRecord } from '@share/entity/database/MainAgentChangeSetRecord'
 import { WorldEntityDocumentRecord } from '@share/entity/database/WorldEntityDocumentRecord'
-import { runWithToolEffectExecutionContext } from '../../toolEffects/toolEffectExecutionContext'
+import { runWithToolEffectExecutionContext } from '../../../toolEffects/toolEffectExecutionContext'
 import {
   persistCompletedToolEffect,
   persistPlannedToolEffect
-} from '../../toolEffects/toolEffectReceiptService'
+} from '../../../toolEffects/toolEffectReceiptService'
 
 type FaultBoundary =
   | 'atomic_before_commit'

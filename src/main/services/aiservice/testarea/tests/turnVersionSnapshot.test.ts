@@ -8,10 +8,10 @@ import {
   readCompletedActionKeys,
   serializeReadyToCommitCandidate,
   serializeTurnGraphState
-} from '../runtime/version/turnVersionSnapshot'
-import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
-import { createTurnWorkspace, withDurableToolReceipt } from '../agentrsystem/state/turnWorkspace'
-import type { MessagesState } from '../agentrsystem/state/messageState'
+} from '../../runtime/version/turnVersionSnapshot'
+import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memoryWritePolicy'
+import { createTurnWorkspace, withDurableToolReceipt } from '../../agentrsystem/state/turnWorkspace'
+import type { MessagesState } from '../../agentrsystem/state/messageState'
 import {
   canTransitionMainAgentEventStatus,
   canTransitionMainAgentTurnStatus
@@ -22,12 +22,12 @@ import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurn
 import {
   persistFinalTurnVersionWithManager,
   persistTurnVersion
-} from '../runtime/version/turnVersionPersistence'
+} from '../../runtime/version/turnVersionPersistence'
 import type { MainAgentReadyToCommitCandidate } from '@share/cache/AItype/states/turnWorkspace'
 import {
   resolveMainAgentTurnRecovery,
   type MainAgentTurnRecoveryState
-} from '../runtime/version/turnRecoveryPolicy'
+} from '../../runtime/version/turnRecoveryPolicy'
 
 const sqliteTest = (name: string, execute: () => Promise<void>): void => {
   test(name, { skip: process.env.RUN_TURN_VERSION_SQLITE_TESTS !== '1' }, execute)

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { AIMessage, ToolMessage } from '@langchain/core/messages'
-import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
+import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memoryWritePolicy'
 import {
   createFinalResponse,
   createTurnWorkspace,
@@ -12,10 +12,10 @@ import {
   withObservationDraft,
   withSuccessfulToolUse,
   withToolChangeSetSummary
-} from '../agentrsystem/state/turnWorkspace'
-import { buildDurableToolEffectCheckpointState } from '../agentrsystem/execution/durableToolEffectCheckpoint'
-import { shouldBypassInteractivePerception } from '../agentrsystem/node/instantperceptionnode/instantPerceptionRouting'
-import { resolveTurnWorkspaceCommitPolicy } from '../runtime/orchestration/turnCommitPolicy'
+} from '../../agentrsystem/state/turnWorkspace'
+import { buildDurableToolEffectCheckpointState } from '../../agentrsystem/execution/durableToolEffectCheckpoint'
+import { shouldBypassInteractivePerception } from '../../agentrsystem/node/instantperceptionnode/instantPerceptionRouting'
+import { resolveTurnWorkspaceCommitPolicy } from '../../runtime/orchestration/turnCommitPolicy'
 
 const createWorkspace = () =>
   createTurnWorkspace({

@@ -7,19 +7,19 @@ import type {
   MainAgentBackgroundPersonaStageEvent,
   MainAgentUserMessageEvent
 } from '@share/cache/AItype/states/taskLifecycleState'
-import { createDefaultMemorySlots } from '../agentrsystem/manager/memory/memoryWritePolicy'
+import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memoryWritePolicy'
 import {
   createFinalResponse,
   createTurnWorkspace,
   withDurableToolReceipt,
   withMemoryMessagesDraft,
   withSuccessfulToolUse
-} from '../agentrsystem/state/turnWorkspace'
+} from '../../agentrsystem/state/turnWorkspace'
 import {
   orchestrateMainAgentEvent,
   type MainAgentEventOrchestrationDependencies
-} from '../runtime/orchestration/mainAgentEventOrchestration'
-import { resolveWorkspaceProfile } from '../agentrsystem/workspaceProfileRegistry'
+} from '../../runtime/orchestration/mainAgentEventOrchestration'
+import { resolveWorkspaceProfile } from '../../agentrsystem/workspaceProfileRegistry'
 
 const CURRENT_DOCUMENT_CONTEXT = {
   pageKind: 'document' as const,

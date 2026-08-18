@@ -8,11 +8,11 @@ Agent 统一以 Markdown 读取和写作文档。版本历史与 Diff 只保存�
 
 第一版编辑协议采用 Claude Code 风格的语义操作：精确替换、围绕锚点插入、按 Markdown 标题替换章节。系统根据修改前后版本自动生成标准 Diff；Codex 风格通用 Patch 作为后续高级入口，不作为第一版唯一协议。
 
-## 跨设备接续摘要（2026-08-17）
+## 跨设备接续摘要（2026-08-18）
 
-当前阶段：Git 式文档版本基座、历史查询、Diff 展示和整库恢复已经实现；Markdown 语义编辑工具尚未开始。
+当前阶段：Git 式文档版本基座、历史查询、Diff 展示、整库恢复和编辑器串行保存已经实现；版本快照隔离尚未修复，Markdown 语义编辑工具尚未开始。
 
-切换设备前注意：本阶段包含多个新增文件，当前仍属于工作区变更。需要确保代码和本计划一并提交、推送，否则另一台设备只拉取已有提交无法获得本阶段实现。
+切换设备前注意：当前工作区仍有大量未提交变更，包括测试目录迁移、跨平台 Electron 测试入口、3 秒自动保存、串行强制保存和历史 Session 提交队列。必须先提交并推送全部新增、删除和移动文件，否则另一台设备只拉取已有提交无法获得本阶段实现。
 
 关键实现入口：
 
@@ -21,21 +21,21 @@ Agent 统一以 Markdown 读取和写作文档。版本历史与 Diff 只保存�
 - `worldDocumentDiffService.ts`：只基于编辑态生成可读 Diff。
 - `WorldDocument*Record.ts`：内容版本、树对象、提交和变更记录实体。
 - `worldEntityDocumentService.ts`：所有文档写入接入版本事务。
-- `WorldEntityDocumentEditorView.vue`：人工编辑会话、历史面板、Diff 与恢复交互。
-- `worldDocumentVersion.test.ts`：Diff、树变化、自动保存聚合和恢复测试。
+- `WorldEntityDocumentEditorView.vue`、`serialSaveCoordinator.ts`：3 秒自动保存、强制保存等待和历史 Session 串行封口。
+- `testarea/tests`、`testarea/workers`、`scripts/test/run-electron-test.cjs`：普通回归、故障进程和跨平台 Electron 测试入口。
 
 已验证：
 
 - `npm run typecheck:node` 通过。
 - `npm run typecheck:web` 通过。
-- `npm run test:tool-contract` 通过（6 项）。
+- `npm run test:save-coordinator` 通过（5 项）。
 - `npm run test:document-version` 的 2 项纯 Diff 测试通过。
-- 上一轮完整 `npm run test:agent-core` 通过。
+- 最新完整 `npm run test:agent-core` 通过。
 
-环境限制：文档版本测试中的 3 项 SQLite 集成测试已经编写，但当前终端 Node 与 Electron 版 `better-sqlite3` ABI 不一致，因此默认跳过。另一台设备若具备匹配 ABI，执行：
+环境限制：Mac/Windows 共用的 Electron 测试入口已经建立，但当前设备下载 Electron 压缩包超时，原生 SQLite 测试尚未真实执行。换到可访问 Electron 下载源的网络后，使用 Node 20.19.5 完成 `npm ci`、`npm run rebuild`，再执行：
 
 ```bash
-RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
+npm run test:integration:electron
 ```
 
 ## 当前基线
@@ -58,7 +58,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 ### 内容与提交
 
 - 当前 `revision` 继续用于自动保存和并发冲突检查，不等同于 Git 提交。
-- 编辑器约 700ms 的自动保存只更新工作区，不为每次保存制造用户可见历史。
+- 编辑器停止输入约 3 秒后自动保存工作区，不为每次保存制造用户可见历史。
 - 文档内容版本保存不可变的编辑态快照，Diff 由相邻快照生成；运行时 HTML 不进入 Diff。
 - Agent 在 Turn 完整/中断提交时封口；人工编辑在空闲约 5 秒、强制保存或离开页面时封口。
 
@@ -104,9 +104,9 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - 内容版本保存调用方提供的编辑态：Agent 保存 Markdown，编辑器保存自身编辑态；Runtime 转换出的 HTML 不进入 Agent 版本 Diff 来源。旧数据首次纳入历史时只能以现有编辑器 HTML 建立一次基线。
 - 新增、更新、移动、排序、删除和递归删除都经过统一历史入口，并与实际文档写入处于同一事务。
 - Agent 多次文档工具修改随 Turn ChangeSet 暂存，在 Turn 完整提交或中断提交时形成一个世界提交。
-- 人工编辑的 700ms 自动保存继续只负责工作区；连续输入在空闲约 5 秒、强制保存或离开页面时形成一次提交。
+- 人工编辑停止输入约 3 秒后自动保存工作区；连续输入在空闲约 5 秒、强制保存或离开页面时形成一次提交。
 - 一次拖拽引起的多个同级排序更新使用同一历史会话，不拆成多个提交。
-- 进程重启时会收口已经写入数据库但尚未封口的暂存变更。
+- 当前进程重启时会直接收口尚未封口的暂存变更；待调整为先恢复所属 Turn，再决定提交边界。
 - 已具备按旧提交重建文档树并创建新提交的底层恢复能力；恢复不会改写或删除旧历史。
 - 已提供世界提交历史与提交详情 API，返回每次提交涉及的文档、树元数据变化和编辑态 Diff。
 - 编辑器已加入版本历史面板，可以查看人工/Agent 提交、逐文档变化以及新增/删除行数。
@@ -119,16 +119,39 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - 历史与恢复能力尚未开放为 Agent 工具，当前只由编辑器用户操作。
 - 历史面板首版只读取最近 50 个用户可见提交，尚未增加分页和按文档筛选。
 - 编辑态长期统一为 Markdown 还是保留编辑器源格式仍需结合富文本节点审计决定。
-- 原生 SQLite 集成测试已编写，但当前终端 Node 与 Electron 重建后的 `better-sqlite3` ABI 不一致；类型检查和非数据库回归已通过，数据库测试需在匹配 Electron ABI 的环境执行。
+- 已建立 Mac/Windows 共用的 Electron 测试入口；当前设备仍缺完整 Electron 可执行文件，完成依赖安装后才能执行原生 SQLite 集成测试。
 - 当前开发环境仍依赖 TypeORM `synchronize` 建表，正式发布前需要显式迁移。
 
-### 下一台设备的推荐推进顺序
+### 下一阶段：版本基座加固
 
-1. 在匹配 ABI 的环境运行文档版本 SQLite 集成测试，优先修复真实事务、树恢复或实体建表问题。
-2. 启动应用实测历史面板：连续输入聚合、Agent 多文档提交、拖拽排序、递归删除和整库恢复。
-3. 根据实际交互决定是否优先增加“选择性单文档恢复”；没有明确需求可暂缓。
-4. 开始 Markdown 编辑工具包，先实现共享编辑引擎、`replace_text` 和 `replace_section`。
-5. 再接入预览 Diff、正式应用和撤销工具，全部复用现有 revision、ChangeSet 和版本提交协议。
+#### P0：ChangeSet 快照隔离
+
+当前封口会重新读取实时文档表和全局最新 ContentVersion。Agent 只修改 A 时，如果用户同期保存 B，Agent Commit 可能包含未声明的 B 工作态；恢复该 Commit 可能连带影响 B。
+
+修复边界：新 Commit 必须由“当前 HEAD Tree + 当前 ChangeSet”确定。未变化文档复用父 Tree 的确定 source；Tree 构建不得回退读取实时文档或全局最新 ContentVersion。TreeEntry 补充 `revision`，旧 Tree 回退使用 ContentVersion revision。父 Tree 中同一文档已被更高 revision 更新时保留父状态，不让较晚封口的旧 ChangeSet 倒退用户内容。每个世界首次启用历史时应在业务修改前建立 Baseline。
+
+验收：Agent 修改 A、用户修改 B 时，Agent ChangeSet 只声明 A；若 B 已正式提交则通过父 Commit 自然继承，未提交的 B 工作态不得进入 Agent Commit；同一文档的更新 revision 不会被旧 ChangeSet 回退。
+
+#### P0：跨平台原生测试未执行
+
+测试源码和运行器可在 Mac/Windows 复用，但 `better-sqlite3` 与 Electron 二进制必须在各平台单独安装和重建。当前只验证了测试 bundle、类型检查和普通 Node 回归，SQLite 事务、树恢复、自动保存聚合与强杀恢复仍缺真实执行证据。
+
+验收：Mac 或 Windows 至少一端完整通过 `npm run test:integration:electron`；另一平台随后执行同一命令，不能复制原生 `node_modules`。
+
+#### P0：启动恢复顺序
+
+应用当前在 Agent Turn 恢复前直接封口全部 staged ChangeSet。进程崩溃时仍在进行的 Turn 可能被提前标记成正式历史。启动流程应先恢复或判定所属 Turn，再处理它的 staged 记录；用户中断属于带原因的正常完成，不需要独立业务终态。
+
+验收：进行中的 Turn 不会被启动流程提前封口；已经完成但队列尚未确认的 Turn 只做幂等对账。
+
+#### P1：性能与存储成本
+
+- Commit 和整库恢复仍接近全量 O(N)，并存在逐文档、逐 TreeObject 的 N+1 查询；数百至上千文档时可能造成主进程卡顿。先批量读取，再根据实测决定是否实现增量路径重建。
+- ChangeRecord 与 ContentVersion 重复保存前后正文，长期历史约保存 2～3 份内容；后续改为引用前后 ContentVersion。
+- ChangeRecord 缺少 `commitId`、独立 `status` 索引；提交序号采用“查询最大值再加一”且没有唯一冲突重试。
+- 删除后恢复的 revision 不保证严格单调；正式发布前仍需 TypeORM 显式迁移，不能长期依赖 `synchronize`。
+
+验收：增加 10/100/1000 文档的提交与恢复基准；历史增长后详情和 staged 查询不退化为全表扫描；revision 与 sequence 冲突有确定处理。
 
 ## P0：Markdown 编辑工具包
 
@@ -171,4 +194,4 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 
 ## 接续入口
 
-下一步先在匹配原生模块 ABI 的环境完成文档版本数据库测试，再评审是否需要选择性单文档恢复；随后接入 `replace_text` 与 `replace_section` 两个首批编辑工具。
+下一步优先完成 ChangeSet 快照隔离；换到合适网络后补跑跨平台 Electron 集成测试，再处理启动恢复。前三项稳定后接入 `replace_text` 与 `replace_section`；选择性单文档恢复没有明确场景时继续暂缓。

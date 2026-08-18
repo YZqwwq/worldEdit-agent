@@ -15,23 +15,27 @@ npm run test:agent-core
 # 用户场景基线
 npm run test:agent-scenario
 
-# Turn Version 快照与原子提交
+# 编辑器保存串行、强制落库与历史 Session 队列
+npm run test:save-coordinator
+
+# Turn Version 纯逻辑与快照测试
 npm run test:turn-version
 
-# 独立进程故障注入与崩溃恢复（不在默认核心回归中）
-npm run test:turn-recovery-process
+# Electron ABI 下的全部 SQLite、原子事务与崩溃恢复测试
+npm run test:integration:electron
 
-# Git 式文档内容、树提交与恢复
-RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
+# 只运行 Git 式文档内容、树提交与恢复
+npm run test:document-version:electron
 ```
 
-`test:turn-recovery-process` 和启用 SQLite 的 `test:document-version` 必须使用与 `better-sqlite3` 编译 ABI 一致的运行时。Electron 重建后的 native 模块不能由普通 Node 直接加载；出现 `NODE_MODULE_VERSION` 不一致时属于测试运行环境问题，不代表故障边界断言已经执行。
+Electron 集成入口由 `scripts/test/run-electron-test.cjs` 解析当前平台的 Electron 可执行文件并注入环境变量，Mac 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci` 和 `npm run rebuild`，不能跨平台复制 `node_modules`。普通 Node 回归保留快速逻辑测试，SQLite 用例只在 Electron 入口中强制启用。
 
 ## 文件组织
 
-- `*.test.ts`：可维护的自动化测试源码。
-- `*Worker.ts`：只由测试启动的故障注入或子进程入口。
-- `*.cjs`：依赖真实 API 的手动探针；不是 esbuild 产物。
+- `tests/*.test.ts`：可维护的自动化测试源码。
+- `workers/*Worker.ts`：只由测试启动的故障注入或子进程入口。
+- `support/`：跨平台测试断言与共享辅助代码。
+- `probes/*.cjs`：依赖真实 API 的手动探针；不是稳定回归。
 - `.generated/*.cjs`：测试命令生成的临时 CommonJS bundle，可随时删除，禁止手工修改和提交。
 
 测试 bundle 不再生成到仓库根目录。历史 `.tmp-*.cjs` 均为下表测试源码的编译副本，不是独立测试案例。
@@ -51,7 +55,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [ ] 读取完成后发生中断时，不重复提交工具结果、回复或记忆。
 - [ ] 数据库提交失败并重启后，可恢复未完成轮次且不重复写入。
 
-测试文件：[mainAgentScenarioBaseline.test.ts](./mainAgentScenarioBaseline.test.ts)
+测试文件：[mainAgentScenarioBaseline.test.ts](./tests/mainAgentScenarioBaseline.test.ts)
 
 ## 单轮执行与提交
 
@@ -62,7 +66,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [x] 后台人格阶段跳过用户交互式感知。
 - [x] 后台人格提交不能发布用户 Memory Slots。
 
-测试文件：[turnWorkspace.test.ts](./turnWorkspace.test.ts)
+测试文件：[turnWorkspace.test.ts](./tests/turnWorkspace.test.ts)
 
 ### 工具循环生命周期
 
@@ -73,7 +77,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [x] 确定性参数错误不会使用相同参数无限重试。
 - [x] eventual 工具在明确完成前保持未完成状态。
 
-测试文件：[turnExecutionLifecycle.test.ts](./turnExecutionLifecycle.test.ts)
+测试文件：[turnExecutionLifecycle.test.ts](./tests/turnExecutionLifecycle.test.ts)
 
 ### Agent Loop 暂停与继续
 
@@ -95,7 +99,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [ ] 从当前暂停/继续实现移除 Event paused 后，重新建立持久化恢复矩阵。
 - [ ] 恢复只重建 Agent Runtime 与 Loop，不把原 Event 重新加入普通队列。
 
-测试文件：[turnVersionSnapshot.test.ts](./turnVersionSnapshot.test.ts)、[turnRecoveryProcess.test.ts](./turnRecoveryProcess.test.ts)、[turnRecoveryFaultWorker.ts](./turnRecoveryFaultWorker.ts)。
+测试文件：[turnVersionSnapshot.test.ts](./tests/turnVersionSnapshot.test.ts)、[turnRecoveryProcess.test.ts](./tests/turnRecoveryProcess.test.ts)、[turnRecoveryFaultWorker.ts](./workers/turnRecoveryFaultWorker.ts)。
 
 ## 工具系统
 
@@ -106,7 +110,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [x] 工具说明包含使用规则和合法参数示例。
 - [x] eventual 工具不会把已受理误报为已完成。
 
-测试文件：[toolModelResult.test.ts](./toolModelResult.test.ts)
+测试文件：[toolModelResult.test.ts](./tests/toolModelResult.test.ts)
 
 ### 结构化错误
 
@@ -115,7 +119,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [x] 文档 revision 冲突被统一识别。
 - [x] 未知异常转换为内部错误，不诱导盲目重试。
 
-测试文件：[toolErrorProtocol.test.ts](./toolErrorProtocol.test.ts)
+测试文件：[toolErrorProtocol.test.ts](./tests/toolErrorProtocol.test.ts)
 
 ### 工具注册表
 
@@ -126,7 +130,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [x] 单轮工具调用次数限制生效。
 - [x] 必须确认的工具强制限制为每轮一次调用。
 
-测试文件：[toolRegistryValidation.test.ts](./toolRegistryValidation.test.ts)
+测试文件：[toolRegistryValidation.test.ts](./tests/toolRegistryValidation.test.ts)
 
 ### 工具执行等级与确认
 
@@ -135,7 +139,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [x] 只有确认请求之后的用户明确确认能授权同一组参数。
 - [x] 用户否定或取消不会被误识别为确认。
 
-测试文件：[toolExecutionProtocol.test.ts](./toolExecutionProtocol.test.ts)
+测试文件：[toolExecutionProtocol.test.ts](./tests/toolExecutionProtocol.test.ts)
 
 ### 世界观文档工具参数
 
@@ -143,7 +147,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [x] 旧版嵌套 owner 参数不再进入 Agent 契约。
 - [x] 文档创建与目录读取使用相同归属参数形式。
 
-测试文件：[worldDocumentToolContract.test.ts](./worldDocumentToolContract.test.ts)
+测试文件：[worldDocumentToolContract.test.ts](./tests/worldDocumentToolContract.test.ts)
 
 ## 记忆系统
 
@@ -154,7 +158,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [x] 普通主题查询不被错误改写。
 - [x] 短期窗口排除只移除最新匹配消息。
 
-测试文件：[recallSemantics.test.ts](./recallSemantics.test.ts)
+测试文件：[recallSemantics.test.ts](./tests/recallSemantics.test.ts)
 
 ### Stage 归档边界
 
@@ -164,34 +168,35 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 - [x] 纯 User 缓冲不会被伪装成完整阶段。
 - [x] 延迟 AI 回复可以闭合超限缓冲。
 
-测试文件：[memoryArchivePolicy.test.ts](./memoryArchivePolicy.test.ts)
+测试文件：[memoryArchivePolicy.test.ts](./tests/memoryArchivePolicy.test.ts)
 
 ## 手动联网探针
 
 以下文件依赖真实 API、模型、网络和外部数据，不属于 `test:agent-core` 稳定回归：
 
-- [dashscopeWebSearchDocCases.cjs](./dashscopeWebSearchDocCases.cjs)：验证 DashScope 联网搜索文档案例和响应结构。
-- [officialWebSearchStructureProbe.cjs](./officialWebSearchStructureProbe.cjs)：探测官方联网搜索返回结构。
+- [dashscopeWebSearchDocCases.cjs](./probes/dashscopeWebSearchDocCases.cjs)：验证 DashScope 联网搜索文档案例和响应结构。
+- [officialWebSearchStructureProbe.cjs](./probes/officialWebSearchStructureProbe.cjs)：探测官方联网搜索返回结构。
 
 运行前不得把 API Key 写入仓库。使用环境变量或本机临时配置，并避免在测试输出中打印凭据。
 
 ## 生成产物索引
 
-| 测试命令 | 维护源码 | `.generated` 产物 |
-|---|---|---|
-| `test:agent-scenario` | `mainAgentScenarioBaseline.test.ts` | `main-agent-scenario-test.cjs` |
-| `test:memory-archive` | `memoryArchivePolicy.test.ts` | `memory-archive-policy-test.cjs` |
-| `test:recall` | `recallSemantics.test.ts` | `recall-semantics-test.cjs` |
-| `test:tool-error` | `toolErrorProtocol.test.ts` | `tool-error-protocol-test.cjs` |
-| `test:tool-execution` | `toolExecutionProtocol.test.ts` | `tool-execution-protocol-test.cjs` |
-| `test:tool-result` | `toolModelResult.test.ts` | `tool-model-result-test.cjs` |
-| `test:tool-registry` | `toolRegistryValidation.test.ts` | `tool-registry-validation-test.cjs` |
-| `test:turn-lifecycle` | `turnExecutionLifecycle.test.ts` | `turn-execution-lifecycle-test.cjs` |
-| `test:turn-version` | `turnVersionSnapshot.test.ts` | `turn-version-test.cjs` |
-| `test:turn-workspace` | `turnWorkspace.test.ts` | `turn-workspace-test.cjs` |
-| `test:tool-contract` | `worldDocumentToolContract.test.ts` | `world-document-tool-contract-test.cjs` |
-| `test:turn-recovery-process` | `turnRecoveryProcess.test.ts` | `turn-recovery-process-test.cjs` |
-| `test:turn-recovery-process` | `turnRecoveryFaultWorker.ts` | `turn-recovery-fault-worker.cjs` |
+| 测试命令                     | 维护源码                            | `.generated` 产物                       |
+| ---------------------------- | ----------------------------------- | --------------------------------------- |
+| `test:agent-scenario`        | `mainAgentScenarioBaseline.test.ts` | `main-agent-scenario-test.cjs`          |
+| `test:memory-archive`        | `memoryArchivePolicy.test.ts`       | `memory-archive-policy-test.cjs`        |
+| `test:recall`                | `recallSemantics.test.ts`           | `recall-semantics-test.cjs`             |
+| `test:save-coordinator`      | `serialSaveCoordinator.test.ts`     | `serial-save-coordinator-test.cjs`      |
+| `test:tool-error`            | `toolErrorProtocol.test.ts`         | `tool-error-protocol-test.cjs`          |
+| `test:tool-execution`        | `toolExecutionProtocol.test.ts`     | `tool-execution-protocol-test.cjs`      |
+| `test:tool-result`           | `toolModelResult.test.ts`           | `tool-model-result-test.cjs`            |
+| `test:tool-registry`         | `toolRegistryValidation.test.ts`    | `tool-registry-validation-test.cjs`     |
+| `test:turn-lifecycle`        | `turnExecutionLifecycle.test.ts`    | `turn-execution-lifecycle-test.cjs`     |
+| `test:turn-version`          | `turnVersionSnapshot.test.ts`       | `turn-version-test.cjs`                 |
+| `test:turn-workspace`        | `turnWorkspace.test.ts`             | `turn-workspace-test.cjs`               |
+| `test:tool-contract`         | `worldDocumentToolContract.test.ts` | `world-document-tool-contract-test.cjs` |
+| `test:turn-recovery-process` | `turnRecoveryProcess.test.ts`       | `turn-recovery-process-test.cjs`        |
+| `test:turn-recovery-process` | `turnRecoveryFaultWorker.ts`        | `turn-recovery-fault-worker.cjs`        |
 
 ## 维护规则
 
@@ -200,6 +205,7 @@ RUN_DOCUMENT_VERSION_SQLITE_TESTS=1 npm run test:document-version
 3. 修复用户问题时先增加能够复现问题的失败场景，再修改实现。
 4. 新增测试文件后，将命令加入 `package.json`，并在本清单登记。
 5. 不把依赖真实网络或付费模型的探针加入默认核心回归。
+
 # Agent 观点产物与复合消息
 
 - `agentArtifactMessage.test.ts`：验证聊天正文与 `artifact_ref` 的序列化、恢复和错误输入收紧；确保历史上下文只携带观点摘要与 ID，不重复正文。

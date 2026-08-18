@@ -4,11 +4,11 @@ import {
   createWorldDocumentInputSchema,
   listWorldDocumentsInputSchema,
   updateWorldDocumentInputSchema
-} from '../ai-utils/tools/document/worldDocumentToolContracts'
+} from '../../ai-utils/tools/document/worldDocumentToolContracts'
 import {
   worldDocumentHtmlToMarkdown,
   worldDocumentMarkdownToHtml
-} from '../ai-utils/tools/document/worldDocumentMarkdownCodec'
+} from '../../ai-utils/tools/document/worldDocumentMarkdownCodec'
 
 test('document catalog input uses flat world and entity references', () => {
   assert.equal(

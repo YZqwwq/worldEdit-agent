@@ -4,26 +4,26 @@ import type { MoodEventAppraisal } from '@share/cache/AItype/states/moodAssessme
 import type { CharacterMoodBoundary } from '@share/cache/AItype/states/characterMoodBoundary'
 import type { InteractionObservationSnapshot } from '@share/cache/AItype/states/interactionObservation'
 import type { PersonaActionPolicy } from '@share/cache/AItype/states/personaPolicy'
-import { buildActionPolicyPrompt } from '../prompt/main_agent/persona/actionPolicyPrompt'
-import { buildPersonaAssemblyPromptParts } from '../prompt/main_agent/persona/personaAssemblyPrompt'
-import { buildSceneCharacterPrompt } from '../prompt/main_agent/persona/sceneCharacterPrompt'
+import { buildActionPolicyPrompt } from '../../prompt/main_agent/persona/actionPolicyPrompt'
+import { buildPersonaAssemblyPromptParts } from '../../prompt/main_agent/persona/personaAssemblyPrompt'
+import { buildSceneCharacterPrompt } from '../../prompt/main_agent/persona/sceneCharacterPrompt'
 import {
   DEFAULT_RELATIONSHIP,
   DEFAULT_SHORT_TERM,
   DEFAULT_SLOW_MOOD,
   FAMILA_CHARACTER_MOOD_BOUNDARY
-} from '../agentrsystem/node/personanode/moodDynamicsBoundary'
+} from '../../agentrsystem/node/personanode/moodDynamicsBoundary'
 import {
   compileMoodAssessment,
   NEUTRAL_MOOD_APPRAISAL
-} from '../agentrsystem/node/personanode/emotionDynamicsCompiler'
+} from '../../agentrsystem/node/personanode/emotionDynamicsCompiler'
 import {
   applyMoodExpressionDeltaToMetrics,
   buildPolicy
-} from '../agentrsystem/node/personanode/personaPolicyCompiler'
-import { resolveWorkspaceProfile } from '../agentrsystem/workspaceProfileRegistry'
-import { buildMoodAppraisalPrompt } from '../agentrsystem/node/personanode/moodAppraisalPrompt'
-import { getExpressionPromptProfileById } from '../prompt/main_agent/persona/expressionPromptProfiles'
+} from '../../agentrsystem/node/personanode/personaPolicyCompiler'
+import { resolveWorkspaceProfile } from '../../agentrsystem/workspaceProfileRegistry'
+import { buildMoodAppraisalPrompt } from '../../agentrsystem/node/personanode/moodAppraisalPrompt'
+import { getExpressionPromptProfileById } from '../../prompt/main_agent/persona/expressionPromptProfiles'
 
 const appraisal = (overrides: Partial<MoodEventAppraisal> = {}): MoodEventAppraisal => ({
   ...NEUTRAL_MOOD_APPRAISAL,

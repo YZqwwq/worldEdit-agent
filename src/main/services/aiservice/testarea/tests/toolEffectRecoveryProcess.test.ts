@@ -8,7 +8,8 @@ import { DataSource } from 'typeorm'
 import { MainAgentToolEffectReceiptRecord } from '@share/entity/database/MainAgentToolEffectReceiptRecord'
 import { MainAgentChangeSetRecord } from '@share/entity/database/MainAgentChangeSetRecord'
 import { WorldEntityDocumentRecord } from '@share/entity/database/WorldEntityDocumentRecord'
-import { reconcileOrphanedPlannedToolEffects } from '../../toolEffects/toolEffectReceiptService'
+import { assertProcessTerminatedAbruptly } from '../support/processTestSupport'
+import { reconcileOrphanedPlannedToolEffects } from '../../../toolEffects/toolEffectReceiptService'
 
 const cases = [
   {
@@ -42,7 +43,7 @@ for (const faultCase of cases) {
         encoding: 'utf8',
         timeout: 15_000
       })
-      assert.equal(result.signal, 'SIGKILL', result.stderr || result.stdout)
+      assertProcessTerminatedAbruptly(result)
 
       dataSource = new DataSource({
         type: 'better-sqlite3',

@@ -539,6 +539,7 @@ import type {
 } from '@share/cache/worldbuilding/worldDocumentHistory'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import { agentWorkspaceContextService } from '../services/agentWorkspaceContextService'
+import { SerialSaveCoordinator, SerialSessionCommitter } from '../services/serialSaveCoordinator'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 import { useAppTitleBar } from '../composables/useAppTitleBar'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -566,6 +567,14 @@ type NarrativeTreeNode = WorldEntityDocumentPayload & {
 
 type NarrativeDropPosition = 'before' | 'after' | 'inside'
 type DocumentCatalogScope = WorldEntityDocumentOwnerType | 'all' | 'basic_settings'
+type NarrativeSaveSnapshot = {
+  signature: string
+  documentId: string
+  expectedRevision: number
+  title: string
+  contentHtml: string
+  historySessionId: string
+}
 
 const NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY =
   'worldedit.worldEntityDocuments.sidebarWidthRatio.v1'
@@ -619,10 +628,13 @@ const restoringHistory = ref(false)
 let syncingFromDetail = false
 let narrativeAutosaveTimer: ReturnType<typeof setTimeout> | null = null
 let narrativeHistoryCommitTimer: ReturnType<typeof setTimeout> | null = null
-let narrativeSaveQueued = false
 let lastSavedNarrativeSignature = ''
 let removeDocumentChangeListener: (() => void) | null = null
-let narrativeHistorySessionId = crypto.randomUUID()
+const narrativeSaveCoordinator = new SerialSaveCoordinator<NarrativeSaveSnapshot>()
+const narrativeHistoryCommitter = new SerialSessionCommitter(
+  () => crypto.randomUUID(),
+  (sessionId) => worldbuildingClientService.commitWorldEntityDocumentHistorySession(sessionId)
+)
 
 const worldId = computed(() => String(route.params.worldId || ''))
 const entityId = computed(() => String(route.params.entityId || ''))
@@ -1624,37 +1636,50 @@ const saveNarrative = async (
   options: { fallbackBlankTitle?: boolean } = {}
 ): Promise<void> => {
   if (!canSaveNarrative.value || !activeDocument.value) return
-  if (narrativeAutosaveSignature.value === lastSavedNarrativeSignature) {
-    if (force) await commitNarrativeHistorySession()
-    return
-  }
-  if (savingNarrative.value) {
-    narrativeSaveQueued = true
-    return
-  }
 
   if (options.fallbackBlankTitle || !narrativeTitleFocused.value) {
     normalizeNarrativeTitleForCommit()
   }
 
-  savingNarrative.value = true
-  narrativeSaveState.value = 'saving'
-  const signatureAtSave = narrativeAutosaveSignature.value
-  const titleForSave = activeDocumentTitle.value.trim()
   try {
-    const updated = await worldbuildingClientService.updateWorldEntityDocument({
-      documentId: activeDocument.value.id,
-      expectedRevision: activeDocument.value.revision,
-      ...(titleForSave ? { title: titleForSave } : {}),
-      contentHtml: characterDescriptionInput.value,
-      contentFormat: 'html',
-      historySessionId: narrativeHistorySessionId
+    const persistedCount = await narrativeSaveCoordinator.request({
+      mode: force ? 'flush' : 'once',
+      readSnapshot: () => {
+        const document = activeDocument.value
+        if (!canSaveNarrative.value || !document) return null
+        return {
+          signature: narrativeAutosaveSignature.value,
+          documentId: document.id,
+          expectedRevision: document.revision,
+          title: activeDocumentTitle.value.trim(),
+          contentHtml: characterDescriptionInput.value,
+          historySessionId: narrativeHistoryCommitter.sessionId
+        }
+      },
+      isSaved: (snapshot) => snapshot.signature === lastSavedNarrativeSignature,
+      persist: async (snapshot) => {
+        savingNarrative.value = true
+        narrativeSaveState.value = 'saving'
+        try {
+          const updated = await worldbuildingClientService.updateWorldEntityDocument({
+            documentId: snapshot.documentId,
+            expectedRevision: snapshot.expectedRevision,
+            ...(snapshot.title ? { title: snapshot.title } : {}),
+            contentHtml: snapshot.contentHtml,
+            contentFormat: 'html',
+            historySessionId: snapshot.historySessionId
+          })
+          replaceNarrativeDocument(updated)
+          lastSavedNarrativeSignature = snapshot.signature
+          narrativeHistoryCommitter.markChanged(snapshot.historySessionId)
+          narrativeSaveState.value = 'saved'
+        } finally {
+          savingNarrative.value = false
+        }
+      }
     })
-    replaceNarrativeDocument(updated)
-    lastSavedNarrativeSignature = signatureAtSave
-    narrativeSaveState.value = 'saved'
     if (force) await commitNarrativeHistorySession()
-    else scheduleNarrativeHistoryCommit()
+    else if (persistedCount > 0) scheduleNarrativeHistoryCommit()
   } catch (error) {
     narrativeSaveState.value = 'error'
     if (error instanceof Error && error.message.toLocaleLowerCase().includes('revision conflict')) {
@@ -1662,12 +1687,6 @@ const saveNarrative = async (
       clearNarrativeAutosave()
     }
     throw error
-  } finally {
-    savingNarrative.value = false
-    if (narrativeSaveQueued || narrativeAutosaveSignature.value !== lastSavedNarrativeSignature) {
-      narrativeSaveQueued = false
-      scheduleNarrativeAutosave(120)
-    }
   }
 }
 
@@ -1680,9 +1699,7 @@ const clearNarrativeHistoryCommit = (): void => {
 
 const commitNarrativeHistorySession = async (): Promise<void> => {
   clearNarrativeHistoryCommit()
-  const sessionId = narrativeHistorySessionId
-  await worldbuildingClientService.commitWorldEntityDocumentHistorySession(sessionId)
-  if (sessionId === narrativeHistorySessionId) narrativeHistorySessionId = crypto.randomUUID()
+  await narrativeHistoryCommitter.commitPending()
 }
 
 const scheduleNarrativeHistoryCommit = (delay = 5000): void => {
@@ -1702,7 +1719,7 @@ const clearNarrativeAutosave = (): void => {
   }
 }
 
-const scheduleNarrativeAutosave = (delay = 700): void => {
+const scheduleNarrativeAutosave = (delay = 3000): void => {
   if (syncingFromDetail || externalDocumentConflict.value || !activeDocument.value) return
   clearNarrativeAutosave()
   clearNarrativeHistoryCommit()
@@ -1796,7 +1813,7 @@ useKeyboardShortcut(
     key: 's',
     ctrlOrMeta: true,
     preventDefault: true,
-    enabled: () => canSaveNarrative.value && !savingNarrative.value
+    enabled: () => canSaveNarrative.value
   },
   async () => {
     clearNarrativeAutosave()

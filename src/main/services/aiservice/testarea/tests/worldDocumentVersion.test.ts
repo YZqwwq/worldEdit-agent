@@ -10,8 +10,8 @@ import {
   commitWorldDocumentChangeSetWithManager,
   restoreWorldDocumentCommitWithManager,
   stageWorldDocumentChangeWithManager
-} from '../../worldbuilding/worldDocumentVersionService'
-import { buildWorldDocumentContentDiff } from '../../worldbuilding/worldDocumentDiffService'
+} from '../../../worldbuilding/worldDocumentVersionService'
+import { buildWorldDocumentContentDiff } from '../../../worldbuilding/worldDocumentDiffService'
 
 const sqliteTest = (name: string, execute: () => Promise<void>): void => {
   test(name, { skip: process.env.RUN_DOCUMENT_VERSION_SQLITE_TESTS !== '1' }, execute)

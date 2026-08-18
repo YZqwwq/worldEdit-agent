@@ -6,7 +6,7 @@ import {
   consumeToolConfirmation,
   isExplicitToolConfirmation,
   registerToolConfirmationRequest
-} from '../agentrsystem/node/toolnode/toolExecutionProtocol'
+} from '../../agentrsystem/node/toolnode/toolExecutionProtocol'
 
 test('confirmation keys are stable across object key order but change with arguments', () => {
   const first = buildToolConfirmationKey('delete_world_document', {
