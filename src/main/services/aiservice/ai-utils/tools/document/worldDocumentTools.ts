@@ -3,8 +3,11 @@ import { defineAgentTool } from '../../core/agentTool'
 import { worldEntityDocumentService } from '../../../../worldbuilding/worldEntityDocumentService'
 import { worldEntityDocumentChangePublisher } from '../../../../worldbuilding/worldEntityDocumentChangePublisher'
 import {
+  appendWorldDocumentTextInputSchema,
   createWorldDocumentInputSchema,
+  insertWorldDocumentTextInputSchema,
   listWorldDocumentsInputSchema,
+  readWorldDocumentSectionInputSchema,
   replaceWorldDocumentSectionInputSchema,
   replaceWorldDocumentTextInputSchema,
   updateWorldDocumentInputSchema
@@ -16,10 +19,17 @@ import {
 import type { WorldEntityDocumentPayload } from '@share/cache/worldbuilding/worldEntityDocument'
 import { buildWorldDocumentContentDiff } from '../../../../worldbuilding/worldDocumentDiffService'
 import {
+  appendMarkdownText,
+  insertMarkdownText,
   listMarkdownSections,
+  readMarkdownSection,
   replaceMarkdownSection,
   replaceUniqueMarkdownText
 } from './worldDocumentMarkdownEditEngine'
+import {
+  buildWorldDocumentEditContinuation,
+  type WorldDocumentLocalEditOperation
+} from './worldDocumentEditContinuation'
 
 const toDocumentOwner = (input: { worldId: string; entityId?: string }) =>
   input.entityId
@@ -53,6 +63,14 @@ const documentSchema = documentSummarySchema.extend({
   )
 })
 
+const documentSectionSchema = z.object({
+  headingPath: z.array(z.string()),
+  startLine: z.number().int().positive(),
+  endLine: z.number().int().positive(),
+  hash: z.string(),
+  contentMarkdown: z.string()
+})
+
 const diffLineSchema = z.object({
   kind: z.enum(['context', 'added', 'removed']),
   text: z.string()
@@ -75,10 +93,12 @@ const contentDiffSchema = z.object({
 const editLocationSchema = z.object({
   headingPath: z.array(z.string()).optional(),
   anchorText: z.string().optional(),
+  markdownAnchorText: z.string().optional(),
+  sectionHash: z.string().optional(),
   anchorHash: z.string()
 })
 const localEditOutputSchema = z.object({
-  document: documentSchema,
+  document: documentSummarySchema,
   changeSummary: z.string(),
   location: editLocationSchema,
   diffRef: z.string(),
@@ -163,7 +183,7 @@ const executeLocalEdit = async (input: {
     revision: document.revision
   })
   return {
-    document: toAgentDocument(document),
+    document: toSummary(document),
     changeSummary: input.changeSummary,
     location: edited.location,
     diffRef,
@@ -283,6 +303,76 @@ export const readWorldDocumentTool = defineAgentTool({
       payload: {
         found: data.found,
         revision: data.document?.revision
+      }
+    }
+  }
+})
+
+export const readWorldDocumentSectionTool = defineAgentTool({
+  name: 'read_document_section',
+  description: 'Read one Markdown heading section without loading the complete world document.',
+  inputSchema: readWorldDocumentSectionInputSchema,
+  outputSchema: z.object({
+    document: documentSummarySchema,
+    section: documentSectionSchema
+  }),
+  metadata: {
+    whenToUse: [
+      '只需要读取长文档中的一个已知标题章节',
+      '局部编辑前需要刷新章节正文和 section hash'
+    ],
+    whenNotToUse: ['尚不知道文档结构，应先读取完整文档', '需要跨章节理解全文'],
+    inputSummary: '提供 documentId 和 headingPath；重复标题时增加 sectionHash。',
+    outputSummary: '返回当前 revision、章节 Markdown 正文和最新 hash。',
+    usageContract: [
+      'headingPath 使用 read_world_document 返回的标题路径。',
+      '同一路径存在多个章节时必须提供 sectionHash，工具不会猜测目标。'
+    ],
+    executionLevel: 'safe',
+    readOnly: true,
+    idempotent: true,
+    contextRetention: 'evidence',
+    uiStage: {
+      label: '读取章节',
+      runningLabel: '正在阅读文档章节',
+      doneLabel: '文档章节已读取'
+    }
+  },
+  async execute(input) {
+    const document = await worldEntityDocumentService.getDocument(input.documentId)
+    if (!document) {
+      const error = new Error(`document not found: ${input.documentId}`) as Error & {
+        code: string
+        retryable: boolean
+      }
+      error.code = 'NOT_FOUND'
+      error.retryable = false
+      throw error
+    }
+    const section = readMarkdownSection(
+      worldDocumentHtmlToMarkdown(document.contentHtml),
+      input.headingPath,
+      input.sectionHash
+    )
+    return { document: toSummary(document), section }
+  },
+  buildReceipt(data) {
+    return {
+      kind: 'world_document_section_read',
+      operation: '读取世界观文档章节',
+      subject: {
+        type: 'document',
+        id: data.document.id,
+        label: data.document.title
+      },
+      completion: 'complete',
+      summary: `已取得章节「${data.section.headingPath.at(-1) || data.document.title}」的正文。`,
+      retryable: false,
+      evidenceRef: `document:${data.document.id}:section:${data.section.hash}`,
+      payload: {
+        documentId: data.document.id,
+        revision: data.document.revision,
+        sectionHash: data.section.hash
       }
     }
   }
@@ -457,10 +547,23 @@ const buildLocalEditReceipt = (data: z.infer<typeof localEditOutputSchema>) => (
     revision: data.document.revision,
     diffRef: data.diffRef,
     location: data.location,
+    expectedRevisionForNextWrite: data.document.revision,
     addedLines: data.diff.addedLines,
     removedLines: data.diff.removedLines
   }
 })
+
+const buildLocalEditModelResult = (operation: WorldDocumentLocalEditOperation) =>
+  (data: z.infer<typeof localEditOutputSchema>) =>
+    buildWorldDocumentEditContinuation({
+      operation,
+      document: data.document,
+      changeSummary: data.changeSummary,
+      location: data.location,
+      diffRef: data.diffRef,
+      addedLines: data.diff.addedLines,
+      removedLines: data.diff.removedLines
+    })
 
 export const replaceWorldDocumentTextTool = defineAgentTool({
   name: 'replace_text',
@@ -494,6 +597,77 @@ export const replaceWorldDocumentTextTool = defineAgentTool({
       changeSummary: input.changeSummary,
       edit: (markdown) => replaceUniqueMarkdownText(markdown, input.oldText, input.newText)
     }),
+  buildModelResult: buildLocalEditModelResult('replace_text'),
+  buildReceipt: buildLocalEditReceipt
+})
+
+export const insertWorldDocumentTextTool = defineAgentTool({
+  name: 'insert_text',
+  description: 'Insert Markdown immediately before or after one uniquely matching document fragment.',
+  inputSchema: insertWorldDocumentTextInputSchema,
+  outputSchema: localEditOutputSchema,
+  metadata: {
+    whenToUse: ['需要在已知唯一原文前后插入内容', '已读取最新正文和 revision'],
+    whenNotToUse: ['只需在文末追加', '锚点原文在文档中出现多次'],
+    inputSummary: '提供 documentId、revision、唯一 anchorText、before/after、插入 Markdown 和摘要。',
+    outputSummary: '返回新 revision、语义定位锚点、增删统计和 Diff 引用。',
+    usageContract: [
+      'anchorText 必须从最新 Markdown 原文中完整复制，并且只能出现一次。',
+      'insertedMarkdown 会原样插入；需要新段落或标题时必须自行包含换行。'
+    ],
+    executionLevel: 'notice',
+    readOnly: false,
+    idempotent: false,
+    effectRecovery: 'same_database_transaction',
+    contextRetention: 'evidence',
+    uiStage: {
+      label: '插入内容',
+      runningLabel: '正在插入文档内容',
+      doneLabel: '文档内容已插入'
+    }
+  },
+  execute: (input) =>
+    executeLocalEdit({
+      documentId: input.documentId,
+      expectedRevision: input.expectedRevision,
+      changeSummary: input.changeSummary,
+      edit: (markdown) =>
+        insertMarkdownText(markdown, input.anchorText, input.insertedMarkdown, input.position)
+    }),
+  buildModelResult: buildLocalEditModelResult('insert_text'),
+  buildReceipt: buildLocalEditReceipt
+})
+
+export const appendWorldDocumentTextTool = defineAgentTool({
+  name: 'append_text',
+  description: 'Append a Markdown block to the end of one world document.',
+  inputSchema: appendWorldDocumentTextInputSchema,
+  outputSchema: localEditOutputSchema,
+  metadata: {
+    whenToUse: ['需要把新段落或章节追加到文档末尾', '已读取最新 revision'],
+    whenNotToUse: ['需要在文档中间插入或替换内容'],
+    inputSummary: '提供 documentId、expectedRevision、追加 Markdown 和变更摘要。',
+    outputSummary: '返回新 revision、语义定位锚点、增删统计和 Diff 引用。',
+    usageContract: ['工具会在原文和追加内容之间建立一个空行，不需要复制整篇正文。'],
+    executionLevel: 'notice',
+    readOnly: false,
+    idempotent: false,
+    effectRecovery: 'same_database_transaction',
+    contextRetention: 'evidence',
+    uiStage: {
+      label: '追加内容',
+      runningLabel: '正在追加文档内容',
+      doneLabel: '文档内容已追加'
+    }
+  },
+  execute: (input) =>
+    executeLocalEdit({
+      documentId: input.documentId,
+      expectedRevision: input.expectedRevision,
+      changeSummary: input.changeSummary,
+      edit: (markdown) => appendMarkdownText(markdown, input.appendedMarkdown)
+    }),
+  buildModelResult: buildLocalEditModelResult('append_text'),
   buildReceipt: buildLocalEditReceipt
 })
 
@@ -535,6 +709,7 @@ export const replaceWorldDocumentSectionTool = defineAgentTool({
           input.replacementMarkdown
         )
     }),
+  buildModelResult: buildLocalEditModelResult('replace_section'),
   buildReceipt: buildLocalEditReceipt
 })
 

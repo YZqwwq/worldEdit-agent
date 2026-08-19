@@ -27,6 +27,10 @@ import {
 } from '../model/editorAppearance'
 import { normalizeRichTextContent } from '../utils/richTextContent'
 import WorldRichTextToolbar from './WorldRichTextToolbar.vue'
+import {
+  findWorldDocumentVisibleTextOffset,
+  normalizeWorldDocumentVisibleText
+} from '@share/cache/worldbuilding/worldDocumentSemanticAnchor'
 
 type DiffLocation = {
   headingPath?: string[]
@@ -90,7 +94,8 @@ const editor = useEditor({
 const locateDiff = (location: DiffLocation): boolean => {
   if (!editor.value) return false
   const document = editor.value.state.doc
-  const targetPath = location.headingPath?.filter(Boolean) ?? []
+  const targetPath =
+    location.headingPath?.map(normalizeWorldDocumentVisibleText).filter(Boolean) ?? []
   let sectionStart = 0
   let sectionEnd = document.content.size
   let sectionHeadingPosition: number | null = null
@@ -102,7 +107,7 @@ const locateDiff = (location: DiffLocation): boolean => {
       if (node.type.name !== 'heading') return true
       const level = Number(node.attrs.level) || 1
       headingStack.splice(level - 1)
-      headingStack[level - 1] = node.textContent.trim()
+      headingStack[level - 1] = normalizeWorldDocumentVisibleText(node.textContent)
       const currentPath = headingStack.filter(Boolean)
       if (
         sectionHeadingPosition === null &&
@@ -120,14 +125,14 @@ const locateDiff = (location: DiffLocation): boolean => {
     })
   }
 
-  const anchors = location.anchorTexts.map((value) => value.trim()).filter(Boolean)
+  const anchors = location.anchorTexts.map(normalizeWorldDocumentVisibleText).filter(Boolean)
   let target: { selectionPosition: number; blockPosition: number } | null = null
   const findAnchor = (restrictToSection: boolean): void => {
     document.descendants((node, position) => {
       if (target || !node.isTextblock) return !target
       if (restrictToSection && (position < sectionStart || position >= sectionEnd)) return true
       for (const anchor of anchors) {
-        const offset = node.textContent.indexOf(anchor)
+        const offset = findWorldDocumentVisibleTextOffset(node.textContent, anchor)
         if (offset >= 0) {
           target = { selectionPosition: position + 1 + offset, blockPosition: position }
           return false

@@ -206,6 +206,20 @@ const buildSourceRefs = (
   return []
 }
 
+const buildToolContextSupersessionKey = (
+  envelope: ReturnType<typeof parseAgentToolResultEnvelope>
+): string | undefined => {
+  const receipt = envelope?.receipt
+  if (
+    receipt?.kind !== 'world_document_locally_edited' ||
+    receipt.subject?.type !== 'document' ||
+    !receipt.subject.id
+  ) {
+    return undefined
+  }
+  return `world-document-edit:${receipt.subject.id}`
+}
+
 const buildResultSummary = (
   toolName: string,
   envelope: ReturnType<typeof parseAgentToolResultEnvelope>,
@@ -1120,6 +1134,7 @@ export async function toolNode(
             pendingToolContext.push({
               id: randomUUID(),
               toolCallId: toolCall.id,
+              supersessionKey: buildToolContextSupersessionKey(envelope),
               transcriptMessageIds: [lastMessage.id, toolMessage.id].filter(
                 (id): id is string => typeof id === 'string' && id.length > 0
               ),

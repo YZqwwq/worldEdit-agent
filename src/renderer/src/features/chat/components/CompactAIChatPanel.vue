@@ -34,7 +34,9 @@
         :messages="messages"
         :participants="chatParticipants"
         :revertible-message-id="revertibleUserMessageId"
+        :document-diff-locatable="true"
         @revert-message="handleRevertLastTurn"
+        @document-diff-locate="$emit('document-diff-locate', $event)"
       />
     </div>
 
@@ -64,6 +66,8 @@ import ChatMessageList from './ChatMessageList.vue'
 import MessageComposer from './MessageComposer.vue'
 import type { ChatParticipantProfile, UploadedChatFile } from '../types'
 import type { ChatMessage } from '../../../../../share/cache/render/aiagent/chatMessage'
+import type { ChatMessageDocumentDiffReference } from '../../../../../share/cache/render/aiagent/chatMessage'
+import type { WorldDocumentDiffHunk } from '@share/cache/worldbuilding/worldDocumentHistory'
 import {
   isSupportedChatImageUpload,
   type MainAgentUserMessageInput
@@ -71,6 +75,10 @@ import {
 
 defineEmits<{
   (e: 'close'): void
+  (e: 'document-diff-locate', payload: {
+    reference: ChatMessageDocumentDiffReference
+    hunk: WorldDocumentDiffHunk
+  }): void
 }>()
 
 const {

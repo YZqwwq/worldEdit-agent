@@ -6,6 +6,10 @@ import type {
   WorldDocumentEditSourceFormat
 } from '@share/cache/worldbuilding/worldDocumentHistory'
 import { worldDocumentHtmlToMarkdown } from '../aiservice/ai-utils/tools/document/worldDocumentMarkdownCodec'
+import {
+  worldDocumentMarkdownHeadingToVisibleText,
+  worldDocumentMarkdownLineToVisibleText
+} from '@share/cache/worldbuilding/worldDocumentSemanticAnchor'
 
 export type DocumentDiffSource = {
   format: WorldDocumentEditSourceFormat
@@ -81,22 +85,14 @@ const resolveHeadingPaths = (lines: string[]): string[][] => {
       if (match) {
         const level = match[1].length
         headings.splice(level - 1)
-        headings[level - 1] = match[2].replace(/\s+#+\s*$/, '').trim()
+        headings[level - 1] = worldDocumentMarkdownHeadingToVisibleText(
+          match[2].replace(/\s+#+\s*$/, '')
+        )
       }
     }
     return headings.filter(Boolean)
   })
 }
-
-const toVisibleAnchor = (value: string): string =>
-  value
-    .replace(/^\s{0,3}#{1,6}\s+/, '')
-    .replace(/^\s*(?:[-+*]|\d+\.)\s+/, '')
-    .replace(/^\s*>\s?/, '')
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/[*_~`]/g, '')
-    .trim()
 
 const buildAnchorTexts = (lines: WorldDocumentDiffLine[]): string[] => {
   const changedIndex = lines.findIndex((line) => line.kind !== 'context')
@@ -105,7 +101,11 @@ const buildAnchorTexts = (lines: WorldDocumentDiffLine[]): string[] => {
     ...lines.slice(Math.max(0, changedIndex)).filter((line) => line.kind === 'context'),
     ...lines.slice(0, Math.max(0, changedIndex)).reverse().filter((line) => line.kind === 'context')
   ]
-  return [...new Set(candidates.map((line) => toVisibleAnchor(line.text)).filter(Boolean))].slice(0, 5)
+  return [
+    ...new Set(
+      candidates.map((line) => worldDocumentMarkdownLineToVisibleText(line.text)).filter(Boolean)
+    )
+  ].slice(0, 5)
 }
 
 const buildHunks = (

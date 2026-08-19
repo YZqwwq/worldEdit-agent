@@ -124,7 +124,19 @@ export const parseMainAgentContentForPersistence = (
         `agent_artifact: ${part.artifactId} - ${part.title}${part.summary ? ` - ${part.summary}` : ''}`
     )
 
-  return [...textBlocks, ...fileLines, ...artifactLines].filter(Boolean).join('\n')
+  const documentDiffLines = normalized
+    .filter(
+      (part): part is Extract<MainAgentMessageContentPart, { type: 'document_diff_ref' }> =>
+        part.type === 'document_diff_ref'
+    )
+    .map(
+      (part) =>
+        `document_edit: ${part.documentId} - ${part.title} - ${part.summary || '文档内容已修改'} (+${part.addedLines}/-${part.removedLines})`
+    )
+
+  return [...textBlocks, ...fileLines, ...artifactLines, ...documentDiffLines]
+    .filter(Boolean)
+    .join('\n')
 }
 
 export const getMainAgentPersistenceTextFromPersistedMessage = (
@@ -180,6 +192,15 @@ export const buildQwenInputContent = async (
       parts.push({
         type: 'text',
         text: `Agent artifact ${part.artifactId}: ${part.title}${part.summary ? ` - ${part.summary}` : ''}`
+      })
+      continue
+    }
+
+
+    if (part.type === 'document_diff_ref') {
+      parts.push({
+        type: 'text',
+        text: `Document edit ${part.documentId}: ${part.title} - ${part.summary || 'content updated'} (+${part.addedLines}/-${part.removedLines})`
       })
       continue
     }

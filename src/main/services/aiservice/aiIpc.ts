@@ -41,6 +41,7 @@ import {
   deleteWorldDocumentBranch,
   deleteWorldDocumentCheckpoint,
   getWorldDocumentCommitDetail,
+  getWorldDocumentDiffByRef,
   getWorldDocumentVersionStatus,
   initializeWorldDocumentHistory,
   inspectWorldDocumentHistory,
@@ -594,6 +595,9 @@ export function initializeAIEndpoints(): void {
 
   ipcMain.handle('worldEntityDocument:history:get', async (_event, commitId: string) =>
     getWorldDocumentCommitDetail(commitId)
+  )
+  ipcMain.handle('worldEntityDocument:diff:get', async (_event, diffRef: string) =>
+    getWorldDocumentDiffByRef(diffRef)
   )
 
   ipcMain.handle('worldEntityDocument:history:inspect', async (_event, worldId?: string) =>

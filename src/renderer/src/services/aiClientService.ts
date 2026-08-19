@@ -9,7 +9,8 @@ import {
 import type {
   ChatMessage,
   ChatMessageArtifactReference,
-  ChatMessageAttachment
+  ChatMessageAttachment,
+  ChatMessageDocumentDiffReference
 } from '../../../share/cache/render/aiagent/chatMessage'
 import { partsToMarkdown } from '../utils/aiToMarkdown'
 import type { AgentStageChunk, StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
@@ -92,6 +93,24 @@ const buildChatArtifactsFromContent = (
       summary: part.summary
     }))
 
+const buildChatDocumentDiffsFromContent = (
+  content: MainAgentMessageContentPart[]
+): ChatMessageDocumentDiffReference[] =>
+  content
+    .filter(
+      (part): part is Extract<MainAgentMessageContentPart, { type: 'document_diff_ref' }> =>
+        part.type === 'document_diff_ref'
+    )
+    .map((part) => ({
+      diffRef: part.diffRef,
+      documentId: part.documentId,
+      title: part.title,
+      summary: part.summary,
+      afterRevision: part.afterRevision,
+      addedLines: part.addedLines,
+      removedLines: part.removedLines
+    }))
+
 const extractChatTextFromContent = (content: MainAgentMessageContentPart[]): string =>
   content
     .filter(
@@ -112,12 +131,15 @@ const mapHistoryToMessages = (history: any[]): ChatMessage[] =>
       contentParts.length > 0 ? extractChatTextFromContent(contentParts) : String(msg.content || '')
     const attachments = contentParts.length > 0 ? buildChatAttachmentsFromContent(contentParts) : []
     const artifacts = contentParts.length > 0 ? buildChatArtifactsFromContent(contentParts) : []
+    const documentDiffs =
+      contentParts.length > 0 ? buildChatDocumentDiffsFromContent(contentParts) : []
 
     return {
       id: msg.id,
       text,
       attachments,
       artifacts,
+      documentDiffs,
       sender: msg.role,
       timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : undefined,
       turnId: typeof msg.turnId === 'number' ? msg.turnId : undefined,

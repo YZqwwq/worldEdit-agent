@@ -128,6 +128,7 @@ macOS 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci`
 
 - [x] 只读工具向下一轮模型暴露完整验证结果。
 - [x] 写入工具返回收据，不回显完整写入载荷。
+- [x] 可连续写入的工具向下一次调用暴露权威新 revision，不沿用旧版本。
 - [x] 工具说明包含使用规则和合法参数示例。
 - [x] eventual 工具不会把已受理误报为已完成。
 
@@ -168,8 +169,13 @@ macOS 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci`
 - [x] 世界级与实体级目录使用扁平参数。
 - [x] 旧版嵌套 owner 参数不再进入 Agent 契约。
 - [x] 文档创建与目录读取使用相同归属参数形式。
+- [x] Markdown 与 TipTap 共用标题、列表、粗体、链接和空白的可见锚点规范。
+- [x] 唯一锚点插入、文末追加和按标题路径读取章节具有结构化合同测试。
+- [x] 重复标题章节必须通过 section hash 消歧，不能由工具猜测。
+- [x] 局部编辑只返回当前仍有效的唯一 Markdown 锚点和章节 hash。
+- [x] 同一文档的新 continuation 会替代旧 revision 提示，历史操作仍保留在执行账本。
 
-测试文件：[worldDocumentToolContract.test.ts](./tests/worldDocumentToolContract.test.ts)
+测试文件：[worldDocumentToolContract.test.ts](./tests/worldDocumentToolContract.test.ts)、[turnExecutionLifecycle.test.ts](./tests/turnExecutionLifecycle.test.ts)
 
 ## 记忆系统
 
@@ -217,6 +223,7 @@ macOS 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci`
 | `test:turn-version`          | `turnVersionSnapshot.test.ts`       | `turn-version-test.cjs`                 |
 | `test:turn-workspace`        | `turnWorkspace.test.ts`             | `turn-workspace-test.cjs`               |
 | `test:tool-contract`         | `worldDocumentToolContract.test.ts` | `world-document-tool-contract-test.cjs` |
+| `test:message-content`       | `agentArtifactMessage.test.ts`      | `agent-message-content-test.cjs`        |
 | `test:turn-recovery-process` | `turnRecoveryProcess.test.ts`       | `turn-recovery-process-test.cjs`        |
 | `test:turn-recovery-process` | `turnRecoveryFaultWorker.ts`        | `turn-recovery-fault-worker.cjs`        |
 
@@ -230,4 +237,4 @@ macOS 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci`
 
 # Agent 观点产物与复合消息
 
-- `agentArtifactMessage.test.ts`：验证聊天正文与 `artifact_ref` 的序列化、恢复和错误输入收紧；确保历史上下文只携带观点摘要与 ID，不重复正文。
+- `agentArtifactMessage.test.ts`：验证聊天正文、`artifact_ref` 与 `document_diff_ref` 的序列化、恢复和错误输入收紧；历史上下文只携带摘要与引用，不重复观点或文档正文。

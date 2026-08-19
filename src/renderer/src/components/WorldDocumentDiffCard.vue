@@ -15,11 +15,12 @@
         <button
           type="button"
           class="hunk-header"
-          title="在文档中定位这处修改"
-          @click="$emit('locate', hunk)"
+          :disabled="!locatable"
+          :title="locatable ? '在文档中定位这处修改' : undefined"
+          @click="locatable && $emit('locate', hunk)"
         >
           <span>{{ hunk.headingPath?.length ? hunk.headingPath.join(' / ') : '文档内容' }}</span>
-          <span class="locate-hint">定位 ↗</span>
+          <span v-if="locatable" class="locate-hint">定位 ↗</span>
         </button>
         <div
           v-for="(line, lineIndex) in hunk.lines"
@@ -43,7 +44,9 @@ import type {
   WorldDocumentDiffHunk
 } from '@share/cache/worldbuilding/worldDocumentHistory'
 
-defineProps<{ diff: WorldDocumentContentDiff; title?: string }>()
+withDefaults(defineProps<{ diff: WorldDocumentContentDiff; title?: string; locatable?: boolean }>(), {
+  locatable: true
+})
 defineEmits<{ (event: 'locate', hunk: WorldDocumentDiffHunk): void }>()
 </script>
 
@@ -110,6 +113,12 @@ defineEmits<{ (event: 'locate', hunk: WorldDocumentDiffHunk): void }>()
 }
 .hunk-header:hover {
   background: #e3ebf8;
+}
+.hunk-header:disabled {
+  cursor: default;
+}
+.hunk-header:disabled:hover {
+  background: #eef3fb;
 }
 .locate-hint {
   margin-left: 12px;

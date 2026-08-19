@@ -69,6 +69,49 @@ test('write tools return a receipt projection instead of echoing a full write pa
   assert.equal(envelope.receipt?.kind, 'document_updated')
 })
 
+test('repeatable write tools can expose the authoritative state required by the next edit', async () => {
+  const editTool = defineAgentTool({
+    name: 'test_continue_document_edit',
+    description: 'Test-only repeatable document editor.',
+    inputSchema: z.object({ expectedRevision: z.number().int() }),
+    outputSchema: z.object({
+      documentId: z.string(),
+      revision: z.number().int(),
+      content: z.string()
+    }),
+    metadata: {
+      whenToUse: ['test'],
+      inputSummary: 'expected revision',
+      outputSummary: 'next edit state',
+      executionLevel: 'notice',
+      readOnly: false,
+      idempotent: false
+    },
+    execute: ({ expectedRevision }) => ({
+      documentId: 'document-a',
+      revision: expectedRevision + 1,
+      content: '不应进入下一轮模型上下文的完整正文'.repeat(200)
+    }),
+    buildReceipt: (data) => ({
+      kind: 'document_locally_edited',
+      summary: `revision=${data.revision}`
+    }),
+    buildModelResult: (data) => ({
+      completed: { documentId: data.documentId },
+      continuation: { expectedRevisionForNextWrite: data.revision }
+    })
+  })
+
+  const rawResult = await editTool.invoke({ expectedRevision: 10 })
+  const envelope = parseAgentToolResultEnvelope(rawResult)
+  assert.ok(envelope)
+  assert.deepEqual(envelope.modelResult, {
+    completed: { documentId: 'document-a' },
+    continuation: { expectedRevisionForNextWrite: 11 }
+  })
+  assert.equal(JSON.stringify(envelope.modelResult).includes('完整正文'), false)
+})
+
 test('usage rules and legal examples are visible in the model-facing tool description', () => {
   const describedTool = defineAgentTool({
     name: 'test_described_tool',

@@ -66,6 +66,7 @@ import type {
   WorldDocumentVersionPackageImportResult,
   WorldDocumentMergePreviewPayload,
   WorldDocumentCommitSummary,
+  WorldDocumentDiffReferencePayload,
   WorldDocumentVersionStatusPayload
 } from '../share/cache/worldbuilding/worldDocumentHistory'
 
@@ -205,6 +206,7 @@ type Api = {
   getWorldDocumentCommitDetail: (
     commitId: string
   ) => Promise<WorldDocumentCommitDetailPayload | null>
+  getWorldDocumentDiffByRef: (diffRef: string) => Promise<WorldDocumentDiffReferencePayload>
   inspectWorldDocumentHistory: (worldId?: string) => Promise<WorldDocumentIntegrityReport>
   pruneWorldDocumentHistory: (dryRun?: boolean) => Promise<WorldDocumentGarbageCollectionResult>
   getWorldDocumentVersionStatus: (worldId: string) => Promise<WorldDocumentVersionStatusPayload>
@@ -318,6 +320,8 @@ const api: Api = {
     ipcRenderer.invoke('worldEntityDocument:history:list', worldId, limit),
   getWorldDocumentCommitDetail: (commitId) =>
     ipcRenderer.invoke('worldEntityDocument:history:get', commitId),
+  getWorldDocumentDiffByRef: (diffRef) =>
+    ipcRenderer.invoke('worldEntityDocument:diff:get', diffRef),
   inspectWorldDocumentHistory: (worldId) =>
     ipcRenderer.invoke('worldEntityDocument:history:inspect', worldId),
   pruneWorldDocumentHistory: (dryRun = true) =>

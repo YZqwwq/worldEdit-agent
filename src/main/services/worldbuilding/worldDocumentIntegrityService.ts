@@ -6,6 +6,8 @@ import { WorldDocumentBranchRecord } from '@share/entity/database/WorldDocumentB
 import { WorldDocumentContentVersionRecord } from '@share/entity/database/WorldDocumentContentVersionRecord'
 import { WorldDocumentTreeObjectRecord } from '@share/entity/database/WorldDocumentTreeObjectRecord'
 import { WorldDocumentIntegrityCacheRecord } from '@share/entity/database/WorldDocumentIntegrityCacheRecord'
+import { MainAgentToolEffectReceiptRecord } from '@share/entity/database/MainAgentToolEffectReceiptRecord'
+import { parseWorldDocumentDiffRef } from './worldDocumentDiffReferenceResolver'
 import type {
   WorldDocumentIntegrityIssue,
   WorldDocumentIntegrityReport,
@@ -135,6 +137,28 @@ export const inspectWorldDocumentHistory = async (
 
   const reachableTrees = new Set<string>()
   const reachableContents = new Set<string>()
+  const contentIdsByDocumentRevision = new Map<string, string[]>()
+  for (const content of allContents) {
+    const key = `${content.documentId}\u0000${content.sourceRevision}`
+    contentIdsByDocumentRevision.set(key, [
+      ...(contentIdsByDocumentRevision.get(key) ?? []),
+      content.id
+    ])
+  }
+  const connection = 'connection' in dataSource ? dataSource.connection : dataSource
+  if (connection.hasMetadata(MainAgentToolEffectReceiptRecord)) {
+    const receipts = await dataSource.getRepository(MainAgentToolEffectReceiptRecord).find()
+    for (const receipt of receipts) {
+      const parsed = receipt.diffRef ? parseWorldDocumentDiffRef(receipt.diffRef) : null
+      if (!parsed) continue
+      for (const revision of [parsed.beforeRevision, parsed.afterRevision]) {
+        for (const contentId of
+          contentIdsByDocumentRevision.get(`${parsed.documentId}\u0000${revision}`) ?? []) {
+          reachableContents.add(contentId)
+        }
+      }
+    }
+  }
   const visitTree = (
     treeHash: string,
     commit: WorldDocumentCommitRecord,

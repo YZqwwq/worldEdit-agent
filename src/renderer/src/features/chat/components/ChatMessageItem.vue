@@ -97,6 +97,16 @@
               :artifact="artifact"
             />
           </div>
+
+          <div v-if="message.documentDiffs?.length">
+            <AgentDocumentDiffReference
+              v-for="reference in message.documentDiffs"
+              :key="reference.diffRef"
+              :reference="reference"
+              :locatable="documentDiffLocatable"
+              @locate="$emit('document-diff-locate', $event)"
+            />
+          </div>
         </div>
 
         <button
@@ -120,17 +130,25 @@ import type { ChatMessage, ChatSender } from '../../../../../share/cache/render/
 import { getFrontendMessageTime } from '../../../../../main/utils/getDetailTime'
 import ChatAvatar from './ChatAvatar.vue'
 import AgentArtifactReference from './AgentArtifactReference.vue'
+import AgentDocumentDiffReference from './AgentDocumentDiffReference.vue'
 import type { ChatParticipantProfile } from '../types'
+import type { WorldDocumentDiffHunk } from '@share/cache/worldbuilding/worldDocumentHistory'
+import type { ChatMessageDocumentDiffReference } from '@share/cache/render/aiagent/chatMessage'
 
 const props = defineProps<{
   message: ChatMessage
   participant?: ChatParticipantProfile
   canRevert?: boolean
+  documentDiffLocatable?: boolean
 }>()
 
 defineEmits<{
   (e: 'edit-avatar', sender: ChatSender): void
   (e: 'revert-message', message: ChatMessage): void
+  (e: 'document-diff-locate', payload: {
+    reference: ChatMessageDocumentDiffReference
+    hunk: WorldDocumentDiffHunk
+  }): void
 }>()
 
 const defaultProfiles: Record<

@@ -43,10 +43,22 @@ export interface MainAgentArtifactReferenceContentPart {
   summary?: string
 }
 
+export interface MainAgentDocumentDiffReferenceContentPart {
+  type: 'document_diff_ref'
+  diffRef: string
+  documentId: string
+  title: string
+  summary?: string
+  afterRevision?: number
+  addedLines: number
+  removedLines: number
+}
+
 export type MainAgentMessageContentPart =
   | MainAgentTextContentPart
   | MainAgentFileContentPart
   | MainAgentArtifactReferenceContentPart
+  | MainAgentDocumentDiffReferenceContentPart
 
 const IMAGE_EXTENSIONS = new Set([
   '.png',
@@ -393,6 +405,25 @@ export const normalizeMainAgentMessageContent = (input: unknown): MainAgentMessa
           title,
           summary: normalizeText(raw.summary).slice(0, 500) || undefined
         } satisfies MainAgentArtifactReferenceContentPart
+      ]
+    }
+
+    if (raw.type === 'document_diff_ref') {
+      const diffRef = normalizeText(raw.diffRef)
+      const documentId = normalizeText(raw.documentId)
+      const title = normalizeText(raw.title)
+      if (!diffRef.startsWith('document-diff:') || !documentId || !title) return []
+      return [
+        {
+          type: 'document_diff_ref',
+          diffRef,
+          documentId,
+          title,
+          summary: normalizeText(raw.summary).slice(0, 300) || undefined,
+          afterRevision: normalizeSizeBytes(raw.afterRevision),
+          addedLines: normalizeSizeBytes(raw.addedLines) ?? 0,
+          removedLines: normalizeSizeBytes(raw.removedLines) ?? 0
+        } satisfies MainAgentDocumentDiffReferenceContentPart
       ]
     }
 

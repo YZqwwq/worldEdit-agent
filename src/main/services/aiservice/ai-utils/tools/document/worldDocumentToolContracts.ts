@@ -35,6 +35,28 @@ export const replaceWorldDocumentTextInputSchema = z.object({
   changeSummary: z.string().trim().min(1).max(300)
 })
 
+export const insertWorldDocumentTextInputSchema = z.object({
+  documentId: z.string().trim().min(1),
+  expectedRevision: z.number().int().positive(),
+  anchorText: z.string().min(1).max(MAX_AGENT_DOCUMENT_MARKDOWN_LENGTH),
+  insertedMarkdown: z.string().min(1).max(MAX_AGENT_DOCUMENT_MARKDOWN_LENGTH),
+  position: z.enum(['before', 'after']),
+  changeSummary: z.string().trim().min(1).max(300)
+})
+
+export const appendWorldDocumentTextInputSchema = z.object({
+  documentId: z.string().trim().min(1),
+  expectedRevision: z.number().int().positive(),
+  appendedMarkdown: z.string().trim().min(1).max(MAX_AGENT_DOCUMENT_MARKDOWN_LENGTH),
+  changeSummary: z.string().trim().min(1).max(300)
+})
+
+export const readWorldDocumentSectionInputSchema = z.object({
+  documentId: z.string().trim().min(1),
+  headingPath: z.array(z.string().trim().min(1)).min(1).max(6),
+  sectionHash: z.string().regex(/^[a-f0-9]{64}$/).optional()
+})
+
 export const replaceWorldDocumentSectionInputSchema = z.object({
   documentId: z.string().trim().min(1),
   expectedRevision: z.number().int().positive(),

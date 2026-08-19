@@ -237,18 +237,26 @@ ChangeSet 快照隔离已经完成：新 Commit 只由 HEAD Tree 与当前 Chang
 
 当前 `update_world_document` + `replace_text` + `replace_section` 已能覆盖全文、片段和章节编辑。下一阶段不按旧清单一次性扩张所有工具，先闭合已有能力，再增加高频操作。
 
-P0：闭合已有局部编辑
+P0：闭合已有局部编辑（主体完成）
 
-- 让 `diffRef` 真正可查询。当前只生成并持久化引用，没有 Diff 读取入口。用户影响：AI 编辑后不能在消息中稳定查看修改。维护影响：`diffRef` 仍是不可解析的孤立指针。
-- 将共用 Diff 卡片和语义定位挂到 AI 工具消息，复用历史面板的浅红/浅绿表达和点击定位。
-- 修正重复标题路径：`replace_section` 应同时用标题路径和 section hash 选择目标，不应总是取第一个同名章节。用户影响：同名章节中的后续章节目前无法编辑。维护影响：章节读取结果和写入协议不完全对称。
-- 统一 Markdown 与 TipTap 可见文本的锚点规范化，覆盖标题、列表、粗体、链接等内容。用户影响：某些格式内容可能无法点击定位。维护影响：Diff 和工具回执目前各自处理锚点。
+- `diffRef` 已具备 Main、Preload 和 Renderer 读取闭环，并从不可变内容版本重建 Diff。
+- AI 最终消息已持久化轻量 Diff 引用；对话中可展开共用 Diff 卡片，在编辑页可按语义锚点定位修改。
+- `replace_section` 已同时使用标题路径和 section hash 选择目标，支持同路径下的重复标题章节。
+- 局部编辑回执不再携带整篇 Markdown，只返回文档摘要、revision、锚点和 Diff 引用；版本 GC 会保留已被工具回执引用的内容版本。
+- Markdown 编辑引擎、Diff 和 TipTap 定位已共用可见文本锚点规范，覆盖标题、列表、任务项、粗体、链接、实体和空白差异。
 
-P1：补齐高频操作
+P1：补齐高频操作（已完成）
 
-- 新增一个 `insert_text`，通过 `before | after` 表达在唯一锚点前后插入，不拆成两个几乎相同的工具。用户影响：Agent 不再需要通过“原文 + 新文”整体替换来模拟插入。
-- 新增 `append_text`，用于文档末尾追加。用户影响：追加小段内容不再需要回传整篇文档。
-- 增加按 section hash 读取章节的能力。用户影响：长文档编辑时可减少不相关上下文。维护影响：与 `replace_section` 共享同一章节定位规则。
+- `insert_text` 通过 `before | after` 在唯一 Markdown 锚点前后插入，零次或多次匹配返回结构化冲突。
+- `append_text` 在文档末尾追加一个 Markdown 块，不再要求回传整篇正文。
+- `read_document_section` 按标题路径读取章节；重复路径使用可选 section hash 消歧，并与 `replace_section` 共享定位规则。
+
+连续编辑上下文（已完成）
+
+- 每次局部编辑向下一次模型调用返回权威新 revision、操作摘要和仍然有效的定位信息，不回显整篇正文。
+- 展示用可见锚点与再次编辑用 Markdown 原文锚点分离；只有结果文档中唯一的原文锚点才允许继续使用。
+- 同一文档较新的 continuation 会替代旧 revision 提示，执行账本和 receipt 仍保存本轮已完成的全部操作。
+- revision、章节 hash 或锚点冲突时要求重新读取目标范围，不允许沿用过期状态猜测写入。
 
 P2：根据实测再决定
 

@@ -42,6 +42,7 @@ import {
 import { mergeWorldDocumentText } from '../../../worldbuilding/worldDocumentThreeWayTextMerge'
 import { applicationEntities } from '../../../../database/applicationEntities'
 import { APPLICATION_SCHEMA_BASELINE_TABLE_SQL } from '../../../../database/migrations/applicationSchemaBaseline'
+import { getWorldDocumentDiffByRefWithDataSource } from '../../../worldbuilding/worldDocumentDiffReferenceResolver'
 
 const sqliteTest = (name: string, execute: () => Promise<void>): void => {
   test(name, { skip: process.env.RUN_DOCUMENT_VERSION_SQLITE_TESTS !== '1' }, execute)
@@ -142,6 +143,44 @@ test('a deletion-only Diff locates through content that still exists after the c
   assert.equal(diff.addedLines, 0)
   assert.equal(diff.hunks[0].anchorTexts.includes('将被删除'), false)
   assert.equal(diff.hunks[0].anchorTexts.includes('保留下文'), true)
+})
+
+sqliteTest('a document Diff reference rebuilds its immutable revision pair', async () => {
+  const dataSource = await createDataSource()
+  try {
+    const repository = dataSource.getRepository(WorldDocumentContentVersionRecord)
+    await repository.save([
+      repository.create({
+        id: 'content:diff-before',
+        worldId: 'world-1',
+        documentId: 'document-diff-a',
+        sourceRevision: 4,
+        sourceFormat: 'markdown',
+        contentSource: '# 设定\n\n旧内容',
+        contentHash: createHash('sha256').update('before').digest('hex')
+      }),
+      repository.create({
+        id: 'content:diff-after',
+        worldId: 'world-1',
+        documentId: 'document-diff-a',
+        sourceRevision: 5,
+        sourceFormat: 'markdown',
+        contentSource: '# 设定\n\n新内容',
+        contentHash: createHash('sha256').update('after').digest('hex')
+      })
+    ])
+
+    const result = await getWorldDocumentDiffByRefWithDataSource(
+      dataSource,
+      'document-diff:document-diff-a:4:5'
+    )
+    assert.equal(result.beforeRevision, 4)
+    assert.equal(result.afterRevision, 5)
+    assert.equal(result.diff.addedLines, 1)
+    assert.equal(result.diff.removedLines, 1)
+  } finally {
+    await dataSource.destroy()
+  }
 })
 
 sqliteTest('a staged content edit creates a baseline and one immutable world commit', async () => {

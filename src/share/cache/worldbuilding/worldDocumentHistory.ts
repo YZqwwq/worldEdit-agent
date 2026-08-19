@@ -33,6 +33,14 @@ export type WorldDocumentContentDiff = {
   truncated: boolean
 }
 
+export type WorldDocumentDiffReferencePayload = {
+  diffRef: string
+  documentId: string
+  beforeRevision: number
+  afterRevision: number
+  diff: WorldDocumentContentDiff
+}
+
 export type WorldDocumentCommitSummary = {
   id: string
   worldId: string

@@ -99,6 +99,13 @@ export const parseMainAgentContentForStorage = async (
       continue
     }
 
+    if (part.type === 'document_diff_ref') {
+      lines.push(
+        `document_edit: ${part.documentId} - ${part.title} - ${part.summary || '文档内容已修改'} (+${part.addedLines}/-${part.removedLines})`
+      )
+      continue
+    }
+
     lines.push(await parseFilePartForPersistence(part))
   }
 

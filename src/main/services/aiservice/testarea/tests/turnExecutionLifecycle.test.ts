@@ -129,6 +129,47 @@ test('pending tool context is promoted before the next model call', async () => 
   assert.equal(patch.ephemeralToolContext?.length, 0)
 })
 
+test('a newer document edit continuation supersedes the stale revision for the same document', async () => {
+  const supersessionKey = 'world-document-edit:doc-a'
+  const previous = {
+    id: 'evidence-old',
+    toolCallId: 'call-old',
+    supersessionKey,
+    toolName: 'replace_text',
+    retention: 'evidence' as const,
+    ok: true,
+    argsSummary: '{"expectedRevision":7}',
+    resultSummary: '{"expectedRevisionForNextWrite":8}',
+    createdAtLoop: 1
+  }
+  const pending = {
+    id: 'pending-new',
+    toolCallId: 'call-new',
+    supersessionKey,
+    transcriptMessageIds: ['ai-new', 'tool-new'],
+    toolName: 'insert_text',
+    retention: 'evidence' as const,
+    ok: true,
+    argsSummary: '{"expectedRevision":8}',
+    resultSummary: '{"expectedRevisionForNextWrite":9}',
+    createdAtLoop: 2
+  }
+
+  const patch = await toolContextReloadNode({
+    pendingToolContext: [pending],
+    toolEvidenceContext: [previous],
+    ephemeralToolContext: [],
+    activeToolTranscriptIds: ['ai-new', 'tool-new']
+  } as any)
+
+  assert.equal(patch.toolEvidenceContext?.length, 1)
+  assert.equal(patch.toolEvidenceContext?.[0].toolCallId, 'call-new')
+  assert.match(
+    patch.toolEvidenceContext?.[0].resultSummary ?? '',
+    /expectedRevisionForNextWrite\":9/
+  )
+})
+
 test('the loop limit enters a ledger-based finalization phase', () => {
   let ledger = createTurnExecutionLedger('完成一个多步骤任务')
   for (let index = 0; index < MAX_MODEL_STEPS_BEFORE_FINALIZATION; index += 1) {

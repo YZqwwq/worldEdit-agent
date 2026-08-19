@@ -42,3 +42,32 @@ test('invalid artifact references are dropped instead of leaking malformed UI co
 
   assert.deepEqual(restored, [{ type: 'text', text: '正常正文' }])
 })
+
+test('compound AI messages preserve lightweight document Diff references', () => {
+  const serialized = serializeMainAgentMessageContent([
+    { type: 'text', text: '我调整了这一段。' },
+    {
+      type: 'document_diff_ref',
+      diffRef: 'document-diff:document-a:2:3',
+      documentId: 'document-a',
+      title: '人物志',
+      summary: '补充人物经历',
+      afterRevision: 3,
+      addedLines: 4,
+      removedLines: 1
+    }
+  ])
+
+  const restored = parseMainAgentMessageContentJson(serialized)
+  assert.deepEqual(restored[1], {
+    type: 'document_diff_ref',
+    diffRef: 'document-diff:document-a:2:3',
+    documentId: 'document-a',
+    title: '人物志',
+    summary: '补充人物经历',
+    afterRevision: 3,
+    addedLines: 4,
+    removedLines: 1
+  })
+  assert.doesNotMatch(serialized, /完整文档正文/)
+})

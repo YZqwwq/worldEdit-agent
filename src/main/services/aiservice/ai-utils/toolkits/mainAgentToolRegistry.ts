@@ -39,11 +39,14 @@ import { resolveWorldByNameTool } from '../tools/world/resolveWorldByName'
 import { searchEntitiesTool } from '../tools/world/searchEntities'
 import { upsertWorldEntityManualMentionTool } from '../tools/world/upsertWorldEntityManualMention'
 import {
+  appendWorldDocumentTextTool,
   createWorldDocumentTool,
   deleteWorldDocumentTool,
+  insertWorldDocumentTextTool,
   listWorldDocumentsTool,
   moveWorldDocumentTool,
   readWorldDocumentTool,
+  readWorldDocumentSectionTool,
   renameWorldDocumentTool,
   replaceWorldDocumentSectionTool,
   replaceWorldDocumentTextTool,
@@ -521,6 +524,11 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
       summary: '读取指定文档的 Markdown 正文和 revision。'
     },
     {
+      tool: readWorldDocumentSectionTool,
+      access: 'read' as const,
+      summary: '按标题路径和可选章节 hash 读取一段 Markdown。'
+    },
+    {
       tool: createWorldDocumentTool,
       access: 'write' as const,
       summary: '创建世界级或实体级文档。'
@@ -534,6 +542,16 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
       tool: replaceWorldDocumentTextTool,
       access: 'write' as const,
       summary: '通过唯一 Markdown 原文安全地局部替换。'
+    },
+    {
+      tool: insertWorldDocumentTextTool,
+      access: 'write' as const,
+      summary: '在唯一 Markdown 锚点前后插入内容。'
+    },
+    {
+      tool: appendWorldDocumentTextTool,
+      access: 'write' as const,
+      summary: '向文档末尾追加 Markdown 内容。'
     },
     {
       tool: replaceWorldDocumentSectionTool,

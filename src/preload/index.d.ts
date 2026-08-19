@@ -65,6 +65,7 @@ import type {
   WorldDocumentVersionPackageImportResult,
   WorldDocumentMergePreviewPayload,
   WorldDocumentCommitSummary,
+  WorldDocumentDiffReferencePayload,
   WorldDocumentVersionStatusPayload
 } from '../share/cache/worldbuilding/worldDocumentHistory'
 
@@ -207,6 +208,7 @@ declare global {
     getWorldDocumentCommitDetail: (
       commitId: string
     ) => Promise<WorldDocumentCommitDetailPayload | null>
+    getWorldDocumentDiffByRef: (diffRef: string) => Promise<WorldDocumentDiffReferencePayload>
     inspectWorldDocumentHistory: (worldId?: string) => Promise<WorldDocumentIntegrityReport>
     pruneWorldDocumentHistory: (
       dryRun?: boolean

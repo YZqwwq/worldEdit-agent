@@ -18,6 +18,7 @@ import { agentArtifactService } from '../../artifacts/agentArtifactService'
 import type { AgentArtifactRecord } from '@share/entity/database/AgentArtifactRecord'
 import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAgentMessageContentService'
 import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
+import type { TurnWorkspaceDurableToolReceipt } from '@share/cache/AItype/states/turnWorkspace'
 import { commitWorldDocumentChangeSetWithManager } from '../../../worldbuilding/worldDocumentVersionService'
 
 export type MainAgentTurnCommitInput = Pick<
@@ -104,7 +105,8 @@ class MainAgentTurnCommitter {
         aiMessage.role = 'ai'
         const contentParts = this.buildResponseContentParts(
           input.finalResponse.content,
-          committedArtifacts
+          committedArtifacts,
+          input.workspace?.draft.durableToolReceipts ?? []
         )
         aiMessage.content = parseMainAgentContentForPersistence(contentParts)
         aiMessage.contentJson = serializeMainAgentMessageContent(contentParts)
@@ -252,10 +254,15 @@ class MainAgentTurnCommitter {
   ): Promise<Array<{ role: 'user' | 'ai'; content: string }>> {
     if (input.status === 'failed') return []
     if (input.consumer === 'background_persona_stage_consumer') return []
-    const artifactContext = this.formatArtifactContext(artifacts)
+    const attachmentContext = [
+      this.formatArtifactContext(artifacts),
+      this.formatDocumentDiffContext(input.workspace?.draft.durableToolReceipts ?? [])
+    ]
+      .filter(Boolean)
+      .join('\n\n')
     if (input.workspace?.draft.memoryMessages.length) {
       const messages = input.workspace.draft.memoryMessages.map((message) => ({ ...message }))
-      if (artifactContext) {
+      if (attachmentContext) {
         let lastAiIndex = -1
         for (let index = messages.length - 1; index >= 0; index -= 1) {
           if (messages[index].role === 'ai') {
@@ -264,11 +271,11 @@ class MainAgentTurnCommitter {
           }
         }
         if (lastAiIndex >= 0) {
-          messages[lastAiIndex].content = `${messages[lastAiIndex].content}\n\n${artifactContext}`
+          messages[lastAiIndex].content = `${messages[lastAiIndex].content}\n\n${attachmentContext}`
         } else if (input.finalResponse?.content.trim()) {
           messages.push({
             role: 'ai',
-            content: `${input.finalResponse.content}\n\n${artifactContext}`
+            content: `${input.finalResponse.content}\n\n${attachmentContext}`
           })
         }
       }
@@ -288,8 +295,8 @@ class MainAgentTurnCommitter {
     if (input.finalResponse?.content.trim()) {
       messages.push({
         role: 'ai',
-        content: artifactContext
-          ? `${input.finalResponse.content}\n\n${artifactContext}`
+        content: attachmentContext
+          ? `${input.finalResponse.content}\n\n${attachmentContext}`
           : input.finalResponse.content
       })
     }
@@ -298,8 +305,35 @@ class MainAgentTurnCommitter {
 
   private buildResponseContentParts(
     text: string,
-    artifacts: AgentArtifactRecord[]
+    artifacts: AgentArtifactRecord[],
+    receipts: TurnWorkspaceDurableToolReceipt[]
   ): MainAgentMessageContentPart[] {
+    const seenDiffRefs = new Set<string>()
+    const documentDiffParts = receipts.flatMap<MainAgentMessageContentPart>((receipt) => {
+      if (
+        receipt.completionState !== 'completed' ||
+        !receipt.diffRef ||
+        seenDiffRefs.has(receipt.diffRef)
+      ) {
+        return []
+      }
+      seenDiffRefs.add(receipt.diffRef)
+      const payload = receipt.payload ?? {}
+      const documentId = receipt.subject?.id || String(payload.documentId || '')
+      if (!documentId) return []
+      return [
+        {
+          type: 'document_diff_ref',
+          diffRef: receipt.diffRef,
+          documentId,
+          title: receipt.subject?.label || '文档修改',
+          summary: receipt.summary,
+          afterRevision: receipt.afterRevision,
+          addedLines: Number(payload.addedLines) || 0,
+          removedLines: Number(payload.removedLines) || 0
+        }
+      ]
+    })
     return [
       { type: 'text', text },
       ...artifacts.map(
@@ -310,7 +344,8 @@ class MainAgentTurnCommitter {
           title: artifact.title,
           summary: artifact.summary || undefined
         })
-      )
+      ),
+      ...documentDiffParts
     ]
   }
 
@@ -321,6 +356,22 @@ class MainAgentTurnCommitter {
       ...artifacts.map(
         (artifact) =>
           `- ${artifact.id}《${artifact.title}》${artifact.summary ? `：${artifact.summary}` : ''}`
+      )
+    ].join('\n')
+  }
+
+  private formatDocumentDiffContext(
+    receipts: TurnWorkspaceDurableToolReceipt[]
+  ): string {
+    const edits = receipts.filter(
+      (receipt) => receipt.completionState === 'completed' && receipt.diffRef
+    )
+    if (edits.length === 0) return ''
+    return [
+      '本轮已完成的文档修改：',
+      ...edits.map(
+        (receipt) =>
+          `- ${receipt.subject?.label || receipt.subject?.id || '文档'}：${receipt.summary}${receipt.afterRevision ? `（revision ${receipt.afterRevision}）` : ''}`
       )
     ].join('\n')
   }

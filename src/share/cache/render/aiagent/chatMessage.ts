@@ -20,11 +20,22 @@ export interface ChatMessageArtifactReference {
   summary?: string
 }
 
+export interface ChatMessageDocumentDiffReference {
+  diffRef: string
+  documentId: string
+  title: string
+  summary?: string
+  afterRevision?: number
+  addedLines: number
+  removedLines: number
+}
+
 export interface ChatMessage {
   id: number
   text: string
   attachments?: ChatMessageAttachment[]
   artifacts?: ChatMessageArtifactReference[]
+  documentDiffs?: ChatMessageDocumentDiffReference[]
   sender: ChatSender
   timestamp?: number
   turnId?: number

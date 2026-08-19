@@ -27,6 +27,7 @@ export type ToolContextSourceRef = {
 export type ToolContextItem = {
   id: string
   toolCallId?: string
+  supersessionKey?: string
   toolName: string
   retention: AgentToolContextRetention
   ok: boolean | null

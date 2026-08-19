@@ -50,6 +50,7 @@ import type {
   WorldDocumentMergePreviewPayload,
   WorldDocumentVersionStatusPayload
 } from '@share/cache/worldbuilding/worldDocumentHistory'
+import { getWorldDocumentDiffByRefWithDataSource } from './worldDocumentDiffReferenceResolver'
 
 type StoredDocumentState = Omit<WorldDocumentHistoryNodeState, 'documentId'> & { id: string }
 
@@ -185,6 +186,9 @@ export const listWorldDocumentCommits = (worldId: string): Promise<WorldDocument
     where: { worldId },
     order: { sequence: 'DESC' }
   })
+
+export const getWorldDocumentDiffByRef = (diffRef: string) =>
+  getWorldDocumentDiffByRefWithDataSource(AppDataSource, diffRef)
 
 export const listWorldDocumentCommitHistory = async (
   worldId: string,

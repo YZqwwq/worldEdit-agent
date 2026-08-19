@@ -5,7 +5,7 @@ import type { ToolContextItem } from '../../state/messageState'
 const uniqueToolContextItems = (items: ToolContextItem[]): ToolContextItem[] => {
   const byKey = new Map<string, ToolContextItem>()
   for (const item of items) {
-    byKey.set(item.toolCallId || item.id, item)
+    byKey.set(item.supersessionKey || item.toolCallId || item.id, item)
   }
   return [...byKey.values()]
 }

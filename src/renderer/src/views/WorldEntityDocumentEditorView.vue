@@ -361,7 +361,10 @@
         />
 
         <aside v-if="showNarrativeAiPanel" class="narrative-ai-panel">
-          <CompactAIChatPanel @close="showNarrativeAiPanel = false" />
+          <CompactAIChatPanel
+            @close="showNarrativeAiPanel = false"
+            @document-diff-locate="handleAgentDocumentDiffLocate"
+          />
         </aside>
 
         <aside v-else-if="showNarrativeHistoryPanel" class="narrative-history-panel">
@@ -848,6 +851,7 @@ import { useAppTitleBar } from '../composables/useAppTitleBar'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import WorldDocumentDiffCard from '../components/WorldDocumentDiffCard.vue'
 import CompactAIChatPanel from '../features/chat/components/CompactAIChatPanel.vue'
+import type { ChatMessageDocumentDiffReference } from '@share/cache/render/aiagent/chatMessage'
 import WorldRichTextAppearancePanel from '../features/worldbuilding/editor/components/WorldRichTextAppearancePanel.vue'
 import WorldRichTextEditor from '../features/worldbuilding/editor/components/WorldRichTextEditor.vue'
 import {
@@ -2356,6 +2360,42 @@ const handleHistoryDiffLocate = async (hunk: WorldDocumentDiffHunk): Promise<voi
     }
   } catch (error) {
     historyError.value = error instanceof Error ? error.message : '无法定位该处修改'
+  }
+}
+
+const handleAgentDocumentDiffLocate = async (payload: {
+  reference: ChatMessageDocumentDiffReference
+  hunk: WorldDocumentDiffHunk
+}): Promise<void> => {
+  try {
+    const target = await worldbuildingClientService.getWorldEntityDocument(
+      payload.reference.documentId
+    )
+    if (!target) throw new Error('目标文档已不存在，可在版本面板中查看或恢复。')
+
+    if (target.ownerKind === 'world' && !isBasicSettingsScope.value) {
+      await loadBasicSettings()
+    } else if (
+      target.ownerKind === 'entity' &&
+      target.ownerEntityId &&
+      target.ownerEntityId !== entityDetail.value?.entity.id
+    ) {
+      const entity = worldEntities.value.find((item) => item.id === target.ownerEntityId)
+      if (!entity) throw new Error('目标文档所属实体已不存在。')
+      await activateCatalogEntity(entity)
+    }
+
+    if (!narrativeDocumentById.value.has(target.id)) {
+      throw new Error('目标文档不在当前工作区。')
+    }
+    await selectNarrativeDocument(target.id)
+    await nextTick()
+    await nextTick()
+    if (!narrativeEditorRef.value?.locateDiff(payload.hunk)) {
+      throw new Error('文档已继续修改，原修改位置已无法准确定。')
+    }
+  } catch (error) {
+    console.warn('Failed to locate Agent document Diff:', error)
   }
 }
 
