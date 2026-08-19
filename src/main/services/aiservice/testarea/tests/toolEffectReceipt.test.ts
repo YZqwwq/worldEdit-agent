@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm'
 import { MainAgentToolEffectReceiptRecord } from '@share/entity/database/MainAgentToolEffectReceiptRecord'
 import { MainAgentChangeSetRecord } from '@share/entity/database/MainAgentChangeSetRecord'
 import { WorldEntityDocumentRecord } from '@share/entity/database/WorldEntityDocumentRecord'
+import { runAppSchemaMigrations } from '../../../../database/migrations/runAppSchemaMigrations'
 import { runWithToolEffectExecutionContext } from '../../../toolEffects/toolEffectExecutionContext'
 import {
   findCompletedToolEffectByCallId,
@@ -30,7 +31,7 @@ const createDataSource = async (): Promise<DataSource> => {
   const dataSource = new DataSource({
     type: 'better-sqlite3',
     database: ':memory:',
-    synchronize: true,
+    synchronize: false,
     entities: [
       WorldEntityDocumentRecord,
       MainAgentToolEffectReceiptRecord,
@@ -38,6 +39,7 @@ const createDataSource = async (): Promise<DataSource> => {
     ]
   })
   await dataSource.initialize()
+  await runAppSchemaMigrations(dataSource)
   return dataSource
 }
 

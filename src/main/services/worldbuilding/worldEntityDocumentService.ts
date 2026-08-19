@@ -39,6 +39,7 @@ export type WorldDocumentToolEffectInput = {
   payload?: Record<string, unknown>
   compensatable?: boolean
   editSource?: WorldDocumentEditSource
+  diffRef?: string
 }
 
 export type WorldDocumentHistoryOptions = {
@@ -368,6 +369,7 @@ class WorldEntityDocumentService {
           afterRevision: updated.revision,
           summary: effect.summary,
           evidenceRef: `document:${updated.id}`,
+          diffRef: effect.diffRef,
           payload: { ...effect.payload, documentId: updated.id, revision: updated.revision },
           compensatable: effect.compensatable
         })

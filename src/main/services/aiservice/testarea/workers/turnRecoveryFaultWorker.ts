@@ -10,6 +10,7 @@ import { serializeReadyToCommitCandidate } from '../../runtime/version/turnVersi
 import { createTurnWorkspace } from '../../agentrsystem/state/turnWorkspace'
 import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memoryWritePolicy'
 import type { MainAgentReadyToCommitCandidate } from '@share/cache/AItype/states/turnWorkspace'
+import { runAppSchemaMigrations } from '../../../../database/migrations/runAppSchemaMigrations'
 
 type FaultBoundary =
   | 'checkpoint_running'
@@ -26,7 +27,7 @@ if (!database || !boundary) {
 const dataSource = new DataSource({
   type: 'better-sqlite3',
   database,
-  synchronize: true,
+  synchronize: false,
   entities: [MainAgentEventRecord, MainAgentTurnRecord, MainAgentTurnVersionRecord]
 })
 
@@ -93,6 +94,7 @@ const crash = (): never => {
 
 const run = async (): Promise<void> => {
   await dataSource.initialize()
+  await runAppSchemaMigrations(dataSource)
   const turn = await seed()
   if (boundary === 'ready_to_commit') {
     const candidate = readyCandidate(turn)

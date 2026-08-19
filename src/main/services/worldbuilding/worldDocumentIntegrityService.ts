@@ -276,6 +276,30 @@ export const inspectWorldDocumentHistory = async (
   }
 
   for (const change of changes) {
+    for (const [side, contentId] of [
+      ['before', change.beforeContentVersionId],
+      ['after', change.afterContentVersionId]
+    ] as const) {
+      if (!contentId) continue
+      const content = contentById.get(contentId)
+      if (!content) {
+        addIssue({
+          severity: 'error',
+          code: 'MISSING_CHANGE_CONTENT_VERSION',
+          message: 'Change record references a missing content version.',
+          reference: `${change.id}:${side}`
+        })
+      } else if (content.worldId !== change.worldId || content.documentId !== change.documentId) {
+        addIssue({
+          severity: 'error',
+          code: 'CHANGE_CONTENT_OWNER_MISMATCH',
+          message: 'Change record references content owned by another world or document.',
+          reference: `${change.id}:${side}`
+        })
+      } else {
+        reachableContents.add(content.id)
+      }
+    }
     const matchingCommit = commitByChangeSetAndWorld.get(
       `${change.worldId}\u0000${change.changeSetId}`
     )

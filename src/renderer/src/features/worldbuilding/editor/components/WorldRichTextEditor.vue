@@ -28,6 +28,12 @@ import {
 import { normalizeRichTextContent } from '../utils/richTextContent'
 import WorldRichTextToolbar from './WorldRichTextToolbar.vue'
 
+type DiffLocation = {
+  headingPath?: string[]
+  anchorTexts: string[]
+  anchorHash: string
+}
+
 const props = withDefaults(
   defineProps<{
     modelValue: string
@@ -80,6 +86,80 @@ const editor = useEditor({
     })
   }
 })
+
+const locateDiff = (location: DiffLocation): boolean => {
+  if (!editor.value) return false
+  const document = editor.value.state.doc
+  const targetPath = location.headingPath?.filter(Boolean) ?? []
+  let sectionStart = 0
+  let sectionEnd = document.content.size
+  let sectionHeadingPosition: number | null = null
+
+  if (targetPath.length) {
+    const headingStack: string[] = []
+    let targetLevel = 0
+    document.descendants((node, position) => {
+      if (node.type.name !== 'heading') return true
+      const level = Number(node.attrs.level) || 1
+      headingStack.splice(level - 1)
+      headingStack[level - 1] = node.textContent.trim()
+      const currentPath = headingStack.filter(Boolean)
+      if (
+        sectionHeadingPosition === null &&
+        currentPath.length === targetPath.length &&
+        currentPath.every((part, index) => part === targetPath[index])
+      ) {
+        sectionHeadingPosition = position
+        sectionStart = position
+        targetLevel = level
+      } else if (sectionHeadingPosition !== null && position > sectionStart && level <= targetLevel) {
+        sectionEnd = position
+        return false
+      }
+      return true
+    })
+  }
+
+  const anchors = location.anchorTexts.map((value) => value.trim()).filter(Boolean)
+  let target: { selectionPosition: number; blockPosition: number } | null = null
+  const findAnchor = (restrictToSection: boolean): void => {
+    document.descendants((node, position) => {
+      if (target || !node.isTextblock) return !target
+      if (restrictToSection && (position < sectionStart || position >= sectionEnd)) return true
+      for (const anchor of anchors) {
+        const offset = node.textContent.indexOf(anchor)
+        if (offset >= 0) {
+          target = { selectionPosition: position + 1 + offset, blockPosition: position }
+          return false
+        }
+      }
+      return true
+    })
+  }
+
+  if (sectionHeadingPosition !== null) findAnchor(true)
+  if (!target) findAnchor(false)
+  if (!target && sectionHeadingPosition !== null) {
+    target = { selectionPosition: sectionHeadingPosition + 1, blockPosition: sectionHeadingPosition }
+  }
+  if (!target) return false
+
+  editor.value.commands.setTextSelection(target.selectionPosition)
+  editor.value.commands.focus()
+  const dom = editor.value.view.nodeDOM(target.blockPosition)
+  const element = dom instanceof HTMLElement ? dom : dom?.parentElement
+  if (element) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    element.classList.remove('diff-location-flash')
+    requestAnimationFrame(() => {
+      element.classList.add('diff-location-flash')
+      window.setTimeout(() => element.classList.remove('diff-location-flash'), 1800)
+    })
+  }
+  return true
+}
+
+defineExpose({ locateDiff })
 
 const handleEditorFrameMouseDown = (event: MouseEvent): void => {
   if (!editor.value) return
@@ -241,5 +321,14 @@ const editorStyle = computed(() => ({
 
 :deep(.editor-content .tiptap strong) {
   color: #f5efe4;
+}
+
+:deep(.editor-content .tiptap .diff-location-flash) {
+  animation: diff-location-flash 1.8s ease-out;
+}
+
+@keyframes diff-location-flash {
+  0%, 35% { background: rgba(250, 204, 21, 0.3); }
+  100% { background: transparent; }
 }
 </style>

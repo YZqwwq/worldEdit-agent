@@ -7,6 +7,7 @@ import {
   persistCompletedToolEffect,
   persistPlannedToolEffect
 } from '../../../toolEffects/toolEffectReceiptService'
+import { runAppSchemaMigrations } from '../../../../database/migrations/runAppSchemaMigrations'
 
 type FaultBoundary =
   | 'atomic_before_commit'
@@ -22,7 +23,7 @@ if (!database || !boundary) {
 const dataSource = new DataSource({
   type: 'better-sqlite3',
   database,
-  synchronize: true,
+  synchronize: false,
   entities: [WorldEntityDocumentRecord, MainAgentToolEffectReceiptRecord, MainAgentChangeSetRecord]
 })
 
@@ -47,6 +48,7 @@ const crash = (): never => {
 
 const run = async (): Promise<void> => {
   await dataSource.initialize()
+  await runAppSchemaMigrations(dataSource)
   const atomic = boundary !== 'best_effort_after_action_before_receipt'
   const context = {
     eventId: `effect-fault-${boundary}`,

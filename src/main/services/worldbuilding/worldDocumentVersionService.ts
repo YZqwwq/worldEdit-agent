@@ -182,6 +182,36 @@ const resolveBeforeSource = async (
   return { format: 'html_editor', content: before.contentHtml || '' }
 }
 
+const readContentVersionSource = async (
+  manager: EntityManager,
+  contentVersionId: string | null | undefined
+): Promise<WorldDocumentEditSource | null> => {
+  if (!contentVersionId) return null
+  const content = await manager
+    .getRepository(WorldDocumentContentVersionRecord)
+    .findOneBy({ id: contentVersionId })
+  return content ? { format: content.sourceFormat, content: content.contentSource } : null
+}
+
+const readChangeSource = async (
+  manager: EntityManager,
+  change: WorldDocumentChangeRecord,
+  side: 'before' | 'after'
+): Promise<WorldDocumentEditSource | null> => {
+  const referenced = await readContentVersionSource(
+    manager,
+    side === 'before' ? change.beforeContentVersionId : change.afterContentVersionId
+  )
+  if (referenced) return referenced
+  const format = side === 'before' ? change.beforeSourceFormat : change.sourceFormat
+  if (!format) return null
+  return {
+    format,
+    content:
+      (side === 'before' ? change.beforeContentSource : change.contentSource) ?? ''
+  }
+}
+
 export const stageWorldDocumentChangeWithManager = async (
   manager: EntityManager,
   input: StageWorldDocumentChangeInput
@@ -220,13 +250,25 @@ export const stageWorldDocumentChangeWithManager = async (
   }
 
   const beforeSource = current
-    ? current.beforeSourceFormat
-      ? {
-          format: current.beforeSourceFormat,
-          content: current.beforeContentSource ?? ''
-        }
-      : null
+    ? await readChangeSource(manager, current, 'before')
     : await resolveBeforeSource(manager, input.before)
+  const currentAfterSource = current
+    ? await readChangeSource(manager, current, 'after')
+    : null
+  const afterSource = input.after
+    ? (input.source ??
+      currentAfterSource ??
+      beforeSource ?? {
+        format: 'html_editor' as const,
+        content: input.after.contentHtml || ''
+      })
+    : null
+  const beforeVersion = input.before && beforeSource
+    ? await ensureContentVersion(manager, toState(input.before), beforeSource)
+    : null
+  const afterVersion = input.after && afterSource
+    ? await ensureContentVersion(manager, toState(input.after), afterSource)
+    : null
   const record =
     current ??
     repository.create({
@@ -235,21 +277,21 @@ export const stageWorldDocumentChangeWithManager = async (
       worldId,
       documentId,
       beforeStateJson: input.before ? JSON.stringify(toState(input.before)) : null,
-      beforeSourceFormat: beforeSource?.format ?? null,
-      beforeContentSource: beforeSource?.content ?? null,
+      beforeSourceFormat: null,
+      beforeContentSource: null,
+      beforeContentVersionId: beforeVersion?.id ?? null,
       status: 'staged',
       commitId: null
     })
 
   record.operation = resolveOperation(current, input)
   record.afterStateJson = input.after ? JSON.stringify(toState(input.after)) : null
-  if (input.source) {
-    record.sourceFormat = input.source.format
-    record.contentSource = input.source.content
-  } else if (!current && input.after && input.operation === 'create') {
-    record.sourceFormat = 'html_editor'
-    record.contentSource = input.after.contentHtml || ''
-  }
+  record.beforeContentVersionId ??= beforeVersion?.id ?? null
+  record.afterContentVersionId = afterVersion?.id ?? null
+  record.beforeSourceFormat = null
+  record.beforeContentSource = null
+  record.sourceFormat = null
+  record.contentSource = null
   record.summary = input.summary?.trim() || record.summary || input.operation
   record.status = 'staged'
   await repository.save(record)
@@ -355,22 +397,19 @@ const currentDocumentsForWorld = async (
   )
 }
 
-const buildFallbackBaselineDocuments = (
+const buildFallbackBaselineDocuments = async (
+  manager: EntityManager,
   currentDocuments: Map<string, RestorableDocument>,
   changes: WorldDocumentChangeRecord[]
-): Map<string, RestorableDocument> => {
+): Promise<Map<string, RestorableDocument>> => {
   const documents = new Map(currentDocuments)
   for (const change of changes) {
     const before = parseState(change.beforeStateJson)
     if (before) {
+      const source = await readChangeSource(manager, change, 'before')
       documents.set(before.id, {
         state: before,
-        source: change.beforeSourceFormat
-          ? {
-              format: change.beforeSourceFormat,
-              content: change.beforeContentSource ?? ''
-            }
-          : { format: 'html_editor', content: '' }
+        source: source ?? { format: 'html_editor', content: '' }
       })
     } else {
       documents.delete(change.documentId)
@@ -393,10 +432,11 @@ const removeDocumentSubtree = (
   }
 }
 
-const applyChangesToParentDocuments = (
+const applyChangesToParentDocuments = async (
+  manager: EntityManager,
   parentDocuments: Map<string, RestorableDocument>,
   changes: WorldDocumentChangeRecord[],
-): Map<string, RestorableDocument> => {
+): Promise<Map<string, RestorableDocument>> => {
   const documents = new Map(parentDocuments)
   for (const change of changes) {
     const before = parseState(change.beforeStateJson)
@@ -408,9 +448,7 @@ const applyChangesToParentDocuments = (
       continue
     }
     if (parentDocument && parentDocument.state.revision >= after.revision) continue
-    const source = change.sourceFormat
-      ? { format: change.sourceFormat, content: change.contentSource ?? '' }
-      : parentDocument?.source
+    const source = (await readChangeSource(manager, change, 'after')) ?? parentDocument?.source
     if (!source) throw new Error(`Missing content source for changed document: ${change.documentId}`)
     documents.set(change.documentId, { state: after, source })
   }
@@ -544,7 +582,7 @@ export const commitWorldDocumentChangeSetWithManager = async (
       const currentDocuments = await currentDocumentsForWorld(manager, worldId)
       const baselineTree = await materializeTree(
         manager,
-        buildFallbackBaselineDocuments(currentDocuments, changes)
+        await buildFallbackBaselineDocuments(manager, currentDocuments, changes)
       )
       parent = await createCommit(manager, {
         worldId,
@@ -561,7 +599,7 @@ export const commitWorldDocumentChangeSetWithManager = async (
     const parentDocuments = await readTreeDocuments(manager, worldId, parent.rootTreeHash)
     const tree = await materializeTree(
       manager,
-      applyChangesToParentDocuments(parentDocuments, changes)
+      await applyChangesToParentDocuments(manager, parentDocuments, changes)
     )
     const commit = await createCommit(manager, {
       worldId,

@@ -5,6 +5,8 @@ import { worldEntityDocumentChangePublisher } from '../../../../worldbuilding/wo
 import {
   createWorldDocumentInputSchema,
   listWorldDocumentsInputSchema,
+  replaceWorldDocumentSectionInputSchema,
+  replaceWorldDocumentTextInputSchema,
   updateWorldDocumentInputSchema
 } from './worldDocumentToolContracts'
 import {
@@ -12,6 +14,12 @@ import {
   worldDocumentMarkdownToHtml
 } from './worldDocumentMarkdownCodec'
 import type { WorldEntityDocumentPayload } from '@share/cache/worldbuilding/worldEntityDocument'
+import { buildWorldDocumentContentDiff } from '../../../../worldbuilding/worldDocumentDiffService'
+import {
+  listMarkdownSections,
+  replaceMarkdownSection,
+  replaceUniqueMarkdownText
+} from './worldDocumentMarkdownEditEngine'
 
 const toDocumentOwner = (input: { worldId: string; entityId?: string }) =>
   input.entityId
@@ -34,7 +42,47 @@ const documentSchema = documentSummarySchema.extend({
   contentMarkdown: z.string(),
   contentFormat: z.literal('markdown'),
   schemaVersion: z.number().int().positive(),
-  createdAt: z.string().optional()
+  createdAt: z.string().optional(),
+  sections: z.array(
+    z.object({
+      headingPath: z.array(z.string()),
+      startLine: z.number().int().positive(),
+      endLine: z.number().int().positive(),
+      hash: z.string()
+    })
+  )
+})
+
+const diffLineSchema = z.object({
+  kind: z.enum(['context', 'added', 'removed']),
+  text: z.string()
+})
+const contentDiffSchema = z.object({
+  beforeFormat: z.enum(['markdown', 'html_editor']).optional(),
+  afterFormat: z.enum(['markdown', 'html_editor']).optional(),
+  hunks: z.array(
+    z.object({
+      headingPath: z.array(z.string()).optional(),
+      anchorTexts: z.array(z.string()),
+      anchorHash: z.string(),
+      lines: z.array(diffLineSchema)
+    })
+  ),
+  addedLines: z.number().int().nonnegative(),
+  removedLines: z.number().int().nonnegative(),
+  truncated: z.boolean()
+})
+const editLocationSchema = z.object({
+  headingPath: z.array(z.string()).optional(),
+  anchorText: z.string().optional(),
+  anchorHash: z.string()
+})
+const localEditOutputSchema = z.object({
+  document: documentSchema,
+  changeSummary: z.string(),
+  location: editLocationSchema,
+  diffRef: z.string(),
+  diff: contentDiffSchema
 })
 
 const toSummary = (document: WorldEntityDocumentPayload) => ({
@@ -54,8 +102,74 @@ const toAgentDocument = (document: WorldEntityDocumentPayload): z.infer<typeof d
   contentMarkdown: worldDocumentHtmlToMarkdown(document.contentHtml),
   contentFormat: 'markdown',
   schemaVersion: document.schemaVersion,
-  createdAt: document.createdAt
+  createdAt: document.createdAt,
+  sections: listMarkdownSections(worldDocumentHtmlToMarkdown(document.contentHtml))
 })
+
+const executeLocalEdit = async (input: {
+  documentId: string
+  expectedRevision: number
+  changeSummary: string
+  edit: (markdown: string) => { markdown: string; location: z.infer<typeof editLocationSchema> }
+}) => {
+  const current = await worldEntityDocumentService.getDocument(input.documentId)
+  if (!current) {
+    const error = new Error(`document not found: ${input.documentId}`) as Error & {
+      code: string
+      retryable: boolean
+    }
+    error.code = 'NOT_FOUND'
+    error.retryable = false
+    throw error
+  }
+  const beforeMarkdown = worldDocumentHtmlToMarkdown(current.contentHtml)
+  const edited = input.edit(beforeMarkdown)
+  const diff = buildWorldDocumentContentDiff(
+    { format: 'markdown', content: beforeMarkdown },
+    { format: 'markdown', content: edited.markdown }
+  )
+  if (!diff) {
+    const error = new Error('局部编辑没有产生内容变化。') as Error & {
+      code: string
+      retryable: boolean
+    }
+    error.code = 'INVALID_TOOL_INPUT'
+    error.retryable = true
+    throw error
+  }
+  const diffRef = `document-diff:${input.documentId}:${input.expectedRevision}:${input.expectedRevision + 1}`
+  const document = await worldEntityDocumentService.updateDocument(
+    {
+      documentId: input.documentId,
+      expectedRevision: input.expectedRevision,
+      contentHtml: worldDocumentMarkdownToHtml(edited.markdown),
+      contentFormat: 'html'
+    },
+    {
+      operation: '局部编辑世界观文档',
+      summary: input.changeSummary,
+      diffRef,
+      payload: {
+        location: edited.location,
+        addedLines: diff.addedLines,
+        removedLines: diff.removedLines
+      },
+      editSource: { format: 'markdown', content: edited.markdown }
+    }
+  )
+  worldEntityDocumentChangePublisher.publish({
+    changeType: 'updated',
+    documentId: document.id,
+    revision: document.revision
+  })
+  return {
+    document: toAgentDocument(document),
+    changeSummary: input.changeSummary,
+    location: edited.location,
+    diffRef,
+    diff
+  }
+}
 
 export const listWorldDocumentsTool = defineAgentTool({
   name: 'list_world_documents',
@@ -324,6 +438,104 @@ export const updateWorldDocumentTool = defineAgentTool({
       }
     }
   }
+})
+
+const buildLocalEditReceipt = (data: z.infer<typeof localEditOutputSchema>) => ({
+  kind: 'world_document_locally_edited',
+  operation: '局部编辑世界观文档',
+  subject: {
+    type: 'document',
+    id: data.document.id,
+    label: data.document.title
+  },
+  completion: 'complete' as const,
+  summary: data.changeSummary,
+  retryable: false,
+  evidenceRef: `document:${data.document.id}`,
+  payload: {
+    documentId: data.document.id,
+    revision: data.document.revision,
+    diffRef: data.diffRef,
+    location: data.location,
+    addedLines: data.diff.addedLines,
+    removedLines: data.diff.removedLines
+  }
+})
+
+export const replaceWorldDocumentTextTool = defineAgentTool({
+  name: 'replace_text',
+  description: 'Replace one uniquely matching Markdown fragment in a world document.',
+  inputSchema: replaceWorldDocumentTextInputSchema,
+  outputSchema: localEditOutputSchema,
+  metadata: {
+    whenToUse: ['需要精确替换文档中的一段原文', '已读取最新正文和 revision'],
+    whenNotToUse: ['原文在文档中出现多次', '需要重写整个章节或整篇文档'],
+    inputSummary: '提供 documentId、expectedRevision、唯一 oldText、newText 和变更摘要。',
+    outputSummary: '返回新 revision、语义定位锚点、增删统计和 Diff 引用。',
+    usageContract: [
+      '先读取文档，oldText 必须从最新 Markdown 原文中完整复制。',
+      '只有唯一匹配时才会写入；零次或多次匹配都会返回可恢复错误。'
+    ],
+    executionLevel: 'notice',
+    readOnly: false,
+    idempotent: false,
+    effectRecovery: 'same_database_transaction',
+    contextRetention: 'evidence',
+    uiStage: {
+      label: '局部替换',
+      runningLabel: '正在替换文档内容',
+      doneLabel: '局部替换已完成'
+    }
+  },
+  execute: (input) =>
+    executeLocalEdit({
+      documentId: input.documentId,
+      expectedRevision: input.expectedRevision,
+      changeSummary: input.changeSummary,
+      edit: (markdown) => replaceUniqueMarkdownText(markdown, input.oldText, input.newText)
+    }),
+  buildReceipt: buildLocalEditReceipt
+})
+
+export const replaceWorldDocumentSectionTool = defineAgentTool({
+  name: 'replace_section',
+  description: 'Replace one Markdown heading section guarded by its current section hash.',
+  inputSchema: replaceWorldDocumentSectionInputSchema,
+  outputSchema: localEditOutputSchema,
+  metadata: {
+    whenToUse: ['需要整体改写某个 Markdown 标题章节', '已从读取结果获得章节路径和 hash'],
+    whenNotToUse: ['只需替换一小段原文', '目标文档没有 Markdown 标题'],
+    inputSummary: '提供 documentId、revision、headingPath、section hash、完整替换章节和摘要。',
+    outputSummary: '返回新 revision、章节语义锚点、增删统计和 Diff 引用。',
+    usageContract: [
+      'replacementMarkdown 是包含标题行的完整新章节。',
+      'expectedSectionHash 必须使用最新 read_world_document 返回的值。'
+    ],
+    executionLevel: 'notice',
+    readOnly: false,
+    idempotent: false,
+    effectRecovery: 'same_database_transaction',
+    contextRetention: 'evidence',
+    uiStage: {
+      label: '改写章节',
+      runningLabel: '正在改写文档章节',
+      doneLabel: '章节改写已完成'
+    }
+  },
+  execute: (input) =>
+    executeLocalEdit({
+      documentId: input.documentId,
+      expectedRevision: input.expectedRevision,
+      changeSummary: input.changeSummary,
+      edit: (markdown) =>
+        replaceMarkdownSection(
+          markdown,
+          input.headingPath,
+          input.expectedSectionHash,
+          input.replacementMarkdown
+        )
+    }),
+  buildReceipt: buildLocalEditReceipt
 })
 
 export const renameWorldDocumentTool = defineAgentTool({

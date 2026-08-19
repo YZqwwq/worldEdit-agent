@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import type {
   WorldDocumentContentDiff,
+  WorldDocumentDiffHunk,
   WorldDocumentDiffLine,
   WorldDocumentEditSourceFormat
 } from '@share/cache/worldbuilding/worldDocumentHistory'
@@ -12,6 +14,7 @@ export type DocumentDiffSource = {
 
 const MAX_DYNAMIC_CELLS = 250_000
 const MAX_RESULT_LINES = 400
+const CONTEXT_LINES = 3
 
 const toReadableSource = (source: DocumentDiffSource | null): string =>
   source?.format === 'html_editor'
@@ -57,8 +60,7 @@ const appendLcsChange = (
       right += 1
     } else if (
       right < after.length &&
-      (left >= before.length ||
-        cells[left * width + right + 1] > cells[(left + 1) * width + right])
+      (left >= before.length || cells[left * width + right + 1] > cells[(left + 1) * width + right])
     ) {
       result.push({ kind: 'added', text: after[right] })
       right += 1
@@ -69,19 +71,85 @@ const appendLcsChange = (
   }
 }
 
-const truncateDiff = (
-  lines: WorldDocumentDiffLine[]
-): { lines: WorldDocumentDiffLine[]; truncated: boolean } => {
-  if (lines.length <= MAX_RESULT_LINES) return { lines, truncated: false }
-  const half = Math.floor((MAX_RESULT_LINES - 1) / 2)
-  return {
-    lines: [
-      ...lines.slice(0, half),
-      { kind: 'context', text: '… Diff 过长，中间内容已省略 …' },
-      ...lines.slice(-half)
-    ],
-    truncated: true
+const resolveHeadingPaths = (lines: string[]): string[][] => {
+  const headings: string[] = []
+  let fenced = false
+  return lines.map((line) => {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
+    if (!fenced) {
+      const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line)
+      if (match) {
+        const level = match[1].length
+        headings.splice(level - 1)
+        headings[level - 1] = match[2].replace(/\s+#+\s*$/, '').trim()
+      }
+    }
+    return headings.filter(Boolean)
+  })
+}
+
+const toVisibleAnchor = (value: string): string =>
+  value
+    .replace(/^\s{0,3}#{1,6}\s+/, '')
+    .replace(/^\s*(?:[-+*]|\d+\.)\s+/, '')
+    .replace(/^\s*>\s?/, '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[*_~`]/g, '')
+    .trim()
+
+const buildAnchorTexts = (lines: WorldDocumentDiffLine[]): string[] => {
+  const changedIndex = lines.findIndex((line) => line.kind !== 'context')
+  const candidates = [
+    ...lines.filter((line) => line.kind === 'added'),
+    ...lines.slice(Math.max(0, changedIndex)).filter((line) => line.kind === 'context'),
+    ...lines.slice(0, Math.max(0, changedIndex)).reverse().filter((line) => line.kind === 'context')
+  ]
+  return [...new Set(candidates.map((line) => toVisibleAnchor(line.text)).filter(Boolean))].slice(0, 5)
+}
+
+const buildHunks = (
+  lines: WorldDocumentDiffLine[],
+  afterLines: string[]
+): { hunks: WorldDocumentDiffHunk[]; truncated: boolean } => {
+  const changed = lines.flatMap((line, index) => (line.kind === 'context' ? [] : [index]))
+  if (changed.length === 0) return { hunks: [], truncated: false }
+
+  const ranges: Array<{ start: number; end: number }> = []
+  for (const index of changed) {
+    const start = Math.max(0, index - CONTEXT_LINES)
+    const end = Math.min(lines.length, index + CONTEXT_LINES + 1)
+    const previous = ranges.at(-1)
+    if (previous && start <= previous.end) previous.end = Math.max(previous.end, end)
+    else ranges.push({ start, end })
   }
+
+  const headingPaths = resolveHeadingPaths(afterLines)
+  const hunks: WorldDocumentDiffHunk[] = []
+  let usedLines = 0
+  let truncated = false
+  for (const range of ranges) {
+    const hunkLines = lines.slice(range.start, range.end)
+    if (usedLines + hunkLines.length > MAX_RESULT_LINES) {
+      truncated = true
+      break
+    }
+    usedLines += hunkLines.length
+    const newStart = hunkLines.find((line) => line.kind !== 'removed')
+      ? lines.slice(0, range.start).filter((line) => line.kind !== 'removed').length + 1
+      : Math.max(1, lines.slice(0, range.start).filter((line) => line.kind !== 'removed').length)
+    const headingPath = headingPaths[Math.max(0, newStart - 1)]
+    const anchorTexts = buildAnchorTexts(hunkLines)
+    hunks.push({
+      ...(headingPath?.length ? { headingPath } : {}),
+      anchorTexts,
+      anchorHash: createHash('sha256')
+        .update(JSON.stringify({ headingPath: headingPath ?? [], anchorTexts }))
+        .digest('hex'),
+      lines: hunkLines
+    })
+  }
+  return { hunks, truncated }
 }
 
 export const buildWorldDocumentContentDiff = (
@@ -134,13 +202,13 @@ export const buildWorldDocumentContentDiff = (
 
   const addedLines = result.filter((line) => line.kind === 'added').length
   const removedLines = result.filter((line) => line.kind === 'removed').length
-  const truncated = truncateDiff(result)
+  const hunkResult = buildHunks(result, afterLines)
   return {
     beforeFormat: before?.format,
     afterFormat: after?.format,
-    lines: truncated.lines,
+    hunks: hunkResult.hunks,
     addedLines,
     removedLines,
-    truncated: truncated.truncated
+    truncated: hunkResult.truncated
   }
 }

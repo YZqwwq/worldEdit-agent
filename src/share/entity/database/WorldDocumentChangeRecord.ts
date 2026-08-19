@@ -36,10 +36,16 @@ export class WorldDocumentChangeRecord {
   beforeContentSource!: string | null
 
   @Column({ type: 'text', nullable: true })
+  beforeContentVersionId!: string | null
+
+  @Column({ type: 'text', nullable: true })
   sourceFormat!: 'markdown' | 'html_editor' | null
 
   @Column({ type: 'text', nullable: true })
   contentSource!: string | null
+
+  @Column({ type: 'text', nullable: true })
+  afterContentVersionId!: string | null
 
   @Column({ type: 'text', nullable: false, default: '' })
   summary!: string

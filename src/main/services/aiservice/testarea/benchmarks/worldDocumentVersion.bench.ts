@@ -36,7 +36,7 @@ const createDataSource = async (): Promise<DataSource> => {
   const dataSource = new DataSource({
     type: 'better-sqlite3',
     database: ':memory:',
-    synchronize: true,
+    synchronize: false,
     entities: [
       WorldEntityDocumentRecord,
       WorldDocumentContentVersionRecord,

@@ -1,4 +1,9 @@
+import { createHash } from 'node:crypto'
 import type { DataSource, EntityManager } from 'typeorm'
+import {
+  APPLICATION_SCHEMA_BASELINE_INDEX_SQL,
+  APPLICATION_SCHEMA_BASELINE_TABLE_SQL
+} from './applicationSchemaBaseline'
 
 type AppSchemaMigration = {
   id: string
@@ -6,6 +11,12 @@ type AppSchemaMigration = {
 }
 
 const migrations: AppSchemaMigration[] = [
+  {
+    id: '20260819_application_schema_baseline',
+    up: async (manager) => {
+      for (const sql of APPLICATION_SCHEMA_BASELINE_TABLE_SQL) await manager.query(sql)
+    }
+  },
   {
     id: '20260818_world_document_history_indexes',
     up: async (manager) => {
@@ -163,6 +174,102 @@ const migrations: AppSchemaMigration[] = [
               updatedAt = datetime('now');
           END
         `)
+      }
+    }
+  },
+  {
+    id: '20260819_world_document_change_content_refs',
+    up: async (manager) => {
+      const columns = (await manager.query(
+        'PRAGMA table_info(world_document_change)'
+      )) as Array<{ name: string }>
+      const names = new Set(columns.map((column) => column.name))
+      if (!names.has('beforeContentVersionId')) {
+        await manager.query(
+          'ALTER TABLE world_document_change ADD COLUMN beforeContentVersionId text NULL'
+        )
+      }
+      if (!names.has('afterContentVersionId')) {
+        await manager.query(
+          'ALTER TABLE world_document_change ADD COLUMN afterContentVersionId text NULL'
+        )
+      }
+      const changes = (await manager.query(`
+        SELECT id, worldId, documentId, beforeStateJson, afterStateJson,
+               beforeSourceFormat, beforeContentSource, sourceFormat, contentSource
+        FROM world_document_change
+        WHERE (beforeSourceFormat IS NOT NULL AND beforeContentVersionId IS NULL)
+           OR (sourceFormat IS NOT NULL AND afterContentVersionId IS NULL)
+      `)) as Array<{
+        id: string
+        worldId: string
+        documentId: string
+        beforeStateJson: string | null
+        afterStateJson: string | null
+        beforeSourceFormat: 'markdown' | 'html_editor' | null
+        beforeContentSource: string | null
+        sourceFormat: 'markdown' | 'html_editor' | null
+        contentSource: string | null
+      }>
+      const ensureContent = async (
+        change: (typeof changes)[number],
+        side: 'before' | 'after'
+      ): Promise<string | null> => {
+        const format = side === 'before' ? change.beforeSourceFormat : change.sourceFormat
+        if (!format) return null
+        const content =
+          (side === 'before' ? change.beforeContentSource : change.contentSource) ?? ''
+        const id = `content:${createHash('sha256')
+          .update(`${change.documentId}\u0000${format}\u0000${content}`, 'utf8')
+          .digest('hex')}`
+        const stateJson = side === 'before' ? change.beforeStateJson : change.afterStateJson
+        const revision = stateJson
+          ? Number((JSON.parse(stateJson) as { revision?: number }).revision) || 1
+          : 1
+        const contentHash = createHash('sha256')
+          .update(`${format}\u0000${content}`, 'utf8')
+          .digest('hex')
+        await manager.query(
+          `INSERT OR IGNORE INTO world_document_content_version
+           (id, worldId, documentId, sourceRevision, sourceFormat, contentSource, contentHash, createdAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+          [id, change.worldId, change.documentId, revision, format, content, contentHash]
+        )
+        return id
+      }
+      for (const change of changes) {
+        const beforeId = await ensureContent(change, 'before')
+        const afterId = await ensureContent(change, 'after')
+        await manager.query(
+          `UPDATE world_document_change
+           SET beforeContentVersionId = COALESCE(beforeContentVersionId, ?),
+               afterContentVersionId = COALESCE(afterContentVersionId, ?),
+               beforeSourceFormat = NULL,
+               beforeContentSource = NULL,
+               sourceFormat = NULL,
+               contentSource = NULL
+           WHERE id = ?`,
+          [beforeId, afterId, change.id]
+        )
+      }
+    }
+  },
+  {
+    id: '20260819_application_schema_indexes',
+    up: async (manager) => {
+      for (const sql of APPLICATION_SCHEMA_BASELINE_INDEX_SQL) await manager.query(sql)
+    }
+  },
+  {
+    id: '20260819_remove_duplicate_document_indexes',
+    up: async (manager) => {
+      for (const name of [
+        'IDX_world_document_checkpoint_world_name',
+        'IDX_world_document_checkpoint_world_updated',
+        'IDX_world_document_branch_world_name',
+        'IDX_world_document_branch_world_active'
+      ]) {
+        await manager.query(`DROP INDEX IF EXISTS ${name}`)
       }
     }
   }

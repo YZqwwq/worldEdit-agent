@@ -10,7 +10,7 @@ Agent 统一以 Markdown 读取和写作文档。版本历史与 Diff 只保存�
 
 ## 跨设备接续摘要（2026-08-18）
 
-当前阶段：Git 式文档版本基座、历史查询、Diff、整库/选择性恢复、检查点、独立设定方案、三方合并、撤销、摘取、版本包交换、完整性检查和不可达对象清理已经实现；Markdown 语义编辑工具尚未开始。
+当前阶段：Git 式文档版本基座与主要恢复能力已完成；Markdown 语义编辑已接入 `replace_text` 和 `replace_section`，Diff 已升级为带双行号的 Hunk 结构。
 
 切换设备前注意：当前工作区仍有大量未提交变更，包括测试目录迁移、跨平台 Electron 测试入口、3 秒自动保存、串行强制保存和历史 Session 提交队列。必须先提交并推送全部新增、删除和移动文件，否则另一台设备只拉取已有提交无法获得本阶段实现。
 
@@ -32,7 +32,7 @@ Agent 统一以 Markdown 读取和写作文档。版本历史与 Diff 只保存�
 - `npm run test:document-version` 的 2 项纯 Diff 测试通过。
 - 最新完整 `npm run test:agent-core` 通过。
 
-跨平台 Electron 测试工具已经建立统一套件清单和原生 ABI 预检。Windows x64 已真实执行完整矩阵；macOS 仍需使用本机安装的依赖复验。换到另一平台后，使用项目要求的 Node 版本完成 `npm ci`、`npm run rebuild`，再执行：
+跨平台 Electron 测试工具已经建立统一套件清单和原生 ABI 预检。Windows x64 与 macOS ARM64 均已真实执行完整矩阵。换到另一平台后，使用项目要求的 Node 版本完成 `npm ci`、`npm run rebuild`，再执行：
 
 ```bash
 npm run test:integration:electron
@@ -119,8 +119,8 @@ npm run test:integration:electron
 - 历史与恢复能力尚未开放为 Agent 工具，当前只由编辑器用户操作。
 - 历史面板首版只读取最近 50 个用户可见提交，尚未增加分页和按文档筛选。
 - 编辑态长期统一为 Markdown 还是保留编辑器源格式仍需结合富文本节点审计决定。
-- 已建立 macOS/Windows 共用的 Electron 测试入口；Windows x64 已通过完整原生 SQLite 与故障恢复矩阵，macOS 仍需在对应设备使用本机依赖复验。
-- 当前开发环境仍依赖 TypeORM `synchronize` 建表，正式发布前需要显式迁移。
+- macOS/Windows 共用的 Electron 测试入口与两端原生矩阵已经完成。
+- 全库静态基线与增量迁移已经完成，应用、测试、基准和故障注入进程统一使用 `synchronize: false`。
 
 ### 下一阶段：版本基座加固
 
@@ -143,9 +143,9 @@ ChangeSet 快照隔离已经完成：新 Commit 只由 HEAD Tree 与当前 Chang
 - 新增应用版 `fsck`，检查 Commit 父链、sequence、Tree/Content 哈希、对象引用、ChangeRecord 归属和不可达对象；通过 Main/Preload/Renderer 服务开放诊断报告。
 - 文档历史高频查询索引进入显式迁移账本；迁移可重复执行且只记录一次。
 
-#### P0：macOS 原生矩阵待执行
+#### 已完成：macOS 原生矩阵
 
-测试源码和统一 runner 可在 macOS/Windows 复用，但 `better-sqlite3` 与 Electron 二进制必须在各平台单独安装和重建。Windows x64 已通过原生环境预检和全部 Electron 集成套件，包括 SQLite 事务、文档树恢复、Turn Version、Effect 强杀恢复与 Turn 强杀恢复。macOS 尚无真实执行证据。
+测试源码和统一 runner 可在 macOS/Windows 复用，但 `better-sqlite3` 与 Electron 二进制必须在各平台单独安装和重建。Windows x64 与 macOS ARM64 均已通过原生环境预检和全部 Electron 集成套件，包括 SQLite 事务、文档树恢复、Turn Version、Effect 强杀恢复与 Turn 强杀恢复。
 
 验收：macOS 使用本机 `npm ci`、`npm run rebuild` 后完整通过 `npm run test:integration:electron`，不能复制 Windows 的原生 `node_modules`。
 
@@ -163,11 +163,11 @@ ChangeSet 快照隔离已经完成：新 Commit 只由 HEAD Tree 与当前 Chang
 - 完整性结果已经加入持久化 generation 缓存。Commit、Change、Content、Branch、Checkpoint 的数据库写入通过触发器自动失效；Tree 被修改或删除时全局失效。历史未变化时不再重复执行完整扫描，显式检查仍保留完整 `fsck`。
 - 已建立 Electron ABI 下 10/100/1000 文档基准。当前 macOS ARM64 的 1000 文档结果：基线约 111ms、单文档提交约 47ms、恢复约 71ms、完整性冷检查约 11ms、缓存命中约 0.05ms。
 - 当前数据不支持立即引入常驻数据库工作线程：正常提交尚未达到明显阻塞等级，而跨线程事务、按世界队列和关闭恢复协议成本较高。文档规模或实测提交稳定超过约 100ms 后再评估；基线导入可以继续后台化，但不是当前交互高频路径。
-- ChangeRecord 与 ContentVersion 重复保存前后正文，长期历史约保存 2～3 份内容；后续改为引用前后 ContentVersion。
+- ChangeRecord 正文去重已经完成：新记录只保存 `beforeContentVersionId` / `afterContentVersionId`，Diff、提交、版本包、GC 与完整性检查统一解引用 ContentVersion。旧记录通过显式迁移生成不可变内容对象、回填引用并清空旧正文值；兼容列不再产生正文存储成本。
 - ChangeRecord 的 `commitId`、`status` 索引已经完成。提交序号仍采用“查询最大值再加一”且没有唯一冲突重试。
-- 删除后恢复的 revision 不保证严格单调；正式发布前仍需 TypeORM 显式迁移，不能长期依赖 `synchronize`。
+- 全库显式迁移已经完成：静态基线覆盖全部实体表和索引，增量迁移负责旧数据转换；空库创建、旧库升级和 Entity/schema 零差异都有原生测试。
 
-下一步：ChangeRecord 改为 `beforeContentVersionId` / `afterContentVersionId` 引用，停止新正文重复写入；随后补齐全库基线迁移，在开发、测试和用户环境共同关闭 `synchronize`。
+下一步：将局部编辑的 Diff 卡片接入 AI 消息。不实现编辑页行号；富文本会随 DOM 宽度自动换行，视觉行号不能作为稳定定位信息。
 
 ## 应用专用 Git 演进
 
@@ -211,7 +211,7 @@ ChangeSet 快照隔离已经完成：新 Commit 只由 HEAD Tree 与当前 Chang
 - ChangeRecord 改为引用前后 ContentVersion，避免重复保存正文。
 - 批量加载 Tree/Content，逐步实现变化路径重建、对象压缩和可达性 GC。
 - 提供世界版本包导出/导入；远端同步建立在对象和 Ref 协议上，不直接暴露系统 Git 仓库。
-- 在所有业务表具备显式迁移后关闭 TypeORM `synchronize`；关闭前迁移账本只接管已登记模块，不能宣称全库迁移完成。
+- 所有业务表使用同一静态基线与增量迁移账本，TypeORM `synchronize` 已关闭。
 
 当前进度：已支持带格式版本号和整体 SHA-256 摘要的 JSON 版本包，包含方案/检查点 Ref 与 Commit、Change、Tree、Content 对象。导入会复验包摘要和全部内容寻址对象，只接受同一世界且当前历史为版本包前缀的情况；已有历史下导入为非活动方案，不覆盖当前工作区。全局 GC 在完整性检查通过后只清理任何提交都不可达的 Tree/Content。密码学签名、远端协商和对象压缩尚未实现。
 
@@ -224,20 +224,41 @@ ChangeSet 快照隔离已经完成：新 Commit 只由 HEAD Tree 与当前 Chang
 
 ## P0：Markdown 编辑工具包
 
-第一批工具：
+当前进度：
 
-- `replace_text`：只允许唯一匹配；零处或多处匹配时返回结构化错误。
-- `insert_before` / `insert_after`：围绕唯一 Markdown 锚点插入。
-- `replace_section`：按 Markdown 标题和层级替换完整章节。
-- `append_document`：在正文末尾追加内容。
-- `rewrite_document`：仅用于用户明确要求的全文重写。
-- `preview_document_diff`：预览拟修改结果，不产生持久化副作用。
-- `apply_document_edit`：基于 `expectedRevision` 正式提交预览结果。
-- `undo_document_revision`：将旧版本恢复为一个新的 revision。
+- `replace_text` 已完成：仅唯一原文匹配时写入，零次/多次匹配返回结构化可恢复错误。
+- `replace_section` 已完成：使用标题路径定位，使用章节 hash 防止过期覆盖。
+- 两者均复用 revision、ChangeSet、EffectReceipt 和文档版本事务，返回语义定位锚点、增删统计与 `diffRef`。
+- 历史 Diff 已改为上下文 Hunk；删除使用浅红背景，新增使用浅绿背景，不展示行号。Renderer 已抽出共用 Diff 卡片。
+- 历史 Diff Hunk 已支持点击定位：依次使用新增内容、现存上下文和标题路径定位 TipTap 节点，滚动后短暂高亮。锚点已失效时明确提示，不猜测跳转。
+- 已通过 Node/Web 类型检查、工具合同、工具注册、文档 Diff 和 Agent 场景回归。
 
-所有编辑操作必须返回修改范围、新 revision、Diff 摘要和可恢复的结构化错误。工具内部可以共享同一套 Markdown 编辑引擎，但 Agent 入口保持简单，不暴露 HTML、数据库字段或内部节点 ID。
+### 下一轮编辑工具审计（2026-08-19）
 
-验收：Agent 能稳定完成单段替换、章节改写、插入、追加和全文重写；找不到锚点、匹配多处或 revision 过期时不会猜测写入。
+当前 `update_world_document` + `replace_text` + `replace_section` 已能覆盖全文、片段和章节编辑。下一阶段不按旧清单一次性扩张所有工具，先闭合已有能力，再增加高频操作。
+
+P0：闭合已有局部编辑
+
+- 让 `diffRef` 真正可查询。当前只生成并持久化引用，没有 Diff 读取入口。用户影响：AI 编辑后不能在消息中稳定查看修改。维护影响：`diffRef` 仍是不可解析的孤立指针。
+- 将共用 Diff 卡片和语义定位挂到 AI 工具消息，复用历史面板的浅红/浅绿表达和点击定位。
+- 修正重复标题路径：`replace_section` 应同时用标题路径和 section hash 选择目标，不应总是取第一个同名章节。用户影响：同名章节中的后续章节目前无法编辑。维护影响：章节读取结果和写入协议不完全对称。
+- 统一 Markdown 与 TipTap 可见文本的锚点规范化，覆盖标题、列表、粗体、链接等内容。用户影响：某些格式内容可能无法点击定位。维护影响：Diff 和工具回执目前各自处理锚点。
+
+P1：补齐高频操作
+
+- 新增一个 `insert_text`，通过 `before | after` 表达在唯一锚点前后插入，不拆成两个几乎相同的工具。用户影响：Agent 不再需要通过“原文 + 新文”整体替换来模拟插入。
+- 新增 `append_text`，用于文档末尾追加。用户影响：追加小段内容不再需要回传整篇文档。
+- 增加按 section hash 读取章节的能力。用户影响：长文档编辑时可减少不相关上下文。维护影响：与 `replace_section` 共享同一章节定位规则。
+
+P2：根据实测再决定
+
+- 多处编辑原子聚合：当真实任务经常出现“第一处已写入、后续操作失败”时，再引入单文档批量预检和一次提交。
+- 普通可恢复编辑不强制“预览→应用”两步；只在全文或大范围改写出现真实需求时再增加。
+- 暂不增加 `rewrite_document`，现有 `update_world_document` 已覆盖全文重写。
+- 暂不增加通用 Patch；现有语义编辑尚未显示出需要重型协议的瓶颈。
+- Agent 撤销工具暂缓，当前先依赖版本历史和人工恢复。
+
+所有后续编辑操作继续返回新 revision、语义定位锚点、Diff 摘要和可恢复的结构化错误。内部共享同一套 Markdown 编辑引擎，Agent 入口不暴露 HTML、数据库字段或内部节点 ID。
 
 ## P1：TipTap 节点级编辑
 
@@ -263,4 +284,4 @@ ChangeSet 快照隔离已经完成：新 Commit 只由 HEAD Tree 与当前 Chang
 
 ## 接续入口
 
-下一步接入 `replace_text` 与 `replace_section`；macOS 设备上补跑同一 Electron 集成矩阵。选择性单文档恢复没有明确场景时继续暂缓。
+换设备后从上述 P0 开始：先建立 `diffRef` 读取闭环，再接入 AI Diff 卡片，然后修正重复章节和锚点规范化。P0 完成后再实现 `insert_text`、`append_text` 和按章节读取。

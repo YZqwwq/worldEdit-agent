@@ -42,6 +42,8 @@ npm run benchmark:document-version:electron
 
 Electron 集成入口由 `scripts/test/run-electron-suite.cjs` 维护平台无关的测试清单，`run-electron-test.cjs` 解析当前平台的 Electron 可执行文件并注入环境变量。运行完整矩阵前会执行原生环境预检，输出平台、架构、Electron、Node、ABI modules 与 SQLite 版本，并实际打开一次内存 SQLite。
 
+数据库统一使用显式迁移，应用和测试均为 `synchronize: false`。修改任何 Entity 字段或索引时必须同时增加增量迁移；文档版本套件会从空库执行全部迁移并比较 Entity 元数据，存在结构漂移时直接失败。
+
 macOS 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci` 和 `npm run rebuild`，不能跨平台复制 `node_modules`。普通 Node 回归保留快速逻辑测试，SQLite 用例只在 Electron 入口中强制启用。故障恢复套件会创建嵌套子进程，在受限沙箱中可能收到 `EPERM`；这代表执行环境禁止故障注入，不代表业务断言失败。
 
 当前统一套件：`tool-effect`、`document-version`、`turn-version`、`tool-effect-recovery`、`turn-recovery`。

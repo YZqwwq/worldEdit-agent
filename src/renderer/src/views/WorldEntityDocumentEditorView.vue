@@ -337,6 +337,7 @@
             <WorldRichTextEditor
               v-if="activeDocument"
               :key="activeDocumentId"
+              ref="narrativeEditorRef"
               v-model="characterDescriptionInput"
               class="narrative-editor"
               :placeholder="documentPlaceholder"
@@ -369,11 +370,7 @@
               <strong>版本</strong>
               <small>{{ activeDocumentBranch?.name || '整个世界文档库' }}</small>
             </div>
-            <button
-              type="button"
-              aria-label="关闭版本"
-              @click="showNarrativeHistoryPanel = false"
-            >
+            <button type="button" aria-label="关闭版本" @click="showNarrativeHistoryPanel = false">
               ×
             </button>
           </header>
@@ -401,35 +398,81 @@
             <summary>版本管理</summary>
             <div class="history-tools">
               <input v-model="activeBranchDraftName" maxlength="60" placeholder="当前方案名称" />
-              <button type="button" :disabled="!canRenameActiveBranch" @click="renameActiveDocumentBranch">重命名</button>
+              <button
+                type="button"
+                :disabled="!canRenameActiveBranch"
+                @click="renameActiveDocumentBranch"
+              >
+                重命名
+              </button>
               <input v-model="branchDraftName" maxlength="60" placeholder="新方案名称" />
-              <button type="button" :disabled="!branchDraftName.trim()" @click="createDocumentBranch">新建方案</button>
+              <button
+                type="button"
+                :disabled="!branchDraftName.trim()"
+                @click="createDocumentBranch"
+              >
+                新建方案
+              </button>
               <select v-model="mergeSourceBranchId" aria-label="待合并方案">
                 <option value="">选择待合并方案</option>
                 <option
                   v-for="branch in versionStatus?.branches.filter((item) => !item.active) ?? []"
                   :key="branch.id"
                   :value="branch.id"
-                >{{ branch.name }}</option>
+                >
+                  {{ branch.name }}
+                </option>
               </select>
-              <button type="button" :disabled="!mergeSourceBranchId" @click="previewDocumentMerge">合并方案</button>
-              <button type="button" :disabled="!mergeSourceBranchId" @click="showBranchDeleteConfirm = true">删除方案</button>
+              <button type="button" :disabled="!mergeSourceBranchId" @click="previewDocumentMerge">
+                合并方案
+              </button>
+              <button
+                type="button"
+                :disabled="!mergeSourceBranchId"
+                @click="showBranchDeleteConfirm = true"
+              >
+                删除方案
+              </button>
               <select v-model="comparisonBaseCommitId" aria-label="比较基准版本">
                 <option value="">选择比较基准</option>
-                <option v-for="commit in documentHistory.commits" :key="commit.id" :value="commit.id">
+                <option
+                  v-for="commit in documentHistory.commits"
+                  :key="commit.id"
+                  :value="commit.id"
+                >
                   #{{ commit.sequence }} {{ commit.summary }}
                 </option>
               </select>
               <button
                 type="button"
-                :disabled="!comparisonBaseCommitId || comparisonBaseCommitId === selectedHistoryCommitId"
+                :disabled="
+                  !comparisonBaseCommitId || comparisonBaseCommitId === selectedHistoryCommitId
+                "
                 @click="compareSelectedHistory"
-              >比较</button>
+              >
+                比较
+              </button>
               <input v-model="checkpointDraftName" maxlength="80" placeholder="检查点名称" />
-              <button type="button" :disabled="!checkpointDraftName.trim()" @click="createCheckpointForSelected">保存检查点</button>
-              <button type="button" title="导出完整版本历史" @click="exportDocumentHistory">导出版本</button>
-              <button type="button" title="校验并导入版本包" @click="importDocumentHistory">导入版本</button>
-              <button type="button" title="检查并清理不可达版本对象" @click="previewDocumentHistoryCleanup">清理对象</button>
+              <button
+                type="button"
+                :disabled="!checkpointDraftName.trim()"
+                @click="createCheckpointForSelected"
+              >
+                保存检查点
+              </button>
+              <button type="button" title="导出完整版本历史" @click="exportDocumentHistory">
+                导出版本
+              </button>
+              <button type="button" title="校验并导入版本包" @click="importDocumentHistory">
+                导入版本
+              </button>
+              <button
+                type="button"
+                title="检查并清理不可达版本对象"
+                @click="previewDocumentHistoryCleanup"
+              >
+                清理对象
+              </button>
             </div>
           </details>
 
@@ -440,15 +483,33 @@
             </header>
             <article v-for="conflict in mergePreview.conflicts" :key="conflict.documentId">
               <strong>{{ conflict.title }}</strong>
-              <small>{{ conflict.reason === 'delete_modify' ? '删除与修改冲突' : '双方都修改了此文档' }}</small>
+              <small>{{
+                conflict.reason === 'delete_modify' ? '删除与修改冲突' : '双方都修改了此文档'
+              }}</small>
               <div>
-                <label><input v-model="mergeResolutions[conflict.documentId]" type="radio" :name="`merge-${conflict.documentId}`" value="current" />保留当前方案</label>
-                <label><input v-model="mergeResolutions[conflict.documentId]" type="radio" :name="`merge-${conflict.documentId}`" value="incoming" />采用来源方案</label>
+                <label
+                  ><input
+                    v-model="mergeResolutions[conflict.documentId]"
+                    type="radio"
+                    :name="`merge-${conflict.documentId}`"
+                    value="current"
+                  />保留当前方案</label
+                >
+                <label
+                  ><input
+                    v-model="mergeResolutions[conflict.documentId]"
+                    type="radio"
+                    :name="`merge-${conflict.documentId}`"
+                    value="incoming"
+                  />采用来源方案</label
+                >
               </div>
             </article>
             <footer>
               <button type="button" @click="mergePreview = null">取消</button>
-              <button type="button" :disabled="!canApplyMerge" @click="applyDocumentMerge">确认合并</button>
+              <button type="button" :disabled="!canApplyMerge" @click="applyDocumentMerge">
+                确认合并
+              </button>
             </footer>
           </section>
 
@@ -497,13 +558,23 @@
                     <b v-if="commitIndex < filteredHistoryCommits.length - 1" />
                   </span>
                   <span class="history-commit-copy">
-                    <span class="history-commit-title">{{ commit.isBaseline ? '初始文档库' : commit.summary || `版本 #${commit.sequence}` }}</span>
+                    <span class="history-commit-title">{{
+                      commit.isBaseline
+                        ? '初始文档库'
+                        : commit.summary || `版本 #${commit.sequence}`
+                    }}</span>
                     <span class="history-commit-meta">
-                      #{{ commit.sequence }} · {{ commit.isBaseline ? '初始版本' : historyOriginLabel(commit.origin) }} · {{ formatHistoryTime(commit.createdAt) }}
+                      #{{ commit.sequence }} ·
+                      {{ commit.isBaseline ? '初始版本' : historyOriginLabel(commit.origin) }} ·
+                      {{ formatHistoryTime(commit.createdAt) }}
                     </span>
                   </span>
                   <span class="history-commit-badges">
-                    <span v-if="commit.id === documentHistory.headCommitId" class="history-head-badge">HEAD</span>
+                    <span
+                      v-if="commit.id === documentHistory.headCommitId"
+                      class="history-head-badge"
+                      >HEAD</span
+                    >
                     <span v-if="commit.mergeParentCommitId" class="history-merge-badge">合并</span>
                     <span class="history-commit-count">{{ commit.changeCount }}</span>
                   </span>
@@ -520,35 +591,72 @@
                 <header class="history-detail-head">
                   <div>
                     <strong>文件树</strong>
-                    <small>{{ historyComparison ? `${historyComparison.changes.length} 项差异` : selectedHistoryDetail.commit.summary }}</small>
+                    <small>{{
+                      historyComparison
+                        ? `${historyComparison.changes.length} 项差异`
+                        : selectedHistoryDetail.commit.summary
+                    }}</small>
                   </div>
                   <div class="history-detail-actions">
-                    <button v-if="historyComparison" type="button" @click="historyComparison = null">退出比较</button>
+                    <button
+                      v-if="historyComparison"
+                      type="button"
+                      @click="historyComparison = null"
+                    >
+                      退出比较
+                    </button>
                     <button
                       v-if="!historyComparison"
                       type="button"
                       :disabled="restoringHistory || !selectedHistoryDetail.commit.parentCommitId"
                       title="反向应用这个版本的变化，并创建新版本"
                       @click="requestHistoryCommitAction('revert')"
-                    >撤销此版</button>
+                    >
+                      撤销此版
+                    </button>
                     <button
                       v-if="!historyComparison"
                       type="button"
-                      :disabled="restoringHistory || selectedHistoryDetail.commit.id === documentHistory.headCommitId"
+                      :disabled="
+                        restoringHistory ||
+                        selectedHistoryDetail.commit.id === documentHistory.headCommitId
+                      "
                       title="把这个版本的变化应用到当前方案，并创建新版本"
                       @click="requestHistoryCommitAction('cherry_pick')"
-                    >摘取此版</button>
+                    >
+                      摘取此版
+                    </button>
                     <button
                       type="button"
                       class="history-restore-btn"
-                      :disabled="restoringHistory || selectedHistoryDetail.commit.id === documentHistory.headCommitId"
+                      :disabled="
+                        restoringHistory ||
+                        selectedHistoryDetail.commit.id === documentHistory.headCommitId
+                      "
                       @click="showHistoryRestoreConfirm = true"
-                    >{{ selectedHistoryDetail.commit.id === documentHistory.headCommitId ? '当前版本' : selectedHistoryDocumentIds.length ? `恢复所选 (${selectedHistoryDocumentIds.length})` : '恢复全部' }}</button>
+                    >
+                      {{
+                        selectedHistoryDetail.commit.id === documentHistory.headCommitId
+                          ? '当前版本'
+                          : selectedHistoryDocumentIds.length
+                            ? `恢复所选 (${selectedHistoryDocumentIds.length})`
+                            : '恢复全部'
+                      }}
+                    </button>
                   </div>
                 </header>
 
-                <div v-if="historyFileTreeGroups.length" class="history-file-tree" role="tree" aria-label="文件树">
-                  <section v-for="group in historyFileTreeGroups" :key="group.key" class="history-file-group">
+                <div
+                  v-if="historyFileTreeGroups.length"
+                  class="history-file-tree"
+                  role="tree"
+                  aria-label="文件树"
+                >
+                  <section
+                    v-for="group in historyFileTreeGroups"
+                    :key="group.key"
+                    class="history-file-group"
+                  >
                     <header>
                       <strong>{{ group.label }}</strong>
                       <small>{{ group.typeLabel }}</small>
@@ -558,7 +666,10 @@
                       :key="item.documentId"
                       type="button"
                       class="history-file-item"
-                      :class="{ active: selectedHistoryFileId === item.documentId, deleted: item.change?.operation === 'delete' }"
+                      :class="{
+                        active: selectedHistoryFileId === item.documentId,
+                        deleted: item.change?.operation === 'delete'
+                      }"
                       :style="{ '--history-file-depth': item.depth }"
                       role="treeitem"
                       @click="selectedHistoryFileId = item.documentId"
@@ -571,9 +682,15 @@
                         :aria-label="`选择 ${item.title}`"
                         @click.stop
                       />
-                      <span class="history-file-branch" aria-hidden="true">{{ item.depth ? '└' : '·' }}</span>
+                      <span class="history-file-branch" aria-hidden="true">{{
+                        item.depth ? '└' : '·'
+                      }}</span>
                       <span class="history-file-title">{{ item.title }}</span>
-                      <span v-if="item.change" class="history-operation" :class="item.change.operation">
+                      <span
+                        v-if="item.change"
+                        class="history-operation"
+                        :class="item.change.operation"
+                      >
                         {{ historyOperationLabel(item.change.operation) }}
                       </span>
                     </button>
@@ -584,26 +701,26 @@
                 <article v-if="selectedHistoryFileState" class="history-change history-file-detail">
                   <header>
                     <strong>{{ selectedHistoryFileState.title || '未命名文档' }}</strong>
-                    <span v-if="selectedHistoryFileChange" class="history-operation" :class="selectedHistoryFileChange.operation">
+                    <span
+                      v-if="selectedHistoryFileChange"
+                      class="history-operation"
+                      :class="selectedHistoryFileChange.operation"
+                    >
                       {{ historyOperationLabel(selectedHistoryFileChange?.operation ?? 'update') }}
                     </span>
                   </header>
                   <p v-if="describeHistoryMetadataChange(selectedHistoryFileChange)">
                     {{ describeHistoryMetadataChange(selectedHistoryFileChange) }}
                   </p>
-                  <div v-if="selectedHistoryFileChange?.contentDiff" class="history-diff">
-                    <div class="history-diff-summary">
-                      <span class="added">+{{ selectedHistoryFileChange?.contentDiff?.addedLines ?? 0 }}</span>
-                      <span class="removed">-{{ selectedHistoryFileChange?.contentDiff?.removedLines ?? 0 }}</span>
-                    </div>
-                    <pre><span
-                      v-for="(line, index) in selectedHistoryFileChange?.contentDiff?.lines ?? []"
-                      :key="index"
-                      :class="line.kind"
-                    >{{ line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : ' ' }} {{ line.text }}
-</span></pre>
-                  </div>
-                  <p v-else-if="!selectedHistoryFileChange">此文档包含在该版本中，本次提交未修改它。</p>
+                  <WorldDocumentDiffCard
+                    v-if="selectedHistoryFileChange?.contentDiff"
+                    class="history-diff"
+                    :diff="selectedHistoryFileChange.contentDiff"
+                    @locate="handleHistoryDiffLocate"
+                  />
+                  <p v-else-if="!selectedHistoryFileChange">
+                    此文档包含在该版本中，本次提交未修改它。
+                  </p>
                   <p v-else>本次提交只调整了文档信息或目录位置，正文没有变化。</p>
                 </article>
               </template>
@@ -694,7 +811,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type {
   WorldEntityDetailPayload,
@@ -720,6 +837,7 @@ import type {
   WorldDocumentHistoryOperation,
   WorldDocumentHistoryOrigin,
   WorldDocumentHistoryNodeState,
+  WorldDocumentDiffHunk,
   WorldDocumentVersionStatusPayload
 } from '@share/cache/worldbuilding/worldDocumentHistory'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
@@ -728,6 +846,7 @@ import { SerialSaveCoordinator, SerialSessionCommitter } from '../services/seria
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 import { useAppTitleBar } from '../composables/useAppTitleBar'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import WorldDocumentDiffCard from '../components/WorldDocumentDiffCard.vue'
 import CompactAIChatPanel from '../features/chat/components/CompactAIChatPanel.vue'
 import WorldRichTextAppearancePanel from '../features/worldbuilding/editor/components/WorldRichTextAppearancePanel.vue'
 import WorldRichTextEditor from '../features/worldbuilding/editor/components/WorldRichTextEditor.vue'
@@ -778,6 +897,9 @@ const narrativeDocuments = ref<WorldEntityDocumentPayload[]>([])
 const activeDocumentId = ref('')
 const activeDocumentTitle = ref('新建文件')
 const characterDescriptionInput = ref('')
+const narrativeEditorRef = ref<{
+  locateDiff: (location: WorldDocumentDiffHunk) => boolean
+} | null>(null)
 const characterEditorAppearance = ref<WorldRichTextAppearance>(DEFAULT_WORLD_RICH_TEXT_APPEARANCE)
 const characterEditorStats = ref({ words: 0, characters: 0 })
 const showAppearancePanel = ref(false)
@@ -835,21 +957,25 @@ const canApplyMerge = computed(
     !!mergePreview.value &&
     mergePreview.value.conflicts.every((conflict) => !!mergeResolutions.value[conflict.documentId])
 )
-const activeDocumentBranch = computed(() =>
-  versionStatus.value?.branches.find((branch) => branch.active) ?? null
+const activeDocumentBranch = computed(
+  () => versionStatus.value?.branches.find((branch) => branch.active) ?? null
 )
 const canRenameActiveBranch = computed(() => {
   const name = activeBranchDraftName.value.trim()
   return !!activeDocumentBranch.value && !!name && name !== activeDocumentBranch.value.name
 })
 const historyCleanupMessage = computed(() =>
-  historyCleanupPreview.value.removedTreeCount + historyCleanupPreview.value.removedContentVersionCount === 0
+  historyCleanupPreview.value.removedTreeCount +
+    historyCleanupPreview.value.removedContentVersionCount ===
+  0
     ? '没有发现可清理的版本对象。'
     : `将删除 ${historyCleanupPreview.value.removedTreeCount} 个无引用目录对象和 ${historyCleanupPreview.value.removedContentVersionCount} 个无引用内容版本。所有可从提交、方案或检查点访问的历史都会保留。`
 )
 
 const checkpointNamesByCommit = computed<Record<string, string>>(() =>
-  Object.fromEntries(documentCheckpoints.value.map((checkpoint) => [checkpoint.commitId, checkpoint.name]))
+  Object.fromEntries(
+    documentCheckpoints.value.map((checkpoint) => [checkpoint.commitId, checkpoint.name])
+  )
 )
 const filteredHistoryCommits = computed(() => {
   const query = historySearchQuery.value.trim().toLocaleLowerCase()
@@ -859,12 +985,18 @@ const filteredHistoryCommits = computed(() => {
       activeDocumentId.value &&
       !commit.isBaseline &&
       !commit.documentIds.includes(activeDocumentId.value)
-    ) return false
-    return !query || `${commit.summary} ${commit.sequence} ${checkpointNamesByCommit.value[commit.id] ?? ''}`.toLocaleLowerCase().includes(query)
+    )
+      return false
+    return (
+      !query ||
+      `${commit.summary} ${commit.sequence} ${checkpointNamesByCommit.value[commit.id] ?? ''}`
+        .toLocaleLowerCase()
+        .includes(query)
+    )
   })
 })
-const displayedHistoryChanges = computed(() =>
-  historyComparison.value?.changes ?? selectedHistoryDetail.value?.changes ?? []
+const displayedHistoryChanges = computed(
+  () => historyComparison.value?.changes ?? selectedHistoryDetail.value?.changes ?? []
 )
 const selectedHistoryFileChange = computed(
   () =>
@@ -884,9 +1016,8 @@ const historyFileTreeStates = computed(() => {
 })
 const selectedHistoryFileState = computed(
   () =>
-    historyFileTreeStates.value.find(
-      (state) => state.documentId === selectedHistoryFileId.value
-    ) ?? null
+    historyFileTreeStates.value.find((state) => state.documentId === selectedHistoryFileId.value) ??
+    null
 )
 
 watch(
@@ -970,18 +1101,20 @@ const historyFileTreeGroups = computed<HistoryFileTreeGroup[]>(() => {
 
   for (const state of historyFileTreeStates.value) {
     const entity = state.ownerEntityId ? entitiesById.get(state.ownerEntityId) : undefined
-    const groupKey = state.ownerKind === 'world' ? 'world' : `entity:${state.ownerEntityId ?? 'unknown'}`
+    const groupKey =
+      state.ownerKind === 'world' ? 'world' : `entity:${state.ownerEntityId ?? 'unknown'}`
     let group = groups.get(groupKey)
     if (!group) {
-      group = state.ownerKind === 'world'
-        ? { key: groupKey, label: '基础设定', typeLabel: '世界', order: -1, items: [] }
-        : {
-            key: groupKey,
-            label: entity?.name || `已删除实例 ${state.ownerEntityId?.slice(0, 8) ?? ''}`,
-            typeLabel: entity ? getEntityTypeLabel(entity.type) : '已删除实例',
-            order: entity ? entityTypeOrder.get(entity.type) ?? 999 : 999,
-            items: []
-          }
+      group =
+        state.ownerKind === 'world'
+          ? { key: groupKey, label: '基础设定', typeLabel: '世界', order: -1, items: [] }
+          : {
+              key: groupKey,
+              label: entity?.name || `已删除实例 ${state.ownerEntityId?.slice(0, 8) ?? ''}`,
+              typeLabel: entity ? getEntityTypeLabel(entity.type) : '已删除实例',
+              order: entity ? (entityTypeOrder.get(entity.type) ?? 999) : 999,
+              items: []
+            }
       groups.set(groupKey, group)
     }
     group.items.push({
@@ -1394,9 +1527,7 @@ const formatHistoryTime = (value: string): string => {
   }).format(date)
 }
 
-const describeHistoryMetadataChange = (
-  change: WorldDocumentCommitChangePayload | null
-): string => {
+const describeHistoryMetadataChange = (change: WorldDocumentCommitChangePayload | null): string => {
   if (!change) return ''
   if (!change.before && change.after) return `加入到「${change.after.title}」所在目录。`
   if (change.before && !change.after) return `从文档树删除「${change.before.title}」。`
@@ -1502,7 +1633,9 @@ const createCheckpointForSelected = async (): Promise<void> => {
       name
     })
     checkpointDraftName.value = ''
-    documentCheckpoints.value = await worldbuildingClientService.listWorldDocumentCheckpoints(worldId.value)
+    documentCheckpoints.value = await worldbuildingClientService.listWorldDocumentCheckpoints(
+      worldId.value
+    )
   } catch (error) {
     historyError.value = error instanceof Error ? error.message : '保存检查点失败'
   }
@@ -1518,7 +1651,8 @@ const removeCheckpoint = async (checkpointId: string): Promise<void> => {
 }
 
 const switchDocumentBranch = async (branchId: string): Promise<void> => {
-  if (!branchId || versionStatus.value?.branches.find((branch) => branch.id === branchId)?.active) return
+  if (!branchId || versionStatus.value?.branches.find((branch) => branch.id === branchId)?.active)
+    return
   historyError.value = ''
   try {
     clearNarrativeAutosave()
@@ -1688,7 +1822,10 @@ const compareSelectedHistory = async (): Promise<void> => {
     historyComparison.value = await worldbuildingClientService.compareWorldDocumentCommits({
       baseCommitId: comparisonBaseCommitId.value,
       targetCommitId: selectedHistoryCommitId.value,
-      documentIds: historyCurrentDocumentOnly.value && activeDocumentId.value ? [activeDocumentId.value] : undefined
+      documentIds:
+        historyCurrentDocumentOnly.value && activeDocumentId.value
+          ? [activeDocumentId.value]
+          : undefined
     })
   } catch (error) {
     historyError.value = error instanceof Error ? error.message : '比较版本失败'
@@ -2189,6 +2326,37 @@ const selectNarrativeDocument = async (documentId: string): Promise<void> => {
   const nextDocument =
     narrativeDocuments.value.find((document) => document.id === documentId) ?? null
   syncNarrativeFromDocument(nextDocument)
+}
+
+const handleHistoryDiffLocate = async (hunk: WorldDocumentDiffHunk): Promise<void> => {
+  const target = selectedHistoryFileState.value
+  if (!target) return
+  historyError.value = ''
+  try {
+    if (target.ownerKind === 'world' && !isBasicSettingsScope.value) {
+      await loadBasicSettings()
+    } else if (
+      target.ownerKind === 'entity' &&
+      target.ownerEntityId &&
+      target.ownerEntityId !== entityDetail.value?.entity.id
+    ) {
+      const entity = worldEntities.value.find((item) => item.id === target.ownerEntityId)
+      if (!entity) throw new Error('目标文档所属实体已不存在。')
+      await activateCatalogEntity(entity)
+    }
+
+    if (!narrativeDocumentById.value.has(target.documentId)) {
+      throw new Error('目标文档已不在当前工作区，可先恢复该版本再查看。')
+    }
+    await selectNarrativeDocument(target.documentId)
+    await nextTick()
+    await nextTick()
+    if (!narrativeEditorRef.value?.locateDiff(hunk)) {
+      throw new Error('文档已继续修改，原修改位置已无法准确定。')
+    }
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '无法定位该处修改'
+  }
 }
 
 const createNarrativeDocument = async (parentDocumentId: string | null = null): Promise<void> => {
@@ -3232,8 +3400,12 @@ useKeyboardShortcut(
   font-weight: 700;
 }
 
-.history-status-bar .healthy { color: #16834b; }
-.history-status-bar .unhealthy { color: #c24141; }
+.history-status-bar .healthy {
+  color: #16834b;
+}
+.history-status-bar .unhealthy {
+  color: #c24141;
+}
 
 .history-management {
   border-bottom: 1px solid var(--wb-narrative-border);
@@ -3251,10 +3423,20 @@ useKeyboardShortcut(
   list-style: none;
 }
 
-.history-management > summary::-webkit-details-marker { display: none; }
-.history-management > summary::before { content: '›'; margin-right: 7px; }
-.history-management[open] > summary::before { transform: rotate(90deg); }
-.history-management > summary:hover { background: #f6f7f9; color: var(--wb-narrative-text); }
+.history-management > summary::-webkit-details-marker {
+  display: none;
+}
+.history-management > summary::before {
+  content: '›';
+  margin-right: 7px;
+}
+.history-management[open] > summary::before {
+  transform: rotate(90deg);
+}
+.history-management > summary:hover {
+  background: #f6f7f9;
+  color: var(--wb-narrative-text);
+}
 
 .history-tools {
   padding: 4px 10px 10px;
@@ -3313,7 +3495,9 @@ useKeyboardShortcut(
   white-space: nowrap;
 }
 
-.history-checkpoints small { font-size: 14px; }
+.history-checkpoints small {
+  font-size: 14px;
+}
 
 .history-merge-preview {
   padding: 10px;
@@ -3340,10 +3524,23 @@ useKeyboardShortcut(
   background: #ffffff;
 }
 
-.history-merge-preview article small { color: var(--wb-narrative-text-faint); }
-.history-merge-preview label { display: flex; align-items: center; gap: 3px; }
-.history-merge-preview > footer { margin-top: 8px; justify-content: flex-end; }
-.history-merge-preview button { padding: 5px 8px; border: 1px solid var(--wb-narrative-border); background: #ffffff; }
+.history-merge-preview article small {
+  color: var(--wb-narrative-text-faint);
+}
+.history-merge-preview label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.history-merge-preview > footer {
+  margin-top: 8px;
+  justify-content: flex-end;
+}
+.history-merge-preview button {
+  padding: 5px 8px;
+  border: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+}
 
 .history-panel-body {
   min-height: 0;
@@ -3445,7 +3642,9 @@ useKeyboardShortcut(
 
 .history-graph-lane i.merge {
   border-color: #8b5cf6;
-  box-shadow: 5px 4px 0 -2px #ffffff, 5px 4px 0 0 #8b5cf6;
+  box-shadow:
+    5px 4px 0 -2px #ffffff,
+    5px 4px 0 0 #8b5cf6;
 }
 
 .history-graph-lane b {
@@ -3686,57 +3885,6 @@ useKeyboardShortcut(
 
 .history-diff {
   margin-top: 9px;
-  overflow: hidden;
-  border: 1px solid #e4e7eb;
-  border-radius: 6px;
-  background: #fbfcfd;
-}
-
-.history-diff-summary {
-  padding: 5px 8px;
-  display: flex;
-  gap: 8px;
-  border-bottom: 1px solid #e4e7eb;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.history-diff-summary .added {
-  color: #16834b;
-}
-
-.history-diff-summary .removed {
-  color: #c24141;
-}
-
-.history-diff pre {
-  max-height: 260px;
-  margin: 0;
-  overflow: auto;
-  color: #414854;
-  font:
-    10px/1.55 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Consolas,
-    monospace;
-  white-space: pre-wrap;
-}
-
-.history-diff pre span {
-  min-height: 16px;
-  padding: 0 7px;
-  display: block;
-}
-
-.history-diff pre span.added {
-  background: #eaf8ef;
-  color: #147a45;
-}
-
-.history-diff pre span.removed {
-  background: #fff0f0;
-  color: #b83b3b;
 }
 
 .outline-panel h2 {

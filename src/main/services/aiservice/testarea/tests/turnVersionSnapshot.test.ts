@@ -19,6 +19,7 @@ import {
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
+import { runAppSchemaMigrations } from '../../../../database/migrations/runAppSchemaMigrations'
 import {
   persistFinalTurnVersionWithManager,
   persistTurnVersion
@@ -75,17 +76,15 @@ const createState = (): typeof MessagesState.State =>
     }
   }) as unknown as typeof MessagesState.State
 
-const createVersionDataSource = async (
-  database: string,
-  synchronize = true
-): Promise<DataSource> => {
+const createVersionDataSource = async (database: string): Promise<DataSource> => {
   const dataSource = new DataSource({
     type: 'better-sqlite3',
     database,
-    synchronize,
+    synchronize: false,
     entities: [MainAgentEventRecord, MainAgentTurnRecord, MainAgentTurnVersionRecord]
   })
   await dataSource.initialize()
+  await runAppSchemaMigrations(dataSource)
   return dataSource
 }
 

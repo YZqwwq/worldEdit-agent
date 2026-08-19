@@ -86,7 +86,7 @@ export const buildWorldDocumentVersionPackageWithDataSource = async (
       if (entry.childrenTreeHash) pending.push(entry.childrenTreeHash)
     }
   }
-  const [branches, checkpoints, changes, contents] = await Promise.all([
+  const [branches, checkpoints, changes] = await Promise.all([
     dataSource.getRepository(WorldDocumentBranchRecord).find({
       where: { worldId: normalizedWorldId },
       order: { name: 'ASC' }
@@ -100,14 +100,18 @@ export const buildWorldDocumentVersionPackageWithDataSource = async (
           where: { commitId: In(commits.map((commit) => commit.id)) },
           order: { id: 'ASC' }
         })
-      : [],
-    contentIds.size
-      ? dataSource.getRepository(WorldDocumentContentVersionRecord).find({
-          where: { id: In([...contentIds]) },
-          order: { id: 'ASC' }
-        })
       : []
   ])
+  for (const change of changes) {
+    if (change.beforeContentVersionId) contentIds.add(change.beforeContentVersionId)
+    if (change.afterContentVersionId) contentIds.add(change.afterContentVersionId)
+  }
+  const contents = contentIds.size
+    ? await dataSource.getRepository(WorldDocumentContentVersionRecord).find({
+        where: { id: In([...contentIds]) },
+        order: { id: 'ASC' }
+      })
+    : []
   const unsigned: VersionPackageUnsigned = {
     format: 'worldedit-document-history',
     version: 1,
@@ -198,6 +202,9 @@ export const validateWorldDocumentVersionPackage = (
   for (const change of value.objects.changes) {
     if (changeIds.has(change.id) || change.worldId !== value.worldId || !change.commitId || !commitById.has(change.commitId)) {
       throw new Error(`变更记录无效：${change.id}`)
+    }
+    for (const contentId of [change.beforeContentVersionId, change.afterContentVersionId].filter(Boolean) as string[]) {
+      if (!contentIds.has(contentId)) throw new Error(`变更记录引用缺失内容：${change.id}`)
     }
     changeIds.add(change.id)
   }

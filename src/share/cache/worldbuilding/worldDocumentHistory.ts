@@ -17,10 +17,17 @@ export type WorldDocumentDiffLine = {
   text: string
 }
 
+export type WorldDocumentDiffHunk = {
+  headingPath?: string[]
+  anchorTexts: string[]
+  anchorHash: string
+  lines: WorldDocumentDiffLine[]
+}
+
 export type WorldDocumentContentDiff = {
   beforeFormat?: WorldDocumentEditSourceFormat
   afterFormat?: WorldDocumentEditSourceFormat
-  lines: WorldDocumentDiffLine[]
+  hunks: WorldDocumentDiffHunk[]
   addedLines: number
   removedLines: number
   truncated: boolean

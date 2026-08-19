@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import test from 'node:test'
-import { DataSource } from 'typeorm'
+import { DataSource, In } from 'typeorm'
 import { WorldEntityDocumentRecord } from '@share/entity/database/WorldEntityDocumentRecord'
 import { WorldDocumentContentVersionRecord } from '@share/entity/database/WorldDocumentContentVersionRecord'
 import { WorldDocumentTreeObjectRecord } from '@share/entity/database/WorldDocumentTreeObjectRecord'
@@ -40,6 +40,8 @@ import {
   validateWorldDocumentVersionPackage
 } from '../../../worldbuilding/worldDocumentVersionPackageService'
 import { mergeWorldDocumentText } from '../../../worldbuilding/worldDocumentThreeWayTextMerge'
+import { applicationEntities } from '../../../../database/applicationEntities'
+import { APPLICATION_SCHEMA_BASELINE_TABLE_SQL } from '../../../../database/migrations/applicationSchemaBaseline'
 
 const sqliteTest = (name: string, execute: () => Promise<void>): void => {
   test(name, { skip: process.env.RUN_DOCUMENT_VERSION_SQLITE_TESTS !== '1' }, execute)
@@ -57,7 +59,7 @@ const createDataSource = async (): Promise<DataSource> => {
   const dataSource = new DataSource({
     type: 'better-sqlite3',
     database: ':memory:',
-    synchronize: true,
+    synchronize: false,
     entities: [
       WorldEntityDocumentRecord,
       WorldDocumentContentVersionRecord,
@@ -72,6 +74,7 @@ const createDataSource = async (): Promise<DataSource> => {
     ]
   })
   await dataSource.initialize()
+  await runAppSchemaMigrations(dataSource)
   return dataSource
 }
 
@@ -109,12 +112,14 @@ test('document diff compares the persisted editing source instead of runtime HTM
   assert.equal(diff.addedLines, 1)
   assert.equal(diff.removedLines, 1)
   assert.deepEqual(
-    diff.lines.filter((line) => line.kind !== 'context'),
+    diff.hunks.flatMap((hunk) => hunk.lines).filter((line) => line.kind !== 'context'),
     [
       { kind: 'removed', text: '旧内容' },
       { kind: 'added', text: '新内容' }
     ]
   )
+  assert.deepEqual(diff.hunks[0].headingPath, ['标题'])
+  assert.deepEqual(diff.hunks[0].anchorTexts, ['新内容', '标题'])
 })
 
 test('editor HTML history is converted only for readable Diff presentation', () => {
@@ -123,9 +128,20 @@ test('editor HTML history is converted only for readable Diff presentation', () 
     { format: 'html_editor', content: '<h1>标题</h1><p>新内容</p>' }
   )
   assert.ok(diff)
-  assert.ok(diff.lines.every((line) => !line.text.includes('<h1>')))
+  assert.ok(diff.hunks.every((hunk) => hunk.lines.every((line) => !line.text.includes('<h1>'))))
   assert.equal(diff.addedLines, 1)
   assert.equal(diff.removedLines, 1)
+})
+
+test('a deletion-only Diff locates through content that still exists after the change', () => {
+  const diff = buildWorldDocumentContentDiff(
+    { format: 'markdown', content: '# 标题\n保留上文\n将被删除\n保留下文' },
+    { format: 'markdown', content: '# 标题\n保留上文\n保留下文' }
+  )
+  assert.ok(diff)
+  assert.equal(diff.addedLines, 0)
+  assert.equal(diff.hunks[0].anchorTexts.includes('将被删除'), false)
+  assert.equal(diff.hunks[0].anchorTexts.includes('保留下文'), true)
 })
 
 sqliteTest('a staged content edit creates a baseline and one immutable world commit', async () => {
@@ -341,7 +357,11 @@ sqliteTest('repeated autosaves in one session collapse into one committed change
       changeSetId: 'human:session-1'
     })
     assert.equal(changes.length, 1)
-    assert.equal(changes[0].contentSource, '<p>第一段完成</p>')
+    const finalContent = await dataSource
+      .getRepository(WorldDocumentContentVersionRecord)
+      .findOneByOrFail({ id: changes[0].afterContentVersionId! })
+    assert.equal(finalContent.contentSource, '<p>第一段完成</p>')
+    assert.equal(changes[0].contentSource, null)
     assert.equal(changes[0].status, 'committed')
   } finally {
     await dataSource.destroy()
@@ -359,7 +379,11 @@ test('three-way Markdown merge combines disjoint edits and rejects overlapping e
     '# 第一章\n当前修改\n# 第二章\n来源修改'
   )
   assert.equal(
-    mergeWorldDocumentText(base, '# 第一章\n当前修改\n# 第二章\n原始二', '# 第一章\n来源修改\n# 第二章\n原始二'),
+    mergeWorldDocumentText(
+      base,
+      '# 第一章\n当前修改\n# 第二章\n原始二',
+      '# 第一章\n来源修改\n# 第二章\n原始二'
+    ),
     null
   )
 })
@@ -603,37 +627,22 @@ sqliteTest('startup commits only human and terminal Agent document change sets',
   }
 })
 
-sqliteTest('a committed change set rejects late writes and rolls back their document mutation', async () => {
-  const dataSource = await createDataSource()
-  try {
-    const documents = dataSource.getRepository(WorldEntityDocumentRecord)
-    const document = await documents.save(documents.create(documentState('doc-a')))
-    await dataSource.transaction((manager) =>
-      ensureWorldDocumentBaselineWithManager(manager, 'world-1')
-    )
-
-    await dataSource.transaction(async (manager) => {
-      const repository = manager.getRepository(WorldEntityDocumentRecord)
-      const before = await repository.findOneByOrFail({ id: document.id })
-      const after = await repository.save(
-        repository.create({ ...before, contentHtml: '<p>committed</p>', revision: 2 })
+sqliteTest(
+  'a committed change set rejects late writes and rolls back their document mutation',
+  async () => {
+    const dataSource = await createDataSource()
+    try {
+      const documents = dataSource.getRepository(WorldEntityDocumentRecord)
+      const document = await documents.save(documents.create(documentState('doc-a')))
+      await dataSource.transaction((manager) =>
+        ensureWorldDocumentBaselineWithManager(manager, 'world-1')
       )
-      await stageWorldDocumentChangeWithManager(manager, {
-        changeSetId: 'human:closed-session',
-        operation: 'update',
-        before,
-        after,
-        source: { format: 'html_editor', content: after.contentHtml }
-      })
-      await commitWorldDocumentChangeSetWithManager(manager, 'human:closed-session', 'human')
-    })
 
-    await assert.rejects(
-      dataSource.transaction(async (manager) => {
+      await dataSource.transaction(async (manager) => {
         const repository = manager.getRepository(WorldEntityDocumentRecord)
         const before = await repository.findOneByOrFail({ id: document.id })
         const after = await repository.save(
-          repository.create({ ...before, contentHtml: '<p>late write</p>', revision: 3 })
+          repository.create({ ...before, contentHtml: '<p>committed</p>', revision: 2 })
         )
         await stageWorldDocumentChangeWithManager(manager, {
           changeSetId: 'human:closed-session',
@@ -642,20 +651,36 @@ sqliteTest('a committed change set rejects late writes and rolls back their docu
           after,
           source: { format: 'html_editor', content: after.contentHtml }
         })
-      }),
-      (error: unknown) =>
-        error instanceof Error &&
-        'code' in error &&
-        error.code === 'CHANGESET_CLOSED'
-    )
+        await commitWorldDocumentChangeSetWithManager(manager, 'human:closed-session', 'human')
+      })
 
-    const persisted = await documents.findOneByOrFail({ id: document.id })
-    assert.equal(persisted.revision, 2)
-    assert.equal(persisted.contentHtml, '<p>committed</p>')
-  } finally {
-    await dataSource.destroy()
+      await assert.rejects(
+        dataSource.transaction(async (manager) => {
+          const repository = manager.getRepository(WorldEntityDocumentRecord)
+          const before = await repository.findOneByOrFail({ id: document.id })
+          const after = await repository.save(
+            repository.create({ ...before, contentHtml: '<p>late write</p>', revision: 3 })
+          )
+          await stageWorldDocumentChangeWithManager(manager, {
+            changeSetId: 'human:closed-session',
+            operation: 'update',
+            before,
+            after,
+            source: { format: 'html_editor', content: after.contentHtml }
+          })
+        }),
+        (error: unknown) =>
+          error instanceof Error && 'code' in error && error.code === 'CHANGESET_CLOSED'
+      )
+
+      const persisted = await documents.findOneByOrFail({ id: document.id })
+      assert.equal(persisted.revision, 2)
+      assert.equal(persisted.contentHtml, '<p>committed</p>')
+    } finally {
+      await dataSource.destroy()
+    }
   }
-})
+)
 
 sqliteTest('history rejects a source that differs from the stored document content', async () => {
   const dataSource = await createDataSource()
@@ -740,64 +765,70 @@ sqliteTest('restoring a commit also restores the document schema version', async
   }
 })
 
-sqliteTest('selective restore changes only the chosen document and records its intent', async () => {
-  const dataSource = await createDataSource()
-  try {
-    const documents = dataSource.getRepository(WorldEntityDocumentRecord)
-    await documents.save([
-      documents.create(documentState('doc-a')),
-      documents.create(documentState('doc-b'))
-    ])
-    const baseline = await dataSource.transaction((manager) =>
-      ensureWorldDocumentBaselineWithManager(manager, 'world-1')
-    )
-
-    const edited = await dataSource.transaction(async (manager) => {
-      const repository = manager.getRepository(WorldEntityDocumentRecord)
-      for (const id of ['doc-a', 'doc-b']) {
-        const before = await repository.findOneByOrFail({ id })
-        const after = await repository.save(
-          repository.create({ ...before, contentHtml: `<p>${id}-edited</p>`, revision: 2 })
-        )
-        await stageWorldDocumentChangeWithManager(manager, {
-          changeSetId: 'human:edit-both',
-          operation: 'update',
-          before,
-          after,
-          source: { format: 'html_editor', content: after.contentHtml }
-        })
-      }
-      const [commit] = await commitWorldDocumentChangeSetWithManager(
-        manager,
-        'human:edit-both',
-        'human'
+sqliteTest(
+  'selective restore changes only the chosen document and records its intent',
+  async () => {
+    const dataSource = await createDataSource()
+    try {
+      const documents = dataSource.getRepository(WorldEntityDocumentRecord)
+      await documents.save([
+        documents.create(documentState('doc-a')),
+        documents.create(documentState('doc-b'))
+      ])
+      const baseline = await dataSource.transaction((manager) =>
+        ensureWorldDocumentBaselineWithManager(manager, 'world-1')
       )
-      return commit
-    })
 
-    const restored = await dataSource.transaction((manager) =>
-      restoreWorldDocumentCommitWithManager(manager, {
-        targetCommitId: baseline.id,
-        expectedHeadCommitId: edited.id,
-        documentIds: ['doc-a']
+      const edited = await dataSource.transaction(async (manager) => {
+        const repository = manager.getRepository(WorldEntityDocumentRecord)
+        for (const id of ['doc-a', 'doc-b']) {
+          const before = await repository.findOneByOrFail({ id })
+          const after = await repository.save(
+            repository.create({ ...before, contentHtml: `<p>${id}-edited</p>`, revision: 2 })
+          )
+          await stageWorldDocumentChangeWithManager(manager, {
+            changeSetId: 'human:edit-both',
+            operation: 'update',
+            before,
+            after,
+            source: { format: 'html_editor', content: after.contentHtml }
+          })
+        }
+        const [commit] = await commitWorldDocumentChangeSetWithManager(
+          manager,
+          'human:edit-both',
+          'human'
+        )
+        return commit
       })
-    )
 
-    assert.equal((await documents.findOneByOrFail({ id: 'doc-a' })).contentHtml, '<p>doc-a</p>')
-    assert.equal(
-      (await documents.findOneByOrFail({ id: 'doc-b' })).contentHtml,
-      '<p>doc-b-edited</p>'
-    )
-    assert.equal(restored.intent, 'selective_restore')
-    assert.equal(restored.restoredFromCommitId, baseline.id)
-    const changes = await dataSource.getRepository(WorldDocumentChangeRecord).findBy({
-      commitId: restored.id
-    })
-    assert.deepEqual(changes.map((change) => change.documentId), ['doc-a'])
-  } finally {
-    await dataSource.destroy()
+      const restored = await dataSource.transaction((manager) =>
+        restoreWorldDocumentCommitWithManager(manager, {
+          targetCommitId: baseline.id,
+          expectedHeadCommitId: edited.id,
+          documentIds: ['doc-a']
+        })
+      )
+
+      assert.equal((await documents.findOneByOrFail({ id: 'doc-a' })).contentHtml, '<p>doc-a</p>')
+      assert.equal(
+        (await documents.findOneByOrFail({ id: 'doc-b' })).contentHtml,
+        '<p>doc-b-edited</p>'
+      )
+      assert.equal(restored.intent, 'selective_restore')
+      assert.equal(restored.restoredFromCommitId, baseline.id)
+      const changes = await dataSource.getRepository(WorldDocumentChangeRecord).findBy({
+        commitId: restored.id
+      })
+      assert.deepEqual(
+        changes.map((change) => change.documentId),
+        ['doc-a']
+      )
+    } finally {
+      await dataSource.destroy()
+    }
   }
-})
+)
 
 sqliteTest('independent document branches keep their own HEAD and shared ancestry', async () => {
   const dataSource = await createDataSource()
@@ -834,7 +865,9 @@ sqliteTest('independent document branches keep their own HEAD and shared ancestr
       active: true
     })
     await branchRepository.save([mainBranch, draft])
-    await dataSource.transaction((manager) => checkoutWorldDocumentCommitWithManager(manager, baseline.id))
+    await dataSource.transaction((manager) =>
+      checkoutWorldDocumentCommitWithManager(manager, baseline.id)
+    )
 
     const draftCommit = await dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(WorldEntityDocumentRecord)
@@ -849,22 +882,35 @@ sqliteTest('independent document branches keep their own HEAD and shared ancestr
         after,
         source: { format: 'html_editor', content: after.contentHtml }
       })
-      return (await commitWorldDocumentChangeSetWithManager(manager, 'human:draft-edit', 'human'))[0]
+      return (
+        await commitWorldDocumentChangeSetWithManager(manager, 'human:draft-edit', 'human')
+      )[0]
     })
 
     assert.equal(draftCommit.parentCommitId, baseline.id)
     assert.equal(draftCommit.branchId, draft.id)
-    assert.equal((await branchRepository.findOneByOrFail({ id: draft.id })).headCommitId, draftCommit.id)
-    assert.equal((await branchRepository.findOneByOrFail({ id: mainBranch.id })).headCommitId, mainCommit.id)
+    assert.equal(
+      (await branchRepository.findOneByOrFail({ id: draft.id })).headCommitId,
+      draftCommit.id
+    )
+    assert.equal(
+      (await branchRepository.findOneByOrFail({ id: mainBranch.id })).headCommitId,
+      mainCommit.id
+    )
 
     await branchRepository.update({ id: draft.id }, { active: false })
     await branchRepository.update({ id: mainBranch.id }, { active: true })
-    await dataSource.transaction((manager) => checkoutWorldDocumentCommitWithManager(manager, mainCommit.id))
+    await dataSource.transaction((manager) =>
+      checkoutWorldDocumentCommitWithManager(manager, mainCommit.id)
+    )
     const preview = await dataSource.transaction((manager) =>
       previewWorldDocumentMergeWithManager(manager, draft.id)
     )
     assert.equal(preview.baseCommitId, baseline.id)
-    assert.deepEqual(preview.conflicts.map((conflict) => conflict.documentId), ['doc-a'])
+    assert.deepEqual(
+      preview.conflicts.map((conflict) => conflict.documentId),
+      ['doc-a']
+    )
 
     const mergeCommit = await dataSource.transaction((manager) =>
       applyWorldDocumentMergeWithManager(manager, {
@@ -882,90 +928,99 @@ sqliteTest('independent document branches keep their own HEAD and shared ancestr
   }
 })
 
-sqliteTest('staged Diff uses the active branch HEAD instead of another branch latest content', async () => {
-  const dataSource = await createDataSource()
-  try {
-    const documents = dataSource.getRepository(WorldEntityDocumentRecord)
-    await documents.save(documents.create(documentState('doc-a', { contentHtml: '<p>base</p>' })))
-    const baseline = await dataSource.transaction((manager) =>
-      ensureWorldDocumentBaselineWithManager(manager, 'world-1')
-    )
-    const edit = (changeSetId: string, markdown: string) =>
-      dataSource.transaction(async (manager) => {
+sqliteTest(
+  'staged Diff uses the active branch HEAD instead of another branch latest content',
+  async () => {
+    const dataSource = await createDataSource()
+    try {
+      const documents = dataSource.getRepository(WorldEntityDocumentRecord)
+      await documents.save(documents.create(documentState('doc-a', { contentHtml: '<p>base</p>' })))
+      const baseline = await dataSource.transaction((manager) =>
+        ensureWorldDocumentBaselineWithManager(manager, 'world-1')
+      )
+      const edit = (changeSetId: string, markdown: string) =>
+        dataSource.transaction(async (manager) => {
+          const repository = manager.getRepository(WorldEntityDocumentRecord)
+          const before = await repository.findOneByOrFail({ id: 'doc-a' })
+          const after = await repository.save(
+            repository.create({
+              ...before,
+              contentHtml: worldDocumentMarkdownToHtml(markdown),
+              revision: before.revision + 1
+            })
+          )
+          await stageWorldDocumentChangeWithManager(manager, {
+            changeSetId,
+            operation: 'update',
+            before,
+            after,
+            source: { format: 'markdown', content: markdown }
+          })
+          return (await commitWorldDocumentChangeSetWithManager(manager, changeSetId, 'human'))[0]
+        })
+
+      const mainCommit = await edit('human:main-source', '# Main source')
+      const branches = dataSource.getRepository(WorldDocumentBranchRecord)
+      const main = await branches.findOneByOrFail({ worldId: 'world-1', active: true })
+      main.active = false
+      const draft = branches.create({
+        id: 'branch:source-draft',
+        worldId: 'world-1',
+        name: '来源草案',
+        headCommitId: baseline.id,
+        active: true
+      })
+      await branches.save([main, draft])
+      await dataSource.transaction((manager) =>
+        checkoutWorldDocumentCommitWithManager(manager, baseline.id)
+      )
+      const draftCommit = await edit('human:draft-source', '# Draft source')
+      const draftEntry = (await readTree(dataSource, draftCommit.rootTreeHash))[0]
+      await dataSource
+        .getRepository(WorldDocumentContentVersionRecord)
+        .update(
+          { id: draftEntry.contentVersionId },
+          { createdAt: new Date('2030-01-01T00:00:00.000Z') }
+        )
+
+      await branches.update({ id: draft.id }, { active: false })
+      await branches.update({ id: main.id }, { active: true })
+      await dataSource.transaction((manager) =>
+        checkoutWorldDocumentCommitWithManager(manager, mainCommit.id)
+      )
+      await dataSource.transaction(async (manager) => {
         const repository = manager.getRepository(WorldEntityDocumentRecord)
         const before = await repository.findOneByOrFail({ id: 'doc-a' })
         const after = await repository.save(
           repository.create({
             ...before,
-            contentHtml: worldDocumentMarkdownToHtml(markdown),
+            title: 'Main renamed',
             revision: before.revision + 1
           })
         )
         await stageWorldDocumentChangeWithManager(manager, {
-          changeSetId,
+          changeSetId: 'human:main-title',
           operation: 'update',
           before,
-          after,
-          source: { format: 'markdown', content: markdown }
+          after
         })
-        return (await commitWorldDocumentChangeSetWithManager(manager, changeSetId, 'human'))[0]
       })
 
-    const mainCommit = await edit('human:main-source', '# Main source')
-    const branches = dataSource.getRepository(WorldDocumentBranchRecord)
-    const main = await branches.findOneByOrFail({ worldId: 'world-1', active: true })
-    main.active = false
-    const draft = branches.create({
-      id: 'branch:source-draft',
-      worldId: 'world-1',
-      name: '来源草案',
-      headCommitId: baseline.id,
-      active: true
-    })
-    await branches.save([main, draft])
-    await dataSource.transaction((manager) =>
-      checkoutWorldDocumentCommitWithManager(manager, baseline.id)
-    )
-    const draftCommit = await edit('human:draft-source', '# Draft source')
-    const draftEntry = (await readTree(dataSource, draftCommit.rootTreeHash))[0]
-    await dataSource.getRepository(WorldDocumentContentVersionRecord).update(
-      { id: draftEntry.contentVersionId },
-      { createdAt: new Date('2030-01-01T00:00:00.000Z') }
-    )
-
-    await branches.update({ id: draft.id }, { active: false })
-    await branches.update({ id: main.id }, { active: true })
-    await dataSource.transaction((manager) =>
-      checkoutWorldDocumentCommitWithManager(manager, mainCommit.id)
-    )
-    await dataSource.transaction(async (manager) => {
-      const repository = manager.getRepository(WorldEntityDocumentRecord)
-      const before = await repository.findOneByOrFail({ id: 'doc-a' })
-      const after = await repository.save(
-        repository.create({
-          ...before,
-          title: 'Main renamed',
-          revision: before.revision + 1
-        })
-      )
-      await stageWorldDocumentChangeWithManager(manager, {
+      const staged = await dataSource.getRepository(WorldDocumentChangeRecord).findOneByOrFail({
         changeSetId: 'human:main-title',
-        operation: 'update',
-        before,
-        after
+        documentId: 'doc-a'
       })
-    })
-
-    const staged = await dataSource.getRepository(WorldDocumentChangeRecord).findOneByOrFail({
-      changeSetId: 'human:main-title',
-      documentId: 'doc-a'
-    })
-    assert.equal(staged.beforeSourceFormat, 'markdown')
-    assert.equal(staged.beforeContentSource, '# Main source')
-  } finally {
-    await dataSource.destroy()
+      const beforeContent = await dataSource
+        .getRepository(WorldDocumentContentVersionRecord)
+        .findOneByOrFail({ id: staged.beforeContentVersionId! })
+      assert.equal(beforeContent.sourceFormat, 'markdown')
+      assert.equal(beforeContent.contentSource, '# Main source')
+      assert.equal(staged.beforeContentSource, null)
+    } finally {
+      await dataSource.destroy()
+    }
   }
-})
+)
 
 sqliteTest('revert and cherry-pick create new commits without rewriting history', async () => {
   const dataSource = await createDataSource()
@@ -1018,7 +1073,7 @@ sqliteTest('revert and cherry-pick create new commits without rewriting history'
     assert.equal(picked.commit.restoredFromCommitId, first.id)
     assert.equal(picked.commit.intent, 'cherry_pick')
     assert.equal((await documents.findOneByOrFail({ id: 'doc-a' })).contentHtml, '<p>first</p>')
-    assert.equal((await dataSource.getRepository(WorldDocumentCommitRecord).count()), 5)
+    assert.equal(await dataSource.getRepository(WorldDocumentCommitRecord).count(), 5)
     assert.equal(baseline.sequence, 1)
   } finally {
     await dataSource.destroy()
@@ -1044,195 +1099,292 @@ sqliteTest('document history integrity inspection accepts a healthy commit graph
   }
 })
 
-sqliteTest('garbage collection previews and removes only unreachable immutable objects', async () => {
-  const dataSource = await createDataSource()
-  try {
-    const hash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex')
-    const documents = dataSource.getRepository(WorldEntityDocumentRecord)
-    await documents.save(documents.create(documentState('doc-a')))
-    await dataSource.transaction((manager) =>
-      ensureWorldDocumentBaselineWithManager(manager, 'world-1')
-    )
-    const orphanSource = 'orphan'
-    const orphanContentId = `content:${hash(`orphan-doc\u0000markdown\u0000${orphanSource}`)}`
-    await dataSource.getRepository(WorldDocumentContentVersionRecord).save({
-      id: orphanContentId,
-      worldId: 'world-1',
-      documentId: 'orphan-doc',
-      sourceRevision: 1,
-      sourceFormat: 'markdown',
-      contentSource: orphanSource,
-      contentHash: hash(`markdown\u0000${orphanSource}`)
-    })
-    const orphanEntries = '[]'
-    const orphanTreeHash = hash(orphanEntries)
-    await dataSource.getRepository(WorldDocumentTreeObjectRecord).save({
-      hash: orphanTreeHash,
-      entriesJson: orphanEntries
-    })
-
-    const preview = await pruneUnreachableWorldDocumentObjects(dataSource, true)
-    assert.equal(preview.removedContentVersionCount, 1)
-    assert.equal(preview.removedTreeCount, 1)
-    assert.ok(await dataSource.getRepository(WorldDocumentContentVersionRecord).findOneBy({ id: orphanContentId }))
-
-    const removed = await pruneUnreachableWorldDocumentObjects(dataSource, false)
-    assert.deepEqual(removed, { dryRun: false, removedTreeCount: 1, removedContentVersionCount: 1 })
-    assert.equal(await dataSource.getRepository(WorldDocumentContentVersionRecord).findOneBy({ id: orphanContentId }), null)
-    assert.equal(await dataSource.getRepository(WorldDocumentTreeObjectRecord).findOneBy({ hash: orphanTreeHash }), null)
-    assert.equal((await inspectWorldDocumentHistory(dataSource)).ok, true)
-  } finally {
-    await dataSource.destroy()
-  }
-})
-
-sqliteTest('version packages round-trip with hash validation and idempotent object import', async () => {
-  const source = await createDataSource()
-  const target = await createDataSource()
-  try {
-    const documents = source.getRepository(WorldEntityDocumentRecord)
-    const original = await documents.save(
-      documents.create(documentState('doc-a', { contentHtml: '<p>portable</p>' }))
-    )
-    const baseline = await source.transaction((manager) =>
-      ensureWorldDocumentBaselineWithManager(manager, 'world-1')
-    )
-    await source.getRepository(WorldDocumentCheckpointRecord).save({
-      id: 'checkpoint:portable',
-      worldId: 'world-1',
-      commitId: baseline.id,
-      name: '可移植检查点',
-      note: ''
-    })
-    assert.equal(original.id, 'doc-a')
-    const versionPackage = await buildWorldDocumentVersionPackageWithDataSource(source, 'world-1')
-    assert.equal(validateWorldDocumentVersionPackage(versionPackage, 'world-1').packageHash, versionPackage.packageHash)
-
-    const tampered = JSON.parse(JSON.stringify(versionPackage))
-    tampered.objects.contents[0].contentSource = 'tampered'
-    assert.throws(
-      () => validateWorldDocumentVersionPackage(tampered, 'world-1'),
-      /校验摘要不匹配/
-    )
-
-    const firstImport = await importWorldDocumentVersionPackageWithDataSource(
-      target,
-      versionPackage,
-      'world-1'
-    )
-    assert.equal(firstImport.imported.commits, 1)
-    assert.equal(firstImport.imported.contents, 1)
-    assert.equal((await target.getRepository(WorldEntityDocumentRecord).findOneByOrFail({ id: 'doc-a' })).contentHtml, '<p>portable</p>')
-    assert.equal(await target.getRepository(WorldDocumentBranchRecord).countBy({ worldId: 'world-1' }), 1)
-
-    const secondImport = await importWorldDocumentVersionPackageWithDataSource(
-      target,
-      versionPackage,
-      'world-1'
-    )
-    assert.equal(secondImport.imported.commits, 0)
-    assert.equal(secondImport.skipped.commits, 1)
-    assert.equal(await target.getRepository(WorldDocumentBranchRecord).countBy({ worldId: 'world-1' }), 1)
-    assert.equal(await target.getRepository(WorldDocumentCheckpointRecord).countBy({ worldId: 'world-1' }), 1)
-  } finally {
-    await source.destroy()
-    await target.destroy()
-  }
-})
-
-sqliteTest('document history integrity inspection reports corrupted objects and change links', async () => {
-  const dataSource = await createDataSource()
-  try {
-    const documents = dataSource.getRepository(WorldEntityDocumentRecord)
-    const document = await documents.save(documents.create(documentState('doc-a')))
-    await dataSource.transaction(async (manager) => {
-      await ensureWorldDocumentBaselineWithManager(manager, 'world-1')
-      const before = await manager
-        .getRepository(WorldEntityDocumentRecord)
-        .findOneByOrFail({ id: document.id })
-      const after = await manager.getRepository(WorldEntityDocumentRecord).save(
-        manager
-          .getRepository(WorldEntityDocumentRecord)
-          .create({ ...before, contentHtml: '<p>next</p>', revision: 2 })
+sqliteTest(
+  'garbage collection previews and removes only unreachable immutable objects',
+  async () => {
+    const dataSource = await createDataSource()
+    try {
+      const hash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex')
+      const documents = dataSource.getRepository(WorldEntityDocumentRecord)
+      await documents.save(documents.create(documentState('doc-a')))
+      await dataSource.transaction((manager) =>
+        ensureWorldDocumentBaselineWithManager(manager, 'world-1')
       )
-      await stageWorldDocumentChangeWithManager(manager, {
-        changeSetId: 'human:integrity',
-        operation: 'update',
-        before,
-        after,
-        source: { format: 'html_editor', content: after.contentHtml }
+      const orphanSource = 'orphan'
+      const orphanContentId = `content:${hash(`orphan-doc\u0000markdown\u0000${orphanSource}`)}`
+      await dataSource.getRepository(WorldDocumentContentVersionRecord).save({
+        id: orphanContentId,
+        worldId: 'world-1',
+        documentId: 'orphan-doc',
+        sourceRevision: 1,
+        sourceFormat: 'markdown',
+        contentSource: orphanSource,
+        contentHash: hash(`markdown\u0000${orphanSource}`)
       })
-      await commitWorldDocumentChangeSetWithManager(manager, 'human:integrity', 'human')
-    })
+      const orphanEntries = '[]'
+      const orphanTreeHash = hash(orphanEntries)
+      await dataSource.getRepository(WorldDocumentTreeObjectRecord).save({
+        hash: orphanTreeHash,
+        entriesJson: orphanEntries
+      })
 
-    const content = await dataSource.getRepository(WorldDocumentContentVersionRecord).findOne({
-      where: { documentId: document.id },
-      order: { createdAt: 'DESC' }
-    })
-    assert.ok(content)
-    content.contentSource = 'tampered'
-    await dataSource.getRepository(WorldDocumentContentVersionRecord).save(content)
-    const change = await dataSource
-      .getRepository(WorldDocumentChangeRecord)
-      .findOneByOrFail({ changeSetId: 'human:integrity' })
-    change.status = 'staged'
-    await dataSource.getRepository(WorldDocumentChangeRecord).save(change)
+      const preview = await pruneUnreachableWorldDocumentObjects(dataSource, true)
+      assert.equal(preview.removedContentVersionCount, 1)
+      assert.equal(preview.removedTreeCount, 1)
+      assert.ok(
+        await dataSource
+          .getRepository(WorldDocumentContentVersionRecord)
+          .findOneBy({ id: orphanContentId })
+      )
 
-    const report = await inspectWorldDocumentHistory(dataSource)
-    const codes = new Set(report.issues.map((issue) => issue.code))
-    assert.equal(report.ok, false)
-    assert.equal(codes.has('CONTENT_HASH_MISMATCH'), true)
-    assert.equal(codes.has('CONTENT_ID_MISMATCH'), true)
-    assert.equal(codes.has('STAGED_CHANGESET_ALREADY_COMMITTED'), true)
-  } finally {
-    await dataSource.destroy()
+      const removed = await pruneUnreachableWorldDocumentObjects(dataSource, false)
+      assert.deepEqual(removed, {
+        dryRun: false,
+        removedTreeCount: 1,
+        removedContentVersionCount: 1
+      })
+      assert.equal(
+        await dataSource
+          .getRepository(WorldDocumentContentVersionRecord)
+          .findOneBy({ id: orphanContentId }),
+        null
+      )
+      assert.equal(
+        await dataSource
+          .getRepository(WorldDocumentTreeObjectRecord)
+          .findOneBy({ hash: orphanTreeHash }),
+        null
+      )
+      assert.equal((await inspectWorldDocumentHistory(dataSource)).ok, true)
+    } finally {
+      await dataSource.destroy()
+    }
   }
-})
+)
 
-sqliteTest('integrity cache is reused until a database trigger invalidates its generation', async () => {
+sqliteTest(
+  'version packages round-trip with hash validation and idempotent object import',
+  async () => {
+    const source = await createDataSource()
+    const target = await createDataSource()
+    try {
+      const documents = source.getRepository(WorldEntityDocumentRecord)
+      const original = await documents.save(
+        documents.create(documentState('doc-a', { contentHtml: '<p>portable</p>' }))
+      )
+      const baseline = await source.transaction((manager) =>
+        ensureWorldDocumentBaselineWithManager(manager, 'world-1')
+      )
+      await source.getRepository(WorldDocumentCheckpointRecord).save({
+        id: 'checkpoint:portable',
+        worldId: 'world-1',
+        commitId: baseline.id,
+        name: '可移植检查点',
+        note: ''
+      })
+      assert.equal(original.id, 'doc-a')
+      const versionPackage = await buildWorldDocumentVersionPackageWithDataSource(source, 'world-1')
+      assert.equal(
+        validateWorldDocumentVersionPackage(versionPackage, 'world-1').packageHash,
+        versionPackage.packageHash
+      )
+
+      const tampered = JSON.parse(JSON.stringify(versionPackage))
+      tampered.objects.contents[0].contentSource = 'tampered'
+      assert.throws(
+        () => validateWorldDocumentVersionPackage(tampered, 'world-1'),
+        /校验摘要不匹配/
+      )
+
+      const firstImport = await importWorldDocumentVersionPackageWithDataSource(
+        target,
+        versionPackage,
+        'world-1'
+      )
+      assert.equal(firstImport.imported.commits, 1)
+      assert.equal(firstImport.imported.contents, 1)
+      assert.equal(
+        (await target.getRepository(WorldEntityDocumentRecord).findOneByOrFail({ id: 'doc-a' }))
+          .contentHtml,
+        '<p>portable</p>'
+      )
+      assert.equal(
+        await target.getRepository(WorldDocumentBranchRecord).countBy({ worldId: 'world-1' }),
+        1
+      )
+
+      const secondImport = await importWorldDocumentVersionPackageWithDataSource(
+        target,
+        versionPackage,
+        'world-1'
+      )
+      assert.equal(secondImport.imported.commits, 0)
+      assert.equal(secondImport.skipped.commits, 1)
+      assert.equal(
+        await target.getRepository(WorldDocumentBranchRecord).countBy({ worldId: 'world-1' }),
+        1
+      )
+      assert.equal(
+        await target.getRepository(WorldDocumentCheckpointRecord).countBy({ worldId: 'world-1' }),
+        1
+      )
+    } finally {
+      await source.destroy()
+      await target.destroy()
+    }
+  }
+)
+
+sqliteTest(
+  'document history integrity inspection reports corrupted objects and change links',
+  async () => {
+    const dataSource = await createDataSource()
+    try {
+      const documents = dataSource.getRepository(WorldEntityDocumentRecord)
+      const document = await documents.save(documents.create(documentState('doc-a')))
+      await dataSource.transaction(async (manager) => {
+        await ensureWorldDocumentBaselineWithManager(manager, 'world-1')
+        const before = await manager
+          .getRepository(WorldEntityDocumentRecord)
+          .findOneByOrFail({ id: document.id })
+        const after = await manager
+          .getRepository(WorldEntityDocumentRecord)
+          .save(
+            manager
+              .getRepository(WorldEntityDocumentRecord)
+              .create({ ...before, contentHtml: '<p>next</p>', revision: 2 })
+          )
+        await stageWorldDocumentChangeWithManager(manager, {
+          changeSetId: 'human:integrity',
+          operation: 'update',
+          before,
+          after,
+          source: { format: 'html_editor', content: after.contentHtml }
+        })
+        await commitWorldDocumentChangeSetWithManager(manager, 'human:integrity', 'human')
+      })
+
+      const content = await dataSource.getRepository(WorldDocumentContentVersionRecord).findOne({
+        where: { documentId: document.id },
+        order: { createdAt: 'DESC' }
+      })
+      assert.ok(content)
+      content.contentSource = 'tampered'
+      await dataSource.getRepository(WorldDocumentContentVersionRecord).save(content)
+      const change = await dataSource
+        .getRepository(WorldDocumentChangeRecord)
+        .findOneByOrFail({ changeSetId: 'human:integrity' })
+      change.status = 'staged'
+      await dataSource.getRepository(WorldDocumentChangeRecord).save(change)
+
+      const report = await inspectWorldDocumentHistory(dataSource)
+      const codes = new Set(report.issues.map((issue) => issue.code))
+      assert.equal(report.ok, false)
+      assert.equal(codes.has('CONTENT_HASH_MISMATCH'), true)
+      assert.equal(codes.has('CONTENT_ID_MISMATCH'), true)
+      assert.equal(codes.has('STAGED_CHANGESET_ALREADY_COMMITTED'), true)
+    } finally {
+      await dataSource.destroy()
+    }
+  }
+)
+
+sqliteTest(
+  'integrity cache is reused until a database trigger invalidates its generation',
+  async () => {
+    const dataSource = await createDataSource()
+    try {
+      await runAppSchemaMigrations(dataSource)
+      const documents = dataSource.getRepository(WorldEntityDocumentRecord)
+      await documents.save(documents.create(documentState('doc-a')))
+      await dataSource.transaction((manager) =>
+        ensureWorldDocumentBaselineWithManager(manager, 'world-1')
+      )
+
+      const first = await getCachedWorldDocumentIntegrityReport(dataSource, 'world-1')
+      const cacheRepository = dataSource.getRepository(WorldDocumentIntegrityCacheRecord)
+      const cached = await cacheRepository.findOneByOrFail({ worldId: 'world-1' })
+      assert.equal(first.ok, true)
+      assert.equal(cached.verifiedGeneration, cached.generation)
+      assert.ok(cached.reportJson)
+      const verifiedAt = cached.verifiedAt?.toISOString()
+
+      const second = await getCachedWorldDocumentIntegrityReport(dataSource, 'world-1')
+      const reused = await cacheRepository.findOneByOrFail({ worldId: 'world-1' })
+      assert.deepEqual(second, first)
+      assert.equal(reused.verifiedAt?.toISOString(), verifiedAt)
+
+      const branchRepository = dataSource.getRepository(WorldDocumentBranchRecord)
+      const branch = await branchRepository.findOneByOrFail({ worldId: 'world-1', active: true })
+      branch.name = '主方案已重命名'
+      await branchRepository.save(branch)
+      const dirty = await cacheRepository.findOneByOrFail({ worldId: 'world-1' })
+      assert.ok(dirty.generation > dirty.verifiedGeneration)
+      assert.equal(dirty.reportJson, null)
+
+      const refreshed = await getCachedWorldDocumentIntegrityReport(dataSource, 'world-1')
+      const refreshedCache = await cacheRepository.findOneByOrFail({ worldId: 'world-1' })
+      assert.equal(refreshed.ok, true)
+      assert.equal(refreshedCache.verifiedGeneration, refreshedCache.generation)
+
+      const content = await dataSource
+        .getRepository(WorldDocumentContentVersionRecord)
+        .findOneByOrFail({ worldId: 'world-1' })
+      content.contentSource = 'tampered'
+      await dataSource.getRepository(WorldDocumentContentVersionRecord).save(content)
+      const corrupted = await getCachedWorldDocumentIntegrityReport(dataSource, 'world-1')
+      assert.equal(corrupted.ok, false)
+      assert.ok(corrupted.issues.some((issue) => issue.code === 'CONTENT_HASH_MISMATCH'))
+    } finally {
+      await dataSource.destroy()
+    }
+  }
+)
+
+sqliteTest('legacy ChangeRecord sources migrate to immutable content references', async () => {
   const dataSource = await createDataSource()
   try {
-    await runAppSchemaMigrations(dataSource)
-    const documents = dataSource.getRepository(WorldEntityDocumentRecord)
-    await documents.save(documents.create(documentState('doc-a')))
-    await dataSource.transaction((manager) =>
-      ensureWorldDocumentBaselineWithManager(manager, 'world-1')
+    const changes = dataSource.getRepository(WorldDocumentChangeRecord)
+    await changes.save(
+      changes.create({
+        id: 'legacy-change',
+        changeSetId: 'human:legacy',
+        worldId: 'world-1',
+        documentId: 'doc-a',
+        operation: 'update',
+        beforeStateJson: JSON.stringify({ ...documentState('doc-a'), revision: 1 }),
+        afterStateJson: JSON.stringify({ ...documentState('doc-a'), revision: 2 }),
+        beforeSourceFormat: 'markdown',
+        beforeContentSource: '# Before',
+        sourceFormat: 'markdown',
+        contentSource: '# After',
+        beforeContentVersionId: null,
+        afterContentVersionId: null,
+        summary: 'legacy edit',
+        status: 'staged',
+        commitId: null
+      })
     )
 
-    const first = await getCachedWorldDocumentIntegrityReport(dataSource, 'world-1')
-    const cacheRepository = dataSource.getRepository(WorldDocumentIntegrityCacheRecord)
-    const cached = await cacheRepository.findOneByOrFail({ worldId: 'world-1' })
-    assert.equal(first.ok, true)
-    assert.equal(cached.verifiedGeneration, cached.generation)
-    assert.ok(cached.reportJson)
-    const verifiedAt = cached.verifiedAt?.toISOString()
+    await dataSource.query('DELETE FROM app_schema_migration WHERE id = ?', [
+      '20260819_world_document_change_content_refs'
+    ])
+    await runAppSchemaMigrations(dataSource)
 
-    const second = await getCachedWorldDocumentIntegrityReport(dataSource, 'world-1')
-    const reused = await cacheRepository.findOneByOrFail({ worldId: 'world-1' })
-    assert.deepEqual(second, first)
-    assert.equal(reused.verifiedAt?.toISOString(), verifiedAt)
-
-    const branchRepository = dataSource.getRepository(WorldDocumentBranchRecord)
-    const branch = await branchRepository.findOneByOrFail({ worldId: 'world-1', active: true })
-    branch.name = '主方案已重命名'
-    await branchRepository.save(branch)
-    const dirty = await cacheRepository.findOneByOrFail({ worldId: 'world-1' })
-    assert.ok(dirty.generation > dirty.verifiedGeneration)
-    assert.equal(dirty.reportJson, null)
-
-    const refreshed = await getCachedWorldDocumentIntegrityReport(dataSource, 'world-1')
-    const refreshedCache = await cacheRepository.findOneByOrFail({ worldId: 'world-1' })
-    assert.equal(refreshed.ok, true)
-    assert.equal(refreshedCache.verifiedGeneration, refreshedCache.generation)
-
-    const content = await dataSource
-      .getRepository(WorldDocumentContentVersionRecord)
-      .findOneByOrFail({ worldId: 'world-1' })
-    content.contentSource = 'tampered'
-    await dataSource.getRepository(WorldDocumentContentVersionRecord).save(content)
-    const corrupted = await getCachedWorldDocumentIntegrityReport(dataSource, 'world-1')
-    assert.equal(corrupted.ok, false)
-    assert.ok(corrupted.issues.some((issue) => issue.code === 'CONTENT_HASH_MISMATCH'))
+    const migrated = await changes.findOneByOrFail({ id: 'legacy-change' })
+    assert.ok(migrated.beforeContentVersionId)
+    assert.ok(migrated.afterContentVersionId)
+    assert.equal(migrated.beforeSourceFormat, null)
+    assert.equal(migrated.beforeContentSource, null)
+    assert.equal(migrated.sourceFormat, null)
+    assert.equal(migrated.contentSource, null)
+    const contents = await dataSource.getRepository(WorldDocumentContentVersionRecord).findBy({
+      id: In([migrated.beforeContentVersionId!, migrated.afterContentVersionId!])
+    })
+    assert.deepEqual(contents.map((content) => content.contentSource).sort(), [
+      '# After',
+      '# Before'
+    ])
   } finally {
     await dataSource.destroy()
   }
@@ -1244,10 +1396,9 @@ sqliteTest('document history schema migration is recorded and idempotent', async
     await runAppSchemaMigrations(dataSource)
     await runAppSchemaMigrations(dataSource)
 
-    const applied = (await dataSource.query(
-      'SELECT id FROM app_schema_migration WHERE id = ?',
-      ['20260818_world_document_history_indexes']
-    )) as Array<{ id: string }>
+    const applied = (await dataSource.query('SELECT id FROM app_schema_migration WHERE id = ?', [
+      '20260818_world_document_history_indexes'
+    ])) as Array<{ id: string }>
     const indexes = (await dataSource.query(
       "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'world_document_change'"
     )) as Array<{ name: string }>
@@ -1255,6 +1406,105 @@ sqliteTest('document history schema migration is recorded and idempotent', async
     assert.equal(applied.length, 1)
     assert.equal(names.has('IDX_world_document_change_status_updated'), true)
     assert.equal(names.has('IDX_world_document_change_commit'), true)
+  } finally {
+    await dataSource.destroy()
+  }
+})
+
+sqliteTest(
+  'explicit migrations create the complete entity schema without synchronize',
+  async () => {
+    const dataSource = new DataSource({
+      type: 'better-sqlite3',
+      database: ':memory:',
+      synchronize: false,
+      entities: applicationEntities
+    })
+    await dataSource.initialize()
+    try {
+      await runAppSchemaMigrations(dataSource)
+      const tables = (await dataSource.query(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+      )) as Array<{ name: string }>
+      const tableNames = new Set(tables.map((table) => table.name))
+      for (const metadata of dataSource.entityMetadatas) {
+        assert.equal(
+          tableNames.has(metadata.tableName),
+          true,
+          `missing table ${metadata.tableName}`
+        )
+      }
+      const schemaDiff = await dataSource.driver.createSchemaBuilder().log()
+      assert.deepEqual(
+        schemaDiff.upQueries.map((query) => query.query),
+        [],
+        'entity metadata changed without an explicit schema migration'
+      )
+      const baseline = (await dataSource.query('SELECT id FROM app_schema_migration WHERE id = ?', [
+        '20260819_application_schema_baseline'
+      ])) as Array<{ id: string }>
+      assert.equal(baseline.length, 1)
+    } finally {
+      await dataSource.destroy()
+    }
+  }
+)
+
+sqliteTest('explicit migrations upgrade a pre-baseline database without losing rows', async () => {
+  const dataSource = new DataSource({
+    type: 'better-sqlite3',
+    database: ':memory:',
+    synchronize: false,
+    entities: applicationEntities
+  })
+  await dataSource.initialize()
+  try {
+    for (const sql of APPLICATION_SCHEMA_BASELINE_TABLE_SQL) {
+      if (!sql.includes('"world_document_change"')) await dataSource.query(sql)
+    }
+    await dataSource.query(`
+      CREATE TABLE world_document_change (
+        id text PRIMARY KEY NOT NULL, changeSetId text NOT NULL, worldId text NOT NULL,
+        documentId text NOT NULL, operation text NOT NULL, beforeStateJson text,
+        afterStateJson text, beforeSourceFormat text, beforeContentSource text,
+        sourceFormat text, contentSource text, summary text NOT NULL DEFAULT '',
+        status text NOT NULL DEFAULT 'staged', commitId text,
+        createdAt datetime NOT NULL DEFAULT (datetime('now')),
+        updatedAt datetime NOT NULL DEFAULT (datetime('now'))
+      )
+    `)
+    await dataSource.query(
+      `INSERT INTO world_document_change (
+        id, changeSetId, worldId, documentId, operation, beforeStateJson, afterStateJson,
+        beforeSourceFormat, beforeContentSource, sourceFormat, contentSource, summary
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'old-change',
+        'human:old',
+        'world-1',
+        'doc-a',
+        'update',
+        JSON.stringify({ id: 'doc-a', revision: 1 }),
+        JSON.stringify({ id: 'doc-a', revision: 2 }),
+        'markdown',
+        '# Before',
+        'markdown',
+        '# After',
+        'old edit'
+      ]
+    )
+
+    await runAppSchemaMigrations(dataSource)
+
+    const migrated = await dataSource.getRepository(WorldDocumentChangeRecord).findOneByOrFail({
+      id: 'old-change'
+    })
+    assert.ok(migrated.beforeContentVersionId)
+    assert.ok(migrated.afterContentVersionId)
+    assert.equal(migrated.beforeContentSource, null)
+    assert.equal(migrated.contentSource, null)
+    const schemaDiff = await dataSource.driver.createSchemaBuilder().log()
+    assert.equal(schemaDiff.upQueries.length, 0)
   } finally {
     await dataSource.destroy()
   }

@@ -45,6 +45,8 @@ import {
   moveWorldDocumentTool,
   readWorldDocumentTool,
   renameWorldDocumentTool,
+  replaceWorldDocumentSectionTool,
+  replaceWorldDocumentTextTool,
   updateWorldDocumentTool
 } from '../tools/document/worldDocumentTools'
 import {
@@ -527,6 +529,16 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
       tool: updateWorldDocumentTool,
       access: 'write' as const,
       summary: '按 revision 更新文档标题或完整正文。'
+    },
+    {
+      tool: replaceWorldDocumentTextTool,
+      access: 'write' as const,
+      summary: '通过唯一 Markdown 原文安全地局部替换。'
+    },
+    {
+      tool: replaceWorldDocumentSectionTool,
+      access: 'write' as const,
+      summary: '通过标题路径和章节 hash 安全地改写章节。'
     },
     {
       tool: renameWorldDocumentTool,

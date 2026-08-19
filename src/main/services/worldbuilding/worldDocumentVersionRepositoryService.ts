@@ -6,6 +6,7 @@ import { WorldDocumentTreeObjectRecord } from '@share/entity/database/WorldDocum
 import { WorldDocumentChangeRecord } from '@share/entity/database/WorldDocumentChangeRecord'
 import { WorldDocumentCheckpointRecord } from '@share/entity/database/WorldDocumentCheckpointRecord'
 import { WorldDocumentBranchRecord } from '@share/entity/database/WorldDocumentBranchRecord'
+import { WorldDocumentContentVersionRecord } from '@share/entity/database/WorldDocumentContentVersionRecord'
 import {
   checkoutWorldDocumentCommitWithManager,
   applyWorldDocumentCommitWithManager,
@@ -69,11 +70,24 @@ const parseState = (value: string | null): WorldDocumentHistoryNodeState | undef
   }
 }
 
-const toChangePayload = (change: WorldDocumentChangeRecord): WorldDocumentCommitChangePayload => {
-  const beforeSource = change.beforeSourceFormat
+const toChangePayload = (
+  change: WorldDocumentChangeRecord,
+  contentById = new Map<string, WorldDocumentContentVersionRecord>()
+): WorldDocumentCommitChangePayload => {
+  const beforeContent = change.beforeContentVersionId
+    ? contentById.get(change.beforeContentVersionId)
+    : undefined
+  const afterContent = change.afterContentVersionId
+    ? contentById.get(change.afterContentVersionId)
+    : undefined
+  const beforeSource = beforeContent
+    ? { format: beforeContent.sourceFormat, content: beforeContent.contentSource }
+    : change.beforeSourceFormat
     ? { format: change.beforeSourceFormat, content: change.beforeContentSource ?? '' }
     : null
-  const afterSource = change.sourceFormat
+  const afterSource = afterContent
+    ? { format: afterContent.sourceFormat, content: afterContent.contentSource }
+    : change.sourceFormat
     ? { format: change.sourceFormat, content: change.contentSource ?? '' }
     : null
   const contentDiff =
@@ -228,13 +242,26 @@ export const getWorldDocumentCommitDetail = async (
     where: { commitId: commit.id },
     order: { createdAt: 'ASC' }
   })
+  const contentIds = [
+    ...new Set(
+      changes.flatMap((change) =>
+        [change.beforeContentVersionId, change.afterContentVersionId].filter(Boolean) as string[]
+      )
+    )
+  ]
+  const contents = contentIds.length
+    ? await AppDataSource.getRepository(WorldDocumentContentVersionRecord).findBy({
+        id: In(contentIds)
+      })
+    : []
+  const contentById = new Map(contents.map((content) => [content.id, content]))
   const documents = await AppDataSource.transaction((manager) =>
     readTreeDocuments(manager, commit.worldId, commit.rootTreeHash)
   )
   return {
     commit: toCommitSummary(commit, changes),
     documents: [...documents.values()].map(snapshotState),
-    changes: changes.map(toChangePayload)
+    changes: changes.map((change) => toChangePayload(change, contentById))
   }
 }
 
