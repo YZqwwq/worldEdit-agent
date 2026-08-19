@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-本专题是当前最高优先级。Git 式最小版本基座主体已经完成；不预先建设分支、合并、标签等完整 Git 能力。
+Git 式版本基座及应用所需的方案分支、合并、检查点和恢复能力已经完成。后续不继续复制完整 Git，而是优先保证历史准确性、规模性能和 Agent 编辑能力。
 
 Agent 统一以 Markdown 读取和写作文档。版本历史与 Diff 只保存和比较用户实际编辑的源数据，不保存每次 Runtime 为渲染生成的 HTML。编辑态最终采用 Markdown 还是其他编辑器源格式，实施前结合现有数据再确认。
 
@@ -126,6 +126,14 @@ npm run test:integration:electron
 
 ChangeSet 快照隔离已经完成：新 Commit 只由 HEAD Tree 与当前 ChangeSet 派生，业务写入前确保 Baseline，TreeEntry 保存独立 revision；未提交的其他工作态不会混入当前提交，较晚封口的旧 ChangeSet 不会回退父 Tree 中更新的同一文档。
 
+#### P0：活动方案修改前来源准确性（已完成）
+
+- 修改前正文从当前活动方案 HEAD 的不可变 Tree/Content 读取，不再按 ContentVersion 创建时间猜测。
+- HEAD 来源必须与当前工作区正文一致；工作区确实领先于 HEAD 时，使用当前编辑态作为安全回退，不借用其他方案内容。
+- 已增加跨方案测试，确保另一方案较新的 ContentVersion 不会污染当前方案的历史 Diff。
+
+用户影响：切换设定方案后继续编辑时，版本 Diff 不会错误显示另一方案的正文。维护影响：ChangeRecord 的修改前来源与提交父树保持一致，后续 provenance 和局部编辑可以依赖该边界。
+
 进一步完成的基座加固：
 
 - ChangeSet 一旦形成 Commit 即永久封口，迟到写入会让同一事务中的文档修改回滚，并返回 `CHANGESET_CLOSED`。
@@ -152,12 +160,14 @@ ChangeSet 快照隔离已经完成：新 Commit 只由 HEAD Tree 与当前 Chang
 
 #### P1：性能与存储成本
 
-- Commit 和整库恢复仍接近全量 O(N)，并存在逐文档、逐 TreeObject 的 N+1 查询；数百至上千文档时可能造成主进程卡顿。先批量读取，再根据实测决定是否实现增量路径重建。
+- 完整性结果已经加入持久化 generation 缓存。Commit、Change、Content、Branch、Checkpoint 的数据库写入通过触发器自动失效；Tree 被修改或删除时全局失效。历史未变化时不再重复执行完整扫描，显式检查仍保留完整 `fsck`。
+- 已建立 Electron ABI 下 10/100/1000 文档基准。当前 macOS ARM64 的 1000 文档结果：基线约 111ms、单文档提交约 47ms、恢复约 71ms、完整性冷检查约 11ms、缓存命中约 0.05ms。
+- 当前数据不支持立即引入常驻数据库工作线程：正常提交尚未达到明显阻塞等级，而跨线程事务、按世界队列和关闭恢复协议成本较高。文档规模或实测提交稳定超过约 100ms 后再评估；基线导入可以继续后台化，但不是当前交互高频路径。
 - ChangeRecord 与 ContentVersion 重复保存前后正文，长期历史约保存 2～3 份内容；后续改为引用前后 ContentVersion。
-- ChangeRecord 缺少 `commitId`、独立 `status` 索引；提交序号采用“查询最大值再加一”且没有唯一冲突重试。
+- ChangeRecord 的 `commitId`、`status` 索引已经完成。提交序号仍采用“查询最大值再加一”且没有唯一冲突重试。
 - 删除后恢复的 revision 不保证严格单调；正式发布前仍需 TypeORM 显式迁移，不能长期依赖 `synchronize`。
 
-验收：增加 10/100/1000 文档的提交与恢复基准；历史增长后详情和 staged 查询不退化为全表扫描；revision 与 sequence 冲突有确定处理。
+下一步：ChangeRecord 改为 `beforeContentVersionId` / `afterContentVersionId` 引用，停止新正文重复写入；随后补齐全库基线迁移，在开发、测试和用户环境共同关闭 `synchronize`。
 
 ## 应用专用 Git 演进
 

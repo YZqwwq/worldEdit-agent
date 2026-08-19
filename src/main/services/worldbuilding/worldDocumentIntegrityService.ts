@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
-import { In, type DataSource } from 'typeorm'
+import { In, type DataSource, type EntityManager } from 'typeorm'
 import { WorldDocumentChangeRecord } from '@share/entity/database/WorldDocumentChangeRecord'
 import { WorldDocumentCommitRecord } from '@share/entity/database/WorldDocumentCommitRecord'
 import { WorldDocumentBranchRecord } from '@share/entity/database/WorldDocumentBranchRecord'
 import { WorldDocumentContentVersionRecord } from '@share/entity/database/WorldDocumentContentVersionRecord'
 import { WorldDocumentTreeObjectRecord } from '@share/entity/database/WorldDocumentTreeObjectRecord'
+import { WorldDocumentIntegrityCacheRecord } from '@share/entity/database/WorldDocumentIntegrityCacheRecord'
 import type {
   WorldDocumentIntegrityIssue,
   WorldDocumentIntegrityReport,
@@ -55,7 +56,7 @@ const expectedContentId = (content: WorldDocumentContentVersionRecord): string =
   )}`
 
 export const inspectWorldDocumentHistory = async (
-  dataSource: DataSource,
+  dataSource: DataSource | EntityManager,
   worldId?: string
 ): Promise<WorldDocumentIntegrityReport> => {
   const normalizedWorldId = String(worldId || '').trim()
@@ -341,4 +342,35 @@ export const inspectWorldDocumentHistory = async (
     },
     issues
   }
+}
+
+export const getCachedWorldDocumentIntegrityReport = async (
+  dataSource: DataSource,
+  worldId: string
+): Promise<WorldDocumentIntegrityReport> => {
+  const normalizedWorldId = String(worldId || '').trim()
+  if (!normalizedWorldId) throw new Error('worldId is required')
+  return dataSource.transaction(async (manager) => {
+    const repository = manager.getRepository(WorldDocumentIntegrityCacheRecord)
+    let cache = await repository.findOneBy({ worldId: normalizedWorldId })
+    if (
+      cache?.reportJson &&
+      cache.verifiedGeneration === cache.generation
+    ) {
+      return JSON.parse(cache.reportJson) as WorldDocumentIntegrityReport
+    }
+    const report = await inspectWorldDocumentHistory(manager, normalizedWorldId)
+    cache ??= repository.create({
+      worldId: normalizedWorldId,
+      generation: 0,
+      verifiedGeneration: -1,
+      reportJson: null,
+      verifiedAt: null
+    })
+    cache.verifiedGeneration = cache.generation
+    cache.reportJson = JSON.stringify(report)
+    cache.verifiedAt = new Date()
+    await repository.save(cache)
+    return report
+  })
 }

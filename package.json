@@ -44,6 +44,8 @@
     "test:agent-core": "npm run test:recall && npm run test:save-coordinator && npm run test:tool-result && npm run test:turn-lifecycle && npm run test:tool-contract && npm run test:tool-registry && npm run test:tool-error && npm run test:tool-execution && npm run test:tool-effect && npm run test:memory-archive && npm run test:persona-mood && npm run test:turn-workspace && npm run test:turn-version && npm run test:agent-scenario",
     "test:integration:preflight": "node scripts/test/run-electron-test.cjs scripts/test/electron-native-preflight.cjs",
     "test:integration:electron": "node scripts/test/run-electron-suite.cjs all",
+    "build:benchmark:document-version": "esbuild src/main/services/aiservice/testarea/benchmarks/worldDocumentVersion.bench.ts --bundle --platform=node --format=cjs --tsconfig=tsconfig.node.json --external:better-sqlite3 --alias:@share=./src/share --outfile=src/main/services/aiservice/testarea/.generated/world-document-version-bench.cjs",
+    "benchmark:document-version:electron": "npm run build:benchmark:document-version && node scripts/test/run-electron-test.cjs src/main/services/aiservice/testarea/.generated/world-document-version-bench.cjs",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",

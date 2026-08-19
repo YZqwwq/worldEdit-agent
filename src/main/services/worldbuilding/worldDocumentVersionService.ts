@@ -121,29 +121,64 @@ const resolveOperation = (
   return current.operation === input.operation ? current.operation : 'mixed'
 }
 
-const latestContentVersion = async (
+const readDocumentSourceFromTree = async (
   manager: EntityManager,
-  documentId: string
-): Promise<WorldDocumentContentVersionRecord | null> =>
-  manager.getRepository(WorldDocumentContentVersionRecord).findOne({
-    where: { documentId },
-    order: { createdAt: 'DESC' }
+  treeHash: string,
+  documentId: string,
+  visited = new Set<string>()
+): Promise<WorldDocumentEditSource | null> => {
+  if (visited.has(treeHash)) return null
+  visited.add(treeHash)
+  const tree = await manager.getRepository(WorldDocumentTreeObjectRecord).findOneBy({
+    hash: treeHash
   })
+  if (!tree) return null
+  const entries = JSON.parse(tree.entriesJson) as TreeEntry[]
+  const entry = entries.find((candidate) => candidate.documentId === documentId)
+  if (entry) {
+    const content = await manager
+      .getRepository(WorldDocumentContentVersionRecord)
+      .findOneBy({ id: entry.contentVersionId })
+    return content
+      ? { format: content.sourceFormat, content: content.contentSource }
+      : null
+  }
+  for (const candidate of entries) {
+    if (!candidate.childrenTreeHash) continue
+    const source = await readDocumentSourceFromTree(
+      manager,
+      candidate.childrenTreeHash,
+      documentId,
+      visited
+    )
+    if (source) return source
+  }
+  return null
+}
 
 const resolveBeforeSource = async (
   manager: EntityManager,
   before: WorldEntityDocumentRecord | null
 ): Promise<WorldDocumentEditSource | null> => {
   if (!before) return null
-  const previous = await latestContentVersion(manager, before.id)
-  if (previous) {
-    return {
-      format: previous.sourceFormat,
-      content: previous.contentSource
-    }
+  const branch = await manager.getRepository(WorldDocumentBranchRecord).findOneBy({
+    worldId: before.worldId,
+    active: true
+  })
+  const head = branch?.headCommitId
+    ? await manager.getRepository(WorldDocumentCommitRecord).findOneBy({ id: branch.headCommitId })
+    : null
+  const source = head
+    ? await readDocumentSourceFromTree(manager, head.rootTreeHash, before.id)
+    : null
+  if (source) {
+    const storedHtml =
+      source.format === 'markdown' ? worldDocumentMarkdownToHtml(source.content) : source.content
+    if (storedHtml === (before.contentHtml || '')) return source
   }
-  // Existing installations only have editor HTML. It is retained once as the
-  // migration baseline; later Agent/runtime HTML is never used as a Diff source.
+  // The working copy can legitimately be ahead of HEAD while another history
+  // session is still staged. Its exact editor source is safer than borrowing a
+  // ContentVersion from another branch.
   return { format: 'html_editor', content: before.contentHtml || '' }
 }
 

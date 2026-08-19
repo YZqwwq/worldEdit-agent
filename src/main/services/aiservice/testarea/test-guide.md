@@ -35,6 +35,9 @@ node scripts/test/run-electron-suite.cjs document-version
 
 # 查看统一 runner 支持的套件
 node scripts/test/run-electron-suite.cjs --list
+
+# 记录 10/100/1000 文档的版本性能，不设置机器相关的硬阈值
+npm run benchmark:document-version:electron
 ```
 
 Electron 集成入口由 `scripts/test/run-electron-suite.cjs` 维护平台无关的测试清单，`run-electron-test.cjs` 解析当前平台的 Electron 可执行文件并注入环境变量。运行完整矩阵前会执行原生环境预检，输出平台、架构、Electron、Node、ABI modules 与 SQLite 版本，并实际打开一次内存 SQLite。
@@ -52,6 +55,7 @@ macOS 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci`
 - `support/`：跨平台测试断言与共享辅助代码。
 - `probes/*.cjs`：依赖真实 API 的手动探针；不是稳定回归。
 - `.generated/*.cjs`：测试命令生成的临时 CommonJS bundle，可随时删除，禁止手工修改和提交。
+- `benchmarks/*.bench.ts`：使用真实 Electron/SQLite ABI 的手动性能基准，不进入普通回归硬阈值。
 
 测试 bundle 不再生成到仓库根目录。历史 `.tmp-*.cjs` 均为下表测试源码的编译副本，不是独立测试案例。
 

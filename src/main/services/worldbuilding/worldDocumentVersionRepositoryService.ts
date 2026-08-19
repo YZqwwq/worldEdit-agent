@@ -18,6 +18,7 @@ import {
 } from './worldDocumentVersionService'
 import { buildWorldDocumentContentDiff } from './worldDocumentDiffService'
 import {
+  getCachedWorldDocumentIntegrityReport,
   inspectWorldDocumentHistory as inspectWorldDocumentHistoryWithDataSource,
   pruneUnreachableWorldDocumentObjects as pruneUnreachableWorldDocumentObjectsWithDataSource
 } from './worldDocumentIntegrityService'
@@ -416,7 +417,7 @@ export const getWorldDocumentVersionStatus = async (
     worldId: normalizedWorldId,
     status: 'staged'
   })
-  const integrity = await inspectWorldDocumentHistoryWithDataSource(AppDataSource, normalizedWorldId)
+  const integrity = await getCachedWorldDocumentIntegrityReport(AppDataSource, normalizedWorldId)
   return {
     worldId: normalizedWorldId,
     head: head ? await getCommitSummary(head) : undefined,

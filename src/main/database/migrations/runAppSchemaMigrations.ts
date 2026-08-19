@@ -109,6 +109,62 @@ const migrations: AppSchemaMigration[] = [
         )
       }
     }
+  },
+  {
+    id: '20260819_world_document_integrity_cache',
+    up: async (manager) => {
+      await manager.query(`
+        CREATE TABLE IF NOT EXISTS world_document_integrity_cache (
+          worldId text PRIMARY KEY NOT NULL,
+          generation integer NOT NULL DEFAULT 0,
+          verifiedGeneration integer NOT NULL DEFAULT -1,
+          reportJson text NULL,
+          verifiedAt datetime NULL,
+          updatedAt datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `)
+      const directTables = [
+        'world_document_content_version',
+        'world_document_commit',
+        'world_document_change',
+        'world_document_branch',
+        'world_document_checkpoint'
+      ]
+      for (const table of directTables) {
+        for (const operation of ['INSERT', 'UPDATE', 'DELETE'] as const) {
+          const row = operation === 'DELETE' ? 'OLD' : 'NEW'
+          const trigger = `TRG_${table}_integrity_${operation.toLowerCase()}`
+          await manager.query(`
+            CREATE TRIGGER IF NOT EXISTS ${trigger}
+            AFTER ${operation} ON ${table}
+            BEGIN
+              INSERT INTO world_document_integrity_cache (
+                worldId, generation, verifiedGeneration, reportJson, verifiedAt, updatedAt
+              ) VALUES (${row}.worldId, 1, -1, NULL, NULL, datetime('now'))
+              ON CONFLICT(worldId) DO UPDATE SET
+                generation = generation + 1,
+                reportJson = NULL,
+                verifiedAt = NULL,
+                updatedAt = datetime('now');
+            END
+          `)
+        }
+      }
+      for (const operation of ['UPDATE', 'DELETE'] as const) {
+        const trigger = `TRG_world_document_tree_object_integrity_${operation.toLowerCase()}`
+        await manager.query(`
+          CREATE TRIGGER IF NOT EXISTS ${trigger}
+          AFTER ${operation} ON world_document_tree_object
+          BEGIN
+            UPDATE world_document_integrity_cache SET
+              generation = generation + 1,
+              reportJson = NULL,
+              verifiedAt = NULL,
+              updatedAt = datetime('now');
+          END
+        `)
+      }
+    }
   }
 ]
 

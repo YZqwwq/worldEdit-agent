@@ -34,6 +34,7 @@ import { WorldDocumentCommitRecord } from '../../share/entity/database/WorldDocu
 import { WorldDocumentChangeRecord } from '../../share/entity/database/WorldDocumentChangeRecord'
 import { WorldDocumentCheckpointRecord } from '../../share/entity/database/WorldDocumentCheckpointRecord'
 import { WorldDocumentBranchRecord } from '../../share/entity/database/WorldDocumentBranchRecord'
+import { WorldDocumentIntegrityCacheRecord } from '../../share/entity/database/WorldDocumentIntegrityCacheRecord'
 import { migrateWorldEntityDocuments } from './migrations/migrateWorldEntityDocuments'
 import { runAppSchemaMigrations } from './migrations/runAppSchemaMigrations'
 
@@ -77,6 +78,7 @@ export const AppDataSource = new DataSource({
     WorldDocumentChangeRecord,
     WorldDocumentCheckpointRecord,
     WorldDocumentBranchRecord,
+    WorldDocumentIntegrityCacheRecord,
     CharacterImpressionRecord,
     ToolUsageStatsRecord
   ],
