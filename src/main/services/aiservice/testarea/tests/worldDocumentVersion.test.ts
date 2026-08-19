@@ -554,7 +554,7 @@ sqliteTest('a late stale change set cannot roll a newer parent tree backward', a
   }
 })
 
-sqliteTest('startup commits only human and terminal Agent document change sets', async () => {
+sqliteTest('startup preserves human worktrees and commits only terminal Agent change sets', async () => {
   const dataSource = await createDataSource()
   try {
     const documents = dataSource.getRepository(WorldEntityDocumentRecord)
@@ -642,7 +642,7 @@ sqliteTest('startup commits only human and terminal Agent document change sets',
 
     const result = await reconcilePendingWorldDocumentChangeSetsWithDataSource(dataSource)
     assert.deepEqual(result, {
-      committedHuman: ['human:session-1'],
+      deferredHuman: ['human:session-1'],
       committedTerminalAgent: ['turn:terminal'],
       deferredActiveAgent: ['turn:active'],
       deferredUnowned: ['turn:orphan']
@@ -655,12 +655,30 @@ sqliteTest('startup commits only human and terminal Agent document change sets',
         })
       ).map((change) => [change.changeSetId, change.status])
     )
-    assert.equal(statuses.get('human:session-1'), 'committed')
+    assert.equal(statuses.get('human:session-1'), 'staged')
     assert.equal(statuses.get('turn:terminal'), 'committed')
     assert.equal(statuses.get('turn:active'), 'staged')
     assert.equal(statuses.get('turn:orphan'), 'staged')
     assert.equal((await changeSets.findOneByOrFail({ id: 'turn:terminal' })).lifecycle, 'sealed')
     assert.equal((await changeSets.findOneByOrFail({ id: 'turn:active' })).lifecycle, 'open')
+
+    const [manualCommit] = await dataSource.transaction((manager) =>
+      commitWorldDocumentChangeSetWithManager(
+        manager,
+        'human:session-1',
+        'human',
+        '用户确认的版本'
+      )
+    )
+    assert.equal(manualCommit.summary, '用户确认的版本')
+    assert.equal(
+      (
+        await dataSource.getRepository(WorldDocumentChangeRecord).findOneByOrFail({
+          changeSetId: 'human:session-1'
+        })
+      ).status,
+      'committed'
+    )
   } finally {
     await dataSource.destroy()
   }

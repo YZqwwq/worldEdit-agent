@@ -48,7 +48,7 @@ macOS 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci`
 
 当前统一套件：`tool-effect`、`document-version`、`turn-version`、`tool-effect-recovery`、`turn-recovery`。
 
-`document-version` 覆盖跨任务隔离、启动恢复和历史完整性：未提交的其他文档工作态不能进入当前提交；较晚封口的旧 ChangeSet 不能回退父 Tree 中 revision 更高的同一文档；启动时只有人工会话和终态 Agent 会封口，运行中与无归属 ChangeSet 保持暂存。已封口 ChangeSet 拒绝迟到写入，历史源与工作区内容必须一致，恢复包含 schemaVersion，并通过应用版 `fsck` 检查对象哈希、提交图和 ChangeRecord 引用。选择性恢复只影响勾选文档，目录会扩展到后代；独立设定方案维护各自 HEAD，三方合并记录双父提交，Markdown 非重叠修改可自动合并，重叠修改必须显式解决；撤销和摘取只创建新提交，不重写旧历史。对象 GC 只删除全局不可达 Tree/Content；版本包覆盖整体摘要、篡改拒绝、导入恢复和重复导入幂等。迁移账本与历史索引具备幂等测试。
+`document-version` 覆盖跨任务隔离、启动恢复和历史完整性：未提交的其他文档工作态不能进入当前提交；较晚封口的旧 ChangeSet 不能回退父 Tree 中 revision 更高的同一文档；启动时人工工作区保持暂存，只有终态 Agent ChangeSet 会自动封口，运行中与无归属 ChangeSet 同样保持暂存。人工工作区必须由用户显式创建版本，并允许使用用户提供的版本说明。已封口 ChangeSet 拒绝迟到写入，历史源与工作区内容必须一致，恢复包含 schemaVersion，并通过应用版 `fsck` 检查对象哈希、提交图和 ChangeRecord 引用。选择性恢复只影响勾选文档，目录会扩展到后代；独立设定方案维护各自 HEAD，三方合并记录双父提交，Markdown 非重叠修改可自动合并，重叠修改必须显式解决；撤销和摘取只创建新提交，不重写旧历史。对象 GC 只删除全局不可达 Tree/Content；版本包覆盖整体摘要、篡改拒绝、导入恢复和重复导入幂等。迁移账本与历史索引具备幂等测试。
 
 ## 文件组织
 

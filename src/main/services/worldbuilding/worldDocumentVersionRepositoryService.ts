@@ -164,10 +164,11 @@ const getCommitSummary = async (
 
 export const commitWorldDocumentChangeSet = (
   changeSetId: string,
-  origin: WorldDocumentCommitRecord['origin'] = 'human'
+  origin: WorldDocumentCommitRecord['origin'] = 'human',
+  summary?: string
 ): Promise<WorldDocumentCommitRecord[]> =>
   AppDataSource.transaction((manager) =>
-    commitWorldDocumentChangeSetWithManager(manager, changeSetId, origin)
+    commitWorldDocumentChangeSetWithManager(manager, changeSetId, origin, summary)
   )
 
 export const initializeWorldDocumentHistory = async (

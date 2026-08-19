@@ -16,6 +16,7 @@ import type {
   WorldPayload
 } from '@share/cache/worldbuilding/worldbuilding'
 import type {
+  CommitWorldEntityDocumentHistorySessionInput,
   CreateWorldEntityDocumentInput,
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
@@ -141,8 +142,10 @@ export const worldbuildingClientService = {
     return window.api.deleteWorldEntityDocument(input)
   },
 
-  commitWorldEntityDocumentHistorySession(sessionId: string): Promise<void> {
-    return window.api.commitWorldEntityDocumentHistorySession(sessionId)
+  commitWorldEntityDocumentHistorySession(
+    input: CommitWorldEntityDocumentHistorySessionInput
+  ): Promise<void> {
+    return window.api.commitWorldEntityDocumentHistorySession(input)
   },
 
   initializeWorldDocumentHistory(worldId: string): Promise<WorldDocumentCommitSummary> {

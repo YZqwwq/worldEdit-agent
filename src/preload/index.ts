@@ -33,6 +33,7 @@ import type {
   WorldbuildingSchemaCatalogPayload
 } from '../share/cache/worldbuilding/worldbuilding'
 import type {
+  CommitWorldEntityDocumentHistorySessionInput,
   CreateWorldEntityDocumentInput,
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
@@ -197,7 +198,9 @@ type Api = {
     input: MoveWorldEntityDocumentInput
   ) => Promise<WorldEntityDocumentPayload>
   deleteWorldEntityDocument: (input: DeleteWorldEntityDocumentInput) => Promise<void>
-  commitWorldEntityDocumentHistorySession: (sessionId: string) => Promise<void>
+  commitWorldEntityDocumentHistorySession: (
+    input: CommitWorldEntityDocumentHistorySessionInput
+  ) => Promise<void>
   initializeWorldDocumentHistory: (worldId: string) => Promise<WorldDocumentCommitSummary>
   listWorldDocumentCommitHistory: (
     worldId: string,
@@ -312,8 +315,8 @@ const api: Api = {
   updateWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:update', input),
   moveWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:move', input),
   deleteWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:delete', input),
-  commitWorldEntityDocumentHistorySession: (sessionId) =>
-    ipcRenderer.invoke('worldEntityDocument:commitHistorySession', sessionId),
+  commitWorldEntityDocumentHistorySession: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:commitHistorySession', input),
   initializeWorldDocumentHistory: (worldId) =>
     ipcRenderer.invoke('worldEntityDocument:history:initialize', worldId),
   listWorldDocumentCommitHistory: (worldId, limit) =>

@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-  SerialSaveCoordinator,
-  SerialSessionCommitter
-} from '../../../../../renderer/src/services/serialSaveCoordinator'
+import { SerialSaveCoordinator } from '../../../../../renderer/src/services/serialSaveCoordinator'
 
 type Snapshot = {
   signature: string
@@ -53,7 +50,6 @@ test('concurrent save requests share the active persistence operation', async ()
   assert.equal(savedSignature, current.signature)
   assert.equal(coordinator.isSaving, false)
 })
-
 test('flush persists edits that arrive while an earlier save is running', async () => {
   const coordinator = new SerialSaveCoordinator<Snapshot>()
   const firstSaveGate = deferred()
@@ -103,46 +99,4 @@ test('a failed save leaves the snapshot dirty and allows a later retry', async (
   shouldFail = false
   await coordinator.request(request)
   assert.equal(savedSignature, current.signature)
-})
-
-test('history sessions rotate before persistence and serialize later sessions', async () => {
-  const firstCommit = deferred()
-  const committed: string[] = []
-  let nextId = 1
-  const committer = new SerialSessionCommitter(
-    () => `session-${nextId++}`,
-    async (sessionId) => {
-      committed.push(sessionId)
-      if (sessionId === 'session-1') await firstCommit.promise
-    }
-  )
-
-  const firstSession = committer.sessionId
-  committer.markChanged(firstSession)
-  const firstRequest = committer.commitPending()
-  assert.equal(committer.sessionId, 'session-2')
-
-  committer.markChanged(committer.sessionId)
-  const secondRequest = committer.commitPending()
-  firstCommit.resolve()
-  await Promise.all([firstRequest, secondRequest])
-  assert.deepEqual(committed, ['session-1', 'session-2'])
-})
-
-test('failed history sessions stay queued for a later retry', async () => {
-  const attempts: string[] = []
-  let shouldFail = true
-  const committer = new SerialSessionCommitter(
-    () => 'session-retry',
-    async (sessionId) => {
-      attempts.push(sessionId)
-      if (shouldFail) throw new Error('commit failed')
-    }
-  )
-
-  committer.markChanged(committer.sessionId)
-  await assert.rejects(committer.commitPending(), /commit failed/)
-  shouldFail = false
-  await committer.commitPending()
-  assert.deepEqual(attempts, ['session-retry', 'session-retry'])
 })

@@ -390,11 +390,28 @@
             </select>
             <span>HEAD #{{ versionStatus.head?.sequence ?? 0 }}</span>
             <span v-if="versionStatus.pending.documentCount">
-              {{ versionStatus.pending.documentCount }} 份文档待封口
+              {{ versionStatus.pending.documentCount }} 份文档待创建版本
             </span>
             <span :class="versionStatus.integrity.ok ? 'healthy' : 'unhealthy'">
               {{ versionStatus.integrity.ok ? '历史完整' : '历史需检查' }}
             </span>
+          </section>
+
+          <section class="history-create-version">
+            <input
+              v-model="versionSummaryDraft"
+              type="text"
+              maxlength="120"
+              placeholder="版本说明（可选）"
+              @keydown.enter="createNarrativeVersion"
+            />
+            <button
+              type="button"
+              :disabled="creatingNarrativeVersion || !hasPendingHumanVersionChanges"
+              @click="createNarrativeVersion"
+            >
+              {{ creatingNarrativeVersion ? '创建中' : '创建版本' }}
+            </button>
           </section>
 
           <details class="history-management">
@@ -845,7 +862,7 @@ import type {
 } from '@share/cache/worldbuilding/worldDocumentHistory'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import { agentWorkspaceContextService } from '../services/agentWorkspaceContextService'
-import { SerialSaveCoordinator, SerialSessionCommitter } from '../services/serialSaveCoordinator'
+import { SerialSaveCoordinator } from '../services/serialSaveCoordinator'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 import { useAppTitleBar } from '../composables/useAppTitleBar'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -945,6 +962,9 @@ const selectedHistoryDocumentIds = ref<string[]>([])
 const selectedHistoryFileId = ref('')
 const comparisonBaseCommitId = ref('')
 const historyComparison = ref<WorldDocumentCommitComparisonPayload | null>(null)
+const versionSummaryDraft = ref('')
+const creatingNarrativeVersion = ref(false)
+const narrativeVersionDirty = ref(false)
 const checkpointDraftName = ref('')
 const branchDraftName = ref('')
 const activeBranchDraftName = ref('')
@@ -963,6 +983,11 @@ const canApplyMerge = computed(
 )
 const activeDocumentBranch = computed(
   () => versionStatus.value?.branches.find((branch) => branch.active) ?? null
+)
+const hasPendingHumanVersionChanges = computed(
+  () =>
+    narrativeVersionDirty.value ||
+    Boolean(versionStatus.value?.pending.origins.includes('human'))
 )
 const canRenameActiveBranch = computed(() => {
   const name = activeBranchDraftName.value.trim()
@@ -1036,14 +1061,25 @@ watch(
 
 let syncingFromDetail = false
 let narrativeAutosaveTimer: ReturnType<typeof setTimeout> | null = null
-let narrativeHistoryCommitTimer: ReturnType<typeof setTimeout> | null = null
 let lastSavedNarrativeSignature = ''
 let removeDocumentChangeListener: (() => void) | null = null
 const narrativeSaveCoordinator = new SerialSaveCoordinator<NarrativeSaveSnapshot>()
-const narrativeHistoryCommitter = new SerialSessionCommitter(
-  () => crypto.randomUUID(),
-  (sessionId) => worldbuildingClientService.commitWorldEntityDocumentHistorySession(sessionId)
-)
+
+const narrativeHistorySessionStorageKey = (): string =>
+  `world-document-working-session:${String(route.params.worldId || '').trim()}`
+
+const createNarrativeHistorySessionId = (): string => {
+  const sessionId = crypto.randomUUID()
+  localStorage.setItem(narrativeHistorySessionStorageKey(), sessionId)
+  return sessionId
+}
+
+const loadNarrativeHistorySessionId = (): string => {
+  const stored = localStorage.getItem(narrativeHistorySessionStorageKey())?.trim()
+  return stored || createNarrativeHistorySessionId()
+}
+
+const narrativeHistorySessionId = ref(loadNarrativeHistorySessionId())
 
 const worldId = computed(() => String(route.params.worldId || ''))
 const entityId = computed(() => String(route.params.entityId || ''))
@@ -1564,6 +1600,20 @@ const selectHistoryCommit = async (commitId: string): Promise<void> => {
   }
 }
 
+const refreshNarrativeVersionStatus = async (): Promise<WorldDocumentVersionStatusPayload> => {
+  const status = await worldbuildingClientService.getWorldDocumentVersionStatus(worldId.value)
+  versionStatus.value = status
+  narrativeVersionDirty.value = status.pending.origins.includes('human')
+  return status
+}
+
+const markNarrativeVersionChanged = (): void => {
+  narrativeVersionDirty.value = true
+  if (showNarrativeHistoryPanel.value) {
+    void refreshNarrativeVersionStatus().catch(() => undefined)
+  }
+}
+
 const loadNarrativeHistory = async (preferredCommitId?: string): Promise<void> => {
   if (!worldId.value) return
   historyLoading.value = true
@@ -1577,6 +1627,7 @@ const loadNarrativeHistory = async (preferredCommitId?: string): Promise<void> =
     ])
     documentHistory.value = history
     versionStatus.value = status
+    narrativeVersionDirty.value = status.pending.origins.includes('human')
     activeBranchDraftName.value = status.branches.find((branch) => branch.active)?.name ?? ''
     documentCheckpoints.value = checkpoints
     const targetId =
@@ -1593,6 +1644,39 @@ const loadNarrativeHistory = async (preferredCommitId?: string): Promise<void> =
   } finally {
     historyLoading.value = false
   }
+}
+
+const createNarrativeVersion = async (): Promise<void> => {
+  if (creatingNarrativeVersion.value) return
+  creatingNarrativeVersion.value = true
+  historyError.value = ''
+  try {
+    clearNarrativeAutosave()
+    await saveNarrative(true, { fallbackBlankTitle: true })
+    const status = await refreshNarrativeVersionStatus()
+    if (!status.pending.origins.includes('human')) return
+    await worldbuildingClientService.commitWorldEntityDocumentHistorySession({
+      sessionId: narrativeHistorySessionId.value,
+      summary: versionSummaryDraft.value.trim() || undefined
+    })
+    narrativeHistorySessionId.value = createNarrativeHistorySessionId()
+    narrativeVersionDirty.value = false
+    versionSummaryDraft.value = ''
+    await loadNarrativeHistory()
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : '创建版本失败'
+  } finally {
+    creatingNarrativeVersion.value = false
+  }
+}
+
+const ensureNarrativeWorkingTreeClean = async (): Promise<boolean> => {
+  clearNarrativeAutosave()
+  await saveNarrative(true, { fallbackBlankTitle: true })
+  const status = await refreshNarrativeVersionStatus()
+  if (status.pending.documentCount === 0) return true
+  historyError.value = `当前有 ${status.pending.documentCount} 份文档尚未创建版本，请先创建版本再继续。`
+  return false
 }
 
 const toggleNarrativeHistoryPanel = async (): Promise<void> => {
@@ -1659,9 +1743,7 @@ const switchDocumentBranch = async (branchId: string): Promise<void> => {
     return
   historyError.value = ''
   try {
-    clearNarrativeAutosave()
-    await saveNarrative(true, { fallbackBlankTitle: true })
-    await commitNarrativeHistorySession()
+    if (!(await ensureNarrativeWorkingTreeClean())) return
     await worldbuildingClientService.switchWorldDocumentBranch(branchId)
     await reloadNarrativeDocumentsAfterRestore()
     await loadNarrativeHistory()
@@ -1676,9 +1758,7 @@ const createDocumentBranch = async (): Promise<void> => {
   if (!name) return
   historyError.value = ''
   try {
-    clearNarrativeAutosave()
-    await saveNarrative(true, { fallbackBlankTitle: true })
-    await commitNarrativeHistorySession()
+    if (!(await ensureNarrativeWorkingTreeClean())) return
     const branch = await worldbuildingClientService.createWorldDocumentBranch({
       worldId: worldId.value,
       name,
@@ -1729,9 +1809,7 @@ const previewDocumentMerge = async (): Promise<void> => {
   if (!mergeSourceBranchId.value) return
   historyError.value = ''
   try {
-    clearNarrativeAutosave()
-    await saveNarrative(true, { fallbackBlankTitle: true })
-    await commitNarrativeHistorySession()
+    if (!(await ensureNarrativeWorkingTreeClean())) return
     mergePreview.value = await worldbuildingClientService.previewWorldDocumentMerge({
       sourceBranchId: mergeSourceBranchId.value
     })
@@ -1770,9 +1848,7 @@ const exportDocumentHistory = async (): Promise<void> => {
 const importDocumentHistory = async (): Promise<void> => {
   historyError.value = ''
   try {
-    clearNarrativeAutosave()
-    await saveNarrative(true, { fallbackBlankTitle: true })
-    await commitNarrativeHistorySession()
+    if (!(await ensureNarrativeWorkingTreeClean())) return
     const result = await worldbuildingClientService.importWorldDocumentHistory(worldId.value)
     if (!result.imported) return
     await reloadNarrativeDocumentsAfterRestore()
@@ -1855,8 +1931,7 @@ const confirmHistoryRestore = async (): Promise<void> => {
   restoringHistory.value = true
   historyError.value = ''
   try {
-    clearNarrativeAutosave()
-    await saveNarrative(true, { fallbackBlankTitle: true })
+    if (!(await ensureNarrativeWorkingTreeClean())) return
     const freshHistory = await worldbuildingClientService.listWorldDocumentCommitHistory(
       worldId.value,
       1
@@ -1886,9 +1961,7 @@ const confirmHistoryCommitAction = async (): Promise<void> => {
   restoringHistory.value = true
   historyError.value = ''
   try {
-    clearNarrativeAutosave()
-    await saveNarrative(true, { fallbackBlankTitle: true })
-    await commitNarrativeHistorySession()
+    if (!(await ensureNarrativeWorkingTreeClean())) return
     const freshHistory = await worldbuildingClientService.listWorldDocumentCommitHistory(
       worldId.value,
       1
@@ -2038,7 +2111,6 @@ const moveDocumentsIntoOrderedSiblings = async (
   orderedSiblingIds: string[]
 ): Promise<void> => {
   const uniqueSiblingIds = [...new Set(orderedSiblingIds)]
-  const historySessionId = crypto.randomUUID()
   const updates = await Promise.all(
     uniqueSiblingIds.map((documentId, index) =>
       worldbuildingClientService.moveWorldEntityDocument({
@@ -2046,12 +2118,12 @@ const moveDocumentsIntoOrderedSiblings = async (
         expectedRevision: narrativeDocumentById.value.get(documentId)?.revision ?? 1,
         parentDocumentId,
         sortKey: createSortKeyForIndex(index),
-        historySessionId
+        historySessionId: narrativeHistorySessionId.value
       })
     )
   )
   applyNarrativeDocumentUpdates(updates)
-  await worldbuildingClientService.commitWorldEntityDocumentHistorySession(historySessionId)
+  markNarrativeVersionChanged()
 }
 
 const placeNarrativeDocument = async (
@@ -2161,8 +2233,10 @@ const ensureInitialNarrativeDocument = async (): Promise<WorldEntityDocumentPayl
       const created = await worldbuildingClientService.createWorldEntityDocument({
         owner,
         title: '新建文件',
-        contentHtml: legacyNarrativeHtml
+        contentHtml: legacyNarrativeHtml,
+        historySessionId: narrativeHistorySessionId.value
       })
+      markNarrativeVersionChanged()
       documents = [created]
     }
 
@@ -2408,10 +2482,12 @@ const createNarrativeDocument = async (parentDocumentId: string | null = null): 
     owner,
     parentDocumentId,
     title: '新建文件',
-    contentHtml: ''
+    contentHtml: '',
+    historySessionId: narrativeHistorySessionId.value
   })
   replaceNarrativeDocument(created)
   syncNarrativeFromDocument(created)
+  markNarrativeVersionChanged()
 }
 
 const openNarrativeDeleteConfirm = (documentId: string): void => {
@@ -2446,8 +2522,10 @@ const confirmDeleteNarrativeDocument = async (): Promise<void> => {
     await saveNarrative(true, { fallbackBlankTitle: true })
     await worldbuildingClientService.deleteWorldEntityDocument({
       documentId,
-      recursive
+      recursive,
+      historySessionId: narrativeHistorySessionId.value
     })
+    markNarrativeVersionChanged()
 
     const deletedIds = new Set([documentId, ...descendantIds])
     const remainingDocuments = narrativeDocuments.value.filter((item) => !deletedIds.has(item.id))
@@ -2480,7 +2558,7 @@ const saveNarrative = async (
   }
 
   try {
-    const persistedCount = await narrativeSaveCoordinator.request({
+    await narrativeSaveCoordinator.request({
       mode: force ? 'flush' : 'once',
       readSnapshot: () => {
         const document = activeDocument.value
@@ -2491,7 +2569,7 @@ const saveNarrative = async (
           expectedRevision: document.revision,
           title: activeDocumentTitle.value.trim(),
           contentHtml: characterDescriptionInput.value,
-          historySessionId: narrativeHistoryCommitter.sessionId
+          historySessionId: narrativeHistorySessionId.value
         }
       },
       isSaved: (snapshot) => snapshot.signature === lastSavedNarrativeSignature,
@@ -2509,15 +2587,13 @@ const saveNarrative = async (
           })
           replaceNarrativeDocument(updated)
           lastSavedNarrativeSignature = snapshot.signature
-          narrativeHistoryCommitter.markChanged(snapshot.historySessionId)
+          markNarrativeVersionChanged()
           narrativeSaveState.value = 'saved'
         } finally {
           savingNarrative.value = false
         }
       }
     })
-    if (force) await commitNarrativeHistorySession()
-    else if (persistedCount > 0) scheduleNarrativeHistoryCommit()
   } catch (error) {
     narrativeSaveState.value = 'error'
     if (error instanceof Error && error.message.toLocaleLowerCase().includes('revision conflict')) {
@@ -2526,28 +2602,6 @@ const saveNarrative = async (
     }
     throw error
   }
-}
-
-const clearNarrativeHistoryCommit = (): void => {
-  if (narrativeHistoryCommitTimer) {
-    clearTimeout(narrativeHistoryCommitTimer)
-    narrativeHistoryCommitTimer = null
-  }
-}
-
-const commitNarrativeHistorySession = async (): Promise<void> => {
-  clearNarrativeHistoryCommit()
-  await narrativeHistoryCommitter.commitPending()
-}
-
-const scheduleNarrativeHistoryCommit = (delay = 5000): void => {
-  clearNarrativeHistoryCommit()
-  narrativeHistoryCommitTimer = setTimeout(() => {
-    narrativeHistoryCommitTimer = null
-    void commitNarrativeHistorySession().catch(() => {
-      narrativeSaveState.value = 'error'
-    })
-  }, delay)
 }
 
 const clearNarrativeAutosave = (): void => {
@@ -2560,7 +2614,6 @@ const clearNarrativeAutosave = (): void => {
 const scheduleNarrativeAutosave = (delay = 3000): void => {
   if (syncingFromDetail || externalDocumentConflict.value || !activeDocument.value) return
   clearNarrativeAutosave()
-  clearNarrativeHistoryCommit()
   if (narrativeTitleFocused.value) return
   if (!canSaveNarrative.value || narrativeAutosaveSignature.value === lastSavedNarrativeSignature)
     return
@@ -2638,7 +2691,6 @@ watch(narrativeAutosaveSignature, () => {
 
 onBeforeUnmount(() => {
   clearNarrativeAutosave()
-  void commitNarrativeHistorySession().catch(() => undefined)
   stopNarrativeSidebarResize()
   stopNarrativeAiPanelResize()
   window.removeEventListener('resize', syncNarrativeSidebarWidthBounds)
@@ -3447,6 +3499,43 @@ useKeyboardShortcut(
   color: #c24141;
 }
 
+.history-create-version {
+  min-height: 42px;
+  padding: 7px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  border-bottom: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+}
+
+.history-create-version input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--wb-narrative-border);
+  background: #fbfcfd;
+  color: var(--wb-narrative-text);
+  font-size: 11px;
+}
+
+.history-create-version button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid #315cff;
+  background: #315cff;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.history-create-version button:disabled {
+  border-color: #d9dde5;
+  background: #f3f4f6;
+  color: #9aa1ac;
+  cursor: default;
+}
+
 .history-management {
   border-bottom: 1px solid var(--wb-narrative-border);
   background: #ffffff;
@@ -3635,20 +3724,23 @@ useKeyboardShortcut(
 .history-commit-list {
   min-height: 0;
   flex: 1;
+  padding: 2px 5px 6px;
   overflow-y: auto;
   background: #ffffff;
 }
 
 .history-commit-item {
   width: 100%;
-  min-height: 48px;
-  padding: 6px 9px 6px 5px;
+  min-height: 44px;
+  padding: 5px 7px 5px 3px;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
   align-items: center;
   column-gap: 5px;
-  border-bottom: 1px solid #f0f1f3;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
   text-align: left;
 }
 
@@ -3690,7 +3782,7 @@ useKeyboardShortcut(
 .history-graph-lane b {
   position: absolute;
   top: 16px;
-  bottom: -7px;
+  bottom: -6px;
   left: 50%;
   width: 1px;
   background: #c8ced8;

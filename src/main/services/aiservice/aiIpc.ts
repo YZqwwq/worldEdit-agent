@@ -66,6 +66,7 @@ import type {
   WorldbuildingSchemaCatalogPayload
 } from '@share/cache/worldbuilding/worldbuilding'
 import type {
+  CommitWorldEntityDocumentHistorySessionInput,
   CreateWorldEntityDocumentInput,
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
@@ -533,7 +534,14 @@ export function initializeAIEndpoints(): void {
   ipcMain.handle(
     'worldEntityDocument:create',
     async (event, input: CreateWorldEntityDocumentInput) => {
-      const document = await worldEntityDocumentService.createDocument(input)
+      const historySessionId = String(input.historySessionId || '').trim()
+      const document = await worldEntityDocumentService.createDocument(
+        input,
+        undefined,
+        historySessionId
+          ? { changeSetId: `human:${historySessionId}`, deferCommit: true }
+          : undefined
+      )
       worldEntityDocumentChangePublisher.publish(
         {
           changeType: 'created',
@@ -576,11 +584,18 @@ export function initializeAIEndpoints(): void {
     }
   )
 
-  ipcMain.handle('worldEntityDocument:commitHistorySession', async (_event, sessionId: string) => {
-    const normalizedSessionId = String(sessionId || '').trim()
-    if (!normalizedSessionId) return
-    await commitWorldDocumentChangeSet(`human:${normalizedSessionId}`, 'human')
-  })
+  ipcMain.handle(
+    'worldEntityDocument:commitHistorySession',
+    async (_event, input: CommitWorldEntityDocumentHistorySessionInput) => {
+      const normalizedSessionId = String(input?.sessionId || '').trim()
+      if (!normalizedSessionId) return
+      await commitWorldDocumentChangeSet(
+        `human:${normalizedSessionId}`,
+        'human',
+        String(input.summary || '').trim() || undefined
+      )
+    }
+  )
 
   ipcMain.handle(
     'worldEntityDocument:history:initialize',
@@ -720,7 +735,14 @@ export function initializeAIEndpoints(): void {
   ipcMain.handle(
     'worldEntityDocument:delete',
     async (event, input: DeleteWorldEntityDocumentInput) => {
-      const deletedDocumentIds = await worldEntityDocumentService.deleteDocument(input)
+      const historySessionId = String(input.historySessionId || '').trim()
+      const deletedDocumentIds = await worldEntityDocumentService.deleteDocument(
+        input,
+        undefined,
+        historySessionId
+          ? { changeSetId: `human:${historySessionId}`, deferCommit: true }
+          : undefined
+      )
       worldEntityDocumentChangePublisher.publish(
         {
           changeType: 'deleted',

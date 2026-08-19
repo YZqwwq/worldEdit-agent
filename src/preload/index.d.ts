@@ -32,6 +32,7 @@ import type {
   WorldPayload
 } from '../share/cache/worldbuilding/worldbuilding'
 import type {
+  CommitWorldEntityDocumentHistorySessionInput,
   CreateWorldEntityDocumentInput,
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
@@ -199,7 +200,9 @@ declare global {
       input: MoveWorldEntityDocumentInput
     ) => Promise<WorldEntityDocumentPayload>
     deleteWorldEntityDocument: (input: DeleteWorldEntityDocumentInput) => Promise<void>
-    commitWorldEntityDocumentHistorySession: (sessionId: string) => Promise<void>
+    commitWorldEntityDocumentHistorySession: (
+      input: CommitWorldEntityDocumentHistorySessionInput
+    ) => Promise<void>
     initializeWorldDocumentHistory: (worldId: string) => Promise<WorldDocumentCommitSummary>
     listWorldDocumentCommitHistory: (
       worldId: string,

@@ -542,7 +542,8 @@ export const ensureWorldDocumentBaselineWithManager = async (
 export const commitWorldDocumentChangeSetWithManager = async (
   manager: EntityManager,
   changeSetId: string,
-  origin: WorldDocumentCommitRecord['origin'] = 'agent'
+  origin: WorldDocumentCommitRecord['origin'] = 'agent',
+  summary?: string
 ): Promise<WorldDocumentCommitRecord[]> => {
   const changeRepository = manager.getRepository(WorldDocumentChangeRecord)
   const staged = await changeRepository.findBy({ changeSetId, status: 'staged' })
@@ -609,11 +610,13 @@ export const commitWorldDocumentChangeSetWithManager = async (
       changeSetId,
       rootTreeHash: tree.hash,
       origin,
-      summary: changes
-        .map((change) => change.summary)
-        .filter(Boolean)
-        .join('；')
-        .slice(0, 500)
+      summary:
+        summary?.trim().slice(0, 500) ||
+        changes
+          .map((change) => change.summary)
+          .filter(Boolean)
+          .join('；')
+          .slice(0, 500)
     })
     for (const change of changes) {
       change.status = 'committed'
@@ -628,7 +631,7 @@ export const commitWorldDocumentChangeSetWithManager = async (
 }
 
 export type PendingWorldDocumentChangeSetReconciliation = {
-  committedHuman: string[]
+  deferredHuman: string[]
   committedTerminalAgent: string[]
   deferredActiveAgent: string[]
   deferredUnowned: string[]
@@ -650,7 +653,7 @@ export const reconcilePendingWorldDocumentChangeSetsWithDataSource = async (
   })
   const changeSetIds = [...new Set(staged.map((change) => change.changeSetId))]
   const result: PendingWorldDocumentChangeSetReconciliation = {
-    committedHuman: [],
+    deferredHuman: [],
     committedTerminalAgent: [],
     deferredActiveAgent: [],
     deferredUnowned: []
@@ -658,10 +661,7 @@ export const reconcilePendingWorldDocumentChangeSetsWithDataSource = async (
 
   for (const changeSetId of changeSetIds) {
     if (changeSetId.startsWith('human:')) {
-      await dataSource.transaction((manager) =>
-        commitWorldDocumentChangeSetWithManager(manager, changeSetId, 'human')
-      )
-      result.committedHuman.push(changeSetId)
+      result.deferredHuman.push(changeSetId)
       continue
     }
 
