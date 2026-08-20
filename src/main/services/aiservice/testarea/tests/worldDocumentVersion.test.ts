@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
+import Database from 'better-sqlite3'
 import { DataSource, In } from 'typeorm'
 import { WorldEntityDocumentRecord } from '@share/entity/database/WorldEntityDocumentRecord'
 import { WorldDocumentContentVersionRecord } from '@share/entity/database/WorldDocumentContentVersionRecord'
@@ -43,6 +47,7 @@ import { mergeWorldDocumentText } from '../../../worldbuilding/worldDocumentThre
 import { applicationEntities } from '../../../../database/applicationEntities'
 import { APPLICATION_SCHEMA_BASELINE_TABLE_SQL } from '../../../../database/migrations/applicationSchemaBaseline'
 import { getWorldDocumentDiffByRefWithDataSource } from '../../../worldbuilding/worldDocumentDiffReferenceResolver'
+import { migrateWorldEntityDocuments } from '../../../../database/migrations/migrateWorldEntityDocuments'
 
 const sqliteTest = (name: string, execute: () => Promise<void>): void => {
   test(name, { skip: process.env.RUN_DOCUMENT_VERSION_SQLITE_TESTS !== '1' }, execute)
@@ -84,9 +89,7 @@ const documentState = (
   input: Partial<WorldEntityDocumentRecord> = {}
 ): Partial<WorldEntityDocumentRecord> => ({
   id,
-  ownerKind: 'world',
   worldId: 'world-1',
-  ownerEntityId: null,
   parentDocumentId: null,
   title: id,
   contentHtml: `<p>${id}</p>`,
@@ -1465,6 +1468,147 @@ sqliteTest('document history schema migration is recorded and idempotent', async
     assert.equal(names.has('IDX_world_document_change_commit'), true)
   } finally {
     await dataSource.destroy()
+  }
+})
+
+sqliteTest('legacy entity documents migrate into one free world document tree', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'world-document-library-migration-'))
+  const databasePath = join(directory, 'database.sqlite')
+  const backupPath = `${databasePath}.world-document-library-v3.temp.json`
+  const database = new Database(databasePath)
+  try {
+    database.exec(`
+      CREATE TABLE world_entity_record (
+        id text PRIMARY KEY NOT NULL,
+        worldId text NOT NULL,
+        name text NOT NULL,
+        createdAt datetime NOT NULL,
+        updatedAt datetime NOT NULL
+      );
+      CREATE TABLE world_entity_document_record (
+        id text PRIMARY KEY NOT NULL,
+        ownerKind text NOT NULL,
+        worldId text NOT NULL,
+        ownerEntityId text,
+        parentDocumentId text,
+        title text NOT NULL,
+        contentHtml text NOT NULL,
+        contentFormat text NOT NULL,
+        sortKey text NOT NULL,
+        revision integer NOT NULL,
+        schemaVersion integer NOT NULL,
+        createdAt datetime NOT NULL,
+        updatedAt datetime NOT NULL
+      );
+      CREATE TABLE world_document_change (id text PRIMARY KEY NOT NULL);
+      CREATE TABLE world_document_checkpoint (id text PRIMARY KEY NOT NULL);
+      CREATE TABLE world_document_branch (id text PRIMARY KEY NOT NULL);
+      CREATE TABLE world_document_commit (id text PRIMARY KEY NOT NULL);
+      CREATE TABLE world_document_tree_object (hash text PRIMARY KEY NOT NULL);
+      CREATE TABLE world_document_content_version (id text PRIMARY KEY NOT NULL);
+      CREATE TABLE world_document_integrity_cache (worldId text PRIMARY KEY NOT NULL);
+    `)
+    database.prepare(`
+      INSERT INTO world_entity_record (id, worldId, name, createdAt, updatedAt)
+      VALUES ('character-1', 'world-1', '菲尔娜', '2026-01-01', '2026-01-02')
+    `).run()
+    const insertDocument = database.prepare(`
+      INSERT INTO world_entity_document_record (
+        id, ownerKind, worldId, ownerEntityId, parentDocumentId, title,
+        contentHtml, contentFormat, sortKey, revision, schemaVersion, createdAt, updatedAt
+      ) VALUES (?, ?, 'world-1', ?, ?, ?, ?, 'html', ?, ?, 1, '2026-02-01', '2026-02-02')
+    `)
+    insertDocument.run(
+      'foundation', 'world', null, null, '力量体系', '<p>低武世界</p>', 'a', 3
+    )
+    insertDocument.run(
+      'character-root', 'entity', 'character-1', null, '人物志', '<p>银发剑士</p>', 'b', 7
+    )
+    insertDocument.run(
+      'character-child', 'entity', 'character-1', 'character-root', '经历', '<p>北境之旅</p>', 'c', 2
+    )
+    for (const table of [
+      'world_document_change',
+      'world_document_checkpoint',
+      'world_document_branch',
+      'world_document_commit',
+      'world_document_content_version'
+    ]) {
+      database.prepare(`INSERT INTO ${table} (id) VALUES (?)`).run(`${table}-old`)
+    }
+    database.prepare(
+      "INSERT INTO world_document_tree_object (hash) VALUES ('tree-old')"
+    ).run()
+    database.prepare(
+      "INSERT INTO world_document_integrity_cache (worldId) VALUES ('world-1')"
+    ).run()
+  } finally {
+    database.close()
+  }
+
+  try {
+    migrateWorldEntityDocuments(databasePath)
+    assert.equal(existsSync(backupPath), false)
+
+    const migrated = new Database(databasePath)
+    try {
+      const columns = migrated.prepare('PRAGMA table_info(world_entity_document_record)').all() as Array<{ name: string }>
+      const columnNames = new Set(columns.map((column) => column.name))
+      assert.equal(columnNames.has('worldId'), true)
+      assert.equal(columnNames.has('ownerKind'), false)
+      assert.equal(columnNames.has('ownerEntityId'), false)
+      const indexes = migrated.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'world_entity_document_record'"
+      ).all() as Array<{ name: string }>
+      const indexNames = new Set(indexes.map((index) => index.name))
+      assert.equal(indexNames.has('IDX_fd71e942d059f393bcdd591642'), true)
+      assert.equal(indexNames.has('IDX_d2c2a72c33b693053b95709238'), true)
+
+      const rows = migrated.prepare(
+        'SELECT * FROM world_entity_document_record ORDER BY id'
+      ).all() as Array<Record<string, unknown>>
+      assert.equal(rows.length, 4)
+      const byId = new Map(rows.map((row) => [String(row.id), row]))
+      const folder = rows.find((row) => String(row.id).startsWith('document-folder:'))
+      assert.ok(folder)
+      assert.equal(folder.title, '菲尔娜')
+      assert.equal(folder.parentDocumentId, null)
+      assert.equal(byId.get('foundation')?.parentDocumentId, null)
+      assert.equal(byId.get('foundation')?.contentHtml, '<p>低武世界</p>')
+      assert.equal(byId.get('foundation')?.revision, 3)
+      assert.equal(byId.get('character-root')?.parentDocumentId, folder.id)
+      assert.equal(byId.get('character-root')?.contentHtml, '<p>银发剑士</p>')
+      assert.equal(byId.get('character-root')?.revision, 7)
+      assert.equal(byId.get('character-child')?.parentDocumentId, 'character-root')
+
+      for (const table of [
+        'world_document_change',
+        'world_document_checkpoint',
+        'world_document_branch',
+        'world_document_commit',
+        'world_document_tree_object',
+        'world_document_content_version',
+        'world_document_integrity_cache'
+      ]) {
+        const count = migrated.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }
+        assert.equal(count.count, 0, `${table} should be reset`)
+      }
+    } finally {
+      migrated.close()
+    }
+
+    migrateWorldEntityDocuments(databasePath)
+    const secondPass = new Database(databasePath)
+    try {
+      const count = secondPass.prepare(
+        'SELECT COUNT(*) AS count FROM world_entity_document_record'
+      ).get() as { count: number }
+      assert.equal(count.count, 4)
+    } finally {
+      secondPass.close()
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
   }
 })
 

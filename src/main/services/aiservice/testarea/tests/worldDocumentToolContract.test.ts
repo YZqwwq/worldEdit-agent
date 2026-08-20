@@ -2,12 +2,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   appendWorldDocumentTextInputSchema,
+  browseWorldDocumentTreeInputSchema,
   createWorldDocumentInputSchema,
   insertWorldDocumentTextInputSchema,
-  listWorldDocumentsInputSchema,
   readWorldDocumentSectionInputSchema,
   replaceWorldDocumentSectionInputSchema,
   replaceWorldDocumentTextInputSchema,
+  searchWorldDocumentsInputSchema,
   updateWorldDocumentInputSchema
 } from '../../ai-utils/tools/document/worldDocumentToolContracts'
 import {
@@ -24,21 +25,36 @@ import {
 } from '../../ai-utils/tools/document/worldDocumentMarkdownEditEngine'
 import { buildWorldDocumentEditContinuation } from '../../ai-utils/tools/document/worldDocumentEditContinuation'
 import {
+  browseWorldDocumentTree,
+  searchWorldDocuments,
+  worldDocumentMarkdownToVisibleText
+} from '../../../worldbuilding/worldDocumentDiscoveryService'
+import type { WorldEntityDocumentPayload } from '../../../../../share/cache/worldbuilding/worldEntityDocument'
+import {
   findWorldDocumentVisibleTextOffset,
   worldDocumentMarkdownLineToVisibleText
 } from '../../../../../share/cache/worldbuilding/worldDocumentSemanticAnchor'
 
-test('document catalog input uses flat world and entity references', () => {
+test('document discovery inputs accept simple world-scoped parameters only', () => {
   assert.equal(
-    listWorldDocumentsInputSchema.safeParse({
+    searchWorldDocumentsInputSchema.safeParse({
       worldId: 'world-a',
+      query: '青岚',
       entityId: 'entity-a'
+    }).success,
+    false
+  )
+  assert.equal(
+    searchWorldDocumentsInputSchema.safeParse({
+      worldId: 'world-a',
+      query: '青岚'
     }).success,
     true
   )
   assert.equal(
-    listWorldDocumentsInputSchema.safeParse({
-      worldId: 'world-a'
+    browseWorldDocumentTreeInputSchema.safeParse({
+      worldId: 'world-a',
+      rootDocumentId: 'document-a'
     }).success,
     true
   )
@@ -46,7 +62,7 @@ test('document catalog input uses flat world and entity references', () => {
 
 test('legacy nested owner input is not part of the agent-facing contract', () => {
   assert.equal(
-    listWorldDocumentsInputSchema.safeParse({
+    browseWorldDocumentTreeInputSchema.safeParse({
       owner: {
         kind: 'entity',
         worldId: 'world-a',
@@ -57,16 +73,159 @@ test('legacy nested owner input is not part of the agent-facing contract', () =>
   )
 })
 
-test('document creation follows the same flat owner contract', () => {
+test('document creation belongs to a world and rejects entity ownership', () => {
   assert.equal(
     createWorldDocumentInputSchema.safeParse({
       worldId: 'world-a',
-      entityId: 'entity-a',
       title: '人物志',
       contentMarkdown: '## 经历\n\n她从北方来到这里。'
     }).success,
     true
   )
+  assert.equal(
+    createWorldDocumentInputSchema.safeParse({
+      worldId: 'world-a',
+      entityId: 'entity-a',
+      title: '人物志'
+    }).success,
+    false
+  )
+})
+
+const discoveryDocument = (
+  id: string,
+  title: string,
+  contentMarkdown: string,
+  parentDocumentId: string | null = null,
+  worldId = 'world-a'
+): WorldEntityDocumentPayload => ({
+  id,
+  worldId,
+  parentDocumentId,
+  title,
+  contentHtml: worldDocumentMarkdownToHtml(contentMarkdown),
+  contentFormat: 'html',
+  sortKey: id,
+  revision: 1,
+  schemaVersion: 1
+})
+
+test('document search finds title fragments and body text with one visible snippet', () => {
+  const documents = [
+    discoveryDocument(
+      'character-root',
+      '李青岚',
+      '在北境漫长的冬季里，她第一次遇见青岚。后来青岚返回了港口。'
+    ),
+    discoveryDocument('other', '港口记录', '这里没有目标人物。')
+  ]
+  const matches = searchWorldDocuments(documents, '青岚', 10)
+
+  assert.equal(matches.strategy, 'hybrid_exact_bm25')
+  assert.equal(matches.matches.length, 1)
+  assert.equal(matches.matches[0].documentId, 'character-root')
+  assert.deepEqual(matches.matches[0].matchedIn, ['title', 'path', 'content'])
+  assert.equal(matches.matches[0].occurrenceCount, 2)
+  assert.match(matches.matches[0].snippet ?? '', /第一次遇见青岚/)
+  assert.ok((matches.matches[0].snippet ?? '').length < documents[0].contentHtml.length)
+})
+
+test('document search reads formatted Markdown as visible text and respects the result limit', () => {
+  assert.equal(
+    worldDocumentMarkdownToVisibleText('## **青岚**\n\n她前往[北境港口](https://example.com)。'),
+    '青岚 她前往北境港口。'
+  )
+  const documents = [
+    discoveryDocument('a', '青岚', '**青岚**的记录'),
+    discoveryDocument('b', '青岚旧事', '另一份青岚记录')
+  ]
+  const matches = searchWorldDocuments(documents, '青岚', 1)
+  assert.equal(matches.matches.length, 1)
+  assert.equal(matches.matches[0].documentId, 'a')
+  assert.equal(matches.totalMatches, 2)
+  assert.equal(matches.hasMore, true)
+})
+
+test('document search ranks exact titles before path and body-only matches', () => {
+  const documents = [
+    discoveryDocument('root', '北境人物', ''),
+    discoveryDocument('body', '港口旧事', '青岚曾到访这里。'),
+    discoveryDocument('path', '生平', '', 'root'),
+    discoveryDocument('exact', '青岚', '')
+  ]
+  documents[0].title = '青岚资料'
+  const matches = searchWorldDocuments(documents, '青岚', 10)
+  assert.equal(matches.matches[0].documentId, 'exact')
+  assert.ok(matches.matches.some((match) => match.documentId === 'body'))
+})
+
+test('hybrid document search recalls natural multi-term queries without an exact phrase', () => {
+  const documents = [
+    discoveryDocument(
+      'target',
+      '北境人物记录',
+      '她常年驻守雪原，是当地少见的女性将领。战斗时惯用一柄长枪。'
+    ),
+    discoveryDocument('distractor', '南方商会', '商人们在温暖港口讨论货物价格。')
+  ]
+  const result = searchWorldDocuments(documents, '北境 女性 长枪', 10)
+
+  assert.equal(result.matches[0].documentId, 'target')
+  assert.ok(result.queryTerms.includes('北境'))
+  assert.ok(!result.queryTerms.includes('北境女性'))
+  assert.ok(result.matches[0].matchedTerms.includes('女性'))
+  assert.ok(result.matches[0].matchedTerms.includes('长枪'))
+  assert.match(result.matches[0].snippet ?? '', /女性将领.*长枪/)
+  assert.equal(result.matches[0].occurrenceCount, 0)
+})
+
+test('hybrid document search uses Chinese n-grams to recall a partial name', () => {
+  const documents = [
+    discoveryDocument('target', '李青岚的人物记录', '她来自北境。'),
+    discoveryDocument('other', '李青山的人物记录', '他来自南境。')
+  ]
+  const result = searchWorldDocuments(documents, '青岚', 10)
+
+  assert.equal(result.matches[0].documentId, 'target')
+  assert.ok(result.matches[0].score > result.matches.at(-1)!.score)
+})
+
+test('document search rebuilds cached indexes when same-revision content or paths change', () => {
+  const document = discoveryDocument('target', '旧目录', '青岚来自北境。')
+  assert.equal(searchWorldDocuments([document], '北境', 10).matches.length, 1)
+
+  const restored = {
+    ...document,
+    title: '新目录',
+    contentHtml: worldDocumentMarkdownToHtml('青岚来自南境。')
+  }
+  assert.equal(searchWorldDocuments([restored], '北境', 10).matches.length, 0)
+  assert.equal(searchWorldDocuments([restored], '南境', 10).matches[0].documentId, 'target')
+  assert.deepEqual(searchWorldDocuments([restored], '新目录', 10).matches[0].path, ['新目录'])
+})
+
+test('document tree browsing reveals roots incrementally and marks deeper branches', () => {
+  const documents = [
+    discoveryDocument('root', '人物资料', ''),
+    discoveryDocument('child', '青岚', '', 'root'),
+    discoveryDocument('grandchild', '经历', '', 'child'),
+    discoveryDocument('great-grandchild', '北境时期', '', 'grandchild')
+  ]
+
+  const initial = browseWorldDocumentTree(documents)
+  assert.ok(initial)
+  assert.equal(initial.roots[0].documentId, 'root')
+  assert.equal(initial.roots[0].children[0].documentId, 'child')
+  assert.equal(initial.roots[0].children[0].children.length, 0)
+  assert.equal(initial.roots[0].children[0].hasMoreChildren, true)
+  assert.deepEqual(initial.nextBrowsableDocumentIds, ['child'])
+
+  const continued = browseWorldDocumentTree(documents, 'child')
+  assert.ok(continued)
+  assert.equal(continued.roots[0].children[0].documentId, 'grandchild')
+  assert.equal(continued.roots[0].children[0].children[0].documentId, 'great-grandchild')
+  assert.equal(continued.nextBrowsableDocumentIds.length, 0)
+  assert.equal(browseWorldDocumentTree(documents, 'missing'), null)
 })
 
 test('agent document writes accept Markdown and reject the old HTML contract', () => {

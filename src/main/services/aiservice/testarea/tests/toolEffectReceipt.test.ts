@@ -45,9 +45,7 @@ const createDataSource = async (): Promise<DataSource> => {
 
 const createDocument = (id: string): Partial<WorldEntityDocumentRecord> => ({
   id,
-  ownerKind: 'world',
   worldId: 'world-1',
-  ownerEntityId: null,
   parentDocumentId: null,
   title: '测试文档',
   contentHtml: '<p>内容</p>',

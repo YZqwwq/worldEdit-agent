@@ -40,16 +40,17 @@ import { searchEntitiesTool } from '../tools/world/searchEntities'
 import { upsertWorldEntityManualMentionTool } from '../tools/world/upsertWorldEntityManualMention'
 import {
   appendWorldDocumentTextTool,
+  browseWorldDocumentTreeTool,
   createWorldDocumentTool,
   deleteWorldDocumentTool,
   insertWorldDocumentTextTool,
-  listWorldDocumentsTool,
   moveWorldDocumentTool,
   readWorldDocumentTool,
   readWorldDocumentSectionTool,
   renameWorldDocumentTool,
   replaceWorldDocumentSectionTool,
   replaceWorldDocumentTextTool,
+  searchWorldDocumentsTool,
   updateWorldDocumentTool
 } from '../tools/document/worldDocumentTools'
 import {
@@ -109,13 +110,13 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     id: 'world_document_editor',
     title: '世界观文档编辑工具集',
     summary:
-      '读取并编辑世界观基础设定或实体文档，支持目录、正文、创建、更新、重命名、移动和删除，并通过 revision 防止覆盖并发修改。',
+      '发现、阅读并编辑一个世界观下的自由文档树。未知对象可按名称和正文广搜，已知目录可渐进浏览，已知文档可精确读取和修改。',
     tags: ['world', 'document', 'editor', 'write', '世界观', '文档', '文本编辑'],
     activationHints: [
       '用户要求读取或编辑当前文档时激活。',
       '用户要求创建、重命名、移动或删除世界观文档时激活。'
     ],
-    whenToUse: ['需要基于当前文档正文回答或修改内容', '需要维护世界观基础设定或实体下的文档树'],
+    whenToUse: ['需要基于当前文档正文回答或修改内容', '需要维护当前世界观的自由文档树'],
     whenNotToUse: [
       '用户只是在闲聊或创作共想，尚未要求读取本地文档',
       '目标是人物结构化资料组件而不是文档正文'
@@ -514,9 +515,14 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
   },
   ...[
     {
-      tool: listWorldDocumentsTool,
+      tool: searchWorldDocumentsTool,
       access: 'read' as const,
-      summary: '读取世界观或实体的文档树目录。'
+      summary: '按名称、路径或正文关键词广搜世界观文档候选。'
+    },
+    {
+      tool: browseWorldDocumentTreeTool,
+      access: 'read' as const,
+      summary: '从世界根目录或指定根文档开始，渐进浏览两层文档结构。'
     },
     {
       tool: readWorldDocumentTool,
@@ -531,7 +537,7 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     {
       tool: createWorldDocumentTool,
       access: 'write' as const,
-      summary: '创建世界级或实体级文档。'
+      summary: '在世界观文档树中创建根文档或子文档。'
     },
     {
       tool: updateWorldDocumentTool,

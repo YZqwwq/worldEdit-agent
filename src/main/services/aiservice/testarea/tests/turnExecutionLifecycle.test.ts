@@ -190,7 +190,7 @@ test('unchanged arguments are blocked after a deterministic input failure', () =
     createTurnExecutionAction({
       actionId: 'invalid-a',
       toolCallId: 'call-invalid-a',
-      toolName: 'list_world_documents',
+      toolName: 'browse_world_document_tree',
       args: { worldId: 'world-a', entityId: 'entity-a' },
       ok: false,
       summary: 'entityId 参数格式错误。',
@@ -201,13 +201,13 @@ test('unchanged arguments are blocked after a deterministic input failure', () =
   )
 
   assert.ok(
-    findBlockedUnchangedInvocation(ledger, 'list_world_documents', {
+    findBlockedUnchangedInvocation(ledger, 'browse_world_document_tree', {
       entityId: 'entity-a',
       worldId: 'world-a'
     })
   )
   assert.equal(
-    findBlockedUnchangedInvocation(ledger, 'list_world_documents', {
+    findBlockedUnchangedInvocation(ledger, 'browse_world_document_tree', {
       worldId: 'world-a',
       entityId: 'entity-b'
     }),

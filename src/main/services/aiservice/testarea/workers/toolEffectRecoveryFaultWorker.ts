@@ -29,9 +29,7 @@ const dataSource = new DataSource({
 
 const createDocument = (id: string): Partial<WorldEntityDocumentRecord> => ({
   id,
-  ownerKind: 'world',
   worldId: 'world-1',
-  ownerEntityId: null,
   parentDocumentId: null,
   title: boundary,
   contentHtml: '<p>fault boundary</p>',

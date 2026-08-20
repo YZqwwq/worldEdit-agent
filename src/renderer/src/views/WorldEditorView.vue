@@ -416,8 +416,7 @@ const openEntity = async (entity: WorldEntityPayload): Promise<void> => {
 const openBasicSettings = async (): Promise<void> => {
   await router.push({
     name: 'WorldEntityDocumentEditor',
-    params: { worldId: worldId.value },
-    query: { scope: 'basic_settings' }
+    params: { worldId: worldId.value }
   })
 }
 

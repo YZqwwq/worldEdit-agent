@@ -699,7 +699,13 @@ const navigateFromProfile = async (
     return
   }
 
-  await router.push({ name: target, params: { worldId: worldId.value, entityId: entityId.value } })
+  await router.push({
+    name: target,
+    params:
+      target === 'WorldEntityDocumentEditor'
+        ? { worldId: worldId.value }
+        : { worldId: worldId.value, entityId: entityId.value }
+  })
 }
 
 const waitForLayoutFrame = (): Promise<void> =>

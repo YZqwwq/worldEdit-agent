@@ -11,8 +11,7 @@
 
       <nav class="entity-workspace-links" aria-label="实体工作区">
         <router-link
-          v-if="supportsDocumentWorkspace"
-          :to="{ name: 'WorldEntityDocumentEditor', params: { worldId, entityId } }"
+          :to="{ name: 'WorldEntityDocumentEditor', params: { worldId } }"
           class="workspace-link"
         >
           文本编辑
@@ -76,7 +75,6 @@ import type {
   WorldEntityDetailPayload,
   WorldEntityType
 } from '@share/cache/worldbuilding/worldbuilding'
-import { isWorldEntityDocumentOwnerType } from '@share/cache/worldbuilding/worldEntityDocument'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import { toPlainIpcPayload } from '../utils/ipcPayload'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
@@ -132,11 +130,6 @@ const editableComponentType = computed(
 )
 
 const canSaveDescription = computed(() => Boolean(entityDetail.value && editableComponentType.value))
-const supportsDocumentWorkspace = computed(
-  () =>
-    Boolean(entityDetail.value) &&
-    isWorldEntityDocumentOwnerType(entityDetail.value!.entity.type)
-)
 
 const descriptionSaveHint = computed(() => {
   if (descriptionSaveState.value === 'saving') return '自动保存中...'

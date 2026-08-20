@@ -26,8 +26,6 @@ const sourceHtml = (entry: WorldDocumentSnapshotEntry): string =>
 const signature = (entry?: WorldDocumentSnapshotEntry): string =>
   entry
     ? JSON.stringify({
-        ownerKind: entry.state.ownerKind,
-        ownerEntityId: entry.state.ownerEntityId,
         parentDocumentId: entry.state.parentDocumentId,
         title: entry.state.title,
         sortKey: entry.state.sortKey,
@@ -38,8 +36,6 @@ const signature = (entry?: WorldDocumentSnapshotEntry): string =>
 
 const metadataSignature = (entry: WorldDocumentSnapshotEntry): string =>
   JSON.stringify({
-    ownerKind: entry.state.ownerKind,
-    ownerEntityId: entry.state.ownerEntityId,
     parentDocumentId: entry.state.parentDocumentId,
     title: entry.state.title,
     sortKey: entry.state.sortKey,
@@ -226,9 +222,7 @@ export const applyWorldDocumentMergeWithManager = async (
     const after = await repository.save(repository.create({
       ...(existing ?? {}),
       id,
-      ownerKind: afterEntry.state.ownerKind,
       worldId: afterEntry.state.worldId,
-      ownerEntityId: afterEntry.state.ownerEntityId,
       parentDocumentId: afterEntry.state.parentDocumentId,
       title: afterEntry.state.title,
       contentHtml: sourceHtml(afterEntry),

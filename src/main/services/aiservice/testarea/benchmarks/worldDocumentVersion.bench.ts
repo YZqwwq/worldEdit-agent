@@ -61,9 +61,7 @@ const runCase = async (count: number): Promise<BenchmarkResult> => {
       Array.from({ length: count }, (_, index) =>
         repository.create({
           id: `doc-${String(index).padStart(4, '0')}`,
-          ownerKind: 'world',
           worldId: 'benchmark-world',
-          ownerEntityId: null,
           parentDocumentId: null,
           title: `Document ${index}`,
           contentHtml: `<h1>Document ${index}</h1><p>${'x'.repeat(1000)}</p>`,

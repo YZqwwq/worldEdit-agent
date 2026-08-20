@@ -28,7 +28,6 @@ export interface AgentWorkspaceContext {
   document?: {
     id: string
     title?: string
-    ownerKind?: 'world' | 'entity'
     parentDocumentId?: string | null
     revision?: number
   }
@@ -97,15 +96,10 @@ export const normalizeAgentWorkspaceContext = (
       ? (raw.document as Record<string, unknown>)
       : null
   const documentId = normalizeText(rawDocument?.id, 80)
-  const ownerKind: 'world' | 'entity' | undefined =
-    rawDocument?.ownerKind === 'world' || rawDocument?.ownerKind === 'entity'
-      ? rawDocument.ownerKind
-      : undefined
   const document = documentId
     ? {
         id: documentId,
         title: normalizeText(rawDocument?.title),
-        ownerKind,
         parentDocumentId:
           rawDocument?.parentDocumentId === null
             ? null

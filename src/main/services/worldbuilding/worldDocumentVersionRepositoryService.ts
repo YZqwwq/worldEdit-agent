@@ -62,8 +62,6 @@ const parseState = (value: string | null): WorldDocumentHistoryNodeState | undef
   const state = JSON.parse(value) as StoredDocumentState
   return {
     documentId: state.id,
-    ownerKind: state.ownerKind,
-    ownerEntityId: state.ownerEntityId,
     parentDocumentId: state.parentDocumentId,
     title: state.title,
     sortKey: state.sortKey,
@@ -473,8 +471,6 @@ export const getWorldDocumentVersionStatus = async (
 
 const snapshotState = (entry: { state: StoredDocumentState }): WorldDocumentHistoryNodeState => ({
   documentId: entry.state.id,
-  ownerKind: entry.state.ownerKind,
-  ownerEntityId: entry.state.ownerEntityId,
   parentDocumentId: entry.state.parentDocumentId,
   title: entry.state.title,
   sortKey: entry.state.sortKey,

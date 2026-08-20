@@ -6,17 +6,19 @@
 
 1. `agent-core-plan.md`：运行闭环、工具、Context 与长期记忆。
 2. `document-editor-plan.md`：文档版本、撤销和 TipTap 局部编辑。
-3. `mood-system.md`：当前情绪架构及剩余一致性问题。
+3. `agent-document-reading-plan.md`：自由文档边界、Agent 文档发现与认知缓存。
+4. `mood-system.md`：当前情绪架构及剩余一致性问题。
 
 只阅读与当前任务有关的专题。发生跨模块修改时，再补读 `agent-core-plan.md`。
 
 ## 当前优先级
 
-1. 建立文档版本、Diff、撤销基座，并接入 Markdown 文档编辑工具包。
-2. 完成 Turn 恢复、EffectReceipt 和提交后动作的真实进程验收。
-3. 治理 Quick Access、工具目录和 Context 预算。
-4. 收口 Mood 配置、降级观测与评价输入规模。
-5. 将长期记忆升级为可追溯的重要事件。
+1. 在已完成的文档发现与阅读基线上，建立 Agent 自主维护的世界概念认知缓存。
+2. 用认知缓存重新确定人物印象等上层阅读能力的文档范围。
+3. 完成 Turn 恢复、EffectReceipt 和提交后动作的真实进程验收。
+4. 治理 Quick Access、工具目录和 Context 预算。
+5. 收口 Mood 配置、降级观测与评价输入规模。
+6. 将长期记忆升级为可追溯的重要事件。
 
 ## 维护规则
 

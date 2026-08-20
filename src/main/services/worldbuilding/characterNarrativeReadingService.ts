@@ -289,7 +289,7 @@ class CharacterNarrativeReadingService {
   }> {
     const character = await this.assertCharacterEntity(characterEntityId)
     const documents = await this.documentRepo.find({
-      where: { ownerEntityId: character.id }
+      where: { worldId: character.worldId }
     })
     const nodeById = new Map<string, TreeNode>()
     for (const document of documents) {
@@ -366,7 +366,7 @@ class CharacterNarrativeReadingService {
   ): Promise<CharacterNarrativeFreshnessSnapshot> {
     const character = await this.assertCharacterEntity(characterEntityId)
     const documents = await this.documentRepo.find({
-      where: { ownerEntityId: character.id }
+      where: { worldId: character.worldId }
     })
     const latestUpdatedAt = documents.reduce<Date | null>((latest, document) => {
       if (!document.updatedAt) return latest

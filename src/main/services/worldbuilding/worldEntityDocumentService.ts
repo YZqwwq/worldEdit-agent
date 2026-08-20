@@ -1,18 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { IsNull, type EntityManager } from 'typeorm'
+import type { EntityManager } from 'typeorm'
 import { AppDataSource } from '../../database'
 import { WorldRecord } from '../../../share/entity/database/WorldRecord'
-import { WorldEntityRecord } from '../../../share/entity/database/WorldEntityRecord'
 import { WorldEntityDocumentRecord } from '../../../share/entity/database/WorldEntityDocumentRecord'
 import type {
   CreateWorldEntityDocumentInput,
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
   UpdateWorldEntityDocumentInput,
-  WorldEntityDocumentOwnerRef,
   WorldEntityDocumentPayload
 } from '@share/cache/worldbuilding/worldEntityDocument'
-import { isWorldEntityDocumentOwnerType } from '@share/cache/worldbuilding/worldEntityDocument'
 import { persistCompletedToolEffect } from '../toolEffects/toolEffectReceiptService'
 import { getToolEffectExecutionContext } from '../toolEffects/toolEffectExecutionContext'
 import {
@@ -108,9 +105,7 @@ export class WorldEntityDocumentConstraintError extends Error {
 
 const toPayload = (record: WorldEntityDocumentRecord): WorldEntityDocumentPayload => ({
   id: record.id,
-  ownerKind: record.ownerKind,
   worldId: record.worldId,
-  ownerEntityId: record.ownerEntityId,
   parentDocumentId: record.parentDocumentId ?? null,
   title: record.title || DEFAULT_DOCUMENT_TITLE,
   contentHtml: record.contentHtml || '',
@@ -127,61 +122,22 @@ class WorldEntityDocumentService {
     return AppDataSource.getRepository(WorldRecord)
   }
 
-  private get entityRepo() {
-    return AppDataSource.getRepository(WorldEntityRecord)
-  }
-
   private get documentRepo() {
     return AppDataSource.getRepository(WorldEntityDocumentRecord)
   }
 
-  private async normalizeOwner(
-    owner: WorldEntityDocumentOwnerRef,
-    manager?: EntityManager
-  ): Promise<{
-    ownerKind: 'world' | 'entity'
-    worldId: string
-    ownerEntityId: string | null
-  }> {
-    const worldId = String(owner?.worldId || '').trim()
+  private async assertWorld(worldIdValue: unknown, manager?: EntityManager): Promise<string> {
+    const worldId = String(worldIdValue || '').trim()
     if (!worldId) throw new Error('worldId is required')
 
     const worldRepo = manager?.getRepository(WorldRecord) ?? this.worldRepo
-    const entityRepo = manager?.getRepository(WorldEntityRecord) ?? this.entityRepo
     const world = await worldRepo.findOneBy({ id: worldId })
     if (!world) throw new WorldEntityDocumentNotFoundError('world', worldId)
-
-    if (owner.kind === 'world') {
-      return { ownerKind: 'world', worldId, ownerEntityId: null }
-    }
-
-    const entityId = String(owner.entityId || '').trim()
-    if (!entityId) throw new Error('entityId is required')
-    const entity = await entityRepo.findOneBy({ id: entityId })
-    if (!entity) throw new WorldEntityDocumentNotFoundError('entity', entityId)
-    if (entity.worldId !== worldId) {
-      throw new WorldEntityDocumentConstraintError(
-        'Document owner entity must belong to the selected world',
-        'OWNER_WORLD_MISMATCH',
-        { entityId, worldId, entityWorldId: entity.worldId }
-      )
-    }
-    if (!isWorldEntityDocumentOwnerType(entity.type)) {
-      throw new WorldEntityDocumentConstraintError(
-        `World entity type "${entity.type}" cannot own documents`,
-        'UNSUPPORTED_OWNER_TYPE',
-        { entityId, entityType: entity.type }
-      )
-    }
-    return { ownerKind: 'entity', worldId, ownerEntityId: entity.id }
+    return worldId
   }
 
   private async assertParentDocument(
-    owner: {
-      ownerKind: 'world' | 'entity'
-      worldId: string
-      ownerEntityId: string | null
-    },
+    worldId: string,
     parentDocumentId: string | null | undefined,
     manager?: EntityManager
   ): Promise<string | null> {
@@ -193,14 +149,10 @@ class WorldEntityDocumentService {
     if (!parent) {
       throw new WorldEntityDocumentNotFoundError('parent_document', normalizedParentId)
     }
-    if (
-      parent.ownerKind !== owner.ownerKind ||
-      parent.worldId !== owner.worldId ||
-      parent.ownerEntityId !== owner.ownerEntityId
-    ) {
+    if (parent.worldId !== worldId) {
       throw new WorldEntityDocumentConstraintError(
-        'Parent document must belong to the same document owner',
-        'PARENT_OWNER_MISMATCH',
+        'Parent document must belong to the same world',
+        'PARENT_WORLD_MISMATCH',
         { parentDocumentId: normalizedParentId }
       )
     }
@@ -229,16 +181,10 @@ class WorldEntityDocumentService {
     return descendants
   }
 
-  async listDocuments(
-    ownerRef: WorldEntityDocumentOwnerRef
-  ): Promise<WorldEntityDocumentPayload[]> {
-    const owner = await this.normalizeOwner(ownerRef)
+  async listDocuments(worldIdValue: string): Promise<WorldEntityDocumentPayload[]> {
+    const worldId = await this.assertWorld(worldIdValue)
     const documents = await this.documentRepo.find({
-      where: {
-        ownerKind: owner.ownerKind,
-        worldId: owner.worldId,
-        ownerEntityId: owner.ownerEntityId ?? IsNull()
-      },
+      where: { worldId },
       order: { parentDocumentId: 'ASC', sortKey: 'ASC', createdAt: 'ASC' }
     })
     return documents.map(toPayload)
@@ -258,16 +204,16 @@ class WorldEntityDocumentService {
   ): Promise<WorldEntityDocumentPayload> {
     return AppDataSource.transaction(async (manager) => {
       const documentRepo = manager.getRepository(WorldEntityDocumentRecord)
-      const owner = await this.normalizeOwner(input.owner, manager)
+      const worldId = await this.assertWorld(input.worldId, manager)
       const parentDocumentId = await this.assertParentDocument(
-        owner,
+        worldId,
         input.parentDocumentId,
         manager
       )
-      await ensureWorldDocumentBaselineWithManager(manager, owner.worldId)
+      await ensureWorldDocumentBaselineWithManager(manager, worldId)
       const record = documentRepo.create({
         id: randomUUID(),
-        ...owner,
+        worldId,
         parentDocumentId,
         title: normalizeDocumentTitle(input.title),
         contentHtml: normalizeContentHtml(input.contentHtml),
@@ -424,11 +370,7 @@ class WorldEntityDocumentService {
       }
 
       const nextParentId = await this.assertParentDocument(
-        {
-          ownerKind: document.ownerKind,
-          worldId: document.worldId,
-          ownerEntityId: document.ownerEntityId
-        },
+        document.worldId,
         input.parentDocumentId,
         manager
       )

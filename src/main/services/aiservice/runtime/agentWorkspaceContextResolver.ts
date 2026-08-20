@@ -26,12 +26,10 @@ export const resolveAgentWorkspaceContext = async (
       document = {
         id: record.id,
         title: record.title,
-        ownerKind: record.ownerKind,
         parentDocumentId: record.parentDocumentId,
         revision: record.revision
       }
       world = { id: record.worldId }
-      if (record.ownerEntityId) entity = { id: record.ownerEntityId }
     }
   }
 
@@ -47,10 +45,7 @@ export const resolveAgentWorkspaceContext = async (
         name: record.name
       }
       world = { id: record.worldId }
-    } else {
-      entity = undefined
-      if (document?.ownerKind === 'entity') document = undefined
-    }
+    } else entity = undefined
   }
 
   const requestedWorldId = world?.id || context.world?.id

@@ -1,15 +1,16 @@
 import { z } from 'zod'
-import { defineAgentTool } from '../../core/agentTool'
+import { AgentToolError, defineAgentTool } from '../../core/agentTool'
 import { worldEntityDocumentService } from '../../../../worldbuilding/worldEntityDocumentService'
 import { worldEntityDocumentChangePublisher } from '../../../../worldbuilding/worldEntityDocumentChangePublisher'
 import {
   appendWorldDocumentTextInputSchema,
+  browseWorldDocumentTreeInputSchema,
   createWorldDocumentInputSchema,
   insertWorldDocumentTextInputSchema,
-  listWorldDocumentsInputSchema,
   readWorldDocumentSectionInputSchema,
   replaceWorldDocumentSectionInputSchema,
   replaceWorldDocumentTextInputSchema,
+  searchWorldDocumentsInputSchema,
   updateWorldDocumentInputSchema
 } from './worldDocumentToolContracts'
 import {
@@ -30,17 +31,15 @@ import {
   buildWorldDocumentEditContinuation,
   type WorldDocumentLocalEditOperation
 } from './worldDocumentEditContinuation'
-
-const toDocumentOwner = (input: { worldId: string; entityId?: string }) =>
-  input.entityId
-    ? ({ kind: 'entity' as const, worldId: input.worldId, entityId: input.entityId } as const)
-    : ({ kind: 'world' as const, worldId: input.worldId } as const)
+import {
+  browseWorldDocumentTree,
+  searchWorldDocuments,
+  type WorldDocumentTreeNode
+} from '../../../../worldbuilding/worldDocumentDiscoveryService'
 
 const documentSummarySchema = z.object({
   id: z.string(),
-  ownerKind: z.enum(['world', 'entity']),
   worldId: z.string(),
-  ownerEntityId: z.string().nullable(),
   parentDocumentId: z.string().nullable(),
   title: z.string(),
   sortKey: z.string(),
@@ -70,6 +69,32 @@ const documentSectionSchema = z.object({
   hash: z.string(),
   contentMarkdown: z.string()
 })
+
+const documentSearchMatchSchema = z.object({
+  documentId: z.string(),
+  title: z.string(),
+  parentDocumentId: z.string().nullable(),
+  path: z.array(z.string()),
+  revision: z.number().int().positive(),
+  matchedIn: z.array(z.enum(['title', 'path', 'content'])),
+  matchedTerms: z.array(z.string()),
+  occurrenceCount: z.number().int().nonnegative(),
+  snippet: z.string().nullable(),
+  score: z.number().nonnegative()
+})
+
+const documentTreeNodeSchema: z.ZodType<WorldDocumentTreeNode> = z.lazy(() =>
+  z.object({
+    documentId: z.string(),
+    title: z.string(),
+    parentDocumentId: z.string().nullable(),
+    path: z.array(z.string()),
+    revision: z.number().int().positive(),
+    childCount: z.number().int().nonnegative(),
+    hasMoreChildren: z.boolean(),
+    children: z.array(documentTreeNodeSchema)
+  })
+)
 
 const diffLineSchema = z.object({
   kind: z.enum(['context', 'added', 'removed']),
@@ -107,9 +132,7 @@ const localEditOutputSchema = z.object({
 
 const toSummary = (document: WorldEntityDocumentPayload) => ({
   id: document.id,
-  ownerKind: document.ownerKind,
   worldId: document.worldId,
-  ownerEntityId: document.ownerEntityId,
   parentDocumentId: document.parentDocumentId,
   title: document.title,
   sortKey: document.sortKey,
@@ -191,58 +214,164 @@ const executeLocalEdit = async (input: {
   }
 }
 
-export const listWorldDocumentsTool = defineAgentTool({
-  name: 'list_world_documents',
-  description: 'List the tree metadata of documents owned by a world or world entity.',
-  inputSchema: listWorldDocumentsInputSchema,
-  outputSchema: z.object({ documents: z.array(documentSummarySchema) }),
+export const searchWorldDocumentsTool = defineAgentTool({
+  name: 'search_world_documents',
+  description: 'Search document titles, paths, and visible body text within one world.',
+  inputSchema: searchWorldDocumentsInputSchema,
+  outputSchema: z.object({
+    query: z.string(),
+    queryTerms: z.array(z.string()),
+    strategy: z.literal('hybrid_exact_bm25'),
+    indexBuiltAt: z.string(),
+    totalMatches: z.number().int().nonnegative(),
+    hasMore: z.boolean(),
+    matchCount: z.number().int().nonnegative(),
+    matches: z.array(documentSearchMatchSchema)
+  }),
   metadata: {
     whenToUse: [
-      '需要查看世界观基础设定或某个实体下有哪些文档',
-      '需要解析文档标题、层级或 documentId'
+      '只知道对象名称、简称或关键词，尚不知道它位于哪些文档',
+      '需要从一个世界观的文档标题、目录路径和正文中寻找候选'
     ],
-    whenNotToUse: ['已经知道 documentId 且需要读取正文'],
-    inputSummary: '提供 worldId；读取实体文档时再提供 entityId，不传 entityId 表示世界基础设定。',
-    outputSummary: '返回文档目录元数据，不返回正文。',
+    whenNotToUse: ['已经知道准确 documentId，应直接读取文档', '只是想沿已知目录查看结构'],
+    inputSummary: '提供 worldId 和查询文本 query；可选 limit，默认 10，最大 30。',
+    outputSummary: '返回按精确匹配和 BM25 综合排序的文档、路径、相关摘要、命中词和出现次数。',
     usageContract: [
       '参数必须直接放在调用顶层，不要把参数对象序列化成 JSON 字符串。',
-      '需要读取人物、国家等实体文档时，同时传入 worldId 和 entityId。',
-      '需要读取世界基础设定时只传 worldId。'
+      '搜索结果只是文档证据，不代表系统已判断对象是人物、国家或其他固定类型。',
+      '支持自然多关键词查询，关键词可以分散出现在标题、路径和正文中。',
+      '同一文档只返回一次；snippet 优先选择关键词最集中的正文片段，occurrenceCount 是完整查询短语在正文中的出现次数。',
+      'hasMore 为 true 时表示结果被 limit 截断；优先增加更具体的关键词，而不是盲目扩大结果数量。',
+      '没有结果时可换用完整名称、简称或相关关键词，不要用完全相同的参数重复调用。'
     ],
-    examples: ['{"worldId":"world-id","entityId":"entity-id"}', '{"worldId":"world-id"}'],
+    examples: ['{"worldId":"world-id","query":"青岚"}'],
     executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'evidence',
     uiStage: {
-      label: '读取文档目录',
-      runningLabel: '正在读取文档目录',
-      doneLabel: '文档目录已读取'
+      label: '搜索世界观文档',
+      runningLabel: '正在搜索世界观文档',
+      doneLabel: '文档搜索已完成'
     }
   },
   async execute(input) {
-    const documents = await worldEntityDocumentService.listDocuments(toDocumentOwner(input))
-    return { documents: documents.map(toSummary) }
+    const documents = await worldEntityDocumentService.listDocuments(input.worldId)
+    const result = searchWorldDocuments(documents, input.query, input.limit)
+    return { ...result, matchCount: result.matches.length }
   },
   successMessage(data) {
-    return `Loaded ${data.documents.length} document catalog entries.`
+    return `Found ${data.matchCount} world document matches for ${data.query}.`
   },
   buildReceipt(data, input) {
-    const ownerKind = input.entityId ? 'entity' : 'world'
-    const ownerId = input.entityId ?? input.worldId
     return {
-      kind: 'world_document_catalog_loaded',
-      operation: '读取文档目录',
+      kind: 'world_documents_searched',
+      operation: '搜索世界观文档',
       subject: {
-        type: ownerKind,
-        id: ownerId
+        type: 'world',
+        id: input.worldId
       },
       completion: 'complete',
-      summary: `已读取 ${data.documents.length} 条文档目录记录。`,
+      summary: `关键词「${data.query}」命中 ${data.matchCount} 篇文档。`,
       retryable: false,
-      evidenceRef: `${ownerKind}:${ownerId}`,
+      evidenceRef: `world:${input.worldId}:document-search:${encodeURIComponent(data.query)}`,
       payload: {
-        documentCount: data.documents.length
+        query: data.query,
+        matchCount: data.matchCount,
+        totalMatches: data.totalMatches,
+        hasMore: data.hasMore,
+        documentIds: data.matches.map((match) => match.documentId),
+        strategy: data.strategy
+      }
+    }
+  }
+})
+
+export const browseWorldDocumentTreeTool = defineAgentTool({
+  name: 'browse_world_document_tree',
+  description: 'Browse a world document tree incrementally, revealing at most two levels at a time.',
+  inputSchema: browseWorldDocumentTreeInputSchema,
+  outputSchema: z.object({
+    rootDocumentId: z.string().nullable(),
+    roots: z.array(documentTreeNodeSchema),
+    nextBrowsableDocumentIds: z.array(z.string())
+  }),
+  metadata: {
+    whenToUse: [
+      '需要了解世界观文档的根目录结构',
+      '已经知道一个目录或根文档，需要继续查看其下级结构'
+    ],
+    whenNotToUse: ['需要按名称或正文关键词寻找未知文档', '已经知道 documentId 且需要正文'],
+    inputSummary: '提供 worldId；继续深入时再提供 rootDocumentId。',
+    outputSummary: '返回根节点及有限深度子节点，并标明可继续展开的节点。',
+    usageContract: [
+      '不传 rootDocumentId 时返回世界根文档及其直接子级。',
+      '传 rootDocumentId 时返回该节点及其向下两层后代。',
+      '只有 hasMoreChildren 为 true 的节点仍有未披露后代；继续时使用 nextBrowsableDocumentIds 中的 ID。',
+      '该工具不返回正文；确定目标文档后使用 read_world_document。'
+    ],
+    examples: [
+      '{"worldId":"world-id"}',
+      '{"worldId":"world-id","rootDocumentId":"document-id"}'
+    ],
+    executionLevel: 'safe',
+    readOnly: true,
+    idempotent: true,
+    contextRetention: 'evidence',
+    uiStage: {
+      label: '浏览文档结构',
+      runningLabel: '正在浏览文档结构',
+      doneLabel: '文档结构已读取'
+    }
+  },
+  async execute(input) {
+    const documents = await worldEntityDocumentService.listDocuments(input.worldId)
+    const result = browseWorldDocumentTree(documents, input.rootDocumentId)
+    if (!result) {
+      throw new AgentToolError({
+        code: 'NOT_FOUND',
+        message: '指定根文档不存在，或不属于当前世界观。',
+        retryable: true,
+        details: {
+          worldId: input.worldId,
+          rootDocumentId: input.rootDocumentId
+        },
+        nextSuggestions: [
+          '不传 rootDocumentId，从当前世界观的根文档重新浏览。',
+          '使用 search_world_documents 返回的 documentId 作为根文档。'
+        ]
+      })
+    }
+    return result
+  },
+  successMessage(data) {
+    return `Loaded ${data.roots.length} document tree root entries.`
+  },
+  nextSuggestions(data, input) {
+    if (data.nextBrowsableDocumentIds.length > 0) {
+      return ['如需深入，只选择与任务相关的 nextBrowsableDocumentIds 继续浏览。']
+    }
+    return input.rootDocumentId ? ['该范围已披露到叶节点，可读取相关文档正文。'] : []
+  },
+  buildReceipt(data, input) {
+    return {
+      kind: 'world_document_tree_browsed',
+      operation: '浏览世界观文档结构',
+      subject: {
+        type: input.rootDocumentId ? 'document' : 'world',
+        id: input.rootDocumentId ?? input.worldId
+      },
+      completion: 'complete',
+      summary: input.rootDocumentId
+        ? `已取得根文档及向下两层结构，共 ${data.roots.length} 个入口。`
+        : `已取得世界观根文档及其直接子级，共 ${data.roots.length} 个根入口。`,
+      retryable: false,
+      evidenceRef: input.rootDocumentId
+        ? `document:${input.rootDocumentId}:tree`
+        : `world:${input.worldId}:document-tree`,
+      payload: {
+        rootDocumentId: input.rootDocumentId ?? null,
+        nextBrowsableDocumentIds: data.nextBrowsableDocumentIds
       }
     }
   }
@@ -258,11 +387,11 @@ export const readWorldDocumentTool = defineAgentTool({
       '需要读取当前文档或指定文档的完整 Markdown 正文',
       '写入前需要确认当前内容和 revision'
     ],
-    whenNotToUse: ['尚不知道 documentId，应先列出文档目录'],
+    whenNotToUse: ['尚不知道 documentId，应先搜索文档或浏览目录结构'],
     inputSummary: '提供 documentId。',
-    outputSummary: '返回文档正文、归属和 revision。',
+    outputSummary: '返回文档正文、树位置和 revision。',
     usageContract: [
-      'documentId、归属字段和 revision 用于内部定位与后续写入，不应在普通内容讨论中主动展示。',
+      'documentId、树位置和 revision 用于内部定位与后续写入，不应在普通内容讨论中主动展示。',
       '读取成功后直接依据正文回答、概括或评价，不要向用户播报“已经读取文档”。',
       '只有用户明确询问版本、调试信息或并发冲突时，才说明 revision 等内部状态。'
     ],
@@ -380,21 +509,20 @@ export const readWorldDocumentSectionTool = defineAgentTool({
 
 export const createWorldDocumentTool = defineAgentTool({
   name: 'create_world_document',
-  description: 'Create a world-level or entity-level document from Markdown content.',
+  description: 'Create a free-form document in one world document tree from Markdown content.',
   inputSchema: createWorldDocumentInputSchema,
   outputSchema: z.object({ document: documentSchema }),
   metadata: {
-    whenToUse: ['用户明确要求创建新的世界观或实体文档'],
+    whenToUse: ['用户明确要求创建新的世界观文档'],
     whenNotToUse: ['只是讨论文档内容，或目标文档已经存在'],
-    inputSummary: '提供 worldId 和标题；创建实体文档时增加 entityId，可选父文档和 Markdown 正文。',
+    inputSummary: '提供 worldId 和标题，可选父文档和 Markdown 正文。',
     outputSummary: '返回新文档和初始 revision。',
     usageContract: [
       '参数必须直接放在调用顶层，不要传入 owner 嵌套对象或 JSON 字符串。',
-      '没有 entityId 时创建世界基础设定文档；存在 entityId 时创建该实体的文档。',
+      '文档只归属于世界观，不要推测或传入人物、国家等实体 ID。',
       '正文只通过 contentMarkdown 提交，不要生成或传入 HTML。'
     ],
     examples: [
-      '{"worldId":"world-id","entityId":"entity-id","title":"人物志"}',
       '{"worldId":"world-id","title":"力量体系"}'
     ],
     executionLevel: 'notice',
@@ -411,7 +539,7 @@ export const createWorldDocumentTool = defineAgentTool({
   async execute(input) {
     const document = await worldEntityDocumentService.createDocument(
       {
-        owner: toDocumentOwner(input),
+        worldId: input.worldId,
         parentDocumentId: input.parentDocumentId,
         title: input.title,
         contentHtml:
@@ -779,7 +907,7 @@ export const renameWorldDocumentTool = defineAgentTool({
 
 export const moveWorldDocumentTool = defineAgentTool({
   name: 'move_world_document',
-  description: 'Move a document within the tree owned by the same world or entity.',
+  description: 'Move a document within its world document tree.',
   inputSchema: z.object({
     documentId: z.string().trim().min(1),
     expectedRevision: z.number().int().positive(),
@@ -789,7 +917,7 @@ export const moveWorldDocumentTool = defineAgentTool({
   outputSchema: z.object({ document: documentSchema }),
   metadata: {
     whenToUse: ['用户明确要求调整文档层级或顺序'],
-    whenNotToUse: ['需要把文档移动到另一个 owner；当前系统不允许跨 owner 移动'],
+    whenNotToUse: ['需要把文档移动到另一个世界；文档不能跨世界移动'],
     inputSummary: '提供 documentId、expectedRevision、父文档和可选 sortKey。',
     outputSummary: '返回移动后的文档和新 revision。',
     executionLevel: 'notice',

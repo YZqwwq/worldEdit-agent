@@ -1,15 +1,21 @@
 import { z } from 'zod'
 import { MAX_AGENT_DOCUMENT_MARKDOWN_LENGTH } from './worldDocumentMarkdownCodec'
 
-const ownerReferenceShape = {
-  worldId: z.string().trim().min(1),
-  entityId: z.string().trim().min(1).optional()
-}
+const worldReferenceShape = { worldId: z.string().trim().min(1) }
 
-export const listWorldDocumentsInputSchema = z.object(ownerReferenceShape)
+export const searchWorldDocumentsInputSchema = z.strictObject({
+  ...worldReferenceShape,
+  query: z.string().trim().min(1).max(120),
+  limit: z.number().int().min(1).max(30).default(10)
+})
 
-export const createWorldDocumentInputSchema = z.object({
-  ...ownerReferenceShape,
+export const browseWorldDocumentTreeInputSchema = z.strictObject({
+  ...worldReferenceShape,
+  rootDocumentId: z.string().trim().min(1).optional()
+})
+
+export const createWorldDocumentInputSchema = z.strictObject({
+  ...worldReferenceShape,
   parentDocumentId: z.string().trim().min(1).nullable().optional(),
   title: z.string().trim().min(1).max(120),
   contentMarkdown: z.string().max(MAX_AGENT_DOCUMENT_MARKDOWN_LENGTH).optional()

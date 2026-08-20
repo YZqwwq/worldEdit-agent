@@ -29,7 +29,6 @@ const CURRENT_DOCUMENT_CONTEXT = {
   document: {
     id: 'document-foundation-energy',
     title: '物质与能量',
-    ownerKind: 'world' as const,
     parentDocumentId: null,
     revision: 68
   }
@@ -63,7 +62,7 @@ test('document discussion keeps one coherent path from page snapshot to final co
     memorySlots: createDefaultMemorySlots(),
     persona: null
   })
-  workspace = withSuccessfulToolUse(workspace, 'list_world_documents')
+  workspace = withSuccessfulToolUse(workspace, 'search_world_documents')
   workspace = withSuccessfulToolUse(workspace, 'read_world_document')
   workspace = withMemoryMessagesDraft(workspace, [
     { role: 'user', content: '看看菲尔娜的描述是否与当前基础设定一致' },
@@ -125,7 +124,7 @@ test('document discussion keeps one coherent path from page snapshot to final co
   assert.equal(commit.status, 'completed')
   assert.equal(commit.finalResponse?.content, '菲尔娜的人物描述与当前基础设定基本一致。')
   assert.deepEqual(commit.workspace?.draft.successfulToolNames, [
-    'list_world_documents',
+    'search_world_documents',
     'read_world_document'
   ])
   assert.deepEqual(commit.workspace?.draft.memoryMessages, [

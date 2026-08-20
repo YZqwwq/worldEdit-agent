@@ -4,8 +4,6 @@ export type WorldDocumentEditSourceFormat = 'markdown' | 'html_editor'
 
 export type WorldDocumentHistoryNodeState = {
   documentId: string
-  ownerKind: 'world' | 'entity'
-  ownerEntityId: string | null
   parentDocumentId: string | null
   title: string
   sortKey: string

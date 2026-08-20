@@ -56,9 +56,7 @@ export class WorldDocumentHistorySourceMismatchError extends Error {
 
 type DocumentState = {
   id: string
-  ownerKind: WorldEntityDocumentRecord['ownerKind']
   worldId: string
-  ownerEntityId: string | null
   parentDocumentId: string | null
   title: string
   sortKey: string
@@ -68,8 +66,6 @@ type DocumentState = {
 
 type TreeEntry = {
   documentId: string
-  ownerKind: WorldEntityDocumentRecord['ownerKind']
-  ownerEntityId: string | null
   title: string
   sortKey: string
   revision: number
@@ -87,9 +83,7 @@ export type WorldDocumentSnapshotEntry = RestorableDocument
 
 const toState = (record: WorldEntityDocumentRecord): DocumentState => ({
   id: record.id,
-  ownerKind: record.ownerKind,
   worldId: record.worldId,
-  ownerEntityId: record.ownerEntityId,
   parentDocumentId: record.parentDocumentId ?? null,
   title: record.title,
   sortKey: record.sortKey,
@@ -106,9 +100,6 @@ const hashText = (value: string): string => createHash('sha256').update(value, '
 
 const contentVersionId = (documentId: string, source: WorldDocumentEditSource): string =>
   `content:${hashText(`${documentId}\u0000${source.format}\u0000${source.content}`)}`
-
-const sameOwner = (left: DocumentState, right: DocumentState): boolean =>
-  left.ownerKind === right.ownerKind && left.ownerEntityId === right.ownerEntityId
 
 const resolveOperation = (
   current: WorldDocumentChangeRecord | null,
@@ -361,12 +352,10 @@ const materializeTree = async (
       const document = documents.get(state.id)
       if (!document) throw new Error(`Missing document snapshot for tree entry: ${state.id}`)
       const version = await ensureContentVersion(manager, state, document.source)
-      const children = (byParent.get(state.id) ?? []).filter((child) => sameOwner(child, state))
+      const children = byParent.get(state.id) ?? []
       const childrenTree = children.length > 0 ? await build(state.id) : null
       entries.push({
         documentId: state.id,
-        ownerKind: state.ownerKind,
-        ownerEntityId: state.ownerEntityId,
         title: state.title,
         sortKey: state.sortKey,
         revision: state.revision,
@@ -718,9 +707,7 @@ export const readTreeDocuments = async (
     result.set(entry.documentId, {
       state: {
         id: entry.documentId,
-        ownerKind: entry.ownerKind,
         worldId,
-        ownerEntityId: entry.ownerEntityId,
         parentDocumentId,
         title: entry.title,
         sortKey: entry.sortKey,
@@ -763,9 +750,7 @@ export const checkoutWorldDocumentCommitWithManager = async (
       repository.create({
         ...(existing ?? {}),
         id: documentId,
-        ownerKind: document.state.ownerKind,
         worldId: document.state.worldId,
-        ownerEntityId: document.state.ownerEntityId,
         parentDocumentId: document.state.parentDocumentId,
         title: document.state.title,
         contentHtml: sourceToStoredHtml(document.source),
@@ -862,8 +847,6 @@ export const restoreWorldDocumentCommitWithManager = async (
     const storedHtml = sourceToStoredHtml(desiredDocument.source)
     if (
       existing &&
-      existing.ownerKind === desiredDocument.state.ownerKind &&
-      existing.ownerEntityId === desiredDocument.state.ownerEntityId &&
       existing.parentDocumentId === desiredDocument.state.parentDocumentId &&
       existing.title === desiredDocument.state.title &&
       existing.sortKey === desiredDocument.state.sortKey &&
@@ -887,9 +870,7 @@ export const restoreWorldDocumentCommitWithManager = async (
       documentRepository.create({
         ...(existing ?? {}),
         id: documentId,
-        ownerKind: desiredDocument.state.ownerKind,
         worldId: desiredDocument.state.worldId,
-        ownerEntityId: desiredDocument.state.ownerEntityId,
         parentDocumentId: desiredDocument.state.parentDocumentId,
         title: desiredDocument.state.title,
         contentHtml: storedHtml,
