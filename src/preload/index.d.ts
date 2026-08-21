@@ -33,6 +33,8 @@ import type {
 } from '../share/cache/worldbuilding/worldbuilding'
 import type {
   CommitWorldEntityDocumentHistorySessionInput,
+  ResolveWorldEntityDocumentHistorySessionInput,
+  WorldEntityDocumentHistorySessionResolution,
   CreateWorldEntityDocumentInput,
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
@@ -200,6 +202,9 @@ declare global {
     commitWorldEntityDocumentHistorySession: (
       input: CommitWorldEntityDocumentHistorySessionInput
     ) => Promise<void>
+    resolveWorldEntityDocumentHistorySession: (
+      input: ResolveWorldEntityDocumentHistorySessionInput
+    ) => Promise<WorldEntityDocumentHistorySessionResolution>
     initializeWorldDocumentHistory: (worldId: string) => Promise<WorldDocumentCommitSummary>
     listWorldDocumentCommitHistory: (
       worldId: string,

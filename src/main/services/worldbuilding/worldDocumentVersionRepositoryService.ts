@@ -50,6 +50,8 @@ import type {
   WorldDocumentMergePreviewPayload,
   WorldDocumentVersionStatusPayload
 } from '@share/cache/worldbuilding/worldDocumentHistory'
+import type { ResolveWorldEntityDocumentHistorySessionInput } from '@share/cache/worldbuilding/worldEntityDocument'
+import { resolveWorldDocumentHumanSessionWithDataSource } from './worldDocumentHumanSessionService'
 import { getWorldDocumentDiffByRefWithDataSource } from './worldDocumentDiffReferenceResolver'
 
 type StoredDocumentState = Omit<WorldDocumentHistoryNodeState, 'documentId'> & { id: string }
@@ -168,6 +170,11 @@ export const commitWorldDocumentChangeSet = (
   AppDataSource.transaction((manager) =>
     commitWorldDocumentChangeSetWithManager(manager, changeSetId, origin, summary)
   )
+
+export const resolveWorldDocumentHumanSession = (
+  input: ResolveWorldEntityDocumentHistorySessionInput
+) =>
+  resolveWorldDocumentHumanSessionWithDataSource(AppDataSource, input)
 
 export const initializeWorldDocumentHistory = async (
   worldId: string

@@ -34,6 +34,8 @@ import type {
 } from '../share/cache/worldbuilding/worldbuilding'
 import type {
   CommitWorldEntityDocumentHistorySessionInput,
+  ResolveWorldEntityDocumentHistorySessionInput,
+  WorldEntityDocumentHistorySessionResolution,
   CreateWorldEntityDocumentInput,
   DeleteWorldEntityDocumentInput,
   MoveWorldEntityDocumentInput,
@@ -198,6 +200,9 @@ type Api = {
   commitWorldEntityDocumentHistorySession: (
     input: CommitWorldEntityDocumentHistorySessionInput
   ) => Promise<void>
+  resolveWorldEntityDocumentHistorySession: (
+    input: ResolveWorldEntityDocumentHistorySessionInput
+  ) => Promise<WorldEntityDocumentHistorySessionResolution>
   initializeWorldDocumentHistory: (worldId: string) => Promise<WorldDocumentCommitSummary>
   listWorldDocumentCommitHistory: (
     worldId: string,
@@ -314,6 +319,8 @@ const api: Api = {
   deleteWorldEntityDocument: (input) => ipcRenderer.invoke('worldEntityDocument:delete', input),
   commitWorldEntityDocumentHistorySession: (input) =>
     ipcRenderer.invoke('worldEntityDocument:commitHistorySession', input),
+  resolveWorldEntityDocumentHistorySession: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:resolveHistorySession', input),
   initializeWorldDocumentHistory: (worldId) =>
     ipcRenderer.invoke('worldEntityDocument:history:initialize', worldId),
   listWorldDocumentCommitHistory: (worldId, limit) =>

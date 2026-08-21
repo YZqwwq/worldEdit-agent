@@ -45,6 +45,7 @@ npm run test:integration:electron
 - 文档工具具有 revision 乐观锁、结构化错误和编辑器变更广播。
 - 写入副作用已接入 ChangeSet 与 EffectReceipt 基础协议。
 - Agent 文档工具已经使用 `contentMarkdown`，内部负责 Markdown 与 TipTap HTML 转换。
+- 旧实体归属文档升级时保留当前正文、树结构和 revision；旧业务 Git 历史允许清空，并以迁移后的完整文档树重新建立 Baseline。
 
 ## 已落地：Git 式版本架构
 
@@ -279,16 +280,6 @@ P2：根据实测再决定
 
 用户影响：版本列表只包含用户明确认可的节点，不会被频繁自动保存淹没；相应地，用户需要理解“自动保存不等于创建版本”。开发维护影响：工作区持久化、正式版本和未来本地恢复必须保持三种独立职责，不能再次混合。
 
-### 下一设备优先修正
-
-P0：人工工作区 Session 崩溃恢复
-
-- 当前人工 `historySessionId` 保存在 Renderer `localStorage`。若数据库已完成“创建版本”，但进程在生成并保存新 Session ID 前退出，重启后可能继续使用已经封口的 ChangeSet，下一次保存返回 `CHANGESET_CLOSED`。
-- 需要在启动或首次保存时识别“当前 Session 已封口”并安全轮换，同时不能遗失仍处于 staged 状态的旧 Session。
-- 还需处理本地 Session 标识丢失但数据库仍有 staged 人工工作区的情况，避免界面显示存在待提交文档，却无法通过当前 Session 创建版本。
-
-用户影响：极端退出后可能持续保存失败或无法创建已有待提交内容的版本。维护影响：当前数据库工作区状态与 Renderer 本地标识之间缺少权威恢复协议。
-
 P1：补齐编辑结果展示
 
 - `update_world_document` 修改完整正文时也应生成 `diffRef`，复用局部编辑的 Diff 卡片与语义定位；仅修改标题时无需正文 Diff。
@@ -326,4 +317,4 @@ P2：暂缓事项
 
 ## 接续入口
 
-换设备后先修复人工工作区 Session 的崩溃与孤儿 staged 恢复，再让 `update_world_document` 接入 Diff 卡片，并补充 AI Diff 定位失败的界面反馈。编辑工具旧 P0/P1 已完成，不要重复实现；手动创建版本的 Git 语义保持不变。
+下一步让 `update_world_document` 接入 Diff 卡片，并补充 AI Diff 定位失败的界面反馈。人工工作区 Session 已能在启动时轮换已封口标识，并将一个或多个孤儿 staged Session 合并回同一工作区。编辑工具旧 P0/P1 已完成，不要重复实现；手动创建版本的 Git 语义保持不变。

@@ -43,6 +43,7 @@ import {
   getWorldDocumentCommitDetail,
   getWorldDocumentDiffByRef,
   getWorldDocumentVersionStatus,
+  resolveWorldDocumentHumanSession,
   initializeWorldDocumentHistory,
   inspectWorldDocumentHistory,
   listWorldDocumentCommitHistory,
@@ -594,6 +595,11 @@ export function initializeAIEndpoints(): void {
         String(input.summary || '').trim() || undefined
       )
     }
+  )
+
+  ipcMain.handle(
+    'worldEntityDocument:resolveHistorySession',
+    async (_event, input) => resolveWorldDocumentHumanSession(input)
   )
 
   ipcMain.handle(

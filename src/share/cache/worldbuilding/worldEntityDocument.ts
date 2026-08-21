@@ -55,6 +55,17 @@ export interface CommitWorldEntityDocumentHistorySessionInput {
   summary?: string
 }
 
+export interface ResolveWorldEntityDocumentHistorySessionInput {
+  worldId: string
+  preferredSessionId: string
+}
+
+export interface WorldEntityDocumentHistorySessionResolution {
+  sessionId: string
+  status: 'active' | 'recovered' | 'rotated'
+  recoveredSessionCount: number
+}
+
 export interface WorldEntityDocumentChangeEvent {
   changeType: 'created' | 'updated' | 'moved' | 'deleted'
   documentId: string

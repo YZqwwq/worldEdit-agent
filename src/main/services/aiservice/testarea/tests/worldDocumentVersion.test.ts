@@ -48,6 +48,7 @@ import { applicationEntities } from '../../../../database/applicationEntities'
 import { APPLICATION_SCHEMA_BASELINE_TABLE_SQL } from '../../../../database/migrations/applicationSchemaBaseline'
 import { getWorldDocumentDiffByRefWithDataSource } from '../../../worldbuilding/worldDocumentDiffReferenceResolver'
 import { migrateWorldEntityDocuments } from '../../../../database/migrations/migrateWorldEntityDocuments'
+import { resolveWorldDocumentHumanSessionWithDataSource } from '../../../worldbuilding/worldDocumentHumanSessionService'
 
 const sqliteTest = (name: string, execute: () => Promise<void>): void => {
   test(name, { skip: process.env.RUN_DOCUMENT_VERSION_SQLITE_TESTS !== '1' }, execute)
@@ -223,6 +224,100 @@ sqliteTest('a staged content edit creates a baseline and one immutable world com
     assert.equal(currentContent.sourceFormat, 'markdown')
     assert.equal(currentContent.contentSource, '# Edited source')
     assert.notEqual(currentContent.contentSource, after.contentHtml)
+  } finally {
+    await dataSource.destroy()
+  }
+})
+
+sqliteTest('human history sessions rotate after commit and recover orphan staged work', async () => {
+  const dataSource = await createDataSource()
+  try {
+    const documents = dataSource.getRepository(WorldEntityDocumentRecord)
+    const original = await documents.save(documents.create(documentState('doc-session')))
+    await dataSource.transaction((manager) =>
+      ensureWorldDocumentBaselineWithManager(manager, original.worldId)
+    )
+
+    const closedBefore = documents.create({ ...original })
+    original.contentHtml = '<p>closed</p>'
+    original.revision = 2
+    const closedAfter = await documents.save(original)
+    await dataSource.transaction(async (manager) => {
+      await stageWorldDocumentChangeWithManager(manager, {
+        changeSetId: 'human:closed-session',
+        operation: 'update',
+        before: closedBefore,
+        after: closedAfter,
+        source: { format: 'html_editor', content: closedAfter.contentHtml }
+      })
+      await commitWorldDocumentChangeSetWithManager(manager, 'human:closed-session', 'human')
+    })
+    const rotated = await resolveWorldDocumentHumanSessionWithDataSource(dataSource, {
+      worldId: original.worldId,
+      preferredSessionId: 'closed-session'
+    })
+    assert.equal(rotated.status, 'rotated')
+    assert.notEqual(rotated.sessionId, 'closed-session')
+
+    const orphanOneBefore = documents.create({ ...closedAfter })
+    closedAfter.contentHtml = '<p>orphan one</p>'
+    closedAfter.revision = 3
+    const orphanOneAfter = await documents.save(closedAfter)
+    await dataSource.transaction((manager) =>
+      stageWorldDocumentChangeWithManager(manager, {
+        changeSetId: 'human:orphan-one',
+        operation: 'update',
+        before: orphanOneBefore,
+        after: orphanOneAfter,
+        source: { format: 'html_editor', content: orphanOneAfter.contentHtml },
+        summary: '第一段未提交编辑'
+      })
+    )
+
+    const orphanTwoBefore = documents.create({ ...orphanOneAfter })
+    orphanOneAfter.contentHtml = '<p>orphan two</p>'
+    orphanOneAfter.revision = 4
+    const orphanTwoAfter = await documents.save(orphanOneAfter)
+    await dataSource.transaction((manager) =>
+      stageWorldDocumentChangeWithManager(manager, {
+        changeSetId: 'human:orphan-two',
+        operation: 'update',
+        before: orphanTwoBefore,
+        after: orphanTwoAfter,
+        source: { format: 'html_editor', content: orphanTwoAfter.contentHtml },
+        summary: '第二段未提交编辑'
+      })
+    )
+
+    const recovered = await resolveWorldDocumentHumanSessionWithDataSource(dataSource, {
+      worldId: original.worldId,
+      preferredSessionId: 'new-local-session'
+    })
+    assert.equal(recovered.status, 'recovered')
+    assert.equal(recovered.sessionId, 'new-local-session')
+    assert.equal(recovered.recoveredSessionCount, 2)
+    const staged = await dataSource.getRepository(WorldDocumentChangeRecord).findBy({
+      worldId: original.worldId,
+      status: 'staged'
+    })
+    assert.equal(staged.length, 1)
+    assert.equal(staged[0].changeSetId, 'human:new-local-session')
+    assert.equal(
+      (JSON.parse(staged[0].beforeStateJson!) as { revision: number }).revision,
+      2
+    )
+    assert.equal(
+      (JSON.parse(staged[0].afterStateJson!) as { revision: number }).revision,
+      4
+    )
+
+    const [commit] = await dataSource.transaction((manager) =>
+      commitWorldDocumentChangeSetWithManager(manager, staged[0].changeSetId, 'human')
+    )
+    const committedDocuments = await dataSource.transaction((manager) =>
+      readTreeDocuments(manager, original.worldId, commit.rootTreeHash)
+    )
+    assert.equal(committedDocuments.get(original.id)?.source.content, '<p>orphan two</p>')
   } finally {
     await dataSource.destroy()
   }

@@ -639,6 +639,11 @@
         </aside>
       </main>
 
+      <main v-else-if="missingRouteDocument" class="editor-empty-state">
+        <strong>无法打开这份文档</strong>
+        <span>链接中的文档不存在或来自旧版实体入口，请从左侧文档树重新选择。</span>
+      </main>
+
       <main v-else-if="canCreateNarrativeDocument" class="editor-empty-state">
         <strong>{{ currentDocumentOwnerLabel }}</strong>
         <span>这个世界还没有文档</span>
@@ -788,6 +793,7 @@ const savingNarrative = ref(false)
 const narrativeSaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const externalDocumentConflict = ref(false)
 const narrativeDocumentsLoading = ref(false)
+const documentWorkspaceLoaded = ref(false)
 const documentSearchQuery = ref('')
 const narrativeTitleFocused = ref(false)
 const showNarrativeDeleteConfirm = ref(false)
@@ -937,6 +943,17 @@ const loadNarrativeHistorySessionId = (): string => {
 }
 
 const narrativeHistorySessionId = ref(loadNarrativeHistorySessionId())
+
+const reconcileNarrativeHistorySession = async (): Promise<void> => {
+  if (!worldId.value) return
+  const resolution =
+    await worldbuildingClientService.resolveWorldEntityDocumentHistorySession({
+      worldId: worldId.value,
+      preferredSessionId: narrativeHistorySessionId.value
+    })
+  narrativeHistorySessionId.value = resolution.sessionId
+  localStorage.setItem(narrativeHistorySessionStorageKey(), resolution.sessionId)
+}
 
 const worldId = computed(() => String(route.params.worldId || ''))
 const routeDocumentId = computed(() => String(route.params.documentId || ''))
@@ -1101,6 +1118,12 @@ const narrativeTreeRows = computed<NarrativeTreeNode[]>(() => {
 })
 const narrativeDocumentById = computed(
   () => new Map(narrativeDocuments.value.map((document) => [document.id, document]))
+)
+const missingRouteDocument = computed(
+  () =>
+    documentWorkspaceLoaded.value &&
+    Boolean(routeDocumentId.value) &&
+    !narrativeDocumentById.value.has(routeDocumentId.value)
 )
 const outlineItems = computed(() => {
   const items: Array<{ level: number; text: string }> = []
@@ -1964,6 +1987,7 @@ const loadDocumentWorkspace = async (): Promise<void> => {
   if (!worldId.value) return
   syncingFromDetail = true
   narrativeDocumentsLoading.value = true
+  documentWorkspaceLoaded.value = false
   try {
     const [worlds, documents] = await Promise.all([
       worldbuildingClientService.listWorlds(),
@@ -1972,9 +1996,12 @@ const loadDocumentWorkspace = async (): Promise<void> => {
     worldDetail.value = worlds.find((world) => world.id === worldId.value) ?? null
     narrativeDocuments.value = documents
     const requested = documents.find((document) => document.id === routeDocumentId.value)
-    syncNarrativeFromDocument(requested ?? documents[0] ?? null)
+    syncNarrativeFromDocument(
+      requested ?? (routeDocumentId.value ? null : (documents[0] ?? null))
+    )
   } finally {
     narrativeDocumentsLoading.value = false
+    documentWorkspaceLoaded.value = true
     syncingFromDetail = false
   }
 }
@@ -2253,6 +2280,7 @@ onMounted(async () => {
   removeDocumentChangeListener = window.api.onWorldEntityDocumentChanged((change) => {
     void handleExternalDocumentChange(change)
   })
+  await reconcileNarrativeHistorySession()
   await loadDocumentWorkspace()
 })
 
