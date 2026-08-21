@@ -1,4 +1,4 @@
-import { characterNarrativeReadingService } from '../../../../worldbuilding/characterNarrativeReadingService'
+import { characterNarrativeReadingService } from '../../../../worldbuilding/characterNarrativeReadingRuntime'
 import { defineAgentTool } from '../../core/agentTool'
 import {
   createCharacterNarrativeReadingTaskInputSchema,
@@ -30,7 +30,8 @@ export const createCharacterNarrativeReadingTaskTool = defineAgentTool({
       '返回标准 reading task，包括 units、每个 unit 的 mission、展开后的 documentIds、字符量、firstCursor 和阅读协议。',
     usageContract: [
       '本工具不读取正文，只生成可执行 reading task；它是重新形成印象前的硬性计划步骤。',
-      'full 模式会被编译为一个 full unit，mission 通常是形成对人物的整体概念；适合没有印象、旧印象范围不足或用户要求完整重读。',
+      'full 模式只读取当前有效人物认知引用的全部文档，不会读取整个世界；适合没有印象、旧印象范围不足或用户要求完整重读。',
+      '人物认知缺失、待验证或同名歧义时工具会拒绝创建任务，应先用世界文档工具修正认知范围。',
       'selective 模式必须使用 inspect_character_narrative_catalog 返回的 documentId/rootDocumentId。',
       'selective 模式适合用户指定主题、章节、文件树，或只需要刷新人物某一方面印象。',
       '每个 selection 的 mission 都必须说明“为什么读这一部分”，而不是只写文件名。',
@@ -66,6 +67,8 @@ export const createCharacterNarrativeReadingTaskTool = defineAgentTool({
         mode: data.task.mode,
         mission: data.task.mission,
         firstCursor: data.task.firstCursor,
+        cognitionNodeId: data.task.cognitionBinding.nodeId,
+        cognitionRevision: data.task.cognitionBinding.revision,
         unitCount: data.task.units.length,
         totalReadableCharacters: data.task.totalReadableCharacters
       }
@@ -73,8 +76,10 @@ export const createCharacterNarrativeReadingTaskTool = defineAgentTool({
   },
   nextSuggestions(data) {
     if (data.task.totalReadableCharacters === 0) {
-      return ['Explain that the selected narrative documents contain no readable text.']
+      return ['Explain that the cognition-scoped narrative documents contain no readable text.']
     }
-    return [`Read the task with read_character_narrative_task_batch using cursor=${data.task.firstCursor}.`]
+    return [
+      `Read the task with read_character_narrative_task_batch using cursor=${data.task.firstCursor}.`
+    ]
   }
 })

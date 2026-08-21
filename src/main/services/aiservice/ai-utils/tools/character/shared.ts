@@ -117,13 +117,38 @@ export const characterNarrativeCatalogSelectableItemSchema = z.object({
   preview: z.string().optional()
 })
 
+export const characterNarrativeCognitionScopeSchema = z.object({
+  status: z.enum(['available', 'missing', 'needs_review', 'ambiguous']),
+  query: z.string(),
+  cognitionNodeId: z.string().optional(),
+  cognitionRevision: z.number().int().positive().optional(),
+  documentRefs: z.array(
+    z.object({
+      documentId: z.string(),
+      revision: z.number().int().positive()
+    })
+  ),
+  candidates: z.array(
+    z.object({
+      nodeId: z.string(),
+      title: z.string(),
+      revision: z.number().int().positive(),
+      status: z.enum(['available', 'needs_review'])
+    })
+  ),
+  reason: z.string()
+})
+
 export const inspectCharacterNarrativeCatalogOutputSchema = z.object({
   character: characterNarrativeReaderCharacterSchema,
   totalDocuments: z.number().int().min(0),
   totalReadableCharacters: z.number().int().min(0),
   rootCount: z.number().int().min(0),
+  cognitionScope: characterNarrativeCognitionScopeSchema,
+  warnings: z.array(z.string()),
   fullReadOption: z.object({
     type: z.literal('full'),
+    available: z.boolean(),
     label: z.string(),
     mission: z.string(),
     documentCount: z.number().int().min(0),
@@ -223,6 +248,16 @@ export const characterNarrativeReadingTaskSchema = z.object({
   taskId: z.string(),
   character: characterNarrativeReaderCharacterSchema,
   mode: z.enum(['full', 'selective']),
+  cognitionBinding: z.object({
+    nodeId: z.string(),
+    revision: z.number().int().positive(),
+    documentRefs: z.array(
+      z.object({
+        documentId: z.string(),
+        revision: z.number().int().positive()
+      })
+    )
+  }),
   mission: z.string(),
   outputIntent: z.object({
     kind: z.string(),
@@ -420,11 +455,9 @@ export const delegateCharacterEditorInputSchema = z
     source: characterEditorTaskSourceSchema.optional()
   })
   .refine(
-    (input) =>
-      Boolean(input.entityId || input.characterName || input.worldId || input.worldName),
+    (input) => Boolean(input.entityId || input.characterName || input.worldId || input.worldName),
     {
-      message:
-        'At least one of entityId, characterName, worldId, or worldName must be provided.'
+      message: 'At least one of entityId, characterName, worldId, or worldName must be provided.'
     }
   )
 

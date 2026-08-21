@@ -1,4 +1,4 @@
-import { characterNarrativeReadingService } from '../../../../worldbuilding/characterNarrativeReadingService'
+import { characterNarrativeReadingService } from '../../../../worldbuilding/characterNarrativeReadingRuntime'
 import { defineAgentTool } from '../../core/agentTool'
 import {
   readCharacterNarrativeTaskBatchInputSchema,
@@ -29,6 +29,7 @@ export const readCharacterNarrativeTaskBatchTool = defineAgentTool({
       '返回当前阅读单元、单元 mission、本批 chunks、nextCursor、hasMoreInUnit、hasMore 和阅读动作提示。',
     usageContract: [
       '必须按 nextCursor 顺序读取，不要跳读。',
+      'reading task 绑定创建时的 cognitionNodeId 和 cognitionRevision；认知范围变化后必须重新检查目录并创建任务。',
       '阅读每一批时必须围绕 currentUnit.mission 形成阶段理解。',
       '当 hasMoreInUnit=false 且 hasMore=true 时，进入下一个 unit 前先总结当前 unit。',
       '当 hasMore=false 时，停止读取并根据 task.mission 输出最终结论或调用 save_character_narrative_impression 保存印象。',
@@ -73,7 +74,9 @@ export const readCharacterNarrativeTaskBatchTool = defineAgentTool({
   },
   nextSuggestions(data) {
     if (data.hasMore) {
-      return [`Continue reading with read_character_narrative_task_batch using nextCursor=${data.nextCursor}.`]
+      return [
+        `Continue reading with read_character_narrative_task_batch using nextCursor=${data.nextCursor}.`
+      ]
     }
     return ['Stop reading and synthesize the final answer according to the reading task mission.']
   }

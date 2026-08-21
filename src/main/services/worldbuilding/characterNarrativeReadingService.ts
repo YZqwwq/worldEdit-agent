@@ -1,6 +1,35 @@
-import { AppDataSource } from '../../database'
+import { DataSource, In } from 'typeorm'
 import { WorldEntityDocumentRecord } from '../../../share/entity/database/WorldEntityDocumentRecord'
 import { WorldEntityRecord } from '../../../share/entity/database/WorldEntityRecord'
+import {
+  AgentWorldCognitionService,
+  MAIN_AGENT_COGNITION_OWNER_ID
+} from './agentWorldCognitionService'
+import type {
+  AgentWorldCognitionNodeStatus,
+  WorldCognitionDocumentRef
+} from '@share/cache/worldbuilding/agentWorldCognition'
+
+export type CharacterNarrativeCognitionScopeStatus =
+  | 'available'
+  | 'missing'
+  | 'needs_review'
+  | 'ambiguous'
+
+export interface CharacterNarrativeCognitionScope {
+  status: CharacterNarrativeCognitionScopeStatus
+  query: string
+  cognitionNodeId?: string
+  cognitionRevision?: number
+  documentRefs: WorldCognitionDocumentRef[]
+  candidates: Array<{
+    nodeId: string
+    title: string
+    revision: number
+    status: AgentWorldCognitionNodeStatus
+  }>
+  reason: string
+}
 
 export interface CharacterNarrativeReadingChunk {
   chunkId: string
@@ -38,8 +67,11 @@ export interface CharacterNarrativeCatalog {
   totalDocuments: number
   totalReadableCharacters: number
   rootCount: number
+  cognitionScope: CharacterNarrativeCognitionScope
+  warnings: string[]
   fullReadOption: {
     type: 'full'
+    available: boolean
     label: string
     mission: string
     documentCount: number
@@ -93,6 +125,11 @@ export interface CharacterNarrativeReadingTask {
     worldId: string
   }
   mode: 'full' | 'selective'
+  cognitionBinding: {
+    nodeId: string
+    revision: number
+    documentRefs: WorldCognitionDocumentRef[]
+  }
   mission: string
   outputIntent: {
     kind: string
@@ -146,6 +183,7 @@ export interface CharacterNarrativeFreshnessSnapshot {
   totalDocuments: number
   totalReadableCharacters: number
   latestDocumentUpdatedAt?: string
+  cognitionScope: CharacterNarrativeCognitionScope
 }
 
 type TreeNode = WorldEntityDocumentRecord & {
@@ -261,13 +299,19 @@ const compactPreview = (value: string, maxChars: number): string => {
   return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`
 }
 
-class CharacterNarrativeReadingService {
+export class CharacterNarrativeReadingService {
+  private readonly cognitionService: AgentWorldCognitionService
+
+  constructor(private readonly dataSource: DataSource) {
+    this.cognitionService = new AgentWorldCognitionService(dataSource)
+  }
+
   private get entityRepo() {
-    return AppDataSource.getRepository(WorldEntityRecord)
+    return this.dataSource.getRepository(WorldEntityRecord)
   }
 
   private get documentRepo() {
-    return AppDataSource.getRepository(WorldEntityDocumentRecord)
+    return this.dataSource.getRepository(WorldEntityDocumentRecord)
   }
 
   private async assertCharacterEntity(characterEntityId: string): Promise<WorldEntityRecord> {
@@ -283,16 +327,149 @@ class CharacterNarrativeReadingService {
     return entity
   }
 
+  private async resolveCognitionScope(
+    character: WorldEntityRecord
+  ): Promise<CharacterNarrativeCognitionScope> {
+    const query = character.name.trim()
+    const cognition = await this.cognitionService.queryNodes({
+      agentId: MAIN_AGENT_COGNITION_OWNER_ID,
+      worldId: character.worldId,
+      query,
+      limit: 10
+    })
+    const concepts = cognition.matches.filter((node) => node.nodeKind === 'concept')
+    const candidates = concepts.map((node) => ({
+      nodeId: node.id,
+      title: node.title,
+      revision: node.revision,
+      status: node.status
+    }))
+    const normalizedName = query.toLocaleLowerCase()
+    const exact = concepts.filter(
+      (node) => node.title.trim().toLocaleLowerCase() === normalizedName
+    )
+    const choose = (
+      node: (typeof concepts)[number],
+      reason: string
+    ): CharacterNarrativeCognitionScope => ({
+      status: 'available',
+      query,
+      cognitionNodeId: node.id,
+      cognitionRevision: node.revision,
+      documentRefs: node.documentRefs,
+      candidates,
+      reason
+    })
+
+    if (exact.length > 0) {
+      const available = exact.filter((node) => node.status === 'available')
+      if (available.length === 1) {
+        return choose(available[0], `使用与人物名称“${query}”完全匹配的认知卡片。`)
+      }
+      if (available.length > 1) {
+        return {
+          status: 'ambiguous',
+          query,
+          documentRefs: [],
+          candidates,
+          reason: `存在 ${available.length} 张同名有效认知卡片，不能自动决定人物阅读范围。`
+        }
+      }
+      return {
+        status: 'needs_review',
+        query,
+        documentRefs: [],
+        candidates,
+        reason: '与人物名称完全匹配的认知卡片需要重新验证。'
+      }
+    }
+
+    const available = concepts.filter((node) => node.status === 'available')
+    if (available.length > 0) {
+      return {
+        status: 'ambiguous',
+        query,
+        documentRefs: [],
+        candidates,
+        reason:
+          available.length === 1
+            ? `名称“${query}”只在认知正文中间接命中，不能确认它就是该人物的认知卡片。`
+            : `名称“${query}”间接命中 ${available.length} 张有效认知卡片，需要先消歧。`
+      }
+    }
+    if (concepts.length > 0) {
+      return {
+        status: 'needs_review',
+        query,
+        documentRefs: [],
+        candidates,
+        reason: `人物“${query}”只命中了待验证的认知卡片。`
+      }
+    }
+    return {
+      status: 'missing',
+      query,
+      documentRefs: [],
+      candidates: [],
+      reason: `尚未建立人物“${query}”的世界认知卡片。`
+    }
+  }
+
   private async loadTree(characterEntityId: string): Promise<{
     character: WorldEntityRecord
     roots: TreeNode[]
+    cognitionScope: CharacterNarrativeCognitionScope
+    allowedDocumentIds: Set<string>
   }> {
     const character = await this.assertCharacterEntity(characterEntityId)
-    const documents = await this.documentRepo.find({
-      where: { worldId: character.worldId }
+    let cognitionScope = await this.resolveCognitionScope(character)
+    if (cognitionScope.status !== 'available') {
+      return { character, roots: [], cognitionScope, allowedDocumentIds: new Set() }
+    }
+
+    const allowedDocumentIds = new Set(cognitionScope.documentRefs.map((ref) => ref.documentId))
+    const contentDocuments = await this.documentRepo.findBy({
+      id: In([...allowedDocumentIds])
+    })
+    const contentById = new Map(contentDocuments.map((document) => [document.id, document]))
+    const invalidRef = cognitionScope.documentRefs.find((ref) => {
+      const document = contentById.get(ref.documentId)
+      return (
+        !document || document.worldId !== character.worldId || document.revision !== ref.revision
+      )
+    })
+    if (invalidRef) {
+      cognitionScope = {
+        ...cognitionScope,
+        status: 'needs_review',
+        documentRefs: [],
+        reason: `认知来源文档 ${invalidRef.documentId} 已缺失、跨世界或 revision 不一致，需要重新验证。`
+      }
+      return { character, roots: [], cognitionScope, allowedDocumentIds: new Set() }
+    }
+
+    const documentMetadata = await this.documentRepo.find({
+      where: { worldId: character.worldId },
+      select: {
+        id: true,
+        worldId: true,
+        parentDocumentId: true,
+        title: true,
+        contentFormat: true,
+        sortKey: true,
+        revision: true,
+        schemaVersion: true,
+        createdAt: true,
+        updatedAt: true
+      }
     })
     const nodeById = new Map<string, TreeNode>()
-    for (const document of documents) {
+    for (const metadata of documentMetadata) {
+      const content = contentById.get(metadata.id)
+      const document = this.documentRepo.create({
+        ...metadata,
+        contentHtml: content?.contentHtml ?? ''
+      })
       nodeById.set(document.id, Object.assign(document, { children: [] }))
     }
 
@@ -313,29 +490,36 @@ class CharacterNarrativeReadingService {
 
     return {
       character,
-      roots: sortDocuments(roots)
+      roots: sortDocuments(roots),
+      cognitionScope,
+      allowedDocumentIds
     }
   }
 
-  private flattenDocumentInfo(roots: TreeNode[]): DocumentInfo[] {
+  private flattenDocumentInfo(
+    roots: TreeNode[],
+    allowedDocumentIds: ReadonlySet<string>
+  ): DocumentInfo[] {
     const documents: DocumentInfo[] = []
 
     const visit = (node: TreeNode, depth: number, parentPath: string[]): void => {
       const title = node.title || '新建文件'
       const path = [...parentPath, title]
       const text = htmlToReadableText(node.contentHtml)
-      documents.push({
-        documentId: node.id,
-        title,
-        parentDocumentId: node.parentDocumentId ?? null,
-        path,
-        depth,
-        childCount: node.children.length,
-        text,
-        textLength: text.length,
-        updatedAt: node.updatedAt?.toISOString(),
-        children: node.children
-      })
+      if (allowedDocumentIds.has(node.id)) {
+        documents.push({
+          documentId: node.id,
+          title,
+          parentDocumentId: node.parentDocumentId ?? null,
+          path,
+          depth,
+          childCount: node.children.length,
+          text,
+          textLength: text.length,
+          updatedAt: node.updatedAt?.toISOString(),
+          children: node.children
+        })
+      }
 
       for (const child of node.children) {
         visit(child, depth + 1, path)
@@ -364,19 +548,19 @@ class CharacterNarrativeReadingService {
   async getFreshnessSnapshot(
     characterEntityId: string
   ): Promise<CharacterNarrativeFreshnessSnapshot> {
-    const character = await this.assertCharacterEntity(characterEntityId)
-    const documents = await this.documentRepo.find({
-      where: { worldId: character.worldId }
-    })
-    const latestUpdatedAt = documents.reduce<Date | null>((latest, document) => {
-      if (!document.updatedAt) return latest
-      if (!latest || document.updatedAt.getTime() > latest.getTime()) {
-        return document.updatedAt
+    const { character, roots, cognitionScope, allowedDocumentIds } =
+      await this.loadTree(characterEntityId)
+    const documents = this.flattenDocumentInfo(roots, allowedDocumentIds)
+    const latestUpdatedAt = documents.reduce<number | null>((latest, document) => {
+      const updatedAt = document.updatedAt ? Date.parse(document.updatedAt) : Number.NaN
+      if (!Number.isFinite(updatedAt)) return latest
+      if (latest === null || updatedAt > latest) {
+        return updatedAt
       }
       return latest
     }, null)
     const totalReadableCharacters = documents.reduce(
-      (total, document) => total + htmlToReadableText(document.contentHtml).length,
+      (total, document) => total + document.textLength,
       0
     )
 
@@ -388,11 +572,16 @@ class CharacterNarrativeReadingService {
       },
       totalDocuments: documents.length,
       totalReadableCharacters,
-      latestDocumentUpdatedAt: latestUpdatedAt?.toISOString()
+      latestDocumentUpdatedAt:
+        latestUpdatedAt === null ? undefined : new Date(latestUpdatedAt).toISOString(),
+      cognitionScope
     }
   }
 
-  private buildDocumentMaps(roots: TreeNode[]): {
+  private buildDocumentMaps(
+    roots: TreeNode[],
+    allowedDocumentIds: ReadonlySet<string>
+  ): {
     nodeById: Map<string, TreeNode>
     infoById: Map<string, DocumentInfo>
     documentOrder: string[]
@@ -408,7 +597,7 @@ class CharacterNarrativeReadingService {
       visitNode(root)
     }
 
-    const infos = this.flattenDocumentInfo(roots)
+    const infos = this.flattenDocumentInfo(roots, allowedDocumentIds)
     return {
       nodeById,
       infoById: new Map(infos.map((info) => [info.documentId, info])),
@@ -421,8 +610,10 @@ class CharacterNarrativeReadingService {
     includePreview?: boolean
     previewChars?: number
   }): Promise<CharacterNarrativeCatalog> {
-    const { character, roots } = await this.loadTree(input.characterEntityId)
-    const { nodeById, infoById } = this.buildDocumentMaps(roots)
+    const { character, roots, cognitionScope, allowedDocumentIds } = await this.loadTree(
+      input.characterEntityId
+    )
+    const { nodeById, infoById } = this.buildDocumentMaps(roots, allowedDocumentIds)
     const totalReadableCharacters = [...infoById.values()].reduce(
       (total, info) => total + info.textLength,
       0
@@ -433,7 +624,9 @@ class CharacterNarrativeReadingService {
     for (const info of infoById.values()) {
       const node = nodeById.get(info.documentId)
       if (!node) continue
-      const subtreeIds = this.collectSubtreeDocumentIds(node)
+      const subtreeIds = this.collectSubtreeDocumentIds(node).filter((documentId) =>
+        infoById.has(documentId)
+      )
       const subtreeTextLength = subtreeIds.reduce(
         (total, documentId) => total + (infoById.get(documentId)?.textLength ?? 0),
         0
@@ -472,10 +665,19 @@ class CharacterNarrativeReadingService {
       },
       totalDocuments: infoById.size,
       totalReadableCharacters,
-      rootCount: roots.length,
+      rootCount: new Set([...infoById.values()].map((info) => info.path[0])).size,
+      cognitionScope,
+      warnings:
+        cognitionScope.status === 'available'
+          ? []
+          : [
+              cognitionScope.reason,
+              '先使用世界文档搜索、树浏览和精确阅读确认人物文档，再建立或修正世界认知卡片。'
+            ],
       fullReadOption: {
         type: 'full',
-        label: '全量阅读',
+        available: cognitionScope.status === 'available',
+        label: cognitionScope.status === 'available' ? '认知范围内全量阅读' : '认知阅读范围不可用',
         mission: DEFAULT_FULL_READING_MISSION,
         documentCount: infoById.size,
         readableCharacters: totalReadableCharacters
@@ -483,7 +685,8 @@ class CharacterNarrativeReadingService {
       selectableItems,
       selectionGuide: {
         rules: [
-          '如果用户需要整体认识人物，选择 full。',
+          'full 只表示阅读当前人物认知卡片引用的全部文档，不表示读取整个世界。',
+          '认知范围缺失、待验证或有歧义时，先通过世界文档工具确认范围并修正认知，不创建阅读任务。',
           '如果用户只关心某一篇文本，选择 document。',
           '如果用户关心某个目录及其子文件，选择 document_tree。',
           '选择性阅读时，每个 document 或 document_tree 都必须有独立 mission。',
@@ -532,8 +735,18 @@ class CharacterNarrativeReadingService {
     readingOrder?: 'given_order' | 'tree_order'
     maxBatchChars?: number
   }): Promise<CharacterNarrativeReadingTask> {
-    const { character, roots } = await this.loadTree(input.characterEntityId)
-    const { nodeById, infoById, documentOrder } = this.buildDocumentMaps(roots)
+    const { character, roots, cognitionScope, allowedDocumentIds } = await this.loadTree(
+      input.characterEntityId
+    )
+    if (cognitionScope.status !== 'available') {
+      throw new Error(
+        `${cognitionScope.reason} 请先通过世界文档搜索、树浏览和精确阅读建立有效认知范围。`
+      )
+    }
+    if (!cognitionScope.cognitionNodeId || !cognitionScope.cognitionRevision) {
+      throw new Error('有效人物认知缺少稳定 nodeId 或 revision。')
+    }
+    const { nodeById, infoById, documentOrder } = this.buildDocumentMaps(roots, allowedDocumentIds)
     const maxBatchChars = normalizeMaxChars(input.maxBatchChars)
     const mission = normalizeMission(input.mission, DEFAULT_FULL_READING_MISSION)
     const warnings: string[] = []
@@ -646,6 +859,11 @@ class CharacterNarrativeReadingService {
         worldId: character.worldId
       },
       mode: input.mode,
+      cognitionBinding: {
+        nodeId: cognitionScope.cognitionNodeId,
+        revision: cognitionScope.cognitionRevision,
+        documentRefs: cognitionScope.documentRefs
+      },
       mission,
       outputIntent: {
         kind: input.outputIntent?.kind || 'custom',
@@ -684,8 +902,19 @@ class CharacterNarrativeReadingService {
     cursor?: string
   }): Promise<CharacterNarrativeTaskReadingBatch> {
     const task = input.task
-    const { roots } = await this.loadTree(task.character.entityId)
-    const { infoById } = this.buildDocumentMaps(roots)
+    const { roots, cognitionScope, allowedDocumentIds } = await this.loadTree(
+      task.character.entityId
+    )
+    if (
+      cognitionScope.status !== 'available' ||
+      cognitionScope.cognitionNodeId !== task.cognitionBinding.nodeId ||
+      cognitionScope.cognitionRevision !== task.cognitionBinding.revision
+    ) {
+      throw new Error(
+        `人物认知范围在阅读任务创建后发生变化：${cognitionScope.reason} 请重新检查目录并创建阅读任务。`
+      )
+    }
+    const { infoById } = this.buildDocumentMaps(roots, allowedDocumentIds)
     const cursor = normalizeCursorPair(input.cursor ?? task.firstCursor)
     const unitIndex = Math.min(cursor.unitIndex, Math.max(0, task.units.length - 1))
     const unit = task.units[unitIndex]
@@ -764,5 +993,3 @@ class CharacterNarrativeReadingService {
     }
   }
 }
-
-export const characterNarrativeReadingService = new CharacterNarrativeReadingService()

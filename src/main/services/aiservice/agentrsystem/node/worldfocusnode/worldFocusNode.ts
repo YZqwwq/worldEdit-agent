@@ -12,7 +12,7 @@ import type {
   WorldPayload
 } from '@share/cache/worldbuilding/worldbuilding'
 import { characterImpressionService } from '../../../../worldbuilding/characterImpressionService'
-import { characterNarrativeReadingService } from '../../../../worldbuilding/characterNarrativeReadingService'
+import { characterNarrativeReadingService } from '../../../../worldbuilding/characterNarrativeReadingRuntime'
 import {
   worldEntityMentionIndexService,
   type WorldEntityMentionSearchCandidate
@@ -32,10 +32,7 @@ import {
   type WorldFocusContext,
   type WorldFocusImpressionContext
 } from '../../state/messageState'
-import {
-  getEffectiveMemorySlots,
-  withMemorySlotsDraft
-} from '../../state/turnWorkspace'
+import { getEffectiveMemorySlots, withMemorySlotsDraft } from '../../state/turnWorkspace'
 import type {
   InstantPerceptionContext,
   RecentDialogueMessage
@@ -527,6 +524,17 @@ const buildCharacterImpressionContext = async (
     latestNarrativeUpdatedAt: freshness.latestDocumentUpdatedAt,
     narrativeDocumentCount: freshness.totalDocuments,
     narrativeReadableCharacters: freshness.totalReadableCharacters
+  }
+
+  if (freshness.cognitionScope.status !== 'available') {
+    return {
+      ...base,
+      status: existing ? 'insufficient' : 'missing',
+      found: Boolean(existing),
+      structuredText: existing?.structuredText,
+      updatedAt: existing?.updatedAt,
+      reason: `人物认知阅读范围当前为 ${freshness.cognitionScope.status}：${freshness.cognitionScope.reason}`
+    }
   }
 
   if (!existing) {

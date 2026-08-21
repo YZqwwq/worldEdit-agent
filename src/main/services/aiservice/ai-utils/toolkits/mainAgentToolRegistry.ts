@@ -212,7 +212,7 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     id: 'character_narrative_reader',
     title: '人物文本阅读与印象形成工具集',
     summary:
-      '围绕本地人物树状叙事文本建立或刷新 Agent 对人物的结构化印象：先查看目录，再创建带目的的阅读任务，按顺序分批阅读，最后把基于证据形成的印象保存到人物印象关联表。',
+      '围绕 Agent 已建立的世界认知文档范围，建立或刷新人物结构化印象：先确认认知范围与目录，再创建带目的的阅读任务，按顺序分批阅读，最后保存基于证据形成的印象。',
     tags: [
       'character',
       'narrative',
@@ -248,6 +248,7 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
       '用户只是要求查看已保存的人物印象，而不需要重新阅读文本或更新印象',
       '已有印象足够新、证据范围足够覆盖当前问题，且用户没有要求重新分析',
       '只是临时闲聊创作灵感，不需要基于本地文本证据形成持久化印象',
+      '人物世界认知尚未建立或正在待验证；此时应先用世界文档工具确认并保存认知范围',
       '目标不是本地 character entity'
     ],
     quickAccessEligible: true,
@@ -674,7 +675,7 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     category: 'character_narrative_reader',
     capabilityLayer: 'background_toolset',
     capabilityGroup: '人物文本阅读',
-    capabilitySummary: '查看人物树状文本目录和可选择的 document/document_tree/full 阅读范围。',
+    capabilitySummary: '根据人物世界认知查看受限的 document/document_tree/full 阅读范围。',
     audience: 'main_agent',
     access: 'read',
     activationMode: 'manual',
