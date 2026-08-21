@@ -57,6 +57,10 @@ import {
   publishAgentArtifactTool,
   readAgentArtifactTool
 } from '../tools/artifact/agentArtifactTools'
+import {
+  queryWorldCognitionTool,
+  saveWorldCognitionTool
+} from '../tools/cognition/worldCognitionTools'
 
 export const mainAgentToolsets: ToolsetRegistryEntry[] = [
   {
@@ -515,6 +519,11 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
   },
   ...[
     {
+      tool: queryWorldCognitionTool,
+      access: 'read' as const,
+      summary: '按名称或称呼查询主 Agent 对当前世界已有的维度与概念认知。'
+    },
+    {
       tool: searchWorldDocumentsTool,
       access: 'read' as const,
       summary: '按名称、路径或正文关键词广搜世界观文档候选。'
@@ -578,6 +587,11 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
       tool: deleteWorldDocumentTool,
       access: 'write' as const,
       summary: '在高风险确认后永久删除文档或子树。'
+    },
+    {
+      tool: saveWorldCognitionTool,
+      access: 'write' as const,
+      summary: '在阅读证据后建立或修正主 Agent 的世界认知卡片。'
     }
   ].map(({ tool, access, summary }) => ({
     key: tool.name,

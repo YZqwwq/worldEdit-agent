@@ -111,9 +111,9 @@ const migrations: AppSchemaMigration[] = [
   {
     id: '20260818_world_document_merge_parent',
     up: async (manager) => {
-      const columns = (await manager.query(
-        'PRAGMA table_info(world_document_commit)'
-      )) as Array<{ name: string }>
+      const columns = (await manager.query('PRAGMA table_info(world_document_commit)')) as Array<{
+        name: string
+      }>
       if (!columns.some((column) => column.name === 'mergeParentCommitId')) {
         await manager.query(
           'ALTER TABLE world_document_commit ADD COLUMN mergeParentCommitId text NULL'
@@ -180,9 +180,9 @@ const migrations: AppSchemaMigration[] = [
   {
     id: '20260819_world_document_change_content_refs',
     up: async (manager) => {
-      const columns = (await manager.query(
-        'PRAGMA table_info(world_document_change)'
-      )) as Array<{ name: string }>
+      const columns = (await manager.query('PRAGMA table_info(world_document_change)')) as Array<{
+        name: string
+      }>
       const names = new Set(columns.map((column) => column.name))
       if (!names.has('beforeContentVersionId')) {
         await manager.query(
@@ -271,6 +271,124 @@ const migrations: AppSchemaMigration[] = [
       ]) {
         await manager.query(`DROP INDEX IF EXISTS ${name}`)
       }
+    }
+  },
+  {
+    id: '20260821_agent_world_cognition',
+    up: async (manager) => {
+      await manager.query(`
+        CREATE TABLE IF NOT EXISTS agent_world_cognition_space (
+          id text PRIMARY KEY NOT NULL,
+          agentId text NOT NULL,
+          worldId text NOT NULL,
+          revision integer NOT NULL DEFAULT 0,
+          createdAt datetime NOT NULL DEFAULT (datetime('now')),
+          updatedAt datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `)
+      await manager.query(`
+        CREATE TABLE IF NOT EXISTS agent_world_cognition_node (
+          id text PRIMARY KEY NOT NULL,
+          spaceId text NOT NULL,
+          parentId text NULL,
+          nodeKind text NOT NULL,
+          title text NOT NULL,
+          markdown text NOT NULL DEFAULT '',
+          documentRefsJson text NOT NULL DEFAULT '[]',
+          revision integer NOT NULL DEFAULT 1,
+          status text NOT NULL DEFAULT 'available',
+          createdAt datetime NOT NULL DEFAULT (datetime('now')),
+          updatedAt datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `)
+      await manager.query(
+        'CREATE UNIQUE INDEX IF NOT EXISTS IDX_agent_world_cognition_space_owner ON agent_world_cognition_space (agentId, worldId)'
+      )
+      await manager.query(
+        'CREATE INDEX IF NOT EXISTS IDX_agent_world_cognition_node_space_parent ON agent_world_cognition_node (spaceId, parentId)'
+      )
+      await manager.query(
+        'CREATE INDEX IF NOT EXISTS IDX_agent_world_cognition_node_space_title ON agent_world_cognition_node (spaceId, title)'
+      )
+      await manager.query(
+        'CREATE INDEX IF NOT EXISTS IDX_agent_world_cognition_node_space_status ON agent_world_cognition_node (spaceId, status)'
+      )
+    }
+  },
+  {
+    id: '20260821_agent_world_cognition_document_invalidation',
+    up: async (manager) => {
+      await manager.query(`
+        CREATE TRIGGER IF NOT EXISTS TRG_world_document_cognition_revision
+        AFTER UPDATE OF revision ON world_entity_document_record
+        WHEN NEW.revision <> OLD.revision
+        BEGIN
+          UPDATE agent_world_cognition_space
+          SET revision = revision + 1,
+              updatedAt = datetime('now')
+          WHERE id IN (
+            SELECT DISTINCT node.spaceId
+            FROM agent_world_cognition_node AS node,
+                 json_each(
+                   CASE WHEN json_valid(node.documentRefsJson)
+                     THEN node.documentRefsJson ELSE '[]' END
+                 ) AS ref
+            WHERE node.status = 'available'
+              AND json_extract(ref.value, '$.documentId') = NEW.id
+              AND CAST(json_extract(ref.value, '$.revision') AS integer) <> NEW.revision
+          );
+
+          UPDATE agent_world_cognition_node
+          SET status = 'needs_review',
+              revision = revision + 1,
+              updatedAt = datetime('now')
+          WHERE status = 'available'
+            AND json_valid(documentRefsJson)
+            AND EXISTS (
+              SELECT 1
+              FROM json_each(
+                CASE WHEN json_valid(documentRefsJson)
+                  THEN documentRefsJson ELSE '[]' END
+              ) AS ref
+              WHERE json_extract(ref.value, '$.documentId') = NEW.id
+                AND CAST(json_extract(ref.value, '$.revision') AS integer) <> NEW.revision
+            );
+        END
+      `)
+      await manager.query(`
+        CREATE TRIGGER IF NOT EXISTS TRG_world_document_cognition_delete
+        AFTER DELETE ON world_entity_document_record
+        BEGIN
+          UPDATE agent_world_cognition_space
+          SET revision = revision + 1,
+              updatedAt = datetime('now')
+          WHERE id IN (
+            SELECT DISTINCT node.spaceId
+            FROM agent_world_cognition_node AS node,
+                 json_each(
+                   CASE WHEN json_valid(node.documentRefsJson)
+                     THEN node.documentRefsJson ELSE '[]' END
+                 ) AS ref
+            WHERE node.status = 'available'
+              AND json_extract(ref.value, '$.documentId') = OLD.id
+          );
+
+          UPDATE agent_world_cognition_node
+          SET status = 'needs_review',
+              revision = revision + 1,
+              updatedAt = datetime('now')
+          WHERE status = 'available'
+            AND json_valid(documentRefsJson)
+            AND EXISTS (
+              SELECT 1
+              FROM json_each(
+                CASE WHEN json_valid(documentRefsJson)
+                  THEN documentRefsJson ELSE '[]' END
+              ) AS ref
+              WHERE json_extract(ref.value, '$.documentId') = OLD.id
+            );
+        END
+      `)
     }
   }
 ]

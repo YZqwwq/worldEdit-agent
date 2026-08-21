@@ -21,6 +21,12 @@ const suites = [
     environment: ['RUN_DOCUMENT_VERSION_SQLITE_TESTS=1']
   },
   {
+    id: 'world-cognition',
+    buildScript: 'build:test:world-cognition',
+    target: 'src/main/services/aiservice/testarea/.generated/world-cognition-test.cjs',
+    environment: ['RUN_WORLD_COGNITION_SQLITE_TESTS=1']
+  },
+  {
     id: 'turn-version',
     buildScript: 'build:test:turn-version',
     target: 'src/main/services/aiservice/testarea/.generated/turn-version-test.cjs',

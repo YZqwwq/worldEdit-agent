@@ -34,6 +34,86 @@ import {
   findWorldDocumentVisibleTextOffset,
   worldDocumentMarkdownLineToVisibleText
 } from '../../../../../share/cache/worldbuilding/worldDocumentSemanticAnchor'
+import {
+  queryWorldCognitionInputSchema,
+  saveWorldCognitionInputSchema
+} from '../../ai-utils/tools/cognition/worldCognitionToolContracts'
+import { applyWorldCognitionDocumentGuidance } from '../../ai-utils/tools/cognition/worldCognitionDocumentGuidance'
+
+test('world cognition contracts keep Agent ownership internal and require evidence for concepts', () => {
+  assert.equal(
+    queryWorldCognitionInputSchema.safeParse({
+      worldId: 'world-a',
+      query: '青岚',
+      agentId: 'another-agent'
+    }).success,
+    false
+  )
+  assert.equal(
+    saveWorldCognitionInputSchema.safeParse({
+      worldId: 'world-a',
+      parentId: null,
+      nodeKind: 'dimension',
+      title: '人物',
+      markdown: '# 人物',
+      documentRefs: []
+    }).success,
+    true
+  )
+  assert.equal(
+    saveWorldCognitionInputSchema.safeParse({
+      worldId: 'world-a',
+      parentId: 'dimension-a',
+      nodeKind: 'concept',
+      title: '李青岚',
+      markdown: '# 李青岚\n\n- 别称：青岚',
+      documentRefs: []
+    }).success,
+    false
+  )
+  assert.equal(
+    saveWorldCognitionInputSchema.safeParse({
+      worldId: 'world-a',
+      nodeId: 'node-a',
+      parentId: 'dimension-a',
+      nodeKind: 'concept',
+      title: '李青岚',
+      markdown: '# 李青岚',
+      documentRefs: [{ documentId: 'document-a', revision: 1 }]
+    }).success,
+    false
+  )
+})
+
+test('available cognition prioritizes document candidates while stale cognition only warns', () => {
+  const guided = applyWorldCognitionDocumentGuidance(
+    [{ documentId: 'search-first' }, { documentId: 'known-document' }],
+    [
+      {
+        nodeId: 'known-concept',
+        title: '李青岚',
+        revision: 2,
+        status: 'available',
+        documentRefs: [{ documentId: 'known-document', revision: 3 }]
+      },
+      {
+        nodeId: 'stale-concept',
+        title: '旧称呼',
+        revision: 4,
+        status: 'needs_review',
+        documentRefs: [{ documentId: 'stale-document', revision: 1 }]
+      }
+    ],
+    ['search-first', 'known-document', 'stale-document']
+  )
+
+  assert.deepEqual(
+    guided.matches.map((match) => match.documentId),
+    ['known-document', 'search-first']
+  )
+  assert.deepEqual(guided.guidance.recommendedDocumentIds, ['known-document'])
+  assert.deepEqual(guided.guidance.needsReviewNodeIds, ['stale-concept'])
+})
 
 test('document discovery inputs accept simple world-scoped parameters only', () => {
   assert.equal(

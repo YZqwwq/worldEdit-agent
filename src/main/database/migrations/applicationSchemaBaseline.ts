@@ -1,6 +1,8 @@
 // Generated from the reviewed entity schema. Runtime migrations must never derive
 // this list from entity metadata; changing an entity requires an explicit migration.
 export const APPLICATION_SCHEMA_BASELINE_SQL = [
+  `CREATE TABLE IF NOT EXISTS "agent_world_cognition_node" ("id" text PRIMARY KEY NOT NULL, "spaceId" text NOT NULL, "parentId" text, "nodeKind" text NOT NULL, "title" text NOT NULL, "markdown" text NOT NULL DEFAULT (''), "documentRefsJson" text NOT NULL DEFAULT ('[]'), "revision" integer NOT NULL DEFAULT (1), "status" text NOT NULL DEFAULT ('available'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')))`,
+  `CREATE TABLE IF NOT EXISTS "agent_world_cognition_space" ("id" text PRIMARY KEY NOT NULL, "agentId" text NOT NULL, "worldId" text NOT NULL, "revision" integer NOT NULL DEFAULT (0), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')))`,
   `CREATE TABLE IF NOT EXISTS "agent_artifact" ("id" text PRIMARY KEY NOT NULL, "eventId" text NOT NULL, "turnId" integer NOT NULL, "sessionId" text NOT NULL DEFAULT ('default'), "toolCallId" text NOT NULL, "worldId" text, "entityId" text, "documentId" text, "kind" text NOT NULL, "title" text NOT NULL, "summary" text NOT NULL DEFAULT (''), "body" text NOT NULL, "bodyFormat" text NOT NULL DEFAULT ('markdown'), "status" text NOT NULL DEFAULT ('draft'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')))`,
   `CREATE TABLE IF NOT EXISTS "character_impression_record" ("characterEntityId" text PRIMARY KEY NOT NULL, "structuredText" text NOT NULL DEFAULT (''), "updateMarker" text NOT NULL DEFAULT (''), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')))`,
   `CREATE TABLE IF NOT EXISTS "interaction_observation" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "type" text NOT NULL, "source" text NOT NULL, "summary" text NOT NULL DEFAULT (''), "payloadJson" text NOT NULL DEFAULT ('{}'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')))`,
@@ -35,6 +37,10 @@ export const APPLICATION_SCHEMA_BASELINE_SQL = [
   `CREATE TABLE IF NOT EXISTS "world_entity_record" ("id" text PRIMARY KEY NOT NULL, "worldId" text NOT NULL, "type" text NOT NULL, "name" text NOT NULL, "slug" text NOT NULL DEFAULT (''), "title" text NOT NULL DEFAULT (''), "summary" text NOT NULL DEFAULT (''), "status" text NOT NULL DEFAULT ('active'), "schemaVersion" integer NOT NULL DEFAULT (1), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')))`,
   `CREATE TABLE IF NOT EXISTS "world_entity_relation_record" ("id" text PRIMARY KEY NOT NULL, "worldId" text NOT NULL, "sourceEntityId" text NOT NULL, "targetEntityId" text NOT NULL, "relationType" text NOT NULL, "direction" text NOT NULL DEFAULT ('directed'), "dataJson" text NOT NULL DEFAULT ('{}'), "startTimeId" text NOT NULL DEFAULT (''), "endTimeId" text NOT NULL DEFAULT (''), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')))`,
   `CREATE TABLE IF NOT EXISTS "world_record" ("id" text PRIMARY KEY NOT NULL, "name" text NOT NULL, "summary" text NOT NULL DEFAULT (''), "status" text NOT NULL DEFAULT ('active'), "schemaVersion" integer NOT NULL DEFAULT (1), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')))`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "IDX_agent_world_cognition_space_owner" ON "agent_world_cognition_space" ("agentId", "worldId")`,
+  `CREATE INDEX IF NOT EXISTS "IDX_agent_world_cognition_node_space_parent" ON "agent_world_cognition_node" ("spaceId", "parentId")`,
+  `CREATE INDEX IF NOT EXISTS "IDX_agent_world_cognition_node_space_title" ON "agent_world_cognition_node" ("spaceId", "title")`,
+  `CREATE INDEX IF NOT EXISTS "IDX_agent_world_cognition_node_space_status" ON "agent_world_cognition_node" ("spaceId", "status")`,
   `CREATE INDEX IF NOT EXISTS "IDX_079323ffcfb6e4c2128913ffa5" ON "world_entity_mention_index_record" ("worldId")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "IDX_07a47972604fbfd1537bfd1598" ON "world_document_branch" ("worldId", "name")`,
   `CREATE INDEX IF NOT EXISTS "IDX_12a5fdb7f8ee12c9fb8fa48f2f" ON "world_entity_manual_mention_record" ("entityType")`,
@@ -77,8 +83,8 @@ export const APPLICATION_SCHEMA_BASELINE_SQL = [
   `CREATE INDEX IF NOT EXISTS "IDX_world_document_change_status_updated" ON "world_document_change" ("status", "updatedAt")`
 ] as const
 
-export const APPLICATION_SCHEMA_BASELINE_TABLE_SQL = APPLICATION_SCHEMA_BASELINE_SQL.filter(
-  (sql) => sql.startsWith('CREATE TABLE')
+export const APPLICATION_SCHEMA_BASELINE_TABLE_SQL = APPLICATION_SCHEMA_BASELINE_SQL.filter((sql) =>
+  sql.startsWith('CREATE TABLE')
 )
 
 export const APPLICATION_SCHEMA_BASELINE_INDEX_SQL = APPLICATION_SCHEMA_BASELINE_SQL.filter(

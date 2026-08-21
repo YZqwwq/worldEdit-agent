@@ -36,6 +36,15 @@ import {
   searchWorldDocuments,
   type WorldDocumentTreeNode
 } from '../../../../worldbuilding/worldDocumentDiscoveryService'
+import { AppDataSource } from '../../../../../database'
+import {
+  AgentWorldCognitionService,
+  MAIN_AGENT_COGNITION_OWNER_ID
+} from '../../../../worldbuilding/agentWorldCognitionService'
+import {
+  applyWorldCognitionDocumentGuidance,
+  EMPTY_WORLD_COGNITION_DOCUMENT_GUIDANCE
+} from '../cognition/worldCognitionDocumentGuidance'
 
 const documentSummarySchema = z.object({
   id: z.string(),
@@ -81,6 +90,26 @@ const documentSearchMatchSchema = z.object({
   occurrenceCount: z.number().int().nonnegative(),
   snippet: z.string().nullable(),
   score: z.number().nonnegative()
+})
+
+const cognitionDocumentGuidanceSchema = z.object({
+  matchedNodeCount: z.number().int().nonnegative(),
+  hints: z.array(
+    z.object({
+      nodeId: z.string(),
+      title: z.string(),
+      revision: z.number().int().positive(),
+      status: z.enum(['available', 'needs_review']),
+      documentRefs: z.array(
+        z.object({
+          documentId: z.string(),
+          revision: z.number().int().positive()
+        })
+      )
+    })
+  ),
+  recommendedDocumentIds: z.array(z.string()),
+  needsReviewNodeIds: z.array(z.string())
 })
 
 const documentTreeNodeSchema: z.ZodType<WorldDocumentTreeNode> = z.lazy(() =>
@@ -226,7 +255,8 @@ export const searchWorldDocumentsTool = defineAgentTool({
     totalMatches: z.number().int().nonnegative(),
     hasMore: z.boolean(),
     matchCount: z.number().int().nonnegative(),
-    matches: z.array(documentSearchMatchSchema)
+    matches: z.array(documentSearchMatchSchema),
+    cognitionGuidance: cognitionDocumentGuidanceSchema
   }),
   metadata: {
     whenToUse: [
@@ -235,12 +265,15 @@ export const searchWorldDocumentsTool = defineAgentTool({
     ],
     whenNotToUse: ['已经知道准确 documentId，应直接读取文档', '只是想沿已知目录查看结构'],
     inputSummary: '提供 worldId 和查询文本 query；可选 limit，默认 10，最大 30。',
-    outputSummary: '返回按精确匹配和 BM25 综合排序的文档、路径、相关摘要、命中词和出现次数。',
+    outputSummary:
+      '返回按文档检索排序的候选及相关摘要；若主 Agent 已有有效认知，同时返回并优先提示认知引用的文档。',
     usageContract: [
       '参数必须直接放在调用顶层，不要把参数对象序列化成 JSON 字符串。',
       '搜索结果只是文档证据，不代表系统已判断对象是人物、国家或其他固定类型。',
       '支持自然多关键词查询，关键词可以分散出现在标题、路径和正文中。',
       '同一文档只返回一次；snippet 优先选择关键词最集中的正文片段，occurrenceCount 是完整查询短语在正文中的出现次数。',
+      'cognitionGuidance 只是 Agent 既有认识提供的导航提示；available 可以优先阅读，needs_review 必须重新搜索验证。',
+      'recommendedDocumentIds 可能包含未被正文关键词直接命中的文档，应结合认知卡片和当前文档内容判断，不能直接当作事实。',
       'hasMore 为 true 时表示结果被 limit 截断；优先增加更具体的关键词，而不是盲目扩大结果数量。',
       '没有结果时可换用完整名称、简称或相关关键词，不要用完全相同的参数重复调用。'
     ],
@@ -258,7 +291,32 @@ export const searchWorldDocumentsTool = defineAgentTool({
   async execute(input) {
     const documents = await worldEntityDocumentService.listDocuments(input.worldId)
     const result = searchWorldDocuments(documents, input.query, input.limit)
-    return { ...result, matchCount: result.matches.length }
+    let cognitionGuidance = EMPTY_WORLD_COGNITION_DOCUMENT_GUIDANCE
+    let matches = result.matches
+    try {
+      const cognition = await new AgentWorldCognitionService(AppDataSource).queryNodes({
+        agentId: MAIN_AGENT_COGNITION_OWNER_ID,
+        worldId: input.worldId,
+        query: input.query,
+        limit: 3
+      })
+      const guided = applyWorldCognitionDocumentGuidance(
+        result.matches,
+        cognition.matches.map((node) => ({
+          nodeId: node.id,
+          title: node.title,
+          revision: node.revision,
+          status: node.status,
+          documentRefs: node.documentRefs
+        })),
+        documents.map((document) => document.id)
+      )
+      matches = guided.matches
+      cognitionGuidance = guided.guidance
+    } catch {
+      // Cognition improves discovery but must never make the document search unavailable.
+    }
+    return { ...result, matches, matchCount: matches.length, cognitionGuidance }
   },
   successMessage(data) {
     return `Found ${data.matchCount} world document matches for ${data.query}.`
@@ -281,6 +339,8 @@ export const searchWorldDocumentsTool = defineAgentTool({
         totalMatches: data.totalMatches,
         hasMore: data.hasMore,
         documentIds: data.matches.map((match) => match.documentId),
+        cognitionNodeIds: data.cognitionGuidance.hints.map((hint) => hint.nodeId),
+        cognitionRecommendedDocumentIds: data.cognitionGuidance.recommendedDocumentIds,
         strategy: data.strategy
       }
     }
@@ -289,7 +349,8 @@ export const searchWorldDocumentsTool = defineAgentTool({
 
 export const browseWorldDocumentTreeTool = defineAgentTool({
   name: 'browse_world_document_tree',
-  description: 'Browse a world document tree incrementally, revealing at most two levels at a time.',
+  description:
+    'Browse a world document tree incrementally, revealing at most two levels at a time.',
   inputSchema: browseWorldDocumentTreeInputSchema,
   outputSchema: z.object({
     rootDocumentId: z.string().nullable(),
@@ -310,10 +371,7 @@ export const browseWorldDocumentTreeTool = defineAgentTool({
       '只有 hasMoreChildren 为 true 的节点仍有未披露后代；继续时使用 nextBrowsableDocumentIds 中的 ID。',
       '该工具不返回正文；确定目标文档后使用 read_world_document。'
     ],
-    examples: [
-      '{"worldId":"world-id"}',
-      '{"worldId":"world-id","rootDocumentId":"document-id"}'
-    ],
+    examples: ['{"worldId":"world-id"}', '{"worldId":"world-id","rootDocumentId":"document-id"}'],
     executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
@@ -522,9 +580,7 @@ export const createWorldDocumentTool = defineAgentTool({
       '文档只归属于世界观，不要推测或传入人物、国家等实体 ID。',
       '正文只通过 contentMarkdown 提交，不要生成或传入 HTML。'
     ],
-    examples: [
-      '{"worldId":"world-id","title":"力量体系"}'
-    ],
+    examples: ['{"worldId":"world-id","title":"力量体系"}'],
     executionLevel: 'notice',
     readOnly: false,
     idempotent: false,
@@ -681,8 +737,8 @@ const buildLocalEditReceipt = (data: z.infer<typeof localEditOutputSchema>) => (
   }
 })
 
-const buildLocalEditModelResult = (operation: WorldDocumentLocalEditOperation) =>
-  (data: z.infer<typeof localEditOutputSchema>) =>
+const buildLocalEditModelResult =
+  (operation: WorldDocumentLocalEditOperation) => (data: z.infer<typeof localEditOutputSchema>) =>
     buildWorldDocumentEditContinuation({
       operation,
       document: data.document,
@@ -731,13 +787,15 @@ export const replaceWorldDocumentTextTool = defineAgentTool({
 
 export const insertWorldDocumentTextTool = defineAgentTool({
   name: 'insert_text',
-  description: 'Insert Markdown immediately before or after one uniquely matching document fragment.',
+  description:
+    'Insert Markdown immediately before or after one uniquely matching document fragment.',
   inputSchema: insertWorldDocumentTextInputSchema,
   outputSchema: localEditOutputSchema,
   metadata: {
     whenToUse: ['需要在已知唯一原文前后插入内容', '已读取最新正文和 revision'],
     whenNotToUse: ['只需在文末追加', '锚点原文在文档中出现多次'],
-    inputSummary: '提供 documentId、revision、唯一 anchorText、before/after、插入 Markdown 和摘要。',
+    inputSummary:
+      '提供 documentId、revision、唯一 anchorText、before/after、插入 Markdown 和摘要。',
     outputSummary: '返回新 revision、语义定位锚点、增删统计和 Diff 引用。',
     usageContract: [
       'anchorText 必须从最新 Markdown 原文中完整复制，并且只能出现一次。',

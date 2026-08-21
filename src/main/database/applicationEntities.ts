@@ -32,6 +32,8 @@ import { WorldDocumentChangeRecord } from '../../share/entity/database/WorldDocu
 import { WorldDocumentCheckpointRecord } from '../../share/entity/database/WorldDocumentCheckpointRecord'
 import { WorldDocumentBranchRecord } from '../../share/entity/database/WorldDocumentBranchRecord'
 import { WorldDocumentIntegrityCacheRecord } from '../../share/entity/database/WorldDocumentIntegrityCacheRecord'
+import { AgentWorldCognitionSpaceRecord } from '../../share/entity/database/AgentWorldCognitionSpaceRecord'
+import { AgentWorldCognitionNodeRecord } from '../../share/entity/database/AgentWorldCognitionNodeRecord'
 
 export const applicationEntities = [
   Message,
@@ -66,6 +68,8 @@ export const applicationEntities = [
   WorldDocumentCheckpointRecord,
   WorldDocumentBranchRecord,
   WorldDocumentIntegrityCacheRecord,
+  AgentWorldCognitionSpaceRecord,
+  AgentWorldCognitionNodeRecord,
   CharacterImpressionRecord,
   ToolUsageStatsRecord
 ]
