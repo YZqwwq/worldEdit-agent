@@ -2,7 +2,6 @@ import { interactionObservationService } from '../../manager/personal/interactio
 import { personaConfigService } from '../../manager/personal/personaConfigService'
 import { traceArtifact, traceDecision, traceState } from '../../../../log/trace/agentTraceEmitter'
 import { MessagesState } from '../../state/messageState'
-import { applyScenePerceptionToMemorySlots } from '../../state/sceneContextAdapter'
 import {
   loadExpressionPromptProfile,
   loadMoodPrompt,
@@ -10,6 +9,7 @@ import {
 } from '../../../prompt/main_agent/agentPromptService'
 import { FAMILA_CHARACTER_MOOD_BOUNDARY } from './moodDynamicsBoundary'
 import { inferMoodAppraisal } from './moodAppraisalService'
+import { projectUserMoodSlot } from './userMoodProjection'
 import { compileMoodAssessment } from './emotionDynamicsCompiler'
 import { reconcilePersonaState } from './personaEvolutionService'
 import { applyMoodExpressionDeltaToMetrics, buildPolicy } from './personaPolicyCompiler'
@@ -58,27 +58,24 @@ export async function personaNode(
     )
   ]
   const slots = getEffectiveMemorySlots(state.turnWorkspace)
-  const effectiveSlots = applyScenePerceptionToMemorySlots(slots)
   const workspaceProfile = resolveWorkspaceProfile(state.workspaceContext)
   const sceneCharacter = workspaceProfile?.scenePolicy
-  const expressionProfileDefinition = resolveExpressionPromptProfile(effectiveSlots)
+  const expressionProfileDefinition = resolveExpressionPromptProfile()
   const expressionProfile = await loadExpressionPromptProfile(expressionProfileDefinition.id)
 
   traceState('personaNode', {
     title: '输入快照: personaNode',
-    summary: `观测 ${observations.length} 条，场景=${effectiveSlots.conversation_state.conversation_mode || 'none'}，用户情绪=${effectiveSlots.user_mood.current_mood || 'none'}`,
+    summary: `观测 ${observations.length} 条，用户情绪=${slots.user_mood.current_mood || 'none'}`,
     data: {
       personaState,
       config,
       moodPrompt,
       expressionProfile,
-      previousMood: effectiveSlots.ai_mood.current ?? null,
+      previousMood: slots.ai_mood.current ?? null,
       observations,
       slots,
-      effectiveSlots,
       workspaceProfile: workspaceProfile?.id ?? null,
-      sceneCharacter: sceneCharacter ?? null,
-      scenePerception: effectiveSlots.scene_perception
+      sceneCharacter: sceneCharacter ?? null
     }
   })
 
@@ -94,7 +91,7 @@ export async function personaNode(
   const reconciled = await reconcilePersonaState({
     state: personaState,
     observations,
-    slots: effectiveSlots,
+    slots,
     config,
     signalContext: contextualUserObservation
       ? {
@@ -111,11 +108,11 @@ export async function personaNode(
     observations,
     currentUserText: perceptionContext.currentUserText,
     recentHistory: perceptionContext.recentHistory,
-    previousMood: effectiveSlots.ai_mood.current
+    previousMood: slots.ai_mood.current
   })
   const moodAssessment = compileMoodAssessment({
     appraisal,
-    previousMood: effectiveSlots.ai_mood.current,
+    previousMood: slots.ai_mood.current,
     nowIso,
     boundary: FAMILA_CHARACTER_MOOD_BOUNDARY
   })
@@ -134,6 +131,11 @@ export async function personaNode(
 
   const nextSlots = {
     ...slots,
+    user_mood: projectUserMoodSlot(appraisal, {
+      observationId: contextualUserObservation?.id ?? slots.lastObservationId + 1,
+      retentionObservations: config.slot.userMoodRetentionObservations,
+      nowIso
+    }),
     ai_mood: {
       current: moodAssessment,
       updatedAt: moodAssessment.generatedAt

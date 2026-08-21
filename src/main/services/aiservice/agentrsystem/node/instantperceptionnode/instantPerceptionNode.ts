@@ -1,14 +1,10 @@
 import { traceArtifact, traceDecision, traceError } from '../../../../log/trace/agentTraceEmitter'
 import { MessagesState, type InstantPerceptionDetectorStatus } from '../../state/messageState'
-import { getEffectiveMemorySlots } from '../../state/turnWorkspace'
 import { personaNode } from '../personanode/personanode'
-import { sceneNode } from '../scenenode/sceneNode'
-import { userMoodNode } from '../usermoodnode/userMoodNode'
-import { worldFocusNode } from '../worldfocusnode/worldFocusNode'
 import { buildInstantPerceptionContext } from './instantPerceptionContext'
 import { shouldBypassInteractivePerception } from './instantPerceptionRouting'
 
-type DetectorName = 'scene' | 'userMood' | 'worldFocus' | 'persona'
+type DetectorName = 'persona'
 
 type DetectorResult = {
   name: DetectorName
@@ -77,14 +73,8 @@ const mergeDetectorPatch = (
 }
 
 /**
- * InstantPerceptionNode: 本轮即时感知 DAG 的编排层。
- *
- * 当前采用“场景判断写入动态 slot + 条件 detector”的形态：
- * - sceneNode: 使用轻量模型判断本轮是否仍在当前场景、是否只是临时引用外部方向、
- *   以及是否需要进入应用内世界观实例感知，并将结果覆盖写入 slot.scene_perception。
- * - userMoodNode: 使用轻量模型判断用户短期情绪，并覆盖写入 slot.user_mood。
- * - worldFocusNode: 仅在 slot.scene_perception 判断需要时运行，识别世界观/实体焦点，并补充人物印象状态。
- * - personaNode: 识别人格偏好、AI 侧情绪和表达策略。
+ * InstantPerceptionNode: 本轮 Persona/Mood 即时感知的编排入口。
+ * 场景与对象由主 Agent 根据对话、页面与工具证据直接理解，不再预先分类。
  *
  * 后续可以在这里继续挂载 task intent、memory need、tool need 等 detector，
  * 但 detector 不应执行重型阅读、长推理或持久写入类任务。
@@ -101,33 +91,22 @@ export async function instantPerceptionNode(
 
   if (shouldBypassInteractivePerception(state.backgroundPersonaStage)) {
     const reason = 'background_persona_stage_is_not_user_input'
-    const scene = skippedDetector('scene', reason)
-    const userMood = skippedDetector('userMood', reason)
-    const worldFocus = skippedDetector('worldFocus', reason)
     const persona = skippedDetector('persona', reason)
     const completedAtMs = now()
     const instantPerception = {
-      mode: 'scene_gated_dag' as const,
+      mode: 'persona_appraisal' as const,
       startedAt,
       completedAt: new Date(completedAtMs).toISOString(),
       durationMs: completedAtMs - startedAtMs,
       detectors: {
-        scene: scene.status,
-        userMood: userMood.status,
-        worldFocus: worldFocus.status,
         persona: persona.status
-      },
-      routing: {
-        shouldRunWorldFocus: false,
-        worldFocusSkipped: true,
-        worldFocusSkipReason: reason
       },
       warnings: []
     }
 
     traceDecision('instantPerceptionNode', {
       title: '决策: 后台人格阶段跳过交互式感知',
-      summary: '后台合成任务不会更新用户情绪、当前场景、世界焦点或即时人格判断。',
+      summary: '后台合成任务不会更新用户情绪或即时人格判断。',
       data: instantPerception
     })
 
@@ -137,64 +116,32 @@ export async function instantPerceptionNode(
   const perceptionContext = await buildInstantPerceptionContext(state)
   let workingState = state
 
-  const scene = await runDetector('scene', () => sceneNode(workingState, perceptionContext))
-  workingState = { ...workingState, ...scene.patch }
-
-  const userMood = await runDetector('userMood', () => userMoodNode(workingState, perceptionContext))
-  workingState = { ...workingState, ...userMood.patch }
-
-  const slotsAfterScene = getEffectiveMemorySlots(workingState.turnWorkspace!)
-  const scenePerception = slotsAfterScene.scene_perception
-  const shouldRunWorldFocus = scenePerception.shouldRunWorldFocus === true
-  const worldFocusSkipReason = scenePerception.reason || 'scene_not_app_worldbuilding_instance'
-
-  const worldFocus = shouldRunWorldFocus
-    ? await runDetector('worldFocus', () => worldFocusNode(workingState, perceptionContext))
-    : skippedDetector('worldFocus', worldFocusSkipReason)
-  workingState = { ...workingState, ...worldFocus.patch }
-
   const persona = await runDetector('persona', () => personaNode(workingState, perceptionContext))
   workingState = { ...workingState, ...persona.patch }
 
   const merged: Partial<typeof MessagesState.State> = {}
-  mergeDetectorPatch(merged, scene.patch)
-  mergeDetectorPatch(merged, userMood.patch)
-  mergeDetectorPatch(merged, worldFocus.patch)
   mergeDetectorPatch(merged, persona.patch)
   merged.turnWorkspace = workingState.turnWorkspace
 
   const completedAtMs = now()
-  const warnings = [scene, userMood, worldFocus, persona]
+  const warnings = [persona]
     .filter((result) => result.status.status === 'rejected')
     .map((result) => `${result.name}: ${result.status.errorMessage || 'unknown error'}`)
 
   const instantPerception = {
-    mode: 'scene_gated_dag' as const,
+    mode: 'persona_appraisal' as const,
     startedAt,
     completedAt: new Date(completedAtMs).toISOString(),
     durationMs: completedAtMs - startedAtMs,
     detectors: {
-      scene: scene.status,
-      userMood: userMood.status,
-      worldFocus: worldFocus.status,
       persona: persona.status
-    },
-    routing: {
-      shouldRunWorldFocus,
-      worldFocusSkipped: worldFocus.status.status === 'skipped',
-      worldFocusSkipReason:
-        worldFocus.status.status === 'skipped' ? worldFocus.status.skipReason : undefined
     },
     warnings
   }
 
   traceDecision('instantPerceptionNode', {
-    title: '决策: instantPerceptionNode 场景门控感知完成',
-    summary:
-      `scene=${scene.status.status}/${scene.status.durationMs}ms，` +
-      `userMood=${userMood.status.status}/${userMood.status.durationMs}ms，` +
-      `worldFocus=${worldFocus.status.status}/${worldFocus.status.durationMs}ms，` +
-      `persona=${persona.status.status}/${persona.status.durationMs}ms`,
+    title: '决策: instantPerceptionNode 人格与情绪感知完成',
+    summary: `persona=${persona.status.status}/${persona.status.durationMs}ms`,
     data: instantPerception
   })
 
@@ -202,14 +149,7 @@ export async function instantPerceptionNode(
     title: '产物: instantPerceptionNode 感知快照',
     summary:
       `耗时 ${instantPerception.durationMs}ms，` +
-      `输出 ${
-        [
-          ...scene.status.producedStateKeys,
-          ...userMood.status.producedStateKeys,
-          ...worldFocus.status.producedStateKeys,
-          ...persona.status.producedStateKeys
-        ].join(', ') || 'none'
-      }`
+      `输出 ${[...persona.status.producedStateKeys].join(', ') || 'none'}`
   })
 
   return {

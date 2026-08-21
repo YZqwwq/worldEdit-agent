@@ -1,8 +1,6 @@
 import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages'
-import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
-import { buildMemoryPromptPlan } from '../../manager/memory/memoryPromptPolicy'
 import { getEffectiveMemorySlots } from '../../state/turnWorkspace'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
 import {
@@ -23,7 +21,6 @@ import {
 } from '../../../prompt/main_agent/shared/promptSections'
 import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEmitter'
 import { getCurrentDetailTime, getDetailTime } from '../../../../../utils/getDetailTime'
-import { applyScenePerceptionToMemorySlots } from '../../state/sceneContextAdapter'
 import { resolveWorkspaceProfile } from '../../workspaceProfileRegistry'
 import { buildActionPolicyPrompt } from '../../../prompt/main_agent/persona/actionPolicyPrompt'
 import { buildSceneCharacterPrompt } from '../../../prompt/main_agent/persona/sceneCharacterPrompt'
@@ -41,116 +38,9 @@ const getCurrentUserMessageCreatedAt = (state: typeof MessagesState.State): stri
   return typeof createdAt === 'string' && createdAt.trim() ? createdAt.trim() : null
 }
 
-const compactLongText = (value: string, max = 8000): string => {
-  const text = String(value || '').trim()
-  if (text.length <= max) return text
-  return `${text.slice(0, max).trimEnd()}\n\n[已截断：完整人物印象仍保存在人物关联表中。]`
-}
-
 type SplitPrompt = {
   context: string
   instruction: string
-}
-
-const buildWorldFocusPrompt = (
-  state: typeof MessagesState.State,
-  slotSnapshot: MemorySlotSnapshot
-): SplitPrompt => {
-  const focus = state.worldFocusContext
-  if (!focus) return { context: '', instruction: '' }
-  if (slotSnapshot.scene_perception.shouldRunWorldFocus !== true) {
-    return { context: '', instruction: '' }
-  }
-  if (focus.focuses.length === 0) return { context: '', instruction: '' }
-  const focuses = focus.focuses
-  const primaryFocus =
-    focuses.find((item) => item.entityId === focus.primaryFocusId) ??
-    focuses.find((item) => item.role === 'primary' || item.role === 'target') ??
-    focuses[0]
-
-  const lines = [
-    '本轮世界观聚焦上下文：',
-    `聚焦模式：${focus.mode === 'multi' ? '多人物焦点组' : '单人物焦点'}`,
-    focus.focusTask ? `本轮焦点任务：${focus.focusTask.type} / ${focus.focusTask.description}` : '',
-    `主焦点：${primaryFocus.worldName} / ${primaryFocus.focusType} / ${primaryFocus.entityName} (${primaryFocus.entityId})`,
-    focuses.length > 1
-      ? `焦点组：${focuses
-          .map((item) => `${item.role}:${item.worldName}/${item.entityName}(${item.entityId})`)
-          .join('；')}`
-      : '',
-    `识别置信度：${focus.confidence.toFixed(2)}`
-  ]
-  const instructionLines = [
-    '世界观焦点使用规则：这是一份本轮内部上下文。回答用户时可以自然承接该对象的信息，但不要主动暴露“我先去读取/聚焦了这个对象”之类过程性表述。'
-  ]
-
-  for (const item of focuses) {
-    if (!item.impression) continue
-    lines.push(
-      '',
-      `人物「${item.entityName}」印象状态：${item.impression.status}`,
-      item.impression.reason ? `状态原因：${item.impression.reason}` : '',
-      item.impression.updatedAt ? `人物印象更新时间：${item.impression.updatedAt}` : '',
-      item.impression.latestNarrativeUpdatedAt
-        ? `人物叙事文本最新更新时间：${item.impression.latestNarrativeUpdatedAt}`
-        : '',
-      typeof item.impression.narrativeDocumentCount === 'number'
-        ? `人物叙事文本数量：${item.impression.narrativeDocumentCount}`
-        : ''
-    )
-
-    if (item.impression.found && item.impression.structuredText) {
-      lines.push(
-        '',
-        `主 agent 已有人物「${item.entityName}」印象：`,
-        compactLongText(item.impression.structuredText)
-      )
-    }
-  }
-
-  const hasUnavailableCharacterImpression = focuses.some(
-    (item) =>
-      item.focusType === 'character' &&
-      (!item.impression?.found || item.impression.status !== 'available')
-  )
-  if (hasUnavailableCharacterImpression) {
-    instructionLines.push(
-      '人物理解使用规则：当前焦点组中存在人物印象缺失或过期；如果用户问题需要深入判断人物的性格、动机、生平、关系、事件影响或要求重新评价，应优先激活 character_narrative_reader 工具集，按人物文本目录创建阅读任务并在必要时保存新的 save_character_narrative_impression。若不阅读，请明确保持谨慎，不要对文本未支持的内容做强断言。'
-    )
-  }
-
-  return {
-    context: lines.filter(Boolean).join('\n'),
-    instruction: instructionLines.filter(Boolean).join('\n')
-  }
-}
-
-const buildScenePrompt = (slotSnapshot: MemorySlotSnapshot): SplitPrompt => {
-  const scene = slotSnapshot.scene_perception
-  if (!scene || scene.confidence < 0.6 || scene.primaryDomain === 'unknown') {
-    return { context: '', instruction: '' }
-  }
-
-  const lines = [
-    '本轮场景连续性判断：',
-    `主场景：${scene.primaryDomain}`,
-    scene.referenceDomains.length > 0 ? `临时参考场景：${scene.referenceDomains.join(', ')}` : '',
-    `连续性：${scene.continuity}`,
-    `当前场景仍然有效：${scene.currentSceneStillActive ? '是' : '否'}`,
-    `应用内世界观讨论相关：${scene.appWorldbuildingDiscussionRelated ? '是' : '否'}`,
-    `应用内世界观实例相关：${scene.appWorldbuildingInstanceRelated ? '是' : '否'}`,
-    `是否运行世界观实例聚焦：${scene.shouldRunWorldFocus ? '是' : '否'}`,
-    `是否允许使用历史世界观焦点：${scene.shouldInjectHistoricalWorldFocus ? '是' : '否'}`,
-    `判断置信度：${scene.confidence.toFixed(2)}`,
-    `判断理由：${scene.reason}`,
-    scene.evidence.length > 0 ? `判断证据：${scene.evidence.join('；')}` : ''
-  ]
-
-  return {
-    context: lines.filter(Boolean).join('\n'),
-    instruction:
-      '场景上下文使用规则：若连续性为 temporary_reference，用户提到的外部作品或现实对象只是参考或类比，不要把它当作应用内世界观焦点。若不允许使用历史世界观焦点，不要主动把旧人物或世界观对象带入回答。'
-  }
 }
 
 const buildWorkspaceContextPrompt = (state: typeof MessagesState.State): SplitPrompt => {
@@ -204,7 +94,6 @@ export async function contextNode(
     throw new Error('contextNode requires an active turn workspace')
   }
   const slotSnapshot = getEffectiveMemorySlots(state.turnWorkspace)
-  const effectiveSlotSnapshot = applyScenePerceptionToMemorySlots(slotSnapshot)
   const characterPrompt = await loadCharacterPrompt()
   const expressionProfile =
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
@@ -224,7 +113,7 @@ export async function contextNode(
     moodAssessment:
       state.instantPerception?.detectors.persona.status === 'fulfilled' &&
       state.instantPerception.detectors.persona.producedStateKeys.includes('personaPolicy')
-        ? effectiveSlotSnapshot.ai_mood.current
+        ? slotSnapshot.ai_mood.current
         : undefined,
     effectiveMetrics: state.personaPolicy?.metrics.effective
   })
@@ -242,7 +131,7 @@ export async function contextNode(
       kind: 'agent_internal_state',
       source: 'personaNode',
       content: personaParts.moodContext,
-      capturedAt: effectiveSlotSnapshot.ai_mood.updatedAt
+      capturedAt: slotSnapshot.ai_mood.updatedAt
     })
   }
   appendPromptSection({
@@ -413,68 +302,7 @@ export async function contextNode(
     })
   }
 
-  const scenePrompt = buildScenePrompt(effectiveSlotSnapshot)
-  if (scenePrompt.context) {
-    appendPromptSection({
-      id: 'scene-state',
-      duty: 'context',
-      kind: 'scene_inference',
-      source: 'sceneNode',
-      content: scenePrompt.context,
-      confidence: effectiveSlotSnapshot.scene_perception.confidence,
-      capturedAt: effectiveSlotSnapshot.scene_perception.updatedAt
-    })
-  }
-  if (scenePrompt.instruction) {
-    appendPromptSection({
-      id: 'scene-rule',
-      duty: 'instruction',
-      kind: 'context_usage_rule',
-      source: 'sceneNode',
-      content: scenePrompt.instruction
-    })
-  }
-
-  const worldFocusPrompt = buildWorldFocusPrompt(state, effectiveSlotSnapshot)
-  if (worldFocusPrompt.context) {
-    appendPromptSection({
-      id: 'world-focus-state',
-      duty: 'context',
-      kind: 'world_focus',
-      source: 'worldFocusNode',
-      content: worldFocusPrompt.context,
-      confidence: state.worldFocusContext?.confidence
-    })
-  }
-  if (worldFocusPrompt.instruction) {
-    appendPromptSection({
-      id: 'world-focus-rule',
-      duty: 'instruction',
-      kind: 'impression_usage_rule',
-      source: 'worldFocusNode',
-      content: worldFocusPrompt.instruction
-    })
-  }
-
   const snapshot = await memoryManager.getSnapshot()
-
-  const memoryPromptPlan = buildMemoryPromptPlan(snapshot, effectiveSlotSnapshot, {
-    includeWorldFocus: effectiveSlotSnapshot.scene_perception.shouldInjectHistoricalWorldFocus,
-    worldFocusAsBackground:
-      effectiveSlotSnapshot.scene_perception.confidence < 0.6 ||
-      effectiveSlotSnapshot.scene_perception.primaryDomain === 'unknown' ||
-      effectiveSlotSnapshot.scene_perception.continuity === 'uncertain'
-  })
-
-  if (memoryPromptPlan.slotPrompt) {
-    appendPromptSection({
-      id: 'memory-slots',
-      duty: 'context',
-      kind: 'short_lived_state',
-      source: 'memorySlotService',
-      content: memoryPromptPlan.slotPrompt
-    })
-  }
 
   for (const msg of snapshot.shortTerm) {
     if (msg.role === 'user') {
@@ -517,7 +345,7 @@ export async function contextNode(
       hasActiveTask: Boolean(state.taskLifecycle?.activeTask),
       hasLongTermMemory: false,
       longTermMemoryMode: 'recall_tool_only',
-      hasSlotPrompt: Boolean(memoryPromptPlan.slotPrompt),
+      hasSlotPrompt: false,
       hasRecentStagePrompt: false,
       longTermMemoryPreview: '',
       recentStageCount: snapshot.recentStages.length,

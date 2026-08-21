@@ -1,12 +1,7 @@
 import { SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
-import type {
-  MemoryStageSnapshot,
-  MessageData
-} from '@share/cache/AItype/states/memoryState'
+import type { MemoryStageSnapshot, MessageData } from '@share/cache/AItype/states/memoryState'
 import {
-  describeConversationMode,
-  describeInteractionState,
   describeUserMoodState,
   type MemorySlotSnapshot
 } from '@share/cache/AItype/states/memorySlots'
@@ -28,7 +23,9 @@ const extractJson = (input: string): string => {
 }
 
 const compact = (value: string, max = 160): string => {
-  const normalized = String(value || '').trim().replace(/\s+/g, ' ')
+  const normalized = String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
   if (normalized.length <= max) return normalized
   return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`
 }
@@ -46,7 +43,8 @@ const buildFallbackSummary = (messages: MessageData[], slots: MemorySlotSnapshot
   return {
     status: 'fallback' as MemoryStageSnapshot['status'],
     summary: compact(
-      [userHighlights[0], aiHighlights[0]].filter(Boolean).join('；') || '本阶段完成了一次对话归档。',
+      [userHighlights[0], aiHighlights[0]].filter(Boolean).join('；') ||
+        '本阶段完成了一次对话归档。',
       240
     ),
     moodLabel: slots.user_mood.current_mood || undefined
@@ -70,8 +68,6 @@ const buildStagePrompt = (messages: MessageData[], slots: MemorySlotSnapshot): s
 3. 忽略寒暄，优先保留对下一阶段仍有价值的内容。
 
 短期插槽参考：
-- 当前对话模式：${slots.conversation_state.conversation_mode ? describeConversationMode(slots.conversation_state.conversation_mode) : '无'}
-- 当前互动状态：${slots.conversation_state.interaction_state ? describeInteractionState(slots.conversation_state.interaction_state) : '无'}
 - 用户情绪：${slots.user_mood.current_mood ? describeUserMoodState(slots.user_mood.current_mood) : '未识别'}
 
 阶段对话：
@@ -97,7 +93,9 @@ export const summarizeMemoryStage = async (
   try {
     const quickModel = await getQuickModel()
     const response = await quickModel.invoke([new SystemMessage(buildStagePrompt(messages, slots))])
-    const parsed = stageSummarySchema.parse(JSON.parse(extractJson(contentToText(response.content))))
+    const parsed = stageSummarySchema.parse(
+      JSON.parse(extractJson(contentToText(response.content)))
+    )
     return {
       status: 'completed',
       summary: parsed.summary,

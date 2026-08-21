@@ -1,68 +1,6 @@
-import type { WorldEntityType } from '../../worldbuilding/worldbuilding'
-import type { MoodAssessment } from './moodAssessment'
+import type { MoodAssessment, UserMoodState } from './moodAssessment'
 
-export type UserMoodState = 'calm' | 'positive' | 'impatient' | 'frustrated' | 'uncertain'
-
-// ScenePerceptionSlot: Agent 运行过程中的动态场景状态。
-// 它不是长期记忆，而是由 sceneNode 每轮覆盖写入的短期运行态。
-export const SCENE_DOMAINS = [
-  'app_worldbuilding',
-  'general_creative',
-  'external_media',
-  'practical_support',
-  'daily_life',
-  'knowledge_query',
-  'relational_intimacy',
-  'unknown'
-] as const
-export type SceneDomain = (typeof SCENE_DOMAINS)[number]
-
-export const SCENE_CONTINUITIES = [
-  'continue_current_scene',
-  'temporary_reference',
-  'scene_shift',
-  'new_scene',
-  'uncertain'
-] as const
-export type SceneContinuity = (typeof SCENE_CONTINUITIES)[number]
-
-// ConversationMode: 会话级框架。描述这段对话主要落在哪种关系/任务场域。
-export const CONVERSATION_MODES = [
-  'daily_life',
-  'practical_support',
-  'worldbuilding',
-  'knowledge_query',
-  'relational_intimacy'
-] as const
-export type ConversationMode = (typeof CONVERSATION_MODES)[number]
-
-// InteractionState: 回合级姿态。描述用户此刻更希望我们以怎样的方式接住这轮对话。
-export const INTERACTION_STATES = [
-  'casual_chat',
-  'emotional_sharing',
-  'working',
-  'teasing',
-  'deep_talk'
-] as const
-export type InteractionState = (typeof INTERACTION_STATES)[number]
-
-export const isConversationMode = (value: unknown): value is ConversationMode =>
-  typeof value === 'string' && CONVERSATION_MODES.includes(value as ConversationMode)
-
-export const isInteractionState = (value: unknown): value is InteractionState =>
-  typeof value === 'string' && INTERACTION_STATES.includes(value as InteractionState)
-
-export const isSceneDomain = (value: unknown): value is SceneDomain =>
-  typeof value === 'string' && SCENE_DOMAINS.includes(value as SceneDomain)
-
-export const isSceneContinuity = (value: unknown): value is SceneContinuity =>
-  typeof value === 'string' && SCENE_CONTINUITIES.includes(value as SceneContinuity)
-
-export interface ConversationStateSlot {
-  conversation_mode?: ConversationMode // 对话模式
-  interaction_state?: InteractionState // 当前关系性交谈状态
-  updatedAt?: string // 更新时间
-}
+export type { UserMoodState } from './moodAssessment'
 
 export interface UserMoodSlot {
   current_mood?: UserMoodState // 当前情绪
@@ -79,114 +17,10 @@ export interface AiMoodSlot {
   updatedAt?: string
 }
 
-export type WorldFocusStatus = 'none' | 'candidate' | 'resolved' | 'ambiguous'
-export type WorldFocusMode = 'none' | 'single' | 'multi'
-export type WorldFocusItemRole = 'primary' | 'co_focus' | 'reference' | 'target' | 'background'
-export type WorldFocusItemSource =
-  | 'explicit_mention'
-  | 'mention_index'
-  | 'previous_focus'
-  | 'tool_result'
-export type WorldFocusTaskType =
-  | 'single_analysis'
-  | 'compare'
-  | 'relationship'
-  | 'dialogue'
-  | 'joint_analysis'
-  | 'batch_edit'
-  | 'reference_edit'
-  | 'unknown'
-
-export interface WorldFocusItem {
-  worldId: string
-  worldName: string
-  focusType: WorldEntityType
-  entityId: string
-  entityName: string
-  role: WorldFocusItemRole
-  source: WorldFocusItemSource
-  confidence: number
-  reason?: string
-}
-
-export interface WorldFocusTask {
-  type: WorldFocusTaskType
-  description: string
-}
-
-export interface WorldFocusSlot {
-  mode: WorldFocusMode
-  primaryFocusId?: string
-  focuses: WorldFocusItem[]
-  focusTask?: WorldFocusTask
-  confidence: number
-  status: WorldFocusStatus
-  updatedAt?: string
-}
-
-export interface ScenePerceptionSlot {
-  primaryDomain: SceneDomain
-  referenceDomains: SceneDomain[]
-  continuity: SceneContinuity
-  currentSceneStillActive: boolean
-  appWorldbuildingDiscussionRelated: boolean
-  appWorldbuildingInstanceRelated: boolean
-  shouldRunWorldFocus: boolean
-  shouldInjectHistoricalWorldFocus: boolean
-  confidence: number
-  reason: string
-  evidence: string[]
-  source: 'sceneNode'
-  updatedAt?: string
-  previousScene?: {
-    primaryDomain?: SceneDomain
-    appWorldbuildingInstanceRelated?: boolean
-    worldFocusEntityName?: string
-    worldFocusEntityId?: string
-  }
-}
-
 export interface MemorySlotSnapshot {
-  conversation_state: ConversationStateSlot // 对话状态
   user_mood: UserMoodSlot // 用户情绪
   ai_mood: AiMoodSlot // AI 侧阶段情绪：Agent 运行态，每轮由 personaNode 覆盖
-  world_focus: WorldFocusSlot // 当前世界观聚焦对象
-  scene_perception: ScenePerceptionSlot // 当前场景感知：Agent 运行态，每轮由 sceneNode 覆盖
   lastObservationId: number // 最后一次观察ID
-}
-
-export const describeConversationMode = (value?: ConversationMode): string => {
-  switch (value) {
-    case 'daily_life':
-      return '日常交流'
-    case 'practical_support':
-      return '现实协助'
-    case 'worldbuilding':
-      return '世界共创'
-    case 'knowledge_query':
-      return '知识探讨'
-    case 'relational_intimacy':
-      return '关系靠近'
-    default:
-      return '未识别'
-  }
-}
-
-export const describeInteractionState = (value?: InteractionState): string => {
-  switch (value) {
-    case 'casual_chat':
-      return '闲聊'
-    case 'emotional_sharing':
-      return '情绪倾诉'
-    case 'working':
-      return '任务推进'
-    case 'teasing':
-      return '打趣调侃'
-    case 'deep_talk':
-      return '深度谈话'
-    default:
-      return '未识别'
-  }
 }
 
 export const describeUserMoodState = (value?: UserMoodState): string => {
@@ -203,36 +37,5 @@ export const describeUserMoodState = (value?: UserMoodState): string => {
       return '犹疑'
     default:
       return '未识别'
-  }
-}
-
-export const describeWorldFocusType = (value?: WorldEntityType): string => {
-  switch (value) {
-    case 'character':
-      return '人物'
-    case 'race':
-      return '种族'
-    case 'faction':
-      return '势力'
-    case 'nation':
-      return '国家'
-    case 'city':
-      return '城市'
-    case 'region':
-      return '地区'
-    case 'map':
-      return '地图'
-    case 'map_location':
-      return '地图地点'
-    case 'event':
-      return '事件'
-    case 'item':
-      return '物品'
-    case 'rule':
-      return '规则'
-    case 'custom':
-      return '自定义对象'
-    default:
-      return '未聚焦'
   }
 }

@@ -23,7 +23,12 @@ import {
 } from '../../agentrsystem/node/personanode/personaPolicyCompiler'
 import { resolveWorkspaceProfile } from '../../agentrsystem/workspaceProfileRegistry'
 import { buildMoodAppraisalPrompt } from '../../agentrsystem/node/personanode/moodAppraisalPrompt'
+import { projectUserMoodSlot } from '../../agentrsystem/node/personanode/userMoodProjection'
 import { getExpressionPromptProfileById } from '../../prompt/main_agent/persona/expressionPromptProfiles'
+import {
+  applyObservationToMemorySlots,
+  createDefaultMemorySlots
+} from '../../agentrsystem/manager/memory/memoryWritePolicy'
 
 const appraisal = (overrides: Partial<MoodEventAppraisal> = {}): MoodEventAppraisal => ({
   ...NEUTRAL_MOOD_APPRAISAL,
@@ -35,8 +40,7 @@ const compile = (
   previousMood?: ReturnType<typeof compileMoodAssessment>,
   nowIso = '2026-08-16T00:00:00.000Z',
   boundary: CharacterMoodBoundary = FAMILA_CHARACTER_MOOD_BOUNDARY
-) =>
-  compileMoodAssessment({ appraisal: event, previousMood, nowIso, boundary })
+) => compileMoodAssessment({ appraisal: event, previousMood, nowIso, boundary })
 
 test('low-confidence appraisal cannot cause a sharp emotional jump', () => {
   const event = {
@@ -82,10 +86,123 @@ test('appraisal prompt includes user interaction events and excludes task result
   assert.match(prompt, /用户要求中断当前回答/)
   assert.doesNotMatch(prompt, /internal tool result must stay out of mood/)
   assert.equal(prompt.match(/先停一下。/g)?.length, 1)
+  assert.match(prompt, /userState/)
+  assert.match(prompt, /用户讨论负面题材、角色愤怒或故事冲突，不代表用户本人负面/)
+})
+
+test('task results do not synthesize a user mood without user evidence', () => {
+  const slots = applyObservationToMemorySlots(createDefaultMemorySlots(), {
+    id: 7,
+    type: 'task_completed',
+    source: 'task_queue',
+    summary: '后台任务完成',
+    payload: {},
+    createdAt: '2026-08-16T00:00:00.000Z'
+  })
+
+  assert.deepEqual(slots.user_mood, { confidence: 0 })
+  assert.equal(slots.lastObservationId, 7)
+})
+
+test('one appraisal projects user state into memory and bounded response behavior', () => {
+  const uncertainAppraisal = appraisal({
+    userState: {
+      mood: 'uncertain',
+      valence: -0.2,
+      confidence: 0.8
+    }
+  })
+  const uncertainMood = compile(uncertainAppraisal)
+  const calmMood = compile(NEUTRAL_MOOD_APPRAISAL)
+  const metrics = {
+    autonomy_level: 0.5,
+    verbosity_index: 0.5,
+    risk_tolerance: 0.5,
+    formality_score: 0.5
+  }
+  const uncertainPolicy = buildPolicy(
+    metrics,
+    metrics,
+    uncertainMood,
+    [],
+    '2026-08-16T00:00:00.000Z'
+  )
+  const calmPolicy = buildPolicy(metrics, metrics, calmMood, [], '2026-08-16T00:00:00.000Z')
+  const slot = projectUserMoodSlot(uncertainAppraisal, {
+    observationId: 12,
+    retentionObservations: 3,
+    nowIso: '2026-08-16T00:00:00.000Z'
+  })
+  const parts = buildPersonaAssemblyPromptParts({
+    characterPrompt: '保持稳定人格。',
+    expressionPrompt: '自然表达。',
+    moodAssessment: uncertainMood,
+    effectiveMetrics: metrics
+  })
+
+  assert.deepEqual(slot, {
+    current_mood: 'uncertain',
+    valence: -0.2,
+    confidence: 0.8,
+    updatedAt: '2026-08-16T00:00:00.000Z',
+    expiresAfterObservationId: 15
+  })
+  assert.ok(uncertainPolicy.action.clarificationNeed > calmPolicy.action.clarificationNeed)
+  assert.ok(uncertainPolicy.action.evidenceNeed > calmPolicy.action.evidenceNeed)
+  assert.equal(uncertainPolicy.action.autonomyDrive, calmPolicy.action.autonomyDrive)
+  assert.equal(uncertainPolicy.action.toolPersistence, calmPolicy.action.toolPersistence)
+  assert.equal(uncertainPolicy.metrics.base.risk_tolerance, calmPolicy.metrics.base.risk_tolerance)
+  assert.match(parts.instruction, /关键前提和不确定边界说清楚/)
+  assert.doesNotMatch(parts.instruction, /userState|uncertain|confidence.*0\.8/)
+})
+
+test('low-confidence perceived user state does not steer memory or behavior', () => {
+  const lowConfidence = appraisal({
+    userState: {
+      mood: 'frustrated',
+      valence: -1,
+      confidence: 0.2
+    }
+  })
+  const slot = projectUserMoodSlot(lowConfidence, {
+    observationId: 4,
+    retentionObservations: 3,
+    nowIso: '2026-08-16T00:00:00.000Z'
+  })
+  const parts = buildPersonaAssemblyPromptParts({
+    characterPrompt: '保持稳定人格。',
+    expressionPrompt: '自然表达。',
+    moodAssessment: compile(lowConfidence),
+    effectiveMetrics: {
+      autonomy_level: 0.5,
+      verbosity_index: 0.5,
+      risk_tolerance: 0.5,
+      formality_score: 0.5
+    }
+  })
+
+  assert.deepEqual(slot, {
+    confidence: 0,
+    updatedAt: '2026-08-16T00:00:00.000Z'
+  })
+  const metrics = {
+    autonomy_level: 0.5,
+    verbosity_index: 0.5,
+    risk_tolerance: 0.5,
+    formality_score: 0.5
+  }
+  assert.deepEqual(
+    buildPolicy(metrics, metrics, compile(lowConfidence), [], '2026-08-16T00:00:00.000Z').action,
+    buildPolicy(metrics, metrics, compile(NEUTRAL_MOOD_APPRAISAL), [], '2026-08-16T00:00:00.000Z')
+      .action
+  )
+  assert.doesNotMatch(parts.instruction, /受挫点/)
 })
 
 test('character boundary is applied before every derived mood projection', () => {
-  const lockRanges = <T extends object>(state: T): { [K in keyof T]: { min: number; max: number } } => {
+  const lockRanges = <T extends object>(
+    state: T
+  ): { [K in keyof T]: { min: number; max: number } } => {
     const ranges = {} as { [K in keyof T]: { min: number; max: number } }
     for (const key of Object.keys(state) as Array<keyof T>) {
       const value = state[key]

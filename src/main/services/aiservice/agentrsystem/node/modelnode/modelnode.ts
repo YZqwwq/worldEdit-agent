@@ -65,7 +65,14 @@ const renderToolContextItems = (title: string, items: ToolContextItem[]): string
     const refs = item.sourceRefs?.length
       ? `\n   来源：${item.sourceRefs
           .map((ref) =>
-            [ref.type, ref.title, ref.id != null ? String(ref.id) : '', ref.url]
+            [
+              ref.type,
+              ref.entityType,
+              ref.title,
+              ref.id != null ? `id=${String(ref.id)}` : '',
+              ref.worldId ? `worldId=${ref.worldId}` : '',
+              ref.url
+            ]
               .filter(Boolean)
               .join(':')
           )

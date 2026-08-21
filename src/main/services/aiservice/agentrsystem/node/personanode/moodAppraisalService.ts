@@ -4,6 +4,7 @@ import {
   MOOD_AGENCIES,
   MOOD_CONTROL_SIGNALS,
   MOOD_EVENT_KINDS,
+  USER_MOOD_STATES,
   type MoodEventAppraisal
 } from '@share/cache/AItype/states/moodAssessment'
 import { contentToText } from '../../../messageoutput/transformRespones'
@@ -21,6 +22,11 @@ const signedLevel = z.union([z.literal(-2), z.literal(-1), z.literal(0), z.liter
 const level = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)])
 
 const moodAppraisalSchema = z.object({
+  userState: z.object({
+    mood: z.enum(USER_MOOD_STATES),
+    valence: z.number().finite().min(-1).max(1),
+    confidence: z.number().finite().min(0).max(1)
+  }),
   eventKind: z.enum(MOOD_EVENT_KINDS),
   valence: signedLevel,
   salience: level,

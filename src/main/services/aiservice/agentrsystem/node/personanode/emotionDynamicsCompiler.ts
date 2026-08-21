@@ -22,6 +22,11 @@ import {
 } from './moodDynamicsBoundary'
 
 export const NEUTRAL_MOOD_APPRAISAL: MoodEventAppraisal = {
+  userState: {
+    mood: 'calm',
+    valence: 0,
+    confidence: 0
+  },
   eventKind: 'neutral',
   valence: 0,
   salience: 0,

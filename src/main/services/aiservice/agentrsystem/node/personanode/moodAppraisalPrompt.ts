@@ -60,6 +60,10 @@ ${buildInteractionDigest(input.observations)}
 ${buildPreviousStateDigest(input.previousMood)}
 
 字段定义：
+- userState: 对用户当前短期状态的理解，不是 Agent 自身情绪
+  - mood: calm | positive | impatient | frustrated | uncertain
+  - valence: -1 到 1，表示用户状态的正负效价
+  - confidence: 0 到 1，情绪主体或证据不明确时必须降低
 - eventKind: gain | loss | obstacle | threat | novelty | norm_violation | relationship_event | neutral
 - valence: -2明显负面，-1轻微负面，0中性，1轻微正面，2明显正面
 - salience: 0无关，1较低，2重要，3高度重要
@@ -73,9 +77,11 @@ ${buildPreviousStateDigest(input.previousMood)}
 
 边界：
 1. 不把用户自己的情绪直接复制成 Agent 情绪。
-2. 不从“暂未看到方案”推断 Agent 没有能力。
-3. 普通请求通常是 neutral；不要为了产生情绪而夸大评价。
-4. 只输出一个 JSON 对象，不解释，不输出 Markdown。
+2. 用户讨论负面题材、角色愤怒或故事冲突，不代表用户本人负面；此时 userState 通常为 calm。
+3. userState 只描述用户当前状态；事件字段描述这次互动对 Agent 的意义，两者可以不同。
+4. 不从“暂未看到方案”推断 Agent 没有能力。
+5. 普通请求通常是 neutral；不要为了产生情绪而夸大评价。
+6. 只输出一个 JSON 对象，不解释，不输出 Markdown。
 
 输出：
-{"eventKind":"neutral","valence":0,"salience":1,"novelty":0,"futureProspect":0,"agency":"unknown","normImpact":0,"relationshipImpact":0,"controlSignal":"unknown","confidence":1}`
+{"userState":{"mood":"calm","valence":0,"confidence":0.5},"eventKind":"neutral","valence":0,"salience":1,"novelty":0,"futureProspect":0,"agency":"unknown","normImpact":0,"relationshipImpact":0,"controlSignal":"unknown","confidence":1}`

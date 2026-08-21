@@ -6,6 +6,83 @@ import {
   defineAgentTool,
   parseAgentToolResultEnvelope
 } from '../../ai-utils/core/agentTool'
+import { extractEntitySourceRefs } from '../../agentrsystem/node/toolnode/toolContextSourceRefs'
+
+test('entity results become compact tool evidence references', () => {
+  const refs = extractEntitySourceRefs({
+    entities: [
+      {
+        world: { id: 'world-1', name: '银月世界' },
+        entity: {
+          id: 'character-1',
+          worldId: 'world-1',
+          type: 'character',
+          name: '艾琳'
+        }
+      },
+      {
+        id: 'nation-1',
+        worldId: 'world-1',
+        type: 'nation',
+        name: '银月帝国'
+      }
+    ]
+  })
+
+  assert.deepEqual(refs, [
+    {
+      type: 'entity',
+      id: 'character-1',
+      title: '艾琳',
+      entityType: 'character',
+      worldId: 'world-1'
+    },
+    {
+      type: 'entity',
+      id: 'nation-1',
+      title: '银月帝国',
+      entityType: 'nation',
+      worldId: 'world-1'
+    }
+  ])
+})
+
+test('character impression results expose an entity reference without inventing a world', () => {
+  assert.deepEqual(
+    extractEntitySourceRefs({
+      impression: {
+        characterEntityId: 'character-2',
+        structuredText: '省略'
+      }
+    }),
+    [
+      {
+        type: 'entity',
+        id: 'character-2',
+        title: undefined,
+        entityType: 'character',
+        worldId: undefined
+      }
+    ]
+  )
+})
+
+test('character reading results infer the character type from the standard character field', () => {
+  assert.deepEqual(
+    extractEntitySourceRefs({
+      character: { entityId: 'character-3', name: '洛兰', worldId: 'world-2' }
+    }),
+    [
+      {
+        type: 'entity',
+        id: 'character-3',
+        title: '洛兰',
+        entityType: 'character',
+        worldId: 'world-2'
+      }
+    ]
+  )
+})
 
 test('read-only tools expose the complete validated result to the next model call', async () => {
   const fullContent = Array.from({ length: 320 }, (_, index) => `段落-${index}-完整正文`).join('\n')

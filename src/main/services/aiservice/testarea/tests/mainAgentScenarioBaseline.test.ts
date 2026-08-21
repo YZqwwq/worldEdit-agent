@@ -262,7 +262,7 @@ test('an interrupted background stage commits the same stable workspace boundary
         reason: 'user_interrupted',
         interruptedAt: '2026-08-13T00:00:00.000Z',
         sourceVersionId: 12,
-        resumePoint: 'sceneNode'
+        resumePoint: 'instantPerceptionNode'
       }
     }),
     consumeTaskNotification: async () => {

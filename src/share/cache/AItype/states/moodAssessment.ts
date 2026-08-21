@@ -20,7 +20,24 @@ export type MoodControlSignal = (typeof MOOD_CONTROL_SIGNALS)[number]
 export type SignedAppraisalLevel = -2 | -1 | 0 | 1 | 2
 export type AppraisalLevel = 0 | 1 | 2 | 3
 
+export const USER_MOOD_STATES = [
+  'calm',
+  'positive',
+  'impatient',
+  'frustrated',
+  'uncertain'
+] as const
+
+export type UserMoodState = (typeof USER_MOOD_STATES)[number]
+
+export interface PerceivedUserState {
+  mood: UserMoodState
+  valence: number
+  confidence: number
+}
+
 export interface MoodEventAppraisal {
+  userState: PerceivedUserState
   eventKind: MoodEventKind
   valence: SignedAppraisalLevel
   salience: AppraisalLevel

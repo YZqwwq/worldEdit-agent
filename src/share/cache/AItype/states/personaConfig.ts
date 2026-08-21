@@ -1,5 +1,5 @@
 import type { InteractionObservationType } from './interactionObservation'
-import type { UserMoodState } from './memorySlots'
+import type { UserMoodState } from './moodAssessment'
 
 export type PersonaSignalCategory = '自主性' | '详略度' | '探索性' | '正式度'
 

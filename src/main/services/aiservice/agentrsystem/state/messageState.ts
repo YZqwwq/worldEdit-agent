@@ -22,6 +22,8 @@ export type ToolContextSourceRef = {
   id?: string | number
   title?: string
   url?: string
+  entityType?: WorldEntityType
+  worldId?: string
 }
 
 export type ToolContextItem = {
@@ -42,50 +44,6 @@ export type PendingToolContextItem = ToolContextItem & {
   transcriptMessageIds: string[]
 }
 
-export type WorldFocusImpressionContext = {
-  status: 'available' | 'missing' | 'stale' | 'insufficient'
-  found: boolean
-  structuredText?: string
-  updatedAt?: string
-  latestNarrativeUpdatedAt?: string
-  narrativeDocumentCount?: number
-  narrativeReadableCharacters?: number
-  reason?: string
-  generatedThisTurn?: boolean
-}
-
-export type WorldFocusContextItem = {
-  worldId: string
-  worldName: string
-  focusType: WorldEntityType
-  entityId: string
-  entityName: string
-  role: 'primary' | 'co_focus' | 'reference' | 'target' | 'background'
-  source: 'explicit_mention' | 'mention_index' | 'previous_focus' | 'tool_result'
-  confidence: number
-  reason?: string
-  impression?: WorldFocusImpressionContext
-}
-
-export type WorldFocusContext = {
-  mode: 'single' | 'multi'
-  primaryFocusId?: string
-  focuses: WorldFocusContextItem[]
-  confidence: number
-  focusTask?: {
-    type:
-      | 'single_analysis'
-      | 'compare'
-      | 'relationship'
-      | 'dialogue'
-      | 'joint_analysis'
-      | 'batch_edit'
-      | 'reference_edit'
-      | 'unknown'
-    description: string
-  }
-}
-
 export type InstantPerceptionDetectorStatus = {
   status: 'fulfilled' | 'rejected' | 'skipped'
   durationMs: number
@@ -95,20 +53,12 @@ export type InstantPerceptionDetectorStatus = {
 }
 
 export type InstantPerceptionSnapshot = {
-  mode: 'scene_gated_dag'
+  mode: 'persona_appraisal'
   startedAt: string
   completedAt: string
   durationMs: number
   detectors: {
-    scene: InstantPerceptionDetectorStatus
-    userMood: InstantPerceptionDetectorStatus
-    worldFocus: InstantPerceptionDetectorStatus
     persona: InstantPerceptionDetectorStatus
-  }
-  routing: {
-    shouldRunWorldFocus: boolean
-    worldFocusSkipped: boolean
-    worldFocusSkipReason?: string
   }
   warnings: string[]
 }
@@ -140,10 +90,6 @@ export const MessagesState = Annotation.Root({
     default: () => undefined
   }),
   backgroundPersonaStage: Annotation<MainAgentBackgroundPersonaStagePayload | undefined>({
-    reducer: (x, y) => y ?? x,
-    default: () => undefined
-  }),
-  worldFocusContext: Annotation<WorldFocusContext | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),

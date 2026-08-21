@@ -1,4 +1,3 @@
-import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
 import type {
   ExpressionPromptProfileId,
   ExpressionPromptProfileState
@@ -123,10 +122,6 @@ type ExpressionPromptProfileDefinition = {
   title: string
   summary: string
   prompt: string
-  match?: {
-    conversationModes?: MemorySlotSnapshot['conversation_state']['conversation_mode'][]
-    interactionStates?: MemorySlotSnapshot['conversation_state']['interaction_state'][]
-  }
 }
 
 const EXPRESSION_PROMPT_PROFILES: ExpressionPromptProfileDefinition[] = [
@@ -134,21 +129,13 @@ const EXPRESSION_PROMPT_PROFILES: ExpressionPromptProfileDefinition[] = [
     id: 'daily_chat',
     title: '日常闲聊表达',
     summary: '轻松日常场景下更有熟人感、更娱乐化的表达。',
-    prompt: DAILY_CHAT_EXPRESSION_PROMPT,
-    match: {
-      conversationModes: ['daily_life'],
-      interactionStates: ['casual_chat', 'teasing']
-    }
+    prompt: DAILY_CHAT_EXPRESSION_PROMPT
   },
   {
     id: 'reflective_discussion',
     title: '讨论型表达',
     summary: '用于需要展开观点的讨论：表达明确、层次清楚，并保持克制和陪伴感。',
-    prompt: REFLECTIVE_DISCUSSION_EXPRESSION_PROMPT,
-    match: {
-      conversationModes: ['knowledge_query', 'practical_support'],
-      interactionStates: ['deep_talk', 'working']
-    }
+    prompt: REFLECTIVE_DISCUSSION_EXPRESSION_PROMPT
   },
   {
     id: 'default',
@@ -163,32 +150,6 @@ export const REFLECTIVE_DISCUSSION_EXPRESSION_PROFILE_DRAFT: ExpressionPromptPro
   title: '讨论型表达',
   summary: '用于需要展开观点的讨论：表达明确、层次清楚，并保持克制和陪伴感。',
   prompt: REFLECTIVE_DISCUSSION_EXPRESSION_PROMPT
-}
-
-const matchesProfile = (
-  profile: ExpressionPromptProfileDefinition,
-  slotSnapshot: MemorySlotSnapshot
-): boolean => {
-  if (!profile.match) return true
-
-  const conversationMode = slotSnapshot.conversation_state.conversation_mode
-  const interactionState = slotSnapshot.conversation_state.interaction_state
-
-  if (
-    profile.match.conversationModes?.length &&
-    (!conversationMode || !profile.match.conversationModes.includes(conversationMode))
-  ) {
-    return false
-  }
-
-  if (
-    profile.match.interactionStates?.length &&
-    (!interactionState || !profile.match.interactionStates.includes(interactionState))
-  ) {
-    return false
-  }
-
-  return true
 }
 
 const DEFAULT_EXPRESSION_PROMPT_PROFILE = EXPRESSION_PROMPT_PROFILES.find(
@@ -207,10 +168,7 @@ export const getExpressionPromptProfileById = (
   EXPRESSION_PROMPT_PROFILES.find((profile) => profile.id === id) ??
   DEFAULT_EXPRESSION_PROMPT_PROFILE
 
-export const resolveExpressionPromptProfile = (
-  slotSnapshot: MemorySlotSnapshot
-): ExpressionPromptProfileDefinition =>
-  EXPRESSION_PROMPT_PROFILES.find((profile) => matchesProfile(profile, slotSnapshot)) ??
+export const resolveExpressionPromptProfile = (): ExpressionPromptProfileDefinition =>
   DEFAULT_EXPRESSION_PROMPT_PROFILE
 
 export const toExpressionPromptProfileState = (

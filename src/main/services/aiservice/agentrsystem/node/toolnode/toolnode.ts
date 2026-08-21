@@ -9,10 +9,7 @@ import {
   buildAgentToolModelMessage,
   parseAgentToolResultEnvelope
 } from '../../../ai-utils/core/agentTool'
-import type {
-  AgentToolErrorCode,
-  AgentToolExecutionLevel
-} from '../../../ai-utils/core/agentTool'
+import type { AgentToolErrorCode, AgentToolExecutionLevel } from '../../../ai-utils/core/agentTool'
 import {
   getMainAgentToolEntry,
   getMainAgentTools,
@@ -64,6 +61,7 @@ import {
   getLatestHumanMessageText,
   registerToolConfirmationRequest
 } from './toolExecutionProtocol'
+import { extractEntitySourceRefs } from './toolContextSourceRefs'
 
 const compact = (value: string, max = 900): string => {
   const normalized = String(value || '')
@@ -203,7 +201,7 @@ const buildSourceRefs = (
     }))
   }
 
-  return []
+  return extractEntitySourceRefs(data)
 }
 
 const buildToolContextSupersessionKey = (
@@ -546,7 +544,8 @@ export async function toolNode(
         toolName: toolCall.name,
         error: {
           code: 'CONFIRMATION_REQUIRED',
-          message: '该操作不可恢复。必须先向用户展示本次操作及目标，并等待用户在后续消息中明确确认。',
+          message:
+            '该操作不可恢复。必须先向用户展示本次操作及目标，并等待用户在后续消息中明确确认。',
           retryable: true,
           details: {
             confirmationKey,

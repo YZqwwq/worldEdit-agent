@@ -13,6 +13,5 @@ export {
   saveCharacterPrompt
 } from './persona/characterPromptStore'
 export { resolveExpressionPromptProfile } from './persona/expressionPromptProfiles'
-export { buildMemorySlotPrompt } from './memory/memorySlotPrompt'
 export { buildPersonaAssemblyPrompt } from './persona/personaAssemblyPrompt'
 export { buildPersonaAssemblyPromptParts } from './persona/personaAssemblyPrompt'

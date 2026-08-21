@@ -216,32 +216,6 @@
           <section class="rounded-lg border border-gray-200 p-4">
             <h4 class="mb-3 text-sm font-semibold text-gray-800">短期插槽状态</h4>
             <div class="grid gap-4 md:grid-cols-2">
-              <article class="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
-                <div class="mb-3 flex items-center justify-between">
-                  <h5 class="text-sm font-medium text-emerald-900">对话控制状态</h5>
-                  <span class="rounded-full bg-white/80 px-2 py-1 text-[11px] text-emerald-700">
-                    观测 #{{ memorySnapshotData.slots.lastObservationId }}
-                  </span>
-                </div>
-                <div class="space-y-3 text-sm text-slate-700">
-                  <div>
-                    <div class="mb-1 text-xs font-medium uppercase tracking-wide text-emerald-700">对话模式</div>
-                    <div class="rounded-lg bg-white/70 px-3 py-2 text-xs text-slate-700">
-                      {{ describeConversationMode(memorySnapshotData.slots.conversation_state.conversation_mode) }}
-                    </div>
-                  </div>
-                  <div>
-                    <div class="mb-1 text-xs font-medium uppercase tracking-wide text-emerald-700">互动状态</div>
-                    <div class="rounded-lg bg-white/70 px-3 py-2 text-xs text-slate-700">
-                      {{ describeInteractionState(memorySnapshotData.slots.conversation_state.interaction_state) }}
-                    </div>
-                  </div>
-                </div>
-                <div class="mt-3 text-xs text-emerald-800/80">
-                  更新时间：{{ formatIsoTime(memorySnapshotData.slots.conversation_state.updatedAt) || '暂无' }}
-                </div>
-              </article>
-
               <article class="rounded-xl border border-rose-100 bg-rose-50/70 p-4">
                 <div class="mb-3 flex items-center justify-between">
                   <h5 class="text-sm font-medium text-rose-900">用户情绪</h5>
@@ -1695,40 +1669,6 @@ const describeMood = (value?: string): string => {
       return '受挫'
     case 'uncertain':
       return '犹疑'
-    default:
-      return '未识别'
-  }
-}
-
-const describeConversationMode = (value?: string): string => {
-  switch (value) {
-    case 'daily_life':
-      return '日常'
-    case 'practical_support':
-      return '现实协助'
-    case 'worldbuilding':
-      return '世界共创'
-    case 'knowledge_query':
-      return '知识问答'
-    case 'relational_intimacy':
-      return '关系靠近'
-    default:
-      return '未识别'
-  }
-}
-
-const describeInteractionState = (value?: string): string => {
-  switch (value) {
-    case 'casual_chat':
-      return '闲聊'
-    case 'emotional_sharing':
-      return '倾诉'
-    case 'working':
-      return '工作'
-    case 'teasing':
-      return '挑逗'
-    case 'deep_talk':
-      return '深聊'
     default:
       return '未识别'
   }

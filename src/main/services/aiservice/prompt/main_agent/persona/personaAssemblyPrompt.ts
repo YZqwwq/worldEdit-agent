@@ -88,6 +88,19 @@ const buildExpressionDirections = (
   const directions: string[] = []
   const { relationalCloseness, warmth, contraction, imaginativeOpenness } =
     assessment.expressionModulation
+  const userState = assessment.appraisal.userState
+
+  if (userState.confidence >= 0.45) {
+    if (userState.mood === 'impatient') {
+      directions.push('减少铺垫、重复确认和旁支，尽快回应当前核心问题。')
+    } else if (userState.mood === 'frustrated') {
+      directions.push('先接住用户明确的受挫点，再给可验证的判断或下一步，不使用空泛安慰。')
+    } else if (userState.mood === 'uncertain') {
+      directions.push('把关键前提和不确定边界说清楚；只有缺少的信息会实质改变结果时才追问。')
+    } else if (userState.mood === 'positive') {
+      directions.push('可以自然承接用户的积极状态，但不要夸张附和。')
+    }
+  }
 
   if ((metrics?.formality_score ?? 0.5) >= 0.65) {
     directions.push('表达保持较高正式度，术语和判断边界清楚，避免随意口语。')

@@ -49,6 +49,11 @@ const applyMoodActionBias = (
   const delta = (value: number, baseline: number): number => value - baseline
   const apply = (value: number, adjustment: number): number =>
     clamp01(roundTo(value + adjustment))
+  const userState = mood.appraisal.userState
+  const rawUserConfidence = clamp01(userState.confidence)
+  const userConfidence = rawUserConfidence >= 0.45 ? rawUserConfidence : 0
+  const userBias = (moodName: typeof userState.mood, amount: number): number =>
+    userState.mood === moodName ? amount * userConfidence : 0
 
   return {
     autonomyDrive: action.autonomyDrive,
@@ -56,18 +61,23 @@ const applyMoodActionBias = (
       action.caution,
       delta(slowMood.tension, DEFAULT_SLOW_MOOD.tension) * 0.1 +
         delta(slowMood.stress, DEFAULT_SLOW_MOOD.stress) * 0.08 +
-        delta(shortTerm.fear, DEFAULT_SHORT_TERM.fear) * 0.06
+        delta(shortTerm.fear, DEFAULT_SHORT_TERM.fear) * 0.06 +
+        userBias('frustrated', 0.025)
     ),
     clarificationNeed: apply(
       action.clarificationNeed,
       delta(slowMood.tension, DEFAULT_SLOW_MOOD.tension) * 0.08 +
         delta(shortTerm.frustration, DEFAULT_SHORT_TERM.frustration) * 0.06 +
-        delta(shortTerm.surprise, DEFAULT_SHORT_TERM.surprise) * 0.05
+        delta(shortTerm.surprise, DEFAULT_SHORT_TERM.surprise) * 0.05 +
+        userBias('uncertain', 0.08) +
+        userBias('impatient', -0.04)
     ),
     evidenceNeed: apply(
       action.evidenceNeed,
       delta(shortTerm.interest, DEFAULT_SHORT_TERM.interest) * 0.07 +
-        delta(slowMood.tension, DEFAULT_SLOW_MOOD.tension) * 0.05
+        delta(slowMood.tension, DEFAULT_SLOW_MOOD.tension) * 0.05 +
+        userBias('frustrated', 0.06) +
+        userBias('uncertain', 0.03)
     ),
     recallNeed: apply(
       action.recallNeed,
@@ -77,7 +87,8 @@ const applyMoodActionBias = (
     writeConservatism: apply(
       action.writeConservatism,
       delta(slowMood.stress, DEFAULT_SLOW_MOOD.stress) * 0.08 +
-        delta(shortTerm.frustration, DEFAULT_SHORT_TERM.frustration) * 0.06
+        delta(shortTerm.frustration, DEFAULT_SHORT_TERM.frustration) * 0.06 +
+        userBias('frustrated', 0.03)
     ),
     toolPersistence: action.toolPersistence
   }
