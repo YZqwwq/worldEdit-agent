@@ -51,6 +51,7 @@ export interface DeleteWorldEntityDocumentInput {
 }
 
 export interface CommitWorldEntityDocumentHistorySessionInput {
+  worldId: string
   sessionId: string
   summary?: string
 }

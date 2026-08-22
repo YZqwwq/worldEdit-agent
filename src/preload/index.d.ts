@@ -51,6 +51,8 @@ import type {
   ApplyWorldDocumentMergeInput,
   ApplyWorldDocumentCommitInput,
   CompareWorldDocumentCommitsInput,
+  DeleteWorldDocumentCommitInput,
+  DeleteWorldDocumentCommitResult,
   CreateWorldDocumentBranchInput,
   RenameWorldDocumentBranchInput,
   PreviewWorldDocumentMergeInput,
@@ -255,6 +257,9 @@ declare global {
     applyWorldDocumentCommit: (
       input: ApplyWorldDocumentCommitInput
     ) => Promise<RestoreWorldDocumentCommitResult>
+    deleteWorldDocumentCommit: (
+      input: DeleteWorldDocumentCommitInput
+    ) => Promise<DeleteWorldDocumentCommitResult>
     onWorldEntityDocumentChanged: (
       callback: (change: WorldEntityDocumentChangeEvent) => void
     ) => () => void

@@ -38,6 +38,7 @@ import {
   applyWorldDocumentMerge,
   applyWorldDocumentCommit,
   createWorldDocumentBranch,
+  deleteWorldDocumentCommit,
   deleteWorldDocumentBranch,
   deleteWorldDocumentCheckpoint,
   getWorldDocumentCommitDetail,
@@ -79,6 +80,7 @@ import type {
   ApplyWorldDocumentCommitInput,
   CompareWorldDocumentCommitsInput,
   CreateWorldDocumentBranchInput,
+  DeleteWorldDocumentCommitInput,
   RenameWorldDocumentBranchInput,
   PreviewWorldDocumentMergeInput,
   RestoreWorldDocumentCommitInput,
@@ -588,11 +590,13 @@ export function initializeAIEndpoints(): void {
     'worldEntityDocument:commitHistorySession',
     async (_event, input: CommitWorldEntityDocumentHistorySessionInput) => {
       const normalizedSessionId = String(input?.sessionId || '').trim()
-      if (!normalizedSessionId) return
+      const normalizedWorldId = String(input?.worldId || '').trim()
+      if (!normalizedSessionId || !normalizedWorldId) return
       await commitWorldDocumentChangeSet(
         `human:${normalizedSessionId}`,
         'human',
-        String(input.summary || '').trim() || undefined
+        String(input.summary || '').trim() || undefined,
+        normalizedWorldId
       )
     }
   )
@@ -707,6 +711,10 @@ export function initializeAIEndpoints(): void {
   ipcMain.handle(
     'worldEntityDocument:history:apply-commit',
     async (_event, input: ApplyWorldDocumentCommitInput) => applyWorldDocumentCommit(input)
+  )
+  ipcMain.handle(
+    'worldEntityDocument:history:commit:delete',
+    async (_event, input: DeleteWorldDocumentCommitInput) => deleteWorldDocumentCommit(input)
   )
 
   ipcMain.handle(

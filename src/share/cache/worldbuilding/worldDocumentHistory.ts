@@ -89,6 +89,17 @@ export type RestoreWorldDocumentCommitResult = {
   affectedDocumentIds: string[]
 }
 
+export type DeleteWorldDocumentCommitInput = {
+  commitId: string
+  expectedHeadCommitId: string
+  historySessionId: string
+}
+
+export type DeleteWorldDocumentCommitResult = {
+  deletedCommitId: string
+  headCommitId: string | null
+}
+
 export type ApplyWorldDocumentCommitInput = {
   commitId: string
   expectedHeadCommitId: string

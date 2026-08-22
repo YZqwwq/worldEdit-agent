@@ -67,6 +67,7 @@
     "@langchain/core": "^1.1.8",
     "@langchain/langgraph": "^1.0.2",
     "@langchain/openai": "^1.1.2",
+    "@lucide/vue": "^1.33.0",
     "@node-rs/jieba": "^2.0.1",
     "@tiptap/core": "^3.20.4",
     "@tiptap/extension-character-count": "^3.20.4",

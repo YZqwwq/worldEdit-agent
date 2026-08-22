@@ -386,27 +386,6 @@ const currentDocumentsForWorld = async (
   )
 }
 
-const buildFallbackBaselineDocuments = async (
-  manager: EntityManager,
-  currentDocuments: Map<string, RestorableDocument>,
-  changes: WorldDocumentChangeRecord[]
-): Promise<Map<string, RestorableDocument>> => {
-  const documents = new Map(currentDocuments)
-  for (const change of changes) {
-    const before = parseState(change.beforeStateJson)
-    if (before) {
-      const source = await readChangeSource(manager, change, 'before')
-      documents.set(before.id, {
-        state: before,
-        source: source ?? { format: 'html_editor', content: '' }
-      })
-    } else {
-      documents.delete(change.documentId)
-    }
-  }
-  return documents
-}
-
 const removeDocumentSubtree = (
   documents: Map<string, RestorableDocument>,
   documentId: string
@@ -494,54 +473,39 @@ export const ensureActiveWorldDocumentBranchWithManager = async (
   )
 }
 
-export const ensureWorldDocumentBaselineWithManager = async (
+export const ensureWorldDocumentHistoryBranchWithManager = async (
   manager: EntityManager,
   worldId: string
-): Promise<WorldDocumentCommitRecord> => {
+): Promise<WorldDocumentBranchRecord> => {
   const commitRepository = manager.getRepository(WorldDocumentCommitRecord)
-  const existing = await commitRepository.findOne({
+  const latest = await commitRepository.findOne({
     where: { worldId },
     order: { sequence: 'DESC' }
   })
-  if (existing) {
-    await ensureActiveWorldDocumentBranchWithManager(manager, worldId, existing.id)
-    return existing
-  }
-
-  const baselineTree = await materializeTree(
-    manager,
-    await currentDocumentsForWorld(manager, worldId)
-  )
-  const branch = await ensureActiveWorldDocumentBranchWithManager(manager, worldId)
-  const baseline = await createCommit(manager, {
-    worldId,
-    branchId: branch.id,
-    sequence: 1,
-    parentCommitId: null,
-    changeSetId: `baseline:${worldId}:${randomUUID()}`,
-    rootTreeHash: baselineTree.hash,
-    origin: 'system',
-    summary: 'Imported existing document tree'
-  })
-  branch.headCommitId = baseline.id
-  await manager.getRepository(WorldDocumentBranchRecord).save(branch)
-  return baseline
+  return ensureActiveWorldDocumentBranchWithManager(manager, worldId, latest?.id ?? null)
 }
 
 export const commitWorldDocumentChangeSetWithManager = async (
   manager: EntityManager,
   changeSetId: string,
   origin: WorldDocumentCommitRecord['origin'] = 'agent',
-  summary?: string
+  summary?: string,
+  explicitWorldId?: string
 ): Promise<WorldDocumentCommitRecord[]> => {
   const changeRepository = manager.getRepository(WorldDocumentChangeRecord)
   const staged = await changeRepository.findBy({ changeSetId, status: 'staged' })
-  if (staged.length === 0) return []
+  const normalizedExplicitWorldId = String(explicitWorldId || '').trim()
 
   const commits: WorldDocumentCommitRecord[] = []
-  const worldIds = [...new Set(staged.map((change) => change.worldId))]
+  const worldIds = [
+    ...new Set([
+      ...staged.map((change) => change.worldId),
+      ...(normalizedExplicitWorldId ? [normalizedExplicitWorldId] : [])
+    ])
+  ]
+  if (worldIds.length === 0) return []
   for (const worldId of worldIds) {
-    const changes = staged.filter((change) => change.worldId === worldId)
+    let changes = staged.filter((change) => change.worldId === worldId)
     const existing = await manager.getRepository(WorldDocumentCommitRecord).findOneBy({
       changeSetId,
       worldId
@@ -568,34 +532,58 @@ export const commitWorldDocumentChangeSetWithManager = async (
       ? await manager.getRepository(WorldDocumentCommitRecord).findOneBy({ id: branch.headCommitId })
       : null
 
-    if (!parent) {
-      const currentDocuments = await currentDocumentsForWorld(manager, worldId)
-      const baselineTree = await materializeTree(
-        manager,
-        await buildFallbackBaselineDocuments(manager, currentDocuments, changes)
-      )
-      parent = await createCommit(manager, {
-        worldId,
-        branchId: branch.id,
-        sequence: 1,
-        parentCommitId: null,
-        changeSetId: `baseline:${worldId}:${randomUUID()}`,
-        rootTreeHash: baselineTree.hash,
-        origin: 'system',
-        summary: 'Imported existing document tree'
-      })
+    let commitDocuments: Map<string, RestorableDocument>
+    if (parent) {
+      if (changes.length === 0) continue
+      const parentDocuments = await readTreeDocuments(manager, worldId, parent.rootTreeHash)
+      commitDocuments = await applyChangesToParentDocuments(manager, parentDocuments, changes)
+    } else {
+      // The first explicit commit is a diff from an empty repository. Existing
+      // workspace documents therefore all become create changes, regardless of
+      // when they were originally authored.
+      commitDocuments = await currentDocumentsForWorld(manager, worldId)
+      if (commitDocuments.size === 0) continue
+      for (const change of changes) {
+        const document = commitDocuments.get(change.documentId)
+        const after = parseState(change.afterStateJson)
+        if (!document || !after) continue
+        const source = await readChangeSource(manager, change, 'after')
+        if (source) commitDocuments.set(change.documentId, { state: document.state, source })
+      }
+      const supersededStaged = await changeRepository.findBy({ worldId, status: 'staged' })
+      if (supersededStaged.length) await changeRepository.remove(supersededStaged)
+      changes = []
+      for (const document of commitDocuments.values()) {
+        const version = await ensureContentVersion(manager, document.state, document.source)
+        changes.push(
+          changeRepository.create({
+            id: randomUUID(),
+            changeSetId,
+            worldId,
+            documentId: document.state.id,
+            operation: 'create',
+            beforeStateJson: null,
+            afterStateJson: JSON.stringify(document.state),
+            beforeSourceFormat: null,
+            beforeContentSource: null,
+            beforeContentVersionId: null,
+            sourceFormat: null,
+            contentSource: null,
+            afterContentVersionId: version.id,
+            summary: summary?.trim() || '首次提交工作区文档',
+            status: 'staged',
+            commitId: null
+          })
+        )
+      }
+      await changeRepository.save(changes)
     }
-
-    const parentDocuments = await readTreeDocuments(manager, worldId, parent.rootTreeHash)
-    const tree = await materializeTree(
-      manager,
-      await applyChangesToParentDocuments(manager, parentDocuments, changes)
-    )
+    const tree = await materializeTree(manager, commitDocuments)
     const commit = await createCommit(manager, {
       worldId,
       branchId: branch.id,
-      sequence: (latestWorldCommit?.sequence ?? parent.sequence) + 1,
-      parentCommitId: parent.id,
+      sequence: (latestWorldCommit?.sequence ?? parent?.sequence ?? 0) + 1,
+      parentCommitId: parent?.id ?? null,
       changeSetId,
       rootTreeHash: tree.hash,
       origin,
@@ -617,6 +605,63 @@ export const commitWorldDocumentChangeSetWithManager = async (
     commits.push(commit)
   }
   return commits
+}
+
+export const repairRootWorldDocumentCommitChangesWithManager = async (
+  manager: EntityManager,
+  worldId: string
+): Promise<number> => {
+  const commitRepository = manager.getRepository(WorldDocumentCommitRecord)
+  const changeRepository = manager.getRepository(WorldDocumentChangeRecord)
+  const roots = (await commitRepository.findBy({ worldId })).filter(
+    (commit) => !commit.parentCommitId
+  )
+  let repaired = 0
+
+  for (const commit of roots) {
+    const documents = await readTreeDocuments(manager, worldId, commit.rootTreeHash)
+    const existing = await changeRepository.findBy({ commitId: commit.id })
+    const existingByDocumentId = new Map(existing.map((change) => [change.documentId, change]))
+    const isComplete =
+      existing.length === documents.size &&
+      [...documents.values()].every((document) => {
+        const change = existingByDocumentId.get(document.state.id)
+        if (!change || change.operation !== 'create' || change.beforeStateJson) return false
+        const after = parseState(change.afterStateJson)
+        return after ? JSON.stringify(after) === JSON.stringify(document.state) : false
+      })
+    if (isComplete) continue
+
+    if (existing.length) await changeRepository.remove(existing)
+    const replacements: WorldDocumentChangeRecord[] = []
+    for (const document of documents.values()) {
+      const version = await ensureContentVersion(manager, document.state, document.source)
+      replacements.push(
+        changeRepository.create({
+          id: randomUUID(),
+          changeSetId: commit.changeSetId,
+          worldId,
+          documentId: document.state.id,
+          operation: 'create',
+          beforeStateJson: null,
+          afterStateJson: JSON.stringify(document.state),
+          beforeSourceFormat: null,
+          beforeContentSource: null,
+          beforeContentVersionId: null,
+          sourceFormat: null,
+          contentSource: null,
+          afterContentVersionId: version.id,
+          summary: commit.summary || '首次提交工作区文档',
+          status: 'committed',
+          commitId: commit.id
+        })
+      )
+    }
+    if (replacements.length) await changeRepository.save(replacements)
+    repaired += 1
+  }
+
+  return repaired
 }
 
 export type PendingWorldDocumentChangeSetReconciliation = {

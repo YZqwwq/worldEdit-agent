@@ -10,7 +10,7 @@ import { WorldDocumentCheckpointRecord } from '@share/entity/database/WorldDocum
 import { WorldDocumentIntegrityCacheRecord } from '@share/entity/database/WorldDocumentIntegrityCacheRecord'
 import {
   commitWorldDocumentChangeSetWithManager,
-  ensureWorldDocumentBaselineWithManager,
+  ensureWorldDocumentHistoryBranchWithManager,
   restoreWorldDocumentCommitWithManager,
   stageWorldDocumentChangeWithManager
 } from '../../../worldbuilding/worldDocumentVersionService'
@@ -73,12 +73,12 @@ const runCase = async (count: number): Promise<BenchmarkResult> => {
       )
     )
 
-    const [baseline, baselineMs] = await elapsed(() =>
+    const [, baselineMs] = await elapsed(() =>
       dataSource.transaction((manager) =>
-        ensureWorldDocumentBaselineWithManager(manager, 'benchmark-world')
+        ensureWorldDocumentHistoryBranchWithManager(manager, 'benchmark-world')
       )
     )
-    const [, singleDocumentCommitMs] = await elapsed(() =>
+    const [[firstCommit], singleDocumentCommitMs] = await elapsed(() =>
       dataSource.transaction(async (manager) => {
         const documents = manager.getRepository(WorldEntityDocumentRecord)
         const before = await documents.findOneByOrFail({ id: 'doc-0000' })
@@ -106,7 +106,7 @@ const runCase = async (count: number): Promise<BenchmarkResult> => {
     const [, restoreMs] = await elapsed(() =>
       dataSource.transaction((manager) =>
         restoreWorldDocumentCommitWithManager(manager, {
-          targetCommitId: baseline.id,
+          targetCommitId: firstCommit.id,
           expectedHeadCommitId: head.headCommitId!
         })
       )

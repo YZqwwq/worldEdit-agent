@@ -12,8 +12,9 @@ import {
   applyWorldDocumentCommitWithManager,
   commitWorldDocumentChangeSetWithManager,
   ensureActiveWorldDocumentBranchWithManager,
-  ensureWorldDocumentBaselineWithManager,
+  ensureWorldDocumentHistoryBranchWithManager,
   readTreeDocuments,
+  repairRootWorldDocumentCommitChangesWithManager,
   reconcilePendingWorldDocumentChangeSetsWithDataSource,
   restoreWorldDocumentCommitWithManager
 } from './worldDocumentVersionService'
@@ -32,6 +33,8 @@ import type {
   ApplyWorldDocumentCommitInput,
   CompareWorldDocumentCommitsInput,
   CreateWorldDocumentBranchInput,
+  DeleteWorldDocumentCommitInput,
+  DeleteWorldDocumentCommitResult,
   RenameWorldDocumentBranchInput,
   PreviewWorldDocumentMergeInput,
   RestoreWorldDocumentCommitInput,
@@ -57,7 +60,58 @@ import { getWorldDocumentDiffByRefWithDataSource } from './worldDocumentDiffRefe
 type StoredDocumentState = Omit<WorldDocumentHistoryNodeState, 'documentId'> & { id: string }
 
 const isBaselineCommit = (commit: WorldDocumentCommitRecord): boolean =>
-  commit.changeSetId.startsWith('baseline:')
+  commit.origin === 'system' && commit.changeSetId.startsWith('baseline:')
+
+const removeLegacyAutomaticBaselines = async (
+  manager: import('typeorm').EntityManager,
+  worldId: string
+): Promise<boolean> => {
+  const commitRepository = manager.getRepository(WorldDocumentCommitRecord)
+  const baselines = (await commitRepository.findBy({ worldId })).filter(isBaselineCommit)
+  if (baselines.length === 0) return false
+
+  const baselineIds = new Set(baselines.map((commit) => commit.id))
+  const checkpoints = await manager.getRepository(WorldDocumentCheckpointRecord).findBy({ worldId })
+  if (checkpoints.some((checkpoint) => baselineIds.has(checkpoint.commitId))) {
+    throw new Error('旧自动初始版本仍被检查点引用，无法自动清理。请先移除该检查点。')
+  }
+
+  const commits = await commitRepository.findBy({ worldId })
+  for (const commit of commits) {
+    let changed = false
+    if (commit.parentCommitId && baselineIds.has(commit.parentCommitId)) {
+      commit.parentCommitId = null
+      changed = true
+    }
+    if (commit.mergeParentCommitId && baselineIds.has(commit.mergeParentCommitId)) {
+      commit.mergeParentCommitId = null
+      changed = true
+    }
+    if (commit.restoredFromCommitId && baselineIds.has(commit.restoredFromCommitId)) {
+      commit.restoredFromCommitId = null
+      changed = true
+    }
+    if (changed) await commitRepository.save(commit)
+  }
+
+  await manager.getRepository(WorldDocumentChangeRecord).delete({
+    commitId: In([...baselineIds])
+  })
+  await commitRepository.delete({ id: In([...baselineIds]) })
+
+  const branchRepository = manager.getRepository(WorldDocumentBranchRecord)
+  const branches = await branchRepository.findBy({ worldId })
+  for (const branch of branches) {
+    if (branch.headCommitId && baselineIds.has(branch.headCommitId)) {
+      const replacement = commits
+        .filter((commit) => commit.branchId === branch.id && !baselineIds.has(commit.id))
+        .sort((left, right) => right.sequence - left.sequence)[0]
+      branch.headCommitId = replacement?.id ?? null
+      await branchRepository.save(branch)
+    }
+  }
+  return true
+}
 
 const parseState = (value: string | null): WorldDocumentHistoryNodeState | undefined => {
   if (!value) return undefined
@@ -165,10 +219,11 @@ const getCommitSummary = async (
 export const commitWorldDocumentChangeSet = (
   changeSetId: string,
   origin: WorldDocumentCommitRecord['origin'] = 'human',
-  summary?: string
+  summary?: string,
+  worldId?: string
 ): Promise<WorldDocumentCommitRecord[]> =>
   AppDataSource.transaction((manager) =>
-    commitWorldDocumentChangeSetWithManager(manager, changeSetId, origin, summary)
+    commitWorldDocumentChangeSetWithManager(manager, changeSetId, origin, summary, worldId)
   )
 
 export const resolveWorldDocumentHumanSession = (
@@ -178,13 +233,28 @@ export const resolveWorldDocumentHumanSession = (
 
 export const initializeWorldDocumentHistory = async (
   worldId: string
-): Promise<WorldDocumentCommitSummary> => {
+): Promise<WorldDocumentCommitSummary | null> => {
   const normalizedWorldId = String(worldId || '').trim()
   if (!normalizedWorldId) throw new Error('worldId is required')
-  const commit = await AppDataSource.transaction((manager) =>
-    ensureWorldDocumentBaselineWithManager(manager, normalizedWorldId)
-  )
-  return getCommitSummary(commit)
+  const removedLegacyBaselines = await AppDataSource.transaction(async (manager) => {
+    const removed = await removeLegacyAutomaticBaselines(manager, normalizedWorldId)
+    await ensureWorldDocumentHistoryBranchWithManager(manager, normalizedWorldId)
+    await repairRootWorldDocumentCommitChangesWithManager(manager, normalizedWorldId)
+    return removed
+  })
+  if (removedLegacyBaselines) {
+    await pruneUnreachableWorldDocumentObjectsWithDataSource(AppDataSource, false)
+  }
+  const branch = await AppDataSource.getRepository(WorldDocumentBranchRecord).findOneBy({
+    worldId: normalizedWorldId,
+    active: true
+  })
+  if (!branch) throw new Error('世界文档历史分支初始化失败。')
+  if (!branch.headCommitId) return null
+  const commit = await AppDataSource.getRepository(WorldDocumentCommitRecord).findOneBy({
+    id: branch.headCommitId
+  })
+  return commit ? getCommitSummary(commit) : null
 }
 
 export const listWorldDocumentCommits = (worldId: string): Promise<WorldDocumentCommitRecord[]> =>
@@ -558,4 +628,70 @@ export const applyWorldDocumentCommit = async (
     commit: toCommitSummary(result.commit, result.changes),
     affectedDocumentIds: [...new Set(result.changes.map((change) => change.documentId))]
   }
+}
+
+export const deleteWorldDocumentCommit = async (
+  input: DeleteWorldDocumentCommitInput
+): Promise<DeleteWorldDocumentCommitResult> => {
+  const commitId = String(input.commitId || '').trim()
+  const expectedHeadCommitId = String(input.expectedHeadCommitId || '').trim()
+  const historySessionId = String(input.historySessionId || '').trim()
+  if (!commitId || !expectedHeadCommitId || !historySessionId) {
+    throw new Error('commitId, expectedHeadCommitId and historySessionId are required')
+  }
+
+  return AppDataSource.transaction(async (manager) => {
+    const commitRepository = manager.getRepository(WorldDocumentCommitRecord)
+    const branchRepository = manager.getRepository(WorldDocumentBranchRecord)
+    const changeRepository = manager.getRepository(WorldDocumentChangeRecord)
+    const checkpointRepository = manager.getRepository(WorldDocumentCheckpointRecord)
+    const target = await commitRepository.findOneBy({ id: commitId })
+    if (!target) throw new Error('要删除的版本不存在。')
+
+    const branch = await branchRepository.findOneBy({ id: target.branchId })
+    if (!branch?.active || branch.headCommitId !== target.id || target.id !== expectedHeadCommitId) {
+      throw new Error('只能删除当前方案最新的 HEAD 版本。')
+    }
+    if (await changeRepository.countBy({ worldId: target.worldId, status: 'staged' })) {
+      throw new Error('当前工作区有尚未 commit 的更改，无法删除版本。')
+    }
+    if (await checkpointRepository.countBy({ commitId: target.id })) {
+      throw new Error('该版本仍被检查点引用，请先删除对应检查点。')
+    }
+    const referencingBranches = (await branchRepository.findBy({ worldId: target.worldId })).filter(
+      (item) => item.id !== branch.id && item.headCommitId === target.id
+    )
+    if (referencingBranches.length) throw new Error('该版本仍被其他方案引用，无法删除。')
+    const referencingCommitCount = await commitRepository
+      .createQueryBuilder('commit')
+      .where(
+        'commit.parentCommitId = :commitId OR commit.mergeParentCommitId = :commitId OR commit.restoredFromCommitId = :commitId',
+        { commitId }
+      )
+      .getCount()
+    if (referencingCommitCount > 0) {
+      throw new Error('该版本仍被后续版本引用，只能从最新版本开始删除。')
+    }
+
+    const parentCommitId = target.parentCommitId
+    const targetChanges = await changeRepository.findBy({ commitId: target.id })
+    branch.headCommitId = parentCommitId
+    await branchRepository.save(branch)
+
+    if (parentCommitId) {
+      await changeRepository.remove(targetChanges)
+      await commitRepository.remove(target)
+      await checkoutWorldDocumentCommitWithManager(manager, parentCommitId)
+    } else {
+      for (const change of targetChanges) {
+        change.changeSetId = `human:${historySessionId}`
+        change.commitId = null
+        change.status = 'staged'
+      }
+      if (targetChanges.length) await changeRepository.save(targetChanges)
+      await commitRepository.remove(target)
+    }
+
+    return { deletedCommitId: target.id, headCommitId: parentCommitId }
+  })
 }

@@ -22,6 +22,7 @@
     <div
       ref="messagesContainer"
       class="compact-chat-messages"
+      :class="{ 'compact-chat-messages-initializing': !messagesReady }"
       :style="{ paddingBottom: composerDockPadding }"
       @scroll="handleMessagesScroll"
     >
@@ -97,6 +98,8 @@ const uploadedFiles = ref<UploadedChatFile[]>([])
 const messagesContainer = ref<HTMLElement | null>(null)
 const composerRef = ref<{ focusInput: () => void } | null>(null)
 const shouldFollowMessages = ref(true)
+const initialScrollPending = ref(false)
+const messagesReady = ref(false)
 const AUTO_SCROLL_THRESHOLD_PX = 80
 
 const chatParticipants = ref<Record<'ai' | 'user', ChatParticipantProfile>>({
@@ -160,9 +163,33 @@ const isNearBottom = (): boolean => {
   return distanceToBottom <= AUTO_SCROLL_THRESHOLD_PX
 }
 
-const scrollMessagesToBottom = (): void => {
+const scrollMessagesToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
   if (!messagesContainer.value) return
-  messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  messagesContainer.value.scrollTo({
+    top: messagesContainer.value.scrollHeight,
+    behavior
+  })
+}
+
+const waitForFrame = (): Promise<void> =>
+  new Promise((resolve) => window.requestAnimationFrame(() => resolve()))
+
+const settleInitialScroll = async (): Promise<void> => {
+  initialScrollPending.value = true
+  shouldFollowMessages.value = true
+  // One frame lays out the message list, the next accounts for markdown and
+  // media that finish measuring after the list itself has rendered.
+  await nextTick()
+  scrollMessagesToBottom('auto')
+  if (typeof document !== 'undefined' && document.fonts?.ready) {
+    await document.fonts.ready
+  }
+  await waitForFrame()
+  scrollMessagesToBottom('auto')
+  await waitForFrame()
+  scrollMessagesToBottom('auto')
+  initialScrollPending.value = false
+  messagesReady.value = true
 }
 
 const handleMessagesScroll = (): void => {
@@ -357,7 +384,9 @@ watch(
   messages,
   async () => {
     await nextTick()
-    if (shouldFollowMessages.value) {
+    if (initialScrollPending.value) {
+      scrollMessagesToBottom('auto')
+    } else if (shouldFollowMessages.value) {
       scrollMessagesToBottom()
     }
   },
@@ -368,9 +397,7 @@ let refreshTimer: number | null = null
 
 onMounted(async () => {
   await loadHistory()
-  await nextTick()
-  scrollMessagesToBottom()
-  shouldFollowMessages.value = true
+  await settleInitialScroll()
   composerRef.value?.focusInput()
 
   refreshTimer = window.setInterval(() => {
@@ -464,6 +491,11 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding: 16px 12px;
   scroll-behavior: smooth;
+}
+
+.compact-chat-messages-initializing {
+  visibility: hidden;
+  scroll-behavior: auto;
 }
 
 .compact-chat-messages :deep(.flex.flex-col.gap-6) {

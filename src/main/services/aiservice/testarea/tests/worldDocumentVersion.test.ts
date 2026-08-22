@@ -20,9 +20,10 @@ import {
   checkoutWorldDocumentCommitWithManager,
   applyWorldDocumentCommitWithManager,
   commitWorldDocumentChangeSetWithManager,
-  ensureWorldDocumentBaselineWithManager,
+  ensureWorldDocumentHistoryBranchWithManager,
   readTreeDocuments,
   reconcilePendingWorldDocumentChangeSetsWithDataSource,
+  repairRootWorldDocumentCommitChangesWithManager,
   restoreWorldDocumentCommitWithManager,
   stageWorldDocumentChangeWithManager
 } from '../../../worldbuilding/worldDocumentVersionService'
@@ -101,12 +102,174 @@ const documentState = (
   ...input
 })
 
+// Tests that exercise ancestry explicitly seed a real first commit. Production
+// initialization never creates this snapshot implicitly.
+const ensureWorldDocumentBaselineWithManager = async (
+  manager: import('typeorm').EntityManager,
+  worldId: string
+): Promise<WorldDocumentCommitRecord> => {
+  const branch = await ensureWorldDocumentHistoryBranchWithManager(manager, worldId)
+  if (branch.headCommitId) {
+    return manager.getRepository(WorldDocumentCommitRecord).findOneByOrFail({
+      id: branch.headCommitId
+    })
+  }
+  const documents = await manager.getRepository(WorldEntityDocumentRecord).findBy({ worldId })
+  for (const document of documents) {
+    await stageWorldDocumentChangeWithManager(manager, {
+      changeSetId: `baseline:test:${worldId}`,
+      operation: 'create',
+      before: null,
+      after: document,
+      source: { format: 'html_editor', content: document.contentHtml || '' }
+    })
+  }
+  const [commit] = await commitWorldDocumentChangeSetWithManager(
+    manager,
+    `baseline:test:${worldId}`,
+    'system',
+    '测试初始版本'
+  )
+  return commit
+}
+
 const readTree = async (dataSource: DataSource, hash: string): Promise<TreeEntry[]> => {
   const tree = await dataSource
     .getRepository(WorldDocumentTreeObjectRecord)
     .findOneByOrFail({ hash })
   return JSON.parse(tree.entriesJson) as TreeEntry[]
 }
+
+sqliteTest('history initialization creates only a branch before the first explicit commit', async () => {
+  const dataSource = await createDataSource()
+  try {
+    const documents = dataSource.getRepository(WorldEntityDocumentRecord)
+    await documents.save(documents.create(documentState('workspace-only')))
+
+    await dataSource.transaction((manager) =>
+      ensureWorldDocumentHistoryBranchWithManager(manager, 'world-1')
+    )
+
+    assert.equal(await dataSource.getRepository(WorldDocumentCommitRecord).count(), 0)
+    assert.equal(await dataSource.getRepository(WorldDocumentTreeObjectRecord).count(), 0)
+    const branch = await dataSource
+      .getRepository(WorldDocumentBranchRecord)
+      .findOneByOrFail({ worldId: 'world-1', active: true })
+    assert.equal(branch.headCommitId, null)
+  } finally {
+    await dataSource.destroy()
+  }
+})
+
+sqliteTest('first explicit commit records the final workspace as creates from an empty history', async () => {
+  const dataSource = await createDataSource()
+  try {
+    const documents = dataSource.getRepository(WorldEntityDocumentRecord)
+    await documents.save([
+      documents.create(documentState('existing-a')),
+      documents.create(documentState('existing-b'))
+    ])
+    await dataSource.transaction((manager) =>
+      ensureWorldDocumentHistoryBranchWithManager(manager, 'world-1')
+    )
+
+    const temporary = await documents.save(documents.create(documentState('temporary')))
+    await dataSource.transaction((manager) =>
+      stageWorldDocumentChangeWithManager(manager, {
+        changeSetId: 'human:first-session',
+        operation: 'create',
+        before: null,
+        after: temporary,
+        source: { format: 'html_editor', content: temporary.contentHtml || '' }
+      })
+    )
+    await documents.remove(temporary)
+    await dataSource.transaction((manager) =>
+      stageWorldDocumentChangeWithManager(manager, {
+        changeSetId: 'human:first-session',
+        operation: 'delete',
+        before: temporary,
+        after: null
+      })
+    )
+
+    const [commit] = await dataSource.transaction((manager) =>
+      commitWorldDocumentChangeSetWithManager(
+        manager,
+        'human:first-session',
+        'human',
+        '首次提交',
+        'world-1'
+      )
+    )
+    assert.ok(commit)
+    assert.equal(commit.parentCommitId, null)
+
+    const changes = await dataSource.getRepository(WorldDocumentChangeRecord).findBy({
+      commitId: commit.id
+    })
+    assert.deepEqual(
+      changes.map((change) => [change.documentId, change.operation]).sort(),
+      [
+        ['existing-a', 'create'],
+        ['existing-b', 'create']
+      ]
+    )
+    assert.deepEqual(
+      [...(await dataSource.transaction((manager) =>
+        readTreeDocuments(manager, 'world-1', commit.rootTreeHash)
+      )).keys()].sort(),
+      ['existing-a', 'existing-b']
+    )
+  } finally {
+    await dataSource.destroy()
+  }
+})
+
+sqliteTest('legacy incomplete root commit changes are rebuilt from its immutable snapshot', async () => {
+  const dataSource = await createDataSource()
+  try {
+    const documents = dataSource.getRepository(WorldEntityDocumentRecord)
+    await documents.save([
+      documents.create(documentState('existing-a')),
+      documents.create(documentState('existing-b'))
+    ])
+    const [commit] = await dataSource.transaction((manager) =>
+      commitWorldDocumentChangeSetWithManager(
+        manager,
+        'human:first-session',
+        'human',
+        '首次提交',
+        'world-1'
+      )
+    )
+    const changes = dataSource.getRepository(WorldDocumentChangeRecord)
+    await changes.delete({ documentId: 'existing-b', commitId: commit.id })
+
+    assert.equal(
+      await dataSource.transaction((manager) =>
+        repairRootWorldDocumentCommitChangesWithManager(manager, 'world-1')
+      ),
+      1
+    )
+    assert.equal(
+      await dataSource.transaction((manager) =>
+        repairRootWorldDocumentCommitChangesWithManager(manager, 'world-1')
+      ),
+      0
+    )
+    const repaired = await changes.findBy({ commitId: commit.id })
+    assert.deepEqual(
+      repaired.map((change) => [change.documentId, change.operation]).sort(),
+      [
+        ['existing-a', 'create'],
+        ['existing-b', 'create']
+      ]
+    )
+  } finally {
+    await dataSource.destroy()
+  }
+})
 
 test('document diff compares the persisted editing source instead of runtime HTML', () => {
   const diff = buildWorldDocumentContentDiff(
@@ -187,7 +350,7 @@ sqliteTest('a document Diff reference rebuilds its immutable revision pair', asy
   }
 })
 
-sqliteTest('a staged content edit creates a baseline and one immutable world commit', async () => {
+sqliteTest('a staged content edit becomes part of the first immutable world commit', async () => {
   const dataSource = await createDataSource()
   try {
     const documents = dataSource.getRepository(WorldEntityDocumentRecord)
@@ -212,18 +375,23 @@ sqliteTest('a staged content edit creates a baseline and one immutable world com
     const commits = await dataSource.getRepository(WorldDocumentCommitRecord).find({
       order: { sequence: 'ASC' }
     })
-    assert.equal(commits.length, 2)
-    assert.equal(commits[0].origin, 'system')
-    assert.equal(commits[1].parentCommitId, commits[0].id)
-    assert.equal(commits[1].changeSetId, 'turn:1')
+    assert.equal(commits.length, 1)
+    assert.equal(commits[0].origin, 'agent')
+    assert.equal(commits[0].parentCommitId, null)
+    assert.equal(commits[0].changeSetId, 'turn:1')
 
-    const currentEntry = (await readTree(dataSource, commits[1].rootTreeHash))[0]
+    const currentEntry = (await readTree(dataSource, commits[0].rootTreeHash))[0]
     const currentContent = await dataSource
       .getRepository(WorldDocumentContentVersionRecord)
       .findOneByOrFail({ id: currentEntry.contentVersionId })
     assert.equal(currentContent.sourceFormat, 'markdown')
     assert.equal(currentContent.contentSource, '# Edited source')
     assert.notEqual(currentContent.contentSource, after.contentHtml)
+    const [change] = await dataSource.getRepository(WorldDocumentChangeRecord).findBy({
+      commitId: commits[0].id
+    })
+    assert.equal(change.operation, 'create')
+    assert.equal(change.beforeStateJson, null)
   } finally {
     await dataSource.destroy()
   }

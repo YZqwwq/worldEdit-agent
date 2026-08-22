@@ -52,6 +52,8 @@ import type {
   ApplyWorldDocumentMergeInput,
   ApplyWorldDocumentCommitInput,
   CompareWorldDocumentCommitsInput,
+  DeleteWorldDocumentCommitInput,
+  DeleteWorldDocumentCommitResult,
   CreateWorldDocumentBranchInput,
   RenameWorldDocumentBranchInput,
   PreviewWorldDocumentMergeInput,
@@ -247,6 +249,9 @@ type Api = {
   applyWorldDocumentCommit: (
     input: ApplyWorldDocumentCommitInput
   ) => Promise<RestoreWorldDocumentCommitResult>
+  deleteWorldDocumentCommit: (
+    input: DeleteWorldDocumentCommitInput
+  ) => Promise<DeleteWorldDocumentCommitResult>
   onWorldEntityDocumentChanged: (
     callback: (change: WorldEntityDocumentChangeEvent) => void
   ) => () => void
@@ -363,6 +368,8 @@ const api: Api = {
     ipcRenderer.invoke('worldEntityDocument:history:restore', input),
   applyWorldDocumentCommit: (input) =>
     ipcRenderer.invoke('worldEntityDocument:history:apply-commit', input),
+  deleteWorldDocumentCommit: (input) =>
+    ipcRenderer.invoke('worldEntityDocument:history:commit:delete', input),
   onWorldEntityDocumentChanged: (callback) => {
     const subscription = (_event: IpcRendererEvent, change: WorldEntityDocumentChangeEvent) =>
       callback(change)

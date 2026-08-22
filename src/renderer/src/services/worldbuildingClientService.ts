@@ -29,6 +29,8 @@ import type {
   ApplyWorldDocumentMergeInput,
   ApplyWorldDocumentCommitInput,
   CompareWorldDocumentCommitsInput,
+  DeleteWorldDocumentCommitInput,
+  DeleteWorldDocumentCommitResult,
   CreateWorldDocumentBranchInput,
   RenameWorldDocumentBranchInput,
   PreviewWorldDocumentMergeInput,
@@ -153,7 +155,7 @@ export const worldbuildingClientService = {
     return window.api.resolveWorldEntityDocumentHistorySession(input)
   },
 
-  initializeWorldDocumentHistory(worldId: string): Promise<WorldDocumentCommitSummary> {
+  initializeWorldDocumentHistory(worldId: string): Promise<WorldDocumentCommitSummary | null> {
     return window.api.initializeWorldDocumentHistory(worldId)
   },
 
@@ -252,5 +254,11 @@ export const worldbuildingClientService = {
     input: ApplyWorldDocumentCommitInput
   ): Promise<RestoreWorldDocumentCommitResult> {
     return window.api.applyWorldDocumentCommit(input)
+  },
+
+  deleteWorldDocumentCommit(
+    input: DeleteWorldDocumentCommitInput
+  ): Promise<DeleteWorldDocumentCommitResult> {
+    return window.api.deleteWorldDocumentCommit(input)
   }
 }
