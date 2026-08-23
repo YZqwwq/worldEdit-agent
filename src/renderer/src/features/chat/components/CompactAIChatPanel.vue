@@ -1,29 +1,9 @@
 <template>
   <section class="compact-ai-chat-panel">
-    <header class="compact-chat-head">
-      <div class="compact-chat-title">
-        <span class="compact-chat-dot" aria-hidden="true" />
-        <div>
-          <h2>AI 对话</h2>
-          <p>{{ isLoading ? '正在响应' : '待命中' }}</p>
-        </div>
-      </div>
-      <button
-        type="button"
-        class="compact-icon-btn"
-        aria-label="关闭 AI 对话"
-        title="关闭"
-        @click="$emit('close')"
-      >
-        ×
-      </button>
-    </header>
-
     <div
       ref="messagesContainer"
       class="compact-chat-messages"
       :class="{ 'compact-chat-messages-initializing': !messagesReady }"
-      :style="{ paddingBottom: composerDockPadding }"
       @scroll="handleMessagesScroll"
     >
       <div v-if="agentStage" class="compact-agent-stage">
@@ -45,6 +25,7 @@
       <MessageComposer
         ref="composerRef"
         v-model="userInput"
+        variant="sidebar"
         :is-loading="isLoading"
         :can-send="canSendMessage"
         :uploaded-files="uploadedFiles"
@@ -80,7 +61,6 @@ const props = defineProps<{
 }>()
 
 defineEmits<{
-  (e: 'close'): void
   (e: 'document-diff-locate', payload: {
     reference: ChatMessageDocumentDiffReference
     hunk: WorldDocumentDiffHunk
@@ -135,7 +115,6 @@ const chatParticipants = ref<Record<'ai' | 'user', ChatParticipantProfile>>({
   }
 })
 
-const composerDockPadding = computed(() => (uploadedFiles.value.length ? '9.5rem' : '7rem'))
 const canSendMessage = computed(
   () =>
     !uploadedFiles.value.some((file) => file.status === 'pending') &&
@@ -437,63 +416,12 @@ onBeforeUnmount(() => {
   color: #1f2933;
 }
 
-.compact-chat-head {
-  height: 52px;
-  min-height: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0 12px;
-  border-bottom: 1px solid #e8ebf0;
-}
-
-.compact-chat-title {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.compact-chat-title h2 {
-  margin: 0;
-  color: #111827;
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1.2;
-}
-
-.compact-chat-title p {
-  margin: 2px 0 0;
-  color: #8a94a6;
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-.compact-chat-dot,
 .compact-stage-dot {
   width: 7px;
   height: 7px;
   border-radius: 999px;
   background: #5d7cfa;
   box-shadow: 0 0 0 4px rgba(93, 124, 250, 0.12);
-}
-
-.compact-icon-btn {
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: #8a94a6;
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.compact-icon-btn:hover {
-  background: #f3f5f8;
-  color: #1f2933;
 }
 
 .compact-chat-messages {
@@ -550,19 +478,9 @@ onBeforeUnmount(() => {
 .compact-chat-composer {
   position: relative;
   z-index: 5;
+  min-height: 132px;
   flex-shrink: 0;
-  padding: 10px 10px 12px;
-  border-top: 1px solid #eef1f5;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), #ffffff 36%);
-}
-
-.compact-chat-composer :deep(.rounded-\[26px\]) {
-  border-radius: 18px !important;
-  padding: 7px 10px !important;
-}
-
-.compact-chat-composer :deep(button) {
-  width: 34px;
-  height: 34px;
+  padding: 8px 8px 10px;
+  background: #ffffff;
 }
 </style>

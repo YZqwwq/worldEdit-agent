@@ -19,6 +19,7 @@ import { interactionObservationService } from '../agentrsystem/manager/personal/
 import { chatMessageService } from '../chat/chatMessageService'
 import { mainAgentDispatchService } from '../runtime/queue/mainAgentDispatchQueueService'
 import { mainAgentRunControlService } from '../runtime/mainAgentRunControlService'
+import { selfCoreAuthorityService } from '../agentrsystem/manager/selfmodel/selfCoreAuthorityService'
 
 class AiSessionMaintenanceService {
   async clearHistory(): Promise<void> {
@@ -33,6 +34,7 @@ class AiSessionMaintenanceService {
     await chatMessageService.clearAll()
     await AppDataSource.getRepository(AgentArtifactRecord).clear()
     await AppDataSource.getRepository(SelfExperienceRecord).clear()
+    selfCoreAuthorityService.invalidateIntegrityAudit()
     await AppDataSource.getRepository(MainAgentEventRecord).clear()
     await AppDataSource.getRepository(MainAgentTurnVersionRecord).clear()
     await AppDataSource.getRepository(MainAgentTurnRecord).clear()
@@ -56,6 +58,7 @@ class AiSessionMaintenanceService {
       await manager.getRepository(TaskRecord).clear()
       await manager.getRepository(AgentArtifactRecord).clear()
       await manager.getRepository(SelfExperienceRecord).clear()
+      await selfCoreAuthorityService.clear(manager)
       await manager.getRepository(MainAgentEventRecord).clear()
       await manager.getRepository(MainAgentTurnVersionRecord).clear()
       await manager.getRepository(MainAgentTurnRecord).clear()
@@ -87,6 +90,7 @@ class AiSessionMaintenanceService {
     await chatMessageService.clearAll()
     await AppDataSource.getRepository(AgentArtifactRecord).clear()
     await AppDataSource.getRepository(SelfExperienceRecord).clear()
+    await selfCoreAuthorityService.clear()
     await AppDataSource.getRepository(MainAgentEventRecord).clear()
     await AppDataSource.getRepository(MainAgentTurnVersionRecord).clear()
     await AppDataSource.getRepository(MainAgentTurnRecord).clear()

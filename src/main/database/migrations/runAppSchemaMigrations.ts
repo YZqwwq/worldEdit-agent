@@ -12,6 +12,12 @@ type AppSchemaMigration = {
 
 const migrations: AppSchemaMigration[] = [
   {
+    id: '20260819_application_schema_baseline',
+    up: async (manager) => {
+      for (const sql of APPLICATION_SCHEMA_BASELINE_TABLE_SQL) await manager.query(sql)
+    }
+  },
+  {
     id: '20260822_persona_state_responsibility_split',
     up: async (manager) => {
       const columns = (await manager.query('PRAGMA table_info(persona_state)')) as Array<{
@@ -45,12 +51,6 @@ const migrations: AppSchemaMigration[] = [
               ELSE operationalBaselineJson
             END
       `)
-    }
-  },
-  {
-    id: '20260819_application_schema_baseline',
-    up: async (manager) => {
-      for (const sql of APPLICATION_SCHEMA_BASELINE_TABLE_SQL) await manager.query(sql)
     }
   },
   {
@@ -459,6 +459,27 @@ const migrations: AppSchemaMigration[] = [
       )
       await manager.query(
         'CREATE INDEX IF NOT EXISTS IDX_self_experience_created ON self_experience (createdAt)'
+      )
+    }
+  },
+  {
+    id: '20260823_self_core_revision',
+    up: async (manager) => {
+      await manager.query(`
+        CREATE TABLE IF NOT EXISTS self_core_revision (
+          id text PRIMARY KEY NOT NULL,
+          coreId text NOT NULL,
+          schemaVersion integer NOT NULL DEFAULT 1,
+          revision integer NOT NULL,
+          stateJson text NOT NULL,
+          changeKind text NOT NULL,
+          sourceRefsJson text NOT NULL DEFAULT '[]',
+          previousRevision integer NULL,
+          createdAt datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `)
+      await manager.query(
+        'CREATE UNIQUE INDEX IF NOT EXISTS IDX_self_core_revision_core_revision ON self_core_revision (coreId, revision)'
       )
     }
   }

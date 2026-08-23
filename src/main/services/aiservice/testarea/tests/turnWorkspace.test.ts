@@ -15,6 +15,8 @@ import {
 } from '../../agentrsystem/state/turnWorkspace'
 import { buildDurableToolEffectCheckpointState } from '../../agentrsystem/execution/durableToolEffectCheckpoint'
 import { resolveTurnWorkspaceCommitPolicy } from '../../runtime/orchestration/turnCommitPolicy'
+import { createDefaultSelfCore } from '../../agentrsystem/manager/selfmodel/selfCoreDefinition'
+import { getEffectiveSelfCore } from '../../agentrsystem/state/turnWorkspace'
 
 const createWorkspace = () =>
   createTurnWorkspace({
@@ -40,6 +42,21 @@ test('turn workspace mutations preserve the base snapshot', () => {
   assert.equal(workspace.base.memorySlots.user_mood.current_mood, undefined)
   assert.equal(workspace.draft.memorySlots, undefined)
   assert.equal(getEffectiveMemorySlots(next).user_mood.current_mood, 'calm')
+})
+
+test('Turn workspace captures an immutable Self Core base projection', () => {
+  const selfCore = createDefaultSelfCore('你是法弥拉。', '2026-08-23T00:00:00.000Z')
+  const workspace = createTurnWorkspace({
+    eventId: 'event-core',
+    turnId: 8,
+    sessionId: 'default',
+    runId: 'run-core',
+    memorySlots: createDefaultMemorySlots(),
+    persona: null,
+    selfCore
+  })
+  assert.equal(workspace.base.selfCore?.revision, 1)
+  assert.equal(getEffectiveSelfCore(workspace)?.revision, 1)
 })
 
 test('turn workspace carries one finalizable draft without duplicate derived effects', () => {

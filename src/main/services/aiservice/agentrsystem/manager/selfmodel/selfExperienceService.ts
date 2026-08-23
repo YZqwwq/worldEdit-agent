@@ -7,7 +7,7 @@ import type {
   SelfModelItemUpdate,
   SelfModelSnapshot
 } from '@share/cache/AItype/states/selfModel'
-import { foldOpenSelfModelItems } from '../../cognition/selfExperienceIntegration'
+import { foldOpenSelfModelItems } from './selfExperienceIntegration'
 
 const parseArray = <T>(value: string): T[] => {
   try {

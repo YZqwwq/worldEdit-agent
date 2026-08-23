@@ -11,10 +11,10 @@ export type MainAgentResumePoint =
   | 'instantPerceptionNode'
   | 'contextNode'
   | 'llmCall'
-  | 'expressionNode'
+  | 'finalAnswerNode'
+  | 'outputGuardNode'
   | 'toolNode'
   | 'toolContextReloadNode'
-  | 'cognitionRevisionNode'
   | 'memoryNode'
 
 type PersistedTurnGraphSnapshot = {

@@ -5,14 +5,6 @@ export type SelfModelItemUpdate = {
   status: SelfModelItemStatus
 }
 
-export type TurnExperienceIntent = {
-  relationshipMeaning?: string
-  selfNarrative?: string
-  commitmentUpdates: SelfModelItemUpdate[]
-  concernUpdates: SelfModelItemUpdate[]
-  confidence: number
-}
-
 export type SelfExperienceDraft = {
   kind: 'dialogue' | 'task_result'
   summary: string

@@ -13,8 +13,6 @@ import type { PromptSectionManifestItem } from '../../prompt/main_agent/shared/p
 import type { TurnExecutionLedger } from '../execution/turnExecutionLifecycle'
 import type {
   MainAgentFinalResponse,
-  ResponseOrientation,
-  TurnCognitiveState,
   TurnWorkspace
 } from '@share/cache/AItype/states/turnWorkspace'
 import type { MainAgentResumePoint } from '../../runtime/version/turnVersionSnapshot'
@@ -23,6 +21,11 @@ import type {
   TurnLifecycleState
 } from '@share/cache/AItype/states/turnLifecycle'
 import type { TurnInput } from '@share/cache/AItype/states/turnInput'
+import type {
+  FinalContentCandidate,
+  ReasoningChannelMode,
+  TurnReasoningSegment
+} from '@share/cache/AItype/states/reasoningChannel'
 
 export type ToolContextSourceRef = {
   type: 'message' | 'url' | 'entity' | 'task' | 'tool' | 'unknown'
@@ -168,24 +171,24 @@ export const MessagesState = Annotation.Root({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),
+  reasoningMode: Annotation<ReasoningChannelMode | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  reasoningSegments: Annotation<TurnReasoningSegment[]>({
+    reducer: (x, y) => [...(x ?? []), ...(y ?? [])],
+    default: () => []
+  }),
+  finalContentCandidate: Annotation<FinalContentCandidate | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
+  }),
   runtimeEvent: Annotation<MainAgentRuntimeEvent | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),
   turnLifecycle: Annotation<TurnLifecycleState | undefined>({
     reducer: (x, y) => y ?? x,
-    default: () => undefined
-  }),
-  cognitiveState: Annotation<TurnCognitiveState | undefined>({
-    reducer: (x, y) => y ?? x,
-    default: () => undefined
-  }),
-  responseOrientation: Annotation<ResponseOrientation | undefined>({
-    reducer: (x, y) => y ?? x,
-    default: () => undefined
-  }),
-  responseOrientationError: Annotation<string | undefined>({
-    reducer: (_x, y) => y,
     default: () => undefined
   }),
   loopDirective: Annotation<AgentLoopDirective | undefined>({

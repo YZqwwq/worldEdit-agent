@@ -1,5 +1,5 @@
 <template>
-  <div class="w-full flex-shrink-0">
+  <div class="message-composer" :class="{ 'message-composer-sidebar': variant === 'sidebar' }">
     <div v-if="uploadedFiles.length" class="mb-2 flex flex-wrap gap-2 px-1">
         <article
           v-for="file in uploadedFiles"
@@ -48,14 +48,27 @@
         </article>
     </div>
 
-    <div
-      class="rounded-[26px] border border-slate-200/80 bg-white/88 px-4 py-2 shadow-[0_10px_24px_rgba(15,23,42,0.06)] backdrop-blur"
-    >
-      <div class="flex min-h-[42px] items-center gap-3">
+    <div class="message-composer-surface">
+      <div class="message-composer-input-row">
+        <textarea
+          ref="inputRef"
+          :value="modelValue"
+          rows="1"
+          placeholder="随心输入"
+          class="message-composer-input"
+          :disabled="isLoading"
+          @input="handleInput"
+          @paste="handlePaste"
+          @keydown.enter.exact.prevent="emitSend"
+        />
+      </div>
+
+      <div class="message-composer-actions">
         <button
           type="button"
-          class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition-all hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          class="message-composer-action message-composer-attach"
           :disabled="isLoading"
+          aria-label="上传文件"
           title="上传文件"
           @click="$emit('pick-file')"
         >
@@ -65,25 +78,12 @@
           </svg>
         </button>
 
-        <div class="min-w-0 flex-1">
-          <textarea
-            ref="inputRef"
-            :value="modelValue"
-            rows="1"
-            placeholder="有问题，尽管问"
-            class="block h-7 max-h-36 min-h-[28px] w-full resize-none overflow-y-auto bg-transparent py-0 text-[14px] leading-[1.65] text-slate-800 placeholder:text-slate-400 focus:outline-none"
-            :disabled="isLoading"
-            @input="handleInput"
-            @paste="handlePaste"
-            @keydown.enter.exact.prevent="emitSend"
-          />
-        </div>
-
-        <div class="flex flex-shrink-0 items-center gap-2">
+        <div class="message-composer-primary-actions">
           <button
             v-if="isLoading"
             type="button"
-            class="flex h-10 w-10 items-center justify-center rounded-full bg-slate-400 text-white shadow-md transition-all hover:scale-[1.03] hover:bg-slate-400 active:scale-95"
+            class="message-composer-action message-composer-primary"
+            aria-label="终止生成"
             title="终止生成"
             @click="handlePrimaryAction"
           >
@@ -95,8 +95,9 @@
           <button
             v-else
             type="button"
-            class="flex h-10 w-10 items-center justify-center rounded-full bg-slate-400 text-white shadow-md transition-all hover:scale-[1.03] hover:bg-slate-500 active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+            class="message-composer-action message-composer-primary"
             :disabled="!canSend"
+            aria-label="发送消息"
             title="发送消息"
             @click="handlePrimaryAction"
           >
@@ -120,6 +121,7 @@ const props = defineProps<{
   isLoading: boolean
   canSend: boolean
   uploadedFiles: UploadedChatFile[]
+  variant?: 'default' | 'sidebar'
 }>()
 
 const emit = defineEmits<{
@@ -204,3 +206,132 @@ watch(
   { immediate: true }
 )
 </script>
+
+<style scoped>
+.message-composer {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.message-composer-surface {
+  min-height: 124px;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 12px 10px;
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(10px);
+}
+
+.message-composer-input-row {
+  min-height: 54px;
+  flex: 1;
+  min-width: 0;
+}
+
+.message-composer-input {
+  display: block;
+  width: 100%;
+  height: 28px;
+  min-height: 28px;
+  max-height: 144px;
+  padding: 0 2px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: #1f2937;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.message-composer-input::placeholder {
+  color: #a0a7b2;
+}
+
+.message-composer-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.message-composer-actions {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.message-composer-primary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-composer-action {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.message-composer-attach {
+  border: 0;
+  background: transparent;
+  color: #374151;
+}
+
+.message-composer-attach:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.message-composer-primary {
+  border: 0;
+  background: #202124;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.16);
+}
+
+.message-composer-primary:hover:not(:disabled) {
+  background: #111827;
+}
+
+.message-composer-action:disabled {
+  cursor: not-allowed;
+  background: #e8edf4;
+  color: #9aa4b2;
+  box-shadow: none;
+  opacity: 0.82;
+}
+
+.message-composer-sidebar,
+.message-composer-sidebar .message-composer-surface {
+  height: 100%;
+}
+
+.message-composer-sidebar .message-composer-surface {
+  min-height: 112px;
+  padding: 12px 10px 8px;
+  border-radius: 18px;
+}
+
+.message-composer-sidebar .message-composer-input-row {
+  min-height: 48px;
+}
+
+.message-composer-sidebar .message-composer-action {
+  width: 34px;
+  height: 34px;
+}
+</style>

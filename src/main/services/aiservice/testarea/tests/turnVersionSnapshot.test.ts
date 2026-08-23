@@ -19,6 +19,8 @@ import {
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
+import { SelfCoreRevisionRecord } from '@share/entity/database/SelfCoreRevisionRecord'
+import { SelfExperienceRecord } from '@share/entity/database/SelfExperienceRecord'
 import { runAppSchemaMigrations } from '../../../../database/migrations/runAppSchemaMigrations'
 import {
   persistFinalTurnVersionWithManager,
@@ -29,6 +31,9 @@ import {
   resolveMainAgentTurnRecovery,
   type MainAgentTurnRecoveryState
 } from '../../runtime/version/turnRecoveryPolicy'
+import { createDefaultSelfCore } from '../../agentrsystem/manager/selfmodel/selfCoreDefinition'
+import { createNarrativeThesisRevision } from '../../agentrsystem/manager/selfmodel/selfCoreEvolution'
+import { SelfCoreAuthorityService } from '../../agentrsystem/manager/selfmodel/selfCoreAuthorityService'
 
 const sqliteTest = (name: string, execute: () => Promise<void>): void => {
   test(name, { skip: process.env.RUN_TURN_VERSION_SQLITE_TESTS !== '1' }, execute)
@@ -74,16 +79,15 @@ const createState = (): typeof MessagesState.State =>
         }
       ]
     },
-    cognitiveState: {
-      objective: '读取文档',
-      understanding: '需要先取得正文，再判断人物的核心矛盾。',
-      provisionalStance: '暂时认为人物的克制比冷漠更重要。',
-      evidenceRefs: ['document:doc-1'],
-      unresolvedQuestions: [],
-      phase: 'revising',
-      revision: 2,
-      updatedAt: '2026-08-10T00:00:02.000Z'
-    }
+    reasoningMode: 'native',
+    reasoningSegments: [{
+      id: 'reasoning:ai-1',
+      text: '先读取文档，再修正人物判断。',
+      mode: 'native',
+      modelStep: 1,
+      createdAt: '2026-08-10T00:00:02.000Z',
+      followsObservation: false
+    }]
   }) as unknown as typeof MessagesState.State
 
 const createVersionDataSource = async (database: string): Promise<DataSource> => {
@@ -91,7 +95,13 @@ const createVersionDataSource = async (database: string): Promise<DataSource> =>
     type: 'better-sqlite3',
     database,
     synchronize: false,
-    entities: [MainAgentEventRecord, MainAgentTurnRecord, MainAgentTurnVersionRecord]
+    entities: [
+      MainAgentEventRecord,
+      MainAgentTurnRecord,
+      MainAgentTurnVersionRecord,
+      SelfCoreRevisionRecord,
+      SelfExperienceRecord
+    ]
   })
   await dataSource.initialize()
   await runAppSchemaMigrations(dataSource)
@@ -171,17 +181,17 @@ test('turn graph snapshot restores messages, workspace and exact resume point', 
   assert.equal(restored.messages?.[0].content, '继续这个方案')
   assert.equal(restored.turnWorkspace?.eventId, 'event-1')
   assert.equal(restored.turnExecutionLedger?.actions[0].status, 'completed')
-  assert.equal(restored.cognitiveState?.revision, 2)
-  assert.equal(restored.cognitiveState?.provisionalStance, '暂时认为人物的克制比冷漠更重要。')
+  assert.equal(restored.reasoningMode, 'native')
+  assert.equal(restored.reasoningSegments?.[0].text, '先读取文档，再修正人物判断。')
 })
 
-test('turn graph snapshot can resume at the cognition revision boundary', () => {
+test('turn graph snapshot can resume at the final answer boundary', () => {
   const restored = deserializeTurnGraphState(
     serializeTurnGraphState({ messages: [], pendingToolContext: [] } as any),
-    'cognitionRevisionNode'
+    'finalAnswerNode'
   )
 
-  assert.equal(restored.resumeFromNode, 'cognitionRevisionNode')
+  assert.equal(restored.resumeFromNode, 'finalAnswerNode')
 })
 
 test('completed tool actions are visible to rollback safety checks', () => {
@@ -468,6 +478,120 @@ sqliteTest('interrupted Final seals the Turn before the queue completes its Even
         .status,
       'completed'
     )
+  } finally {
+    await dataSource.destroy()
+  }
+})
+
+sqliteTest('Self Core revision history is append-only and transaction-bound', async () => {
+  const dataSource = await createVersionDataSource(':memory:')
+  try {
+    const initial = createDefaultSelfCore('你是法弥拉。', '2026-08-23T00:00:00.000Z')
+    await dataSource.getRepository(SelfCoreRevisionRecord).save({
+      id: 'famila:1',
+      coreId: 'famila',
+      schemaVersion: 1,
+      revision: 1,
+      stateJson: JSON.stringify(initial),
+      changeKind: 'bootstrap',
+      sourceRefsJson: '[]',
+      previousRevision: null
+    })
+    const revision = createNarrativeThesisRevision(initial, {
+      statement: '及时说明阻塞也是承担责任的一部分。',
+      sourceExperienceIds: ['experience:event-1'],
+      confidence: 0.85,
+      nowIso: '2026-08-23T01:00:00.000Z'
+    })!
+
+    await dataSource.transaction((manager) =>
+      manager.getRepository(SelfCoreRevisionRecord).save({
+        id: 'famila:2',
+        coreId: 'famila',
+        schemaVersion: 1,
+        revision: 2,
+        stateJson: JSON.stringify(revision.next),
+        changeKind: revision.changeKind,
+        sourceRefsJson: JSON.stringify(revision.sourceRefs),
+        previousRevision: 1
+      })
+    )
+    assert.equal(await dataSource.getRepository(SelfCoreRevisionRecord).count(), 2)
+
+    const rollbackRevision = createNarrativeThesisRevision(revision.next, {
+      statement: '失败事务不能留下半次身份变化。',
+      sourceExperienceIds: ['experience:event-2'],
+      confidence: 0.9,
+      nowIso: '2026-08-23T02:00:00.000Z'
+    })!
+    await assert.rejects(
+      dataSource.transaction(async (manager) => {
+        await manager.getRepository(SelfCoreRevisionRecord).save({
+          id: 'famila:3',
+          coreId: 'famila',
+          schemaVersion: 1,
+          revision: 3,
+          stateJson: JSON.stringify(rollbackRevision.next),
+          changeKind: rollbackRevision.changeKind,
+          sourceRefsJson: JSON.stringify(rollbackRevision.sourceRefs),
+          previousRevision: 2
+        })
+        throw new Error('force rollback')
+      }),
+      /force rollback/
+    )
+    assert.equal(await dataSource.getRepository(SelfCoreRevisionRecord).count(), 2)
+  } finally {
+    await dataSource.destroy()
+  }
+})
+
+sqliteTest('Self Core authority bootstraps and reloads the latest scoped revision', async () => {
+  const dataSource = await createVersionDataSource(':memory:')
+  const authority = new SelfCoreAuthorityService({
+    loadAuthoredNarrative: async () => '你是法弥拉。'
+  })
+  try {
+    const initial = await authority.load(dataSource.manager)
+    assert.equal(initial.coreId, 'famila')
+    assert.equal(initial.revision, 1)
+    assert.equal(await dataSource.getRepository(SelfCoreRevisionRecord).count(), 1)
+
+    const experienceId = 'experience:self-core-authority-test'
+    await dataSource.getRepository(SelfExperienceRecord).save({
+      id: experienceId,
+      eventId: 'self-core-authority-test',
+      turnId: 1,
+      sessionId: 'default',
+      kind: 'dialogue',
+      summary: '验证 Self Core 权威读取。',
+      understanding: '',
+      selfPosition: '',
+      personalMeaning: '',
+      stance: '',
+      relationshipMeaning: '',
+      selfNarrative: '',
+      commitmentUpdatesJson: '[]',
+      concernUpdatesJson: '[]',
+      evidenceRefsJson: '[]',
+      confidence: 0.9,
+      revision: 1,
+      supersedesExperienceId: null,
+      occurredAt: '2026-08-23T00:30:00.000Z'
+    })
+    const draft = createNarrativeThesisRevision(initial, {
+      statement: '读取身份时必须限定其所有者。',
+      sourceExperienceIds: [experienceId],
+      confidence: 0.9,
+      nowIso: '2026-08-23T01:00:00.000Z'
+    })!
+    const committed = await authority.commitRevision(draft, dataSource.manager)
+    assert.equal(committed.revision, 2)
+
+    const reloaded = await authority.load(dataSource.manager)
+    assert.equal(reloaded.revision, 2)
+    assert.equal(reloaded.narrativeTheses.at(-1)?.statement, '读取身份时必须限定其所有者。')
+    assert.equal(authority.getLastIntegrityReport()?.healthy, true)
   } finally {
     await dataSource.destroy()
   }

@@ -4,7 +4,8 @@
     class="worldbuilding-white-theme narrative-editor-page"
     :class="{
       'resizing-sidebar': resizingNarrativeSidebar,
-      'resizing-ai-panel': resizingNarrativeAiPanel
+      'resizing-ai-panel': resizingNarrativeAiPanel,
+      'side-panel-open': showNarrativeSidePanel
     }"
     :style="narrativeSidebarStyle"
   >
@@ -115,29 +116,7 @@
 
     <section class="narrative-main">
       <div class="format-toolbar" role="toolbar" aria-label="文本编辑工具栏">
-        <div class="toolbar-group toolbar-group-primary">
-          <button
-            type="button"
-            class="toolbar-add-btn"
-            aria-label="新增文件"
-            @click="createNarrativeDocument()"
-          >
-            +
-          </button>
-        </div>
-
-        <div v-for="(group, groupIndex) in toolbarGroups" :key="groupIndex" class="toolbar-group">
-          <button
-            v-for="item in group"
-            :key="item.label"
-            type="button"
-            class="toolbar-tool"
-            :aria-label="item.title"
-            :title="item.title"
-          >
-            {{ item.label }}
-          </button>
-        </div>
+        <WorldRichTextToolbar :editor="narrativeEditorInstance" />
 
         <div class="toolbar-group toolbar-status-group">
           <span class="editor-counts">{{ characterEditorStats.characters }} 字</span>
@@ -152,25 +131,14 @@
           </span>
           <button
             type="button"
-            class="toolbar-tool ai-panel-toggle"
-            :class="{ active: showNarrativeAiPanel }"
-            :aria-pressed="showNarrativeAiPanel"
-            aria-label="打开 AI 对话侧边栏"
-            title="AI 对话"
-            @click="toggleNarrativeAiPanel"
+            class="toolbar-tool side-panel-toggle"
+            :class="{ active: showNarrativeSidePanel }"
+            :aria-pressed="showNarrativeSidePanel"
+            :aria-label="showNarrativeSidePanel ? '收起右侧栏' : '展开右侧栏'"
+            :title="showNarrativeSidePanel ? '收起右侧栏' : '展开右侧栏'"
+            @click="toggleNarrativeSidePanel"
           >
-            AI
-          </button>
-          <button
-            type="button"
-            class="toolbar-tool history-panel-toggle"
-            :class="{ active: showNarrativeHistoryPanel }"
-            :aria-pressed="showNarrativeHistoryPanel"
-            aria-label="打开文档版本"
-            title="版本"
-            @click="toggleNarrativeHistoryPanel"
-          >
-            版本
+            <PanelRight :size="16" :stroke-width="1.8" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -178,7 +146,7 @@
       <main
         v-if="activeDocument"
         class="editor-workspace"
-        :class="{ 'ai-panel-open': showNarrativeAiPanel || showNarrativeHistoryPanel }"
+        :class="{ 'side-panel-open': showNarrativeSidePanel }"
       >
         <WorldRichTextAppearancePanel
           v-if="showAppearancePanel"
@@ -208,28 +176,44 @@
               class="narrative-editor"
               :placeholder="documentPlaceholder"
               :appearance="characterEditorAppearance"
-              :show-toolbar-meta="false"
-              :show-toolbar="false"
               theme="light"
+              @editor-ready="narrativeEditorInstance = $event"
+              @editor-destroy="narrativeEditorInstance = null"
               @stats-change="characterEditorStats = $event"
             />
           </div>
         </section>
 
+        <header v-if="showNarrativeSidePanel" class="narrative-side-panel-header">
+          <button
+            type="button"
+            :class="{ active: activeNarrativeSidePanelTab === 'ai' }"
+            @click="selectNarrativeSidePanelTab('ai')"
+          >
+            AI
+          </button>
+          <button
+            type="button"
+            :class="{ active: activeNarrativeSidePanelTab === 'history' }"
+            @click="selectNarrativeSidePanelTab('history')"
+          >
+            版本
+          </button>
+        </header>
+
         <div
-          v-if="showNarrativeAiPanel || showNarrativeHistoryPanel"
+          v-if="showNarrativeSidePanel"
           class="narrative-ai-resizer"
           role="separator"
           aria-orientation="vertical"
-          aria-label="调整 AI 对话宽度"
-          title="调整 AI 对话宽度"
+          aria-label="调整右侧栏宽度"
+          title="调整右侧栏宽度"
           @mousedown="startNarrativeAiPanelResize"
         />
 
         <aside v-if="showNarrativeAiPanel" class="narrative-ai-panel">
           <CompactAIChatPanel
             :workspace-context="currentAgentWorkspaceContext"
-            @close="showNarrativeAiPanel = false"
             @document-diff-locate="handleAgentDocumentDiffLocate"
           />
         </aside>
@@ -592,9 +576,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { FilePlus2, RotateCcw, Trash2 } from '@lucide/vue'
+import type { Editor } from '@tiptap/core'
+import { FilePlus2, PanelRight, RotateCcw, Trash2 } from '@lucide/vue'
 import type { WorldPayload } from '@share/cache/worldbuilding/worldbuilding'
 import {
   type WorldEntityDocumentChangeEvent,
@@ -623,6 +608,7 @@ import CompactAIChatPanel from '../features/chat/components/CompactAIChatPanel.v
 import type { ChatMessageDocumentDiffReference } from '@share/cache/render/aiagent/chatMessage'
 import WorldRichTextAppearancePanel from '../features/worldbuilding/editor/components/WorldRichTextAppearancePanel.vue'
 import WorldRichTextEditor from '../features/worldbuilding/editor/components/WorldRichTextEditor.vue'
+import WorldRichTextToolbar from '../features/worldbuilding/editor/components/WorldRichTextToolbar.vue'
 import {
   DEFAULT_WORLD_RICH_TEXT_APPEARANCE,
   normalizeWorldRichTextAppearance,
@@ -639,6 +625,7 @@ type NarrativeTreeNode = WorldEntityDocumentPayload & {
 }
 
 type NarrativeDropPosition = 'before' | 'after' | 'inside'
+type NarrativeSidePanelTab = 'ai' | 'history'
 type NarrativeSaveSnapshot = {
   signature: string
   documentId: string
@@ -653,12 +640,23 @@ const NARRATIVE_SIDEBAR_WIDTH_RATIO_STORAGE_KEY =
 const NARRATIVE_COLLAPSED_DOCUMENTS_STORAGE_KEY_PREFIX =
   'worldedit.worldEntityDocuments.collapsedDocumentIds.v1'
 const NARRATIVE_AI_PANEL_WIDTH_STORAGE_KEY = 'worldedit.worldEntityDocuments.aiPanelWidth.v1'
+const NARRATIVE_SIDE_PANEL_TAB_STORAGE_KEY = 'worldedit.worldEntityDocuments.sidePanelTab.v1'
 const DEFAULT_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.185
 const MIN_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.1
 const MAX_NARRATIVE_SIDEBAR_WIDTH_RATIO = 0.2
 const DEFAULT_NARRATIVE_AI_PANEL_WIDTH = 420
 const MIN_NARRATIVE_AI_PANEL_WIDTH = 240
 const MAX_NARRATIVE_AI_PANEL_WIDTH = 640
+
+const loadNarrativeSidePanelTab = (): NarrativeSidePanelTab => {
+  try {
+    return localStorage.getItem(NARRATIVE_SIDE_PANEL_TAB_STORAGE_KEY) === 'history'
+      ? 'history'
+      : 'ai'
+  } catch {
+    return 'ai'
+  }
+}
 
 const worldDetail = ref<WorldPayload | null>(null)
 const narrativeDocuments = ref<WorldEntityDocumentPayload[]>([])
@@ -669,6 +667,7 @@ const characterDescriptionInput = ref('')
 const narrativeEditorRef = ref<{
   locateDiff: (location: WorldDocumentDiffHunk) => boolean
 } | null>(null)
+const narrativeEditorInstance = shallowRef<Editor | null>(null)
 const characterEditorAppearance = ref<WorldRichTextAppearance>(DEFAULT_WORLD_RICH_TEXT_APPEARANCE)
 const characterEditorStats = ref({ words: 0, characters: 0 })
 const showAppearancePanel = ref(false)
@@ -693,8 +692,14 @@ const draggingDocumentId = ref('')
 const dropTarget = ref<{ documentId: string; position: NarrativeDropPosition } | null>(null)
 const narrativeSidebarWidth = ref(356)
 const resizingNarrativeSidebar = ref(false)
-const showNarrativeAiPanel = ref(false)
-const showNarrativeHistoryPanel = ref(false)
+const showNarrativeSidePanel = ref(false)
+const activeNarrativeSidePanelTab = ref<NarrativeSidePanelTab>(loadNarrativeSidePanelTab())
+const showNarrativeAiPanel = computed(
+  () => showNarrativeSidePanel.value && activeNarrativeSidePanelTab.value === 'ai'
+)
+const showNarrativeHistoryPanel = computed(
+  () => showNarrativeSidePanel.value && activeNarrativeSidePanelTab.value === 'history'
+)
 const narrativeAiPanelWidth = ref(DEFAULT_NARRATIVE_AI_PANEL_WIDTH)
 const resizingNarrativeAiPanel = ref(false)
 const historyLoading = ref(false)
@@ -857,9 +862,17 @@ const revealNarrativeDocument = async (documentId: string): Promise<void> => {
   const row = narrativeCatalogTreeRef.value?.querySelector<HTMLElement>(
     `[data-document-id="${CSS.escape(documentId)}"]`
   )
-  row
-    ?.querySelector<HTMLElement>('.catalog-tree-item')
-    ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  const scrollRegion = row?.closest<HTMLElement>('.catalog-tree-scroll')
+  if (!row || !scrollRegion) return
+
+  // 只保证选中的文档在纵向可见，保留用户手动设置的横向滚动位置。
+  const rowRect = row.getBoundingClientRect()
+  const scrollRect = scrollRegion.getBoundingClientRect()
+  if (rowRect.top < scrollRect.top) {
+    scrollRegion.scrollTop -= scrollRect.top - rowRect.top
+  } else if (rowRect.bottom > scrollRect.bottom) {
+    scrollRegion.scrollTop += rowRect.bottom - scrollRect.bottom
+  }
 }
 
 const revealNarrativeDocumentPath = async (documentId: string): Promise<void> => {
@@ -1035,42 +1048,6 @@ const outlineItems = computed(() => {
   return items
 })
 
-const toolbarGroups = [
-  [
-    { label: '↶', title: '撤销' },
-    { label: '↷', title: '重做' },
-    { label: '刷', title: '格式刷' },
-    { label: '擦', title: '清除格式' }
-  ],
-  [
-    { label: '正文⌄', title: '段落样式' },
-    { label: '15px⌄', title: '字号' }
-  ],
-  [
-    { label: 'B', title: '加粗' },
-    { label: 'I', title: '斜体' },
-    { label: 'S', title: '删除线' },
-    { label: 'U', title: '下划线' },
-    { label: 'T⌄', title: '文字样式' }
-  ],
-  [
-    { label: 'A⌄', title: '文字颜色' },
-    { label: '⌁⌄', title: '高亮' }
-  ],
-  [
-    { label: '≡⌄', title: '对齐' },
-    { label: '•☰', title: '无序列表' },
-    { label: '1☰', title: '有序列表' },
-    { label: '▾☰', title: '缩进' }
-  ],
-  [
-    { label: '☑', title: '待办' },
-    { label: '🔗', title: '链接' },
-    { label: '❝', title: '引用' },
-    { label: '─', title: '分割线' }
-  ]
-] as const
-
 const canSaveNarrative = computed(() => Boolean(activeDocument.value))
 
 const pendingDeleteDocument = computed(() =>
@@ -1218,9 +1195,11 @@ const startNarrativeAiPanelResize = (event: MouseEvent): void => {
   window.addEventListener('mouseup', stopNarrativeAiPanelResize)
 }
 
-const toggleNarrativeAiPanel = (): void => {
-  showNarrativeAiPanel.value = !showNarrativeAiPanel.value
-  if (showNarrativeAiPanel.value) showNarrativeHistoryPanel.value = false
+const toggleNarrativeSidePanel = async (): Promise<void> => {
+  showNarrativeSidePanel.value = !showNarrativeSidePanel.value
+  if (showNarrativeSidePanel.value && activeNarrativeSidePanelTab.value === 'history') {
+    await prepareNarrativeHistoryPanel()
+  }
 }
 
 const historyOriginLabel = (origin: WorldDocumentHistoryOrigin): string => {
@@ -1375,13 +1354,24 @@ const ensureNarrativeWorkingTreeClean = async (): Promise<boolean> => {
   return false
 }
 
-const toggleNarrativeHistoryPanel = async (): Promise<void> => {
-  showNarrativeHistoryPanel.value = !showNarrativeHistoryPanel.value
-  if (!showNarrativeHistoryPanel.value) return
-  showNarrativeAiPanel.value = false
+const prepareNarrativeHistoryPanel = async (): Promise<void> => {
   clearNarrativeAutosave()
   await saveNarrative(true, { fallbackBlankTitle: true })
   await loadNarrativeHistory()
+}
+
+const selectNarrativeSidePanelTab = async (tab: NarrativeSidePanelTab): Promise<void> => {
+  const changed = activeNarrativeSidePanelTab.value !== tab
+  activeNarrativeSidePanelTab.value = tab
+  showNarrativeSidePanel.value = true
+  try {
+    localStorage.setItem(NARRATIVE_SIDE_PANEL_TAB_STORAGE_KEY, tab)
+  } catch {
+    // localStorage 不可用时仍保持本次会话内的页签状态。
+  }
+  if (tab === 'history' && (changed || !versionStatus.value)) {
+    await prepareNarrativeHistoryPanel()
+  }
 }
 
 const historyRestoreConfirmMessage = computed(() => {
@@ -2052,6 +2042,7 @@ useKeyboardShortcut(
   --narrative-sidebar-resizer-width: 6px;
   --narrative-editor-left: 48px;
   --narrative-outline-width: 240px;
+  --narrative-toolbar-height: 36px;
   --narrative-ai-panel-width: 420px;
   --narrative-ai-resizer-width: 6px;
 
@@ -2064,6 +2055,7 @@ useKeyboardShortcut(
   overflow: hidden;
   background: var(--wb-narrative-bg);
   color: var(--wb-narrative-text);
+  user-select: none;
 }
 
 .narrative-editor-page.resizing-sidebar,
@@ -2102,6 +2094,17 @@ useKeyboardShortcut(
   background: transparent;
 }
 
+.narrative-sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--narrative-toolbar-height) - 1px);
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--wb-narrative-border);
+  pointer-events: none;
+}
+
 .narrative-sidebar-resizer:hover::before,
 .narrative-editor-page.resizing-sidebar .narrative-sidebar-resizer::before {
   background: var(--wb-narrative-accent);
@@ -2114,7 +2117,8 @@ useKeyboardShortcut(
 }
 
 .sidebar-home {
-  height: 44px;
+  height: var(--narrative-toolbar-height);
+  min-height: var(--narrative-toolbar-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2164,8 +2168,7 @@ useKeyboardShortcut(
 }
 
 .sidebar-menu-btn,
-.toolbar-tool,
-.toolbar-add-btn {
+.toolbar-tool {
   border: 0;
   background: transparent;
   color: var(--wb-narrative-text-muted);
@@ -2198,6 +2201,7 @@ useKeyboardShortcut(
 
 .catalog-panel {
   min-height: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
   padding: 0 4px;
@@ -2208,14 +2212,29 @@ useKeyboardShortcut(
   min-height: 0;
   flex: 1;
   overflow: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(112, 117, 122, 0.34) transparent;
 }
 
 .catalog-tree-scroll::-webkit-scrollbar {
   width: 0;
-  height: 0;
-  display: none;
+  height: 8px;
+}
+
+.catalog-tree-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.catalog-tree-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(112, 117, 122, 0.3);
+  background-clip: padding-box;
+}
+
+.catalog-tree-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(112, 117, 122, 0.48);
+  background-clip: padding-box;
 }
 
 .catalog-scope {
@@ -2399,10 +2418,8 @@ useKeyboardShortcut(
 
 .catalog-tree-row {
   box-sizing: border-box;
-  width: max(
-    calc(var(--narrative-sidebar-width) - 8px),
-    calc(var(--tree-depth, 0) * 16px + 176px)
-  );
+  width: max-content;
+  min-width: calc(var(--narrative-sidebar-width) - 8px);
   height: 34px;
   display: block;
   padding-left: calc(var(--tree-depth, 0) * 16px);
@@ -2448,15 +2465,23 @@ useKeyboardShortcut(
 }
 
 .catalog-tree-item {
-  min-width: 176px;
-  width: 100%;
+  width: max-content;
+  min-width: max(
+    176px,
+    calc(var(--narrative-sidebar-width) - 8px - var(--tree-depth, 0) * 16px)
+  );
   height: 28px;
   display: flex;
   align-items: center;
   gap: 7px;
   padding: 0 8px;
   color: var(--wb-narrative-text);
-  scroll-margin-inline-end: 8px;
+}
+
+.narrative-editor-page.side-panel-open {
+  grid-template-columns:
+    var(--narrative-sidebar-width) var(--narrative-sidebar-resizer-width)
+    minmax(0, 1fr) var(--narrative-ai-resizer-width) var(--narrative-ai-panel-width);
 }
 
 .catalog-tree-caret {
@@ -2487,9 +2512,9 @@ useKeyboardShortcut(
 }
 
 .catalog-tree-title-button {
-  min-width: 0;
+  min-width: max-content;
   height: 28px;
-  flex: 1;
+  flex: 1 0 auto;
   display: flex;
   align-items: center;
   padding: 0;
@@ -2503,9 +2528,7 @@ useKeyboardShortcut(
 }
 
 .catalog-tree-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: max-content;
   white-space: nowrap;
 }
 
@@ -2524,15 +2547,21 @@ useKeyboardShortcut(
 }
 
 .format-toolbar {
-  min-height: 36px;
+  height: var(--narrative-toolbar-height);
+  min-height: var(--narrative-toolbar-height);
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 10px;
+  padding: 0 10px 0 0;
   border-bottom: 1px solid var(--wb-narrative-border);
   background: var(--wb-narrative-toolbar-bg);
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+.format-toolbar :deep(.toolbar-shell > .toolbar-group:first-child) {
+  padding-left: 4px;
+  border-left: 0;
 }
 
 .toolbar-group {
@@ -2543,18 +2572,12 @@ useKeyboardShortcut(
   border-left: 1px solid var(--wb-narrative-border);
 }
 
-.toolbar-group-primary {
-  border-left: 0;
-  padding-left: 0;
-}
-
 .toolbar-status-group {
   margin-left: auto;
   flex-shrink: 0;
 }
 
-.toolbar-tool,
-.toolbar-add-btn {
+.toolbar-tool {
   height: 28px;
   min-width: 26px;
   padding: 0 6px;
@@ -2567,42 +2590,18 @@ useKeyboardShortcut(
   font-size: 13px;
 }
 
-.toolbar-add-btn {
-  width: 18px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0;
-  border-radius: 999px;
-  background: var(--wb-narrative-accent);
-  color: #ffffff;
-  font-weight: 800;
-}
-
 .toolbar-tool.active {
   color: #315cff;
 }
 
-.ai-panel-toggle {
-  min-width: 30px;
+.side-panel-toggle {
+  width: 28px;
+  min-width: 28px;
   margin-left: 2px;
   border: 1px solid transparent;
-  font-weight: 800;
 }
 
-.ai-panel-toggle.active {
-  border-color: rgba(49, 92, 255, 0.22);
-  background: rgba(49, 92, 255, 0.09);
-  color: #315cff;
-}
-
-.history-panel-toggle {
-  min-width: 42px;
-  margin-left: 2px;
-  border: 1px solid transparent;
-  font-weight: 700;
-}
-
-.history-panel-toggle.active {
+.side-panel-toggle.active {
   border-color: rgba(49, 92, 255, 0.22);
   background: rgba(49, 92, 255, 0.09);
   color: #315cff;
@@ -2632,11 +2631,8 @@ useKeyboardShortcut(
   overflow: hidden;
 }
 
-.editor-workspace.ai-panel-open {
-  grid-template-columns:
-    minmax(360px, 1fr)
-    var(--narrative-ai-resizer-width)
-    var(--narrative-ai-panel-width);
+.editor-workspace.side-panel-open {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .document-canvas {
@@ -2681,6 +2677,12 @@ useKeyboardShortcut(
   font-weight: 800;
   font-family: inherit;
   letter-spacing: 0;
+  user-select: text;
+}
+
+.document-heading-input::selection {
+  background: #e5e7eb;
+  color: #111827;
 }
 
 .document-heading-input::placeholder {
@@ -2691,7 +2693,7 @@ useKeyboardShortcut(
   position: relative;
   height: auto;
   min-height: calc(100% - 147px);
-  margin-top: 46px;
+  margin-top: 20px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -2705,14 +2707,16 @@ useKeyboardShortcut(
 }
 
 .narrative-ai-resizer {
-  position: relative;
-  min-width: var(--narrative-ai-resizer-width);
-  height: 100%;
+  position: fixed;
+  top: var(--app-titlebar-height);
+  right: var(--narrative-ai-panel-width);
+  bottom: 0;
+  width: var(--narrative-ai-resizer-width);
   box-sizing: border-box;
   border: 0;
   background: transparent;
   cursor: col-resize;
-  z-index: 5;
+  z-index: 29;
 }
 
 .narrative-ai-resizer::before {
@@ -2726,21 +2730,95 @@ useKeyboardShortcut(
   background: var(--wb-narrative-border);
 }
 
+.narrative-ai-resizer::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--narrative-toolbar-height) - 1px);
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    var(--wb-narrative-border) 0,
+    var(--wb-narrative-border) calc(50% - 1px),
+    transparent calc(50% - 1px),
+    transparent calc(50% + 1px),
+    var(--wb-narrative-border) calc(50% + 1px),
+    var(--wb-narrative-border) 100%
+  );
+  pointer-events: none;
+}
+
 .narrative-ai-resizer:hover::before,
 .narrative-editor-page.resizing-ai-panel .narrative-ai-resizer::before {
   background: var(--wb-narrative-accent);
 }
 
-.narrative-ai-panel {
+.narrative-side-panel-header {
+  position: fixed;
+  top: var(--app-titlebar-height);
+  right: 0;
+  z-index: 30;
+  width: var(--narrative-ai-panel-width);
+  height: var(--narrative-toolbar-height);
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--wb-narrative-border);
+  background: #ffffff;
+}
+
+.narrative-side-panel-header button {
+  position: relative;
+  min-width: 52px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--wb-narrative-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.narrative-side-panel-header button:hover {
+  color: var(--wb-narrative-text);
+}
+
+.narrative-side-panel-header button.active {
+  color: #315cff;
+}
+
+.narrative-side-panel-header button.active::after {
+  content: '';
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  border-radius: 999px 999px 0 0;
+  background: #315cff;
+}
+
+.narrative-ai-panel,
+.narrative-history-panel {
+  position: fixed;
+  top: calc(var(--app-titlebar-height) + var(--narrative-toolbar-height));
+  right: 0;
+  bottom: 0;
+  z-index: 28;
+  width: var(--narrative-ai-panel-width);
   min-width: 0;
-  height: 100%;
+  height: auto;
+}
+
+.narrative-ai-panel {
   overflow: hidden;
   background: #ffffff;
 }
 
 .narrative-history-panel {
-  min-width: 0;
-  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3395,9 +3473,17 @@ useKeyboardShortcut(
   color: var(--wb-narrative-text);
   font-size: calc(15px * var(--wb-font-scale, 1));
   line-height: var(--wb-line-height, 1.75);
+  user-select: text;
+}
+
+.narrative-editor :deep(.editor-content .tiptap)::selection,
+.narrative-editor :deep(.editor-content .tiptap *)::selection {
+  background: #e5e7eb;
+  color: #111827;
 }
 
 .narrative-editor :deep(.editor-content .tiptap p) {
+  margin: 0;
   color: var(--wb-narrative-text);
 }
 
@@ -3494,17 +3580,11 @@ useKeyboardShortcut(
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .editor-workspace.ai-panel-open {
+  .editor-workspace.side-panel-open {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .outline-panel,
-  .narrative-ai-resizer,
-  .narrative-ai-panel {
-    display: none;
-  }
-
-  .narrative-history-panel {
+  .outline-panel {
     display: none;
   }
 

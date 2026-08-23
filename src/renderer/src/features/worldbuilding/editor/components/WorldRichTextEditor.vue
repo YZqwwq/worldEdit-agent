@@ -1,7 +1,5 @@
 <template>
   <div class="editor-shell">
-    <WorldRichTextToolbar v-if="showToolbar" :editor="editor" :show-meta="showToolbarMeta" />
-
     <div
       class="editor-frame"
       :class="{ 'editor-frame-dark': theme === 'dark' }"
@@ -19,6 +17,7 @@
 
 <script setup lang="ts">
 import { computed, watch } from 'vue'
+import type { Editor } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import { createWorldbuildingEditorExtensions } from '../extensions/createWorldbuildingEditorExtensions'
 import {
@@ -26,7 +25,6 @@ import {
   type WorldRichTextAppearance
 } from '../model/editorAppearance'
 import { normalizeRichTextContent } from '../utils/richTextContent'
-import WorldRichTextToolbar from './WorldRichTextToolbar.vue'
 import {
   findWorldDocumentVisibleTextOffset,
   normalizeWorldDocumentVisibleText
@@ -45,21 +43,19 @@ const props = withDefaults(
     showShortcutHint?: boolean
     theme?: 'light' | 'dark'
     appearance?: Partial<WorldRichTextAppearance> | null
-    showToolbarMeta?: boolean
-    showToolbar?: boolean
   }>(),
   {
     placeholder: '开始输入内容',
     showShortcutHint: false,
-    theme: 'dark',
-    showToolbarMeta: true,
-    showToolbar: true
+    theme: 'dark'
   }
 )
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
   (e: 'stats-change', value: { words: number; characters: number }): void
+  (e: 'editor-ready', value: Editor): void
+  (e: 'editor-destroy'): void
 }>()
 
 const extensions = createWorldbuildingEditorExtensions(props.placeholder)
@@ -77,6 +73,7 @@ const editor = useEditor({
     }
   },
   onCreate: ({ editor }) => {
+    emit('editor-ready', editor)
     emit('stats-change', {
       words: editor.storage.characterCount.words(),
       characters: editor.storage.characterCount.characters()
@@ -88,6 +85,9 @@ const editor = useEditor({
       words: editor.storage.characterCount.words(),
       characters: editor.storage.characterCount.characters()
     })
+  },
+  onDestroy: () => {
+    emit('editor-destroy')
   }
 })
 
@@ -170,6 +170,11 @@ const handleEditorFrameMouseDown = (event: MouseEvent): void => {
   if (!editor.value) return
   const target = event.target
   if (target instanceof HTMLElement && target.closest('.tiptap')) return
+
+  const editorBounds = editor.value.view.dom.getBoundingClientRect()
+  const isInsideEditorHorizontalBounds =
+    event.clientX >= editorBounds.left && event.clientX <= editorBounds.right
+  if (!isInsideEditorHorizontalBounds) return
 
   event.preventDefault()
   editor.value.commands.focus('end')

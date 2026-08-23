@@ -20,7 +20,6 @@ import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAg
 import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
 import type { TurnWorkspaceDurableToolReceipt } from '@share/cache/AItype/states/turnWorkspace'
 import { commitWorldDocumentChangeSetWithManager } from '../../../worldbuilding/worldDocumentVersionService'
-import { selfExperienceService } from '../../agentrsystem/manager/selfmodel/selfExperienceService'
 
 export type MainAgentTurnCommitInput = Pick<
   MainAgentCommitTurnEffect,
@@ -196,17 +195,6 @@ class MainAgentTurnCommitter {
               lastCommittedObservationId ?? input.workspace.draft.persona.last_observation_id
           }
           await savePersonaState(persona, manager)
-        }
-        if (input.status === 'completed' && input.workspace.draft.selfExperience) {
-          await selfExperienceService.commitTurnExperience(
-            {
-              eventId: input.eventId,
-              turnId: input.turnId,
-              sessionId: input.sessionId,
-              draft: input.workspace.draft.selfExperience
-            },
-            manager
-          )
         }
       }
 

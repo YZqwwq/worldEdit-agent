@@ -17,6 +17,10 @@ import {
   parseMainAgentContentForPersistence,
   stripMainAgentContentPartsMetadata
 } from '../messagecontent/mainAgentMessageContentService'
+import {
+  readDefaultResponseChannels,
+  type ModelResponseChannels
+} from './modelResponseChannels'
 
 export type ModelProtocolFamilyAdapter = {
   family: ModelProtocolFamily
@@ -28,6 +32,7 @@ export type ModelProtocolFamilyAdapter = {
     runtime: ConfiguredModelRuntime
   ) => Promise<BaseMessage[]>
   normalizeResponse: (response: BaseMessage) => BaseMessage
+  readResponseChannels: (response: BaseMessage) => ModelResponseChannels
 }
 
 export type ModelProviderProfileSpec = {
@@ -190,7 +195,8 @@ const openAICompatibleFamilyAdapter: ModelProtocolFamilyAdapter = {
   },
   formatTools: formatOpenAICompatibleTools,
   prepareMessages: prepareOpenAICompatibleMessages,
-  normalizeResponse: normalizeOpenAICompatibleResponse
+  normalizeResponse: normalizeOpenAICompatibleResponse,
+  readResponseChannels: readDefaultResponseChannels
 }
 
 const anthropicNativeFamilyAdapter: ModelProtocolFamilyAdapter = {
@@ -211,6 +217,9 @@ const anthropicNativeFamilyAdapter: ModelProtocolFamilyAdapter = {
   },
   normalizeResponse(response) {
     return response
+  },
+  readResponseChannels(response) {
+    return readDefaultResponseChannels(response)
   }
 }
 
@@ -233,7 +242,10 @@ const dashscopeQwenProfile: ModelProviderProfileSpec = {
       useResponsesApi: false,
       modelKwargs: {
         ...(options.modelKwargs ?? {}),
-        enable_thinking: false
+        enable_thinking:
+          typeof options.modelKwargs?.enable_thinking === 'boolean'
+            ? options.modelKwargs.enable_thinking
+            : false
       }
     }
   }
@@ -312,3 +324,8 @@ export const normalizeModelResponse = (
   runtime: ConfiguredModelRuntime,
   response: BaseMessage
 ): BaseMessage => runtime.familyAdapter.normalizeResponse(response)
+
+export const readModelResponseChannels = (
+  runtime: ConfiguredModelRuntime,
+  response: BaseMessage
+): ModelResponseChannels => runtime.familyAdapter.readResponseChannels(response)

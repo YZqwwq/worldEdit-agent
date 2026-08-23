@@ -16,6 +16,7 @@ import type {
 import { agent } from '../agentrsystem/agentReactSystem'
 import { memorySlotService } from '../agentrsystem/manager/memory/memorySlotService'
 import { loadPersonaState } from '../agentrsystem/manager/personal/personalManager'
+import { selfCoreAuthorityService } from '../agentrsystem/manager/selfmodel/selfCoreAuthorityService'
 import {
   createTurnWorkspace,
   withObservationDraft
@@ -82,11 +83,16 @@ class MainAgentChatRuntimeService {
     }
     const restoredState = restoredHead?.kind === 'checkpoint' ? restoredHead.state : null
     const restoredWorkspace = restoredState?.turnWorkspace
-    const [memorySlots, persona] = restoredWorkspace
-      ? [restoredWorkspace.base.memorySlots, restoredWorkspace.base.persona]
+    const [memorySlots, persona, selfCore] = restoredWorkspace
+      ? [
+          restoredWorkspace.base.memorySlots,
+          restoredWorkspace.base.persona,
+          restoredWorkspace.base.selfCore ?? null
+        ]
       : await Promise.all([
           memorySlotService.reconcileFromObservations(),
-          loadPersonaState()
+          loadPersonaState(),
+          selfCoreAuthorityService.load()
         ])
     const observationType =
       taskEvent.payload.outcome === 'completed'
@@ -102,7 +108,8 @@ class MainAgentChatRuntimeService {
       sessionId,
       runId,
       memorySlots,
-      persona
+      persona,
+      selfCore
     })
     const turnWorkspace = restoredWorkspace ?? withObservationDraft(baseWorkspace, {
       id: (memorySlots.lastObservationId ?? 0) + 1,
@@ -167,7 +174,7 @@ class MainAgentChatRuntimeService {
           for await (const event of stream) {
             if (
               event.event === 'on_chat_model_stream' &&
-              event.metadata?.langgraph_node === 'expressionNode'
+              event.metadata?.langgraph_node === 'finalAnswerNode'
             ) {
               const chunk = event.data.chunk
               if (chunk?.content) fullText += contentToText(chunk.content)
@@ -236,11 +243,16 @@ class MainAgentChatRuntimeService {
     }
     const restoredState = restoredHead?.kind === 'checkpoint' ? restoredHead.state : null
     const restoredWorkspace = restoredState?.turnWorkspace
-    const [memorySlots, persona] = restoredWorkspace
-      ? [restoredWorkspace.base.memorySlots, restoredWorkspace.base.persona]
+    const [memorySlots, persona, selfCore] = restoredWorkspace
+      ? [
+          restoredWorkspace.base.memorySlots,
+          restoredWorkspace.base.persona,
+          restoredWorkspace.base.selfCore ?? null
+        ]
       : await Promise.all([
           memorySlotService.reconcileFromObservations(),
-          loadPersonaState()
+          loadPersonaState(),
+          selfCoreAuthorityService.load()
         ])
     const baseTurnWorkspace = restoredWorkspace ?? createTurnWorkspace({
         eventId,
@@ -248,7 +260,8 @@ class MainAgentChatRuntimeService {
         sessionId: persistedMessage?.sessionId || 'default',
         runId,
         memorySlots,
-        persona
+        persona,
+        selfCore
       })
     const userText = persistedMessage?.content?.trim() || contentToText(message).trim()
     const turnWorkspace = restoredWorkspace ? restoredWorkspace : userText
@@ -303,7 +316,7 @@ class MainAgentChatRuntimeService {
           for await (const event of stream) {
             if (
               event.event === 'on_chat_model_stream' &&
-              event.metadata?.langgraph_node === 'expressionNode'
+              event.metadata?.langgraph_node === 'finalAnswerNode'
             ) {
               const chunk = event.data.chunk
               if (chunk && chunk.content) {
@@ -378,9 +391,10 @@ class MainAgentChatRuntimeService {
     const controller = mainAgentRunControlService.startRun({ eventId, turnId })
     let fullText = ''
     const stageMessage = this.buildBackgroundStageMessage(payload)
-    const [memorySlots, persona] = await Promise.all([
+    const [memorySlots, persona, selfCore] = await Promise.all([
       memorySlotService.reconcileFromObservations(),
-      loadPersonaState()
+      loadPersonaState(),
+      selfCoreAuthorityService.load()
     ])
     const turnWorkspace = createTurnWorkspace({
       eventId,
@@ -388,7 +402,8 @@ class MainAgentChatRuntimeService {
       sessionId,
       runId,
       memorySlots,
-      persona
+      persona,
+      selfCore
     })
     let graphResult: MainAgentGraphTurnResult | undefined
 
@@ -424,7 +439,7 @@ class MainAgentChatRuntimeService {
           for await (const event of stream) {
             if (
               event.event === 'on_chat_model_stream' &&
-              event.metadata?.langgraph_node === 'expressionNode'
+              event.metadata?.langgraph_node === 'finalAnswerNode'
             ) {
               const chunk = event.data.chunk
               if (chunk && chunk.content) {

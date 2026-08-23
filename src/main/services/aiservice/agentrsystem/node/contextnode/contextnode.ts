@@ -1,7 +1,12 @@
 import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
-import { getEffectiveMemorySlots, withIdentityAnchorSnapshot } from '../../state/turnWorkspace'
+import {
+  getEffectiveMemorySlots,
+  getEffectiveSelfCore,
+  withIdentityAnchorSnapshot,
+  withSelfCoreSnapshot
+} from '../../state/turnWorkspace'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
 import {
   getVisibleMainAgentToolEntries,
@@ -10,7 +15,6 @@ import {
 import { MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY } from '../../../messagecontent/mainAgentMessageContentService'
 import {
   buildPersonaAssemblyPromptParts,
-  loadCharacterPrompt,
   loadExpressionPromptProfile
 } from '../../../prompt/main_agent/agentPromptService'
 import {
@@ -25,6 +29,8 @@ import { resolveWorkspaceProfile } from '../../workspaceProfileRegistry'
 import { buildSceneCharacterPrompt } from '../../../prompt/main_agent/persona/sceneCharacterPrompt'
 import { buildCognitivePolicyPrompt } from '../../../prompt/main_agent/persona/actionPolicyPrompt'
 import { selfExperienceService } from '../../manager/selfmodel/selfExperienceService'
+import { selfCoreAuthorityService } from '../../manager/selfmodel/selfCoreAuthorityService'
+import { buildSelfCoreProjection } from '../../../prompt/main_agent/persona/selfCoreProjection'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
@@ -95,8 +101,14 @@ export async function contextNode(
     throw new Error('contextNode requires an active turn workspace')
   }
   const slotSnapshot = getEffectiveMemorySlots(state.turnWorkspace)
-  const characterPrompt = state.turnWorkspace.base.identityAnchor?.prompt ?? await loadCharacterPrompt()
-  const turnWorkspace = withIdentityAnchorSnapshot(state.turnWorkspace, characterPrompt)
+  const selfCore = getEffectiveSelfCore(state.turnWorkspace) ?? await selfCoreAuthorityService.load()
+  const workspaceWithCore = withSelfCoreSnapshot(state.turnWorkspace, selfCore)
+  const coreProjection = buildSelfCoreProjection(selfCore)
+  const characterPrompt = workspaceWithCore.base.identityAnchor?.prompt ?? coreProjection.prompt
+  const turnWorkspace = withIdentityAnchorSnapshot(workspaceWithCore, characterPrompt, {
+    coreId: coreProjection.coreId,
+    coreRevision: coreProjection.revision
+  })
   const expressionProfile =
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
   const currentTimeContext = formatCurrentContextTime()
@@ -120,7 +132,8 @@ export async function contextNode(
     id: 'persona-anchor',
     duty: 'identity',
     kind: 'persona_anchor',
-    source: 'characterPromptStore',
+    source: 'selfCoreAuthorityService',
+    capturedAt: selfCore.updatedAt,
     content: personaParts.identity
   })
   if (personaParts.moodContext) {
@@ -351,7 +364,7 @@ export async function contextNode(
           : '',
         `运行时提示：${taskEvent.notice.message}`,
         '',
-        '把子 Agent 的返回当作观察和候选产物，而不是你的最终结论。你必须判断它是否满足原目标、是否足以兑现你对用户的承诺，以及是接受、保留、质疑还是需要继续。然后通过 finish_response 形成你自己的回应。不要照抄运行时提示。'
+        '把子 Agent 的返回当作观察和候选产物，而不是你的最终结论。你必须判断它是否满足原目标、是否足以兑现你对用户的承诺，以及是接受、保留、质疑还是需要继续。完成判断后形成你自己的回答，不要照抄运行时提示。'
       ].filter(Boolean).join('\n')
     })
   }
@@ -451,6 +464,13 @@ export async function contextNode(
       hasActiveTask: Boolean(state.taskLifecycle?.activeTask),
       hasLongTermMemory: false,
       selfExperienceCount: selfModel.recentExperiences.length,
+      selfCore: {
+        coreId: selfCore.coreId,
+        revision: selfCore.revision,
+        activeNarrativeThesisCount: selfCore.narrativeTheses.filter(
+          (thesis) => thesis.status === 'active'
+        ).length
+      },
       activeCommitmentCount: selfModel.activeCommitments.length,
       openConcernCount: selfModel.openConcerns.length,
       longTermMemoryMode: 'recall_tool_only',
@@ -492,6 +512,7 @@ export async function contextNode(
   return {
     messages: messages,
     turnWorkspace,
+    expressionProfile,
     promptSectionManifest,
     activeToolsets: contextualToolsets,
     quickToolsets: toolActivationState.quickToolsets ?? [],

@@ -10,7 +10,11 @@ export const TURN_INTERNAL_PHASE_VALUES = [
 
 export type TurnInternalPhase = (typeof TURN_INTERNAL_PHASE_VALUES)[number]
 
-export type AgentLoopDirective = 'deliberate' | 'execute_tools' | 'express'
+export type AgentLoopDirective =
+  | 'deliberate'
+  | 'execute_tools'
+  | 'compose_final'
+  | 'finalize'
 
 export type TurnLifecycleState = {
   phase: TurnInternalPhase

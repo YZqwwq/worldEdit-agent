@@ -12,6 +12,7 @@ import {
 import {
   getDefaultExpressionPrompt,
   getExpressionPromptProfileById,
+  isLegacyDefaultExpressionPrompt,
   toExpressionPromptProfileState
 } from './expressionPromptProfiles'
 import type {
@@ -56,6 +57,14 @@ const readPromptFile = async (targetPath: string, fallback: string): Promise<str
   }
 }
 
+const migrateLegacyDefaultExpressionPrompt = async (): Promise<void> => {
+  const targetPath = getExpressionPromptProfilePath()
+  const current = await readPromptFile(targetPath, getDefaultExpressionPrompt())
+  if (isLegacyDefaultExpressionPrompt(current)) {
+    await writePromptFile(targetPath, getDefaultExpressionPrompt())
+  }
+}
+
 export const initializeAgentPromptStorage = async (): Promise<void> => {
   if (promptStorageInitialized) return
 
@@ -63,6 +72,7 @@ export const initializeAgentPromptStorage = async (): Promise<void> => {
     await initializePromptFile(prompt.path(), prompt.defaultContent)
   }
 
+  await migrateLegacyDefaultExpressionPrompt()
   promptStorageInitialized = true
 }
 

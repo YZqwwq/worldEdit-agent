@@ -1,195 +1,302 @@
 <template>
-  <div class="toolbar-shell">
-    <div class="toolbar-group">
-      <button
-        v-for="button in formatButtons"
-        :key="button.label"
-        type="button"
-        class="toolbar-btn"
-        :class="{ active: button.isActive() }"
-        :title="button.title"
-        @click="button.run"
-      >
-        {{ button.label }}
-      </button>
-    </div>
+  <div class="toolbar-shell" role="group" aria-label="富文本格式命令">
+    <div v-for="(group, groupIndex) in toolbarGroups" :key="groupIndex" class="toolbar-group">
+      <template v-for="item in group" :key="item.id">
+        <label v-if="item.kind === 'block-select'" class="toolbar-select-wrap" :title="item.title">
+          <select
+            class="toolbar-select"
+            :value="activeBlockType"
+            :disabled="!editor"
+            :aria-label="item.title"
+            @change="setBlockType(($event.target as HTMLSelectElement).value)"
+          >
+            <option value="paragraph">正文</option>
+            <option value="heading-1">一级标题</option>
+            <option value="heading-2">二级标题</option>
+            <option value="heading-3">三级标题</option>
+          </select>
+        </label>
 
-    <div class="toolbar-group">
-      <button
-        v-for="button in blockButtons"
-        :key="button.label"
-        type="button"
-        class="toolbar-btn"
-        :class="{ active: button.isActive() }"
-        :title="button.title"
-        @click="button.run"
-      >
-        {{ button.label }}
-      </button>
-    </div>
-
-    <div v-if="showMeta" class="toolbar-group toolbar-group-meta">
-      <span class="toolbar-meta">{{ wordCount }} 字词</span>
-      <span class="toolbar-meta">{{ characterCount }} 字符</span>
+        <button
+          v-else
+          type="button"
+          class="toolbar-btn"
+          :class="{ active: isActive(item) }"
+          :disabled="isDisabled(item)"
+          :aria-label="item.title"
+          :aria-pressed="item.active ? isActive(item) : undefined"
+          :title="item.disabledReason || item.title"
+          @mousedown.prevent
+          @click="run(item)"
+        >
+          {{ item.label }}
+        </button>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { Editor } from '@tiptap/vue-3'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import type { Editor } from '@tiptap/core'
+
+type ToolbarButton = {
+  kind?: 'button'
+  id: string
+  label: string
+  title: string
+  run?: (editor: Editor) => boolean
+  active?: (editor: Editor) => boolean
+  canRun?: (editor: Editor) => boolean
+  disabledReason?: string
+}
+
+type ToolbarSelect = {
+  kind: 'block-select'
+  id: string
+  title: string
+}
+
+type ToolbarItem = ToolbarButton | ToolbarSelect
 
 const props = defineProps<{
   editor: Editor | null | undefined
-  showMeta?: boolean
 }>()
 
-type ToolbarButton = {
-  label: string
-  title: string
-  isActive: () => boolean
-  run: () => void
+const editorRevision = ref(0)
+const refreshToolbar = (): void => {
+  editorRevision.value += 1
 }
 
-const withEditor = (action: (editor: Editor) => void): (() => void) => {
-  return () => {
-    if (!props.editor) return
-    action(props.editor)
-  }
+const bindEditor = (editor: Editor | null | undefined): void => {
+  editor?.on('transaction', refreshToolbar)
+  editor?.on('selectionUpdate', refreshToolbar)
 }
 
-const formatButtons = computed<ToolbarButton[]>(() => [
-  {
-    label: 'B',
-    title: '加粗',
-    isActive: () => props.editor?.isActive('bold') ?? false,
-    run: withEditor((editor) => editor.chain().focus().toggleBold().run())
-  },
-  {
-    label: 'I',
-    title: '斜体',
-    isActive: () => props.editor?.isActive('italic') ?? false,
-    run: withEditor((editor) => editor.chain().focus().toggleItalic().run())
-  },
-  {
-    label: 'S',
-    title: '删除线',
-    isActive: () => props.editor?.isActive('strike') ?? false,
-    run: withEditor((editor) => editor.chain().focus().toggleStrike().run())
-  }
-])
+const unbindEditor = (editor: Editor | null | undefined): void => {
+  editor?.off('transaction', refreshToolbar)
+  editor?.off('selectionUpdate', refreshToolbar)
+}
 
-const blockButtons = computed<ToolbarButton[]>(() => [
-  {
-    label: 'P',
-    title: '正文',
-    isActive: () => props.editor?.isActive('paragraph') ?? false,
-    run: withEditor((editor) => editor.chain().focus().setParagraph().run())
+watch(
+  () => props.editor,
+  (editor, previousEditor) => {
+    unbindEditor(previousEditor)
+    bindEditor(editor)
+    refreshToolbar()
   },
-  {
-    label: 'H1',
-    title: '一级标题',
-    isActive: () => props.editor?.isActive('heading', { level: 1 }) ?? false,
-    run: withEditor((editor) => editor.chain().focus().toggleHeading({ level: 1 }).run())
-  },
-  {
-    label: 'H2',
-    title: '二级标题',
-    isActive: () => props.editor?.isActive('heading', { level: 2 }) ?? false,
-    run: withEditor((editor) => editor.chain().focus().toggleHeading({ level: 2 }).run())
-  },
-  {
-    label: '•',
-    title: '无序列表',
-    isActive: () => props.editor?.isActive('bulletList') ?? false,
-    run: withEditor((editor) => editor.chain().focus().toggleBulletList().run())
-  },
-  {
-    label: '1.',
-    title: '有序列表',
-    isActive: () => props.editor?.isActive('orderedList') ?? false,
-    run: withEditor((editor) => editor.chain().focus().toggleOrderedList().run())
-  },
-  {
-    label: '❝',
-    title: '引用',
-    isActive: () => props.editor?.isActive('blockquote') ?? false,
-    run: withEditor((editor) => editor.chain().focus().toggleBlockquote().run())
-  },
-  {
-    label: '{}',
-    title: '代码块',
-    isActive: () => props.editor?.isActive('codeBlock') ?? false,
-    run: withEditor((editor) => editor.chain().focus().toggleCodeBlock().run())
-  },
-  {
-    label: '↶',
-    title: '撤销',
-    isActive: () => false,
-    run: withEditor((editor) => editor.chain().focus().undo().run())
-  },
-  {
-    label: '↷',
-    title: '重做',
-    isActive: () => false,
-    run: withEditor((editor) => editor.chain().focus().redo().run())
-  }
-])
+  { immediate: true }
+)
 
-const characterCount = computed(() => props.editor?.storage.characterCount.characters() ?? 0)
-const wordCount = computed(() => props.editor?.storage.characterCount.words() ?? 0)
-const showMeta = computed(() => props.showMeta !== false)
+onBeforeUnmount(() => unbindEditor(props.editor))
+
+const unsupported = (id: string, label: string, title: string): ToolbarButton => ({
+  id,
+  label,
+  title,
+  disabledReason: `${title}暂未启用`
+})
+
+const toolbarGroups: ToolbarItem[][] = [
+  [
+    {
+      id: 'undo', label: '↶', title: '撤销（Ctrl/Cmd + Z）',
+      run: (editor) => editor.chain().focus().undo().run(),
+      canRun: (editor) => editor.can().chain().undo().run()
+    },
+    {
+      id: 'redo', label: '↷', title: '重做（Ctrl/Cmd + Shift + Z）',
+      run: (editor) => editor.chain().focus().redo().run(),
+      canRun: (editor) => editor.can().chain().redo().run()
+    },
+    unsupported('format-painter', '刷', '格式刷'),
+    {
+      id: 'clear-format', label: '擦', title: '清除格式',
+      run: (editor) => editor.chain().focus().unsetAllMarks().clearNodes().run()
+    }
+  ],
+  [
+    { kind: 'block-select', id: 'block-type', title: '段落样式' },
+    unsupported('font-size', '15px⌄', '字号')
+  ],
+  [
+    {
+      id: 'bold', label: 'B', title: '加粗（Ctrl/Cmd + B）',
+      run: (editor) => editor.chain().focus().toggleBold().run(),
+      active: (editor) => editor.isActive('bold')
+    },
+    {
+      id: 'italic', label: 'I', title: '斜体（Ctrl/Cmd + I）',
+      run: (editor) => editor.chain().focus().toggleItalic().run(),
+      active: (editor) => editor.isActive('italic')
+    },
+    {
+      id: 'strike', label: 'S', title: '删除线（Ctrl/Cmd + Shift + X）',
+      run: (editor) => editor.chain().focus().toggleStrike().run(),
+      active: (editor) => editor.isActive('strike')
+    },
+    {
+      id: 'underline', label: 'U', title: '下划线（Ctrl/Cmd + U）',
+      run: (editor) => editor.chain().focus().toggleUnderline().run(),
+      active: (editor) => editor.isActive('underline')
+    },
+    {
+      id: 'inline-code', label: 'T⌄', title: '行内代码',
+      run: (editor) => editor.chain().focus().toggleCode().run(),
+      active: (editor) => editor.isActive('code')
+    }
+  ],
+  [unsupported('text-color', 'A⌄', '文字颜色'), unsupported('highlight', '⌁⌄', '高亮')],
+  [
+    unsupported('text-align', '≡⌄', '对齐'),
+    {
+      id: 'bullet-list', label: '•☰', title: '无序列表（Ctrl/Cmd + Shift + 8）',
+      run: (editor) => editor.chain().focus().toggleBulletList().run(),
+      active: (editor) => editor.isActive('bulletList')
+    },
+    {
+      id: 'ordered-list', label: '1☰', title: '有序列表（Ctrl/Cmd + Shift + 7）',
+      run: (editor) => editor.chain().focus().toggleOrderedList().run(),
+      active: (editor) => editor.isActive('orderedList')
+    },
+    {
+      id: 'indent', label: '▾☰', title: '增加列表缩进（Tab）',
+      run: (editor) => editor.chain().focus().sinkListItem('listItem').run(),
+      canRun: (editor) => editor.can().chain().sinkListItem('listItem').run()
+    }
+  ],
+  [
+    unsupported('task-list', '☑', '待办列表'),
+    {
+      id: 'link', label: '🔗', title: '添加或编辑链接',
+      run: (editor) => {
+        const previousUrl = String(editor.getAttributes('link').href || '')
+        const nextUrl = window.prompt('输入链接地址；留空将移除链接', previousUrl)
+        if (nextUrl === null) return false
+        if (!nextUrl.trim()) return editor.chain().focus().extendMarkRange('link').unsetLink().run()
+        return editor.chain().focus().extendMarkRange('link').setLink({ href: nextUrl.trim() }).run()
+      },
+      active: (editor) => editor.isActive('link')
+    },
+    {
+      id: 'blockquote', label: '❝', title: '引用（Ctrl/Cmd + Shift + Q）',
+      run: (editor) => editor.chain().focus().toggleBlockquote().run(),
+      active: (editor) => editor.isActive('blockquote')
+    },
+    {
+      id: 'horizontal-rule', label: '─', title: '插入分割线',
+      run: (editor) => editor.chain().focus().setHorizontalRule().run()
+    }
+  ]
+]
+
+const activeBlockType = computed(() => {
+  editorRevision.value
+  const editor = props.editor
+  if (!editor) return 'paragraph'
+  if (editor.isActive('heading', { level: 1 })) return 'heading-1'
+  if (editor.isActive('heading', { level: 2 })) return 'heading-2'
+  if (editor.isActive('heading', { level: 3 })) return 'heading-3'
+  return 'paragraph'
+})
+
+const setBlockType = (value: string): void => {
+  const editor = props.editor
+  if (!editor) return
+  if (value === 'heading-1') editor.chain().focus().setHeading({ level: 1 }).run()
+  else if (value === 'heading-2') editor.chain().focus().setHeading({ level: 2 }).run()
+  else if (value === 'heading-3') editor.chain().focus().setHeading({ level: 3 }).run()
+  else editor.chain().focus().setParagraph().run()
+}
+
+const isActive = (item: ToolbarItem): boolean => {
+  editorRevision.value
+  return item.kind !== 'block-select' && Boolean(props.editor && item.active?.(props.editor))
+}
+
+const isDisabled = (item: ToolbarItem): boolean => {
+  editorRevision.value
+  if (item.kind === 'block-select') return !props.editor
+  if (!props.editor || !item.run || item.disabledReason) return true
+  return item.canRun ? !item.canRun(props.editor) : false
+}
+
+const run = (item: ToolbarItem): void => {
+  if (item.kind === 'block-select' || isDisabled(item) || !props.editor || !item.run) return
+  item.run(props.editor)
+  refreshToolbar()
+}
 </script>
 
 <style scoped>
 .toolbar-shell {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
 }
 
 .toolbar-group {
-  display: flex;
+  height: 36px;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 2px;
+  padding: 0 7px;
+  border-left: 1px solid var(--wb-narrative-border);
 }
 
-.toolbar-group-meta {
-  margin-left: auto;
+.toolbar-btn,
+.toolbar-select {
+  height: 28px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--wb-narrative-text-muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
 }
 
 .toolbar-btn {
-  min-width: 40px;
-  height: 36px;
-  border: 1px solid rgba(205, 161, 92, 0.16);
-  border-radius: 12px;
-  background: rgba(12, 17, 25, 0.88);
-  color: #d7dfeb;
-  font: inherit;
-  font-weight: 700;
+  min-width: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
   cursor: pointer;
-  transition:
-    border-color 120ms ease,
-    background 120ms ease,
-    color 120ms ease;
 }
 
-.toolbar-btn:hover {
-  border-color: rgba(205, 161, 92, 0.42);
-  color: #f5efe4;
+.toolbar-btn:not(:disabled):hover,
+.toolbar-select:not(:disabled):hover {
+  background: var(--wb-narrative-hover);
+  color: var(--wb-narrative-text);
 }
 
 .toolbar-btn.active {
-  background: linear-gradient(135deg, rgba(212, 162, 93, 0.3), rgba(142, 97, 40, 0.3));
-  border-color: rgba(212, 162, 93, 0.5);
-  color: #f9f1e2;
+  background: var(--wb-narrative-active);
+  color: #315cff;
 }
 
-.toolbar-meta {
-  font-size: 12px;
-  color: #8f99ab;
+.toolbar-btn:disabled,
+.toolbar-select:disabled {
+  color: var(--wb-narrative-text-faint);
+  cursor: default;
+  opacity: 0.58;
+}
+
+.toolbar-select-wrap {
+  display: inline-flex;
+}
+
+.toolbar-select {
+  max-width: 88px;
+  padding: 0 4px;
+  outline: none;
+  cursor: pointer;
+}
+
+.toolbar-btn:focus-visible,
+.toolbar-select:focus-visible {
+  outline: 2px solid rgba(49, 92, 255, 0.35);
+  outline-offset: -2px;
 }
 </style>

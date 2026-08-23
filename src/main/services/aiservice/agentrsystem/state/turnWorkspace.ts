@@ -6,7 +6,7 @@ import type {
 } from '@share/cache/AItype/states/turnWorkspace'
 import type { ToolChangeSetSummary } from '@share/cache/AItype/states/toolEffect'
 import type { TurnLifecycleState } from '@share/cache/AItype/states/turnLifecycle'
-import type { SelfExperienceDraft } from '@share/cache/AItype/states/selfModel'
+import type { SelfCoreSnapshot } from '@share/cache/AItype/states/selfCore'
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
@@ -17,6 +17,7 @@ export const createTurnWorkspace = (input: {
   runId: string
   memorySlots: MemorySlotSnapshot
   persona: PersonaState | null
+  selfCore?: SelfCoreSnapshot | null
 }): TurnWorkspace => ({
   eventId: input.eventId,
   turnId: input.turnId,
@@ -24,7 +25,8 @@ export const createTurnWorkspace = (input: {
   runId: input.runId,
   base: {
     memorySlots: clone(input.memorySlots),
-    persona: input.persona ? clone(input.persona) : null
+    persona: input.persona ? clone(input.persona) : null,
+    selfCore: input.selfCore ? clone(input.selfCore) : null
   },
   draft: {
     memoryMessages: [],
@@ -42,9 +44,29 @@ export const getEffectivePersona = (workspace: TurnWorkspace): PersonaState | nu
   return persona ? clone(persona) : null
 }
 
+export const getEffectiveSelfCore = (workspace: TurnWorkspace): SelfCoreSnapshot | null => {
+  const core = workspace.base.selfCore
+  return core ? clone(core) : null
+}
+
+export const withSelfCoreSnapshot = (
+  workspace: TurnWorkspace,
+  selfCore: SelfCoreSnapshot
+): TurnWorkspace => {
+  if (workspace.base.selfCore) return workspace
+  return {
+    ...workspace,
+    base: {
+      ...workspace.base,
+      selfCore: clone(selfCore)
+    }
+  }
+}
+
 export const withIdentityAnchorSnapshot = (
   workspace: TurnWorkspace,
-  prompt: string
+  prompt: string,
+  source?: { coreId: string; coreRevision: number }
 ): TurnWorkspace => {
   if (workspace.base.identityAnchor) return workspace
   return {
@@ -53,7 +75,9 @@ export const withIdentityAnchorSnapshot = (
       ...workspace.base,
       identityAnchor: {
         prompt,
-        capturedAt: new Date().toISOString()
+        capturedAt: new Date().toISOString(),
+        coreId: source?.coreId,
+        coreRevision: source?.coreRevision
       }
     }
   }
@@ -143,28 +167,6 @@ export const withObservationDraft = (
   }
 })
 
-export const withCognitiveStateDraft = (
-  workspace: TurnWorkspace,
-  cognitiveState: TurnWorkspace['draft']['cognitiveState']
-): TurnWorkspace => ({
-  ...workspace,
-  draft: {
-    ...workspace.draft,
-    cognitiveState: cognitiveState ? clone(cognitiveState) : undefined
-  }
-})
-
-export const withResponseOrientationDraft = (
-  workspace: TurnWorkspace,
-  responseOrientation: TurnWorkspace['draft']['responseOrientation']
-): TurnWorkspace => ({
-  ...workspace,
-  draft: {
-    ...workspace.draft,
-    responseOrientation: responseOrientation ? clone(responseOrientation) : undefined
-  }
-})
-
 export const withTurnLifecycleDraft = (
   workspace: TurnWorkspace,
   lifecycle: TurnLifecycleState
@@ -173,17 +175,6 @@ export const withTurnLifecycleDraft = (
   draft: {
     ...workspace.draft,
     lifecycle: clone(lifecycle)
-  }
-})
-
-export const withSelfExperienceDraft = (
-  workspace: TurnWorkspace,
-  experience: SelfExperienceDraft | undefined
-): TurnWorkspace => ({
-  ...workspace,
-  draft: {
-    ...workspace.draft,
-    selfExperience: experience ? clone(experience) : undefined
   }
 })
 

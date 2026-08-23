@@ -10,7 +10,6 @@ import {
   type ConfiguredModelRuntime
 } from '../../model-adapters/modelProviderAdapter'
 import { getConfiguredModelRuntime } from './model'
-import { establishCognitionTool, finishResponseTool } from '../cognition/finishResponseProtocol'
 
 class ModelWithTool {
   runtime: ConfiguredModelRuntime
@@ -47,11 +46,7 @@ export async function getModelWithTool(state?: ToolActivationState): Promise<{
 }> {
   const runtime = await getConfiguredModelRuntime()
   const resolvedState = await resolveMainAgentToolActivationState(state)
-  const tools = {
-    ...getMainAgentTools(resolvedState),
-    [finishResponseTool.name]: finishResponseTool,
-    [establishCognitionTool.name]: establishCognitionTool
-  }
+  const tools = getMainAgentTools(resolvedState)
   return {
     runnable: bindToolsToModel(runtime, tools),
     runtime

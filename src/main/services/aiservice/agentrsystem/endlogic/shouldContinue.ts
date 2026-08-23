@@ -4,7 +4,8 @@ import { traceDecision } from '../../../log/trace/agentTraceEmitter'
 const ROUTES = {
   deliberate: 'llmCall',
   execute_tools: 'toolNode',
-  express: 'expressionNode'
+  compose_final: 'finalAnswerNode',
+  finalize: 'outputGuardNode'
 } as const
 
 export async function shouldContinue(

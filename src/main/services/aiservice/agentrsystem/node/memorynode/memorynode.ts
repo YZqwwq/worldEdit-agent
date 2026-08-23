@@ -2,10 +2,11 @@ import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
 import { getMainAgentContentPartsFromMessage, parseMainAgentContentForPersistence } from '../../../messagecontent/mainAgentMessageContentService'
 import { contentToText } from '../../../messageoutput/transformRespones'
-import { withMemoryMessagesDraft, withSelfExperienceDraft } from '../../state/turnWorkspace'
+import {
+  withMemoryMessagesDraft
+} from '../../state/turnWorkspace'
 import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
 import { withTurnLifecycleDraft } from '../../state/turnWorkspace'
-import { buildSelfExperienceDraft } from '../../cognition/selfExperienceIntegration'
 
 export async function memoryNode(
   state: typeof MessagesState.State
@@ -50,16 +51,8 @@ export async function memoryNode(
     'completed'
   )
   const workspaceWithMemory = withMemoryMessagesDraft(state.turnWorkspace, memoryMessages)
-  const experience = buildSelfExperienceDraft({
-    cognition: state.cognitiveState ?? state.turnWorkspace.draft.cognitiveState,
-    orientation: state.responseOrientation ?? state.turnWorkspace.draft.responseOrientation,
-    runtimeEvent: state.runtimeEvent
-  })
   return {
     turnLifecycle: lifecycle,
-    turnWorkspace: withTurnLifecycleDraft(
-      withSelfExperienceDraft(workspaceWithMemory, experience),
-      lifecycle
-    )
+    turnWorkspace: withTurnLifecycleDraft(workspaceWithMemory, lifecycle)
   }
 }
