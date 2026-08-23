@@ -10,6 +10,6 @@ src/main/services/aiservice/testarea/.generated/*.cjs
 .promptx
 .trae
 
-/src/main/services/log
+/src/main/services/log/logs/
 /prompt-resource
 /project-docs

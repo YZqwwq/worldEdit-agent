@@ -228,40 +228,13 @@
 
         <aside v-if="showNarrativeAiPanel" class="narrative-ai-panel">
           <CompactAIChatPanel
+            :workspace-context="currentAgentWorkspaceContext"
             @close="showNarrativeAiPanel = false"
             @document-diff-locate="handleAgentDocumentDiffLocate"
           />
         </aside>
 
         <aside v-else-if="showNarrativeHistoryPanel" class="narrative-history-panel">
-          <section v-if="versionStatus" class="history-status-bar">
-            <select
-              :value="versionStatus.branches.find((branch) => branch.active)?.id"
-              aria-label="当前设定方案"
-              @change="switchDocumentBranch(($event.target as HTMLSelectElement).value)"
-            >
-              <option v-for="branch in versionStatus.branches" :key="branch.id" :value="branch.id">
-                {{ branch.name }}
-              </option>
-            </select>
-            <span>HEAD #{{ versionStatus.head?.sequence ?? 0 }}</span>
-            <span v-if="versionStatus.pending.documentCount">
-              {{ versionStatus.pending.documentCount }} 份文档待 commit
-            </span>
-            <span :class="versionStatus.integrity.ok ? 'healthy' : 'unhealthy'">
-              {{ versionStatus.integrity.ok ? '历史完整' : '历史需检查' }}
-            </span>
-            <button
-              type="button"
-              class="history-status-close"
-              aria-label="关闭版本"
-              title="关闭版本"
-              @click="showNarrativeHistoryPanel = false"
-            >
-              <X :size="15" :stroke-width="1.8" aria-hidden="true" />
-            </button>
-          </section>
-
           <section class="history-create-version">
             <input
               v-model="versionSummaryDraft"
@@ -281,26 +254,6 @@
 
           <div v-if="historyLoading" class="history-panel-state">正在读取历史...</div>
           <div v-else-if="historyError" class="history-panel-state error">{{ historyError }}</div>
-          <section v-else-if="documentHistory.commits.length === 0" class="history-workspace-view">
-            <header class="history-detail-head">
-              <strong>工作区</strong>
-              <span class="history-detail-count">{{ narrativeDocuments.length }} 份文档 · 尚未 commit</span>
-            </header>
-            <div v-if="narrativeDocuments.length" class="history-file-list" role="list" aria-label="工作区文件">
-                <button
-                  v-for="document in narrativeDocuments"
-                  :key="document.id"
-                  type="button"
-                  class="history-file-item"
-                  :class="{ active: selectedHistoryFileId === document.id }"
-                  role="listitem"
-                  @click="selectHistoryFile(document.id, $event)"
-                >
-                  <span class="history-file-title">{{ document.title || '未命名文档' }}</span>
-                </button>
-            </div>
-            <div v-else class="history-panel-state">工作区暂无文档</div>
-          </section>
           <div v-else class="history-panel-body">
             <section class="version-tree-section">
               <header class="history-tree-head">
@@ -314,6 +267,32 @@
               />
               <nav class="history-commit-list" aria-label="版本树">
                 <div
+                  class="history-commit-item history-workspace-item"
+                  :class="{ active: !selectedHistoryCommitId }"
+                >
+                  <span class="history-graph-lane workspace" aria-hidden="true">
+                    <i />
+                    <b v-if="filteredHistoryCommits[0]?.id === documentHistory.headCommitId" />
+                  </span>
+                  <button
+                    type="button"
+                    class="history-commit-select"
+                    @click="selectHistoryWorkspace"
+                  >
+                    <span class="history-commit-copy">
+                      <span class="history-commit-title">工作区</span>
+                      <span class="history-commit-meta">
+                        当前 {{ narrativeDocuments.length }} 份文档
+                      </span>
+                    </span>
+                  </button>
+                  <span class="history-commit-badges">
+                    <span v-if="versionStatus?.pending.documentCount" class="history-workspace-badge">
+                      {{ versionStatus.pending.documentCount }}
+                    </span>
+                  </span>
+                </div>
+                <div
                   v-for="(commit, commitIndex) in filteredHistoryCommits"
                   :key="commit.id"
                   type="button"
@@ -322,7 +301,13 @@
                 >
                   <span class="history-graph-lane" aria-hidden="true">
                     <i :class="{ merge: !!commit.mergeParentCommitId }" />
-                    <b v-if="commitIndex < filteredHistoryCommits.length - 1" />
+                    <b
+                      v-if="
+                        commitIndex < filteredHistoryCommits.length - 1 &&
+                        commit.parentCommitId === filteredHistoryCommits[commitIndex + 1]?.id
+                      "
+                    />
+                    <em v-if="commit.mergeParentCommitId" />
                   </span>
                   <button type="button" class="history-commit-select" @click="selectHistoryCommit(commit.id)">
                     <span class="history-commit-copy">
@@ -351,7 +336,7 @@
                       type="button"
                       :disabled="restoringHistory || commit.id === documentHistory.headCommitId"
                       aria-label="使用该版本"
-                      title="将工作区恢复为该版本，并保留现有历史"
+                      title="恢复到该版本，并创建新的 commit"
                       @click.stop="requestHistoryRestore(commit.id)"
                     >
                       <RotateCcw :size="14" :stroke-width="1.8" aria-hidden="true" />
@@ -374,7 +359,69 @@
             </section>
 
             <section class="history-detail file-tree-section">
-              <div v-if="historyDetailLoading" class="history-panel-state">正在生成 Diff...</div>
+              <template v-if="!selectedHistoryCommitId">
+                <header class="history-detail-head">
+                  <strong>变更文件</strong>
+                  <span class="history-detail-count">{{ pendingHistoryFileItems.length }} 项变更</span>
+                  <div class="history-detail-actions"></div>
+                </header>
+                <div
+                  v-if="pendingHistoryFileItems.length"
+                  class="history-file-list"
+                  role="list"
+                  aria-label="工作区变更文件"
+                >
+                  <div
+                    v-for="item in pendingHistoryFileItems"
+                    :key="item.documentId"
+                    class="history-file-entry"
+                    role="listitem"
+                  >
+                    <button
+                      type="button"
+                      class="history-file-item"
+                      :class="{
+                        active: selectedHistoryFileId === item.documentId,
+                        deleted: item.change.operation === 'delete'
+                      }"
+                      :aria-expanded="selectedHistoryFileId === item.documentId"
+                      @click="selectHistoryFile(item.documentId, $event)"
+                    >
+                      <span class="history-file-title">{{ item.title }}</span>
+                      <span
+                        class="history-operation"
+                        :class="item.change.operation"
+                        :title="historyOperationLabel(item.change.operation)"
+                      >
+                        {{ historyOperationCode(item.change.operation) }}
+                      </span>
+                    </button>
+                    <article
+                      v-if="selectedHistoryFileId === item.documentId"
+                      class="history-change history-file-detail"
+                    >
+                      <header>
+                        <strong>{{ item.state.title || '未命名文档' }}</strong>
+                        <span class="history-operation" :class="item.change.operation">
+                          {{ historyOperationLabel(item.change.operation) }}
+                        </span>
+                      </header>
+                      <p v-if="describeHistoryMetadataChange(item.change)">
+                        {{ describeHistoryMetadataChange(item.change) }}
+                      </p>
+                      <WorldDocumentDiffCard
+                        v-if="item.change.contentDiff"
+                        class="history-diff"
+                        :diff="item.change.contentDiff"
+                        @locate="handleHistoryDiffLocate"
+                      />
+                      <p v-else>本次变更只调整了文档信息或目录位置，正文没有变化。</p>
+                    </article>
+                  </div>
+                </div>
+                <div v-else class="history-panel-state">工作区没有未提交变更</div>
+              </template>
+              <div v-else-if="historyDetailLoading" class="history-panel-state">正在生成 Diff...</div>
               <template v-else-if="selectedHistoryDetail">
                 <header class="history-detail-head">
                   <strong>变更文件</strong>
@@ -492,9 +539,9 @@
     />
     <ConfirmDialog
       v-model="showHistoryRestoreConfirm"
-      title="使用这个版本？"
+      title="恢复到这个版本？"
       :message="historyRestoreConfirmMessage"
-      confirm-text="使用该版本"
+      confirm-text="恢复并 commit"
       loading-text="正在恢复..."
       icon="warning"
       size="lg"
@@ -547,7 +594,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { FilePlus2, RotateCcw, Trash2, X } from '@lucide/vue'
+import { FilePlus2, RotateCcw, Trash2 } from '@lucide/vue'
 import type { WorldPayload } from '@share/cache/worldbuilding/worldbuilding'
 import {
   type WorldEntityDocumentChangeEvent,
@@ -566,6 +613,7 @@ import type {
 } from '@share/cache/worldbuilding/worldDocumentHistory'
 import { worldbuildingClientService } from '../services/worldbuildingClientService'
 import { agentWorkspaceContextService } from '../services/agentWorkspaceContextService'
+import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
 import { SerialSaveCoordinator } from '../services/serialSaveCoordinator'
 import { useKeyboardShortcut } from '../utils/useKeyboardShortcut'
 import { useAppTitleBar } from '../composables/useAppTitleBar'
@@ -690,9 +738,13 @@ const filteredHistoryCommits = computed(() => {
   })
 })
 const displayedHistoryChanges = computed(() => selectedHistoryDetail.value?.changes ?? [])
+const pendingHistoryChanges = computed(() => versionStatus.value?.pending.changes ?? [])
+const selectedHistoryChanges = computed(() =>
+  selectedHistoryCommitId.value ? displayedHistoryChanges.value : pendingHistoryChanges.value
+)
 const selectedHistoryFileChange = computed(
   () =>
-    displayedHistoryChanges.value.find(
+    selectedHistoryChanges.value.find(
       (change) => change.documentId === selectedHistoryFileId.value
     ) ?? null
 )
@@ -700,7 +752,7 @@ const selectedHistoryFileState = computed(
   () => selectedHistoryFileChange.value?.after ?? selectedHistoryFileChange.value?.before ?? null
 )
 watch(
-  displayedHistoryChanges,
+  selectedHistoryChanges,
   (changes) => {
     if (!changes.some((change) => change.documentId === selectedHistoryFileId.value)) {
       selectedHistoryFileId.value = ''
@@ -846,32 +898,64 @@ const historyChangedFileItems = computed<HistoryChangedFileItem[]>(() =>
     }
   })
 )
+const pendingHistoryFileItems = computed<HistoryChangedFileItem[]>(() =>
+  (versionStatus.value?.head
+    ? (versionStatus.value.pending.changes ?? [])
+    : narrativeDocuments.value.map<WorldDocumentCommitChangePayload>((document) => ({
+        id: `workspace:${document.id}`,
+        documentId: document.id,
+        operation: 'create',
+        summary: `新增文档「${document.title || '未命名文档'}」`,
+        after: {
+          documentId: document.id,
+          parentDocumentId: document.parentDocumentId,
+          title: document.title,
+          sortKey: document.sortKey,
+          revision: document.revision
+        }
+      }))).map((change) => {
+    const state = change.after ?? change.before ?? {
+      documentId: change.documentId,
+      parentDocumentId: null,
+      title: '未命名文档',
+      sortKey: '',
+      revision: 0
+    }
+    return {
+      documentId: change.documentId,
+      state,
+      change,
+      title: state.title || '未命名文档'
+    }
+  })
+)
 const documentPlaceholder = computed(() => '写下世界、人物、地点、势力或其他设定。')
 const activeDocument = computed(
   () => narrativeDocuments.value.find((document) => document.id === activeDocumentId.value) ?? null
 )
+const currentAgentWorkspaceContext = computed<AgentWorkspaceContext>(() => ({
+  pageKind: 'document',
+  routeName: 'WorldEntityDocumentEditor',
+  capturedAt: new Date().toISOString(),
+  world: worldId.value
+    ? {
+        id: worldId.value,
+        name: worldDetail.value?.name
+      }
+    : undefined,
+  document: activeDocument.value
+    ? {
+        id: activeDocument.value.id,
+        title: activeDocument.value.title,
+        parentDocumentId: activeDocument.value.parentDocumentId,
+        revision: activeDocument.value.revision
+      }
+    : undefined
+}))
 watch(
-  [worldDetail, activeDocument],
-  ([world, document]) => {
-    agentWorkspaceContextService.update({
-      pageKind: 'document',
-      routeName: 'WorldEntityDocumentEditor',
-      world: worldId.value
-        ? {
-            id: worldId.value,
-            name: world?.name
-          }
-        : undefined,
-      entity: undefined,
-      document: document
-        ? {
-            id: document.id,
-            title: document.title,
-            parentDocumentId: document.parentDocumentId,
-            revision: document.revision
-          }
-        : undefined
-    })
+  currentAgentWorkspaceContext,
+  (context) => {
+    agentWorkspaceContextService.update(context)
   },
   { immediate: true }
 )
@@ -1165,6 +1249,13 @@ const selectHistoryFile = (documentId: string, _event?: MouseEvent): void => {
     selectedHistoryFileId.value === documentId ? '' : documentId
 }
 
+const selectHistoryWorkspace = (): void => {
+  selectedHistoryCommitId.value = ''
+  selectedHistoryDetail.value = null
+  selectedHistoryFileId.value = ''
+  historyDetailLoading.value = false
+}
+
 const formatHistoryTime = (value: string): string => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -1196,6 +1287,7 @@ const describeHistoryMetadataChange = (change: WorldDocumentCommitChangePayload 
 const selectHistoryCommit = async (commitId: string): Promise<void> => {
   selectedHistoryCommitId.value = commitId
   selectedHistoryDetail.value = null
+  selectedHistoryFileId.value = ''
   historyDetailLoading.value = true
   try {
     selectedHistoryDetail.value =
@@ -1237,14 +1329,11 @@ const loadNarrativeHistory = async (preferredCommitId?: string): Promise<void> =
     narrativeVersionDirty.value = status.pending.origins.includes('human')
     documentCheckpoints.value = checkpoints
     const targetId =
-      (preferredCommitId && history.commits.some((commit) => commit.id === preferredCommitId)
+      preferredCommitId && history.commits.some((commit) => commit.id === preferredCommitId)
         ? preferredCommitId
-        : history.commits[0]?.id) ?? ''
+        : ''
     if (targetId) await selectHistoryCommit(targetId)
-    else {
-      selectedHistoryCommitId.value = ''
-      selectedHistoryDetail.value = null
-    }
+    else selectHistoryWorkspace()
   } catch (error) {
     historyError.value = error instanceof Error ? error.message : '读取版本历史失败'
   } finally {
@@ -1309,21 +1398,6 @@ const requestHistoryRestore = async (commitId: string): Promise<void> => {
 const requestDeleteHistoryCommit = (commitId: string): void => {
   pendingDeleteHistoryCommitId.value = commitId
   showHistoryDeleteConfirm.value = true
-}
-
-const switchDocumentBranch = async (branchId: string): Promise<void> => {
-  if (!branchId || versionStatus.value?.branches.find((branch) => branch.id === branchId)?.active)
-    return
-  historyError.value = ''
-  try {
-    if (!(await ensureNarrativeWorkingTreeClean())) return
-    await worldbuildingClientService.switchWorldDocumentBranch(branchId)
-    await reloadNarrativeDocumentsAfterRestore()
-    await loadNarrativeHistory()
-  } catch (error) {
-    historyError.value = error instanceof Error ? error.message : '切换设定方案失败'
-    await loadNarrativeHistory().catch(() => undefined)
-  }
 }
 
 const reloadNarrativeDocumentsAfterRestore = async (): Promise<void> => {
@@ -2634,9 +2708,9 @@ useKeyboardShortcut(
   position: relative;
   min-width: var(--narrative-ai-resizer-width);
   height: 100%;
-  border-left: 1px solid var(--wb-narrative-border);
-  border-right: 1px solid var(--wb-narrative-border);
-  background: #ffffff;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
   cursor: col-resize;
   z-index: 5;
 }
@@ -2647,9 +2721,9 @@ useKeyboardShortcut(
   top: 0;
   bottom: 0;
   left: 50%;
-  width: 2px;
+  width: 1px;
   transform: translateX(-50%);
-  background: transparent;
+  background: var(--wb-narrative-border);
 }
 
 .narrative-ai-resizer:hover::before,
@@ -2705,91 +2779,46 @@ useKeyboardShortcut(
   background: #ffffff;
 }
 
-.history-status-bar {
-  min-height: 32px;
-  padding: 6px 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid var(--wb-narrative-border);
-  background: #ffffff;
-  color: var(--wb-narrative-text-muted);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.history-status-bar select {
-  min-width: 0;
-  max-width: 128px;
-  height: 26px;
-  border: 0;
-  background: transparent;
-  color: var(--wb-narrative-text);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.history-status-bar .healthy {
-  color: #16834b;
-}
-.history-status-bar .unhealthy {
-  color: #c24141;
-}
-
-.history-status-close {
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--wb-narrative-text-muted);
-  cursor: pointer;
-}
-
-.history-status-close:hover {
-  background: #eef1f5;
-  color: var(--wb-narrative-text);
-}
-
 .history-create-version {
-  min-height: 42px;
-  padding: 7px 10px;
+  min-height: 32px;
+  padding: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-  border-bottom: 1px solid var(--wb-narrative-border);
+  gap: 0;
   background: #ffffff;
 }
 
 .history-create-version input {
   min-width: 0;
-  height: 28px;
-  padding: 0 8px;
+  height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--wb-narrative-border);
+  border-radius: 5px 0 0 5px;
   background: #fbfcfd;
   color: var(--wb-narrative-text);
   font-size: 11px;
 }
 
 .history-create-version button {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid #315cff;
-  background: #315cff;
-  color: #ffffff;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--wb-narrative-border);
+  border-left: 0;
+  border-radius: 0 5px 5px 0;
+  background: transparent;
+  color: var(--wb-narrative-text);
   font-size: 10px;
   font-weight: 700;
+  cursor: pointer;
+}
+
+.history-create-version button:hover:not(:disabled) {
+  background: #f2f4f7;
 }
 
 .history-create-version button:disabled {
   border-color: #d9dde5;
-  background: #f3f4f6;
+  background: transparent;
   color: #9aa1ac;
   cursor: default;
 }
@@ -2816,11 +2845,12 @@ useKeyboardShortcut(
 
 .version-tree-section {
   min-height: 150px;
-  flex: 0 1 38%;
+  flex: 0 1 36%;
+  order: 2;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-bottom: 1px solid var(--wb-narrative-border);
+  border-top: 1px solid var(--wb-narrative-border);
   background: #ffffff;
 }
 
@@ -2924,6 +2954,28 @@ useKeyboardShortcut(
   box-shadow: inset 2px 0 #4d78cc;
 }
 
+.history-workspace-item {
+  margin-bottom: 0;
+}
+
+.history-workspace-item .history-graph-lane i {
+  border-radius: 2px;
+  border-color: #687385;
+  background: #687385;
+}
+
+.history-workspace-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #e4e8ee;
+  color: #596270;
+  font-size: 9px;
+  line-height: 16px;
+  text-align: center;
+}
+
 .history-graph-lane {
   position: relative;
   grid-row: 1 / 3;
@@ -2957,6 +3009,18 @@ useKeyboardShortcut(
   left: 50%;
   width: 1px;
   background: #c8ced8;
+}
+
+.history-graph-lane em {
+  position: absolute;
+  top: 13px;
+  left: 50%;
+  width: 12px;
+  height: 18px;
+  border-left: 1px solid #8b5cf6;
+  border-bottom: 1px solid #8b5cf6;
+  border-radius: 0 0 0 8px;
+  transform: translateX(4px);
 }
 
 .history-commit-copy {
@@ -3010,6 +3074,7 @@ useKeyboardShortcut(
 .history-detail {
   min-height: 0;
   flex: 1;
+  order: 1;
   overflow-y: auto;
   padding: 7px 8px;
 }

@@ -69,10 +69,15 @@ import type { ChatParticipantProfile, UploadedChatFile } from '../types'
 import type { ChatMessage } from '../../../../../share/cache/render/aiagent/chatMessage'
 import type { ChatMessageDocumentDiffReference } from '../../../../../share/cache/render/aiagent/chatMessage'
 import type { WorldDocumentDiffHunk } from '@share/cache/worldbuilding/worldDocumentHistory'
+import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
 import {
   isSupportedChatImageUpload,
   type MainAgentUserMessageInput
 } from '../../../../../share/cache/AItype/states/mainAgentMessageContent'
+
+const props = defineProps<{
+  workspaceContext?: AgentWorkspaceContext
+}>()
 
 defineEmits<{
   (e: 'close'): void
@@ -281,9 +286,15 @@ const uploadClipboardImage = async (fileId: string, file: File): Promise<void> =
 const handleSend = async (): Promise<void> => {
   if (!canSendMessage.value) return
   shouldFollowMessages.value = true
+  const workspaceContext = props.workspaceContext
+    ? {
+        ...JSON.parse(JSON.stringify(props.workspaceContext)),
+        capturedAt: new Date().toISOString()
+      }
+    : agentWorkspaceContextService.snapshot()
   const input: MainAgentUserMessageInput = {
     text: userInput.value,
-    workspaceContext: agentWorkspaceContextService.snapshot(),
+    workspaceContext,
     files: uploadedFiles.value
       .filter((file) => file.status === 'uploaded' && file.resourceUrl)
       .map((file) => ({

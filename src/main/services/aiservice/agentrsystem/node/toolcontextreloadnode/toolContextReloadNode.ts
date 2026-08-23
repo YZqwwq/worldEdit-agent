@@ -1,19 +1,22 @@
 import { MessagesState } from '../../state/messageState'
 import { traceArtifact } from '../../../../log/trace/agentTraceEmitter'
-import type { ToolContextItem } from '../../state/messageState'
-
-const uniqueToolContextItems = (items: ToolContextItem[]): ToolContextItem[] => {
-  const byKey = new Map<string, ToolContextItem>()
-  for (const item of items) {
-    byKey.set(item.supersessionKey || item.toolCallId || item.id, item)
-  }
-  return [...byKey.values()]
-}
+import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
+import { withTurnLifecycleDraft } from '../../state/turnWorkspace'
+import { uniqueToolContextItems } from '../../state/toolContextCollection'
 
 export async function toolContextReloadNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
   const pending = state.pendingToolContext ?? []
+  const lifecycle = advanceTurnLifecycle(
+    state.turnLifecycle ?? state.turnWorkspace?.draft.lifecycle ?? {
+      phase: 'observing',
+      revision: 0,
+      updatedAt: new Date().toISOString()
+    },
+    'revising',
+    { observationBatch: pending.map((item) => item.toolCallId).join(':') || undefined }
+  )
 
   if (pending.length > 0) {
     traceArtifact('toolContextReloadNode', {
@@ -34,6 +37,10 @@ export async function toolContextReloadNode(
   }
 
   return {
+    turnLifecycle: lifecycle,
+    ...(state.turnWorkspace
+      ? { turnWorkspace: withTurnLifecycleDraft(state.turnWorkspace, lifecycle) }
+      : {}),
     // Promote the result before the next model step. The native transcript remains in
     // pendingToolContext until llmCall has consumed the paired AI/Tool messages.
     toolEvidenceContext: uniqueToolContextItems([

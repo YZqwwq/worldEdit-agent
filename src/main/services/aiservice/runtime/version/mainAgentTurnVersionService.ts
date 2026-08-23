@@ -73,7 +73,10 @@ class MainAgentTurnVersionService {
     })
   }
 
-  async prepareReadyToCommit(graphResult: MainAgentGraphTurnResult): Promise<void> {
+  async prepareReadyToCommit(
+    graphResult: MainAgentGraphTurnResult,
+    consumer: MainAgentReadyToCommitCandidate['consumer'] = 'chat_runtime'
+  ): Promise<void> {
     const context = this.runtime.getStore()
     if (!context) {
       throw new Error('Cannot prepare a final candidate outside an active turn context.')
@@ -92,7 +95,7 @@ class MainAgentTurnVersionService {
       eventId: context.eventId,
       turnId: context.turnId,
       sessionId: graphResult.workspace.sessionId,
-      consumer: 'chat_runtime',
+      consumer,
       status: 'completed',
       workspace: graphResult.workspace,
       finalResponse: graphResult.finalResponse

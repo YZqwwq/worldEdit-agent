@@ -73,6 +73,16 @@ const createState = (): typeof MessagesState.State =>
           completedAt: '2026-08-10T00:00:01.000Z'
         }
       ]
+    },
+    cognitiveState: {
+      objective: '读取文档',
+      understanding: '需要先取得正文，再判断人物的核心矛盾。',
+      provisionalStance: '暂时认为人物的克制比冷漠更重要。',
+      evidenceRefs: ['document:doc-1'],
+      unresolvedQuestions: [],
+      phase: 'revising',
+      revision: 2,
+      updatedAt: '2026-08-10T00:00:02.000Z'
     }
   }) as unknown as typeof MessagesState.State
 
@@ -161,6 +171,17 @@ test('turn graph snapshot restores messages, workspace and exact resume point', 
   assert.equal(restored.messages?.[0].content, '继续这个方案')
   assert.equal(restored.turnWorkspace?.eventId, 'event-1')
   assert.equal(restored.turnExecutionLedger?.actions[0].status, 'completed')
+  assert.equal(restored.cognitiveState?.revision, 2)
+  assert.equal(restored.cognitiveState?.provisionalStance, '暂时认为人物的克制比冷漠更重要。')
+})
+
+test('turn graph snapshot can resume at the cognition revision boundary', () => {
+  const restored = deserializeTurnGraphState(
+    serializeTurnGraphState({ messages: [], pendingToolContext: [] } as any),
+    'cognitionRevisionNode'
+  )
+
+  assert.equal(restored.resumeFromNode, 'cognitionRevisionNode')
 })
 
 test('completed tool actions are visible to rollback safety checks', () => {
@@ -314,6 +335,27 @@ test('startup reconciles only a committed Turn with a Final HEAD', () => {
       eventStatus: 'processing',
       turnStatus: 'completed',
       headKind: 'ready_to_commit'
+    }).action,
+    'fail_closed'
+  )
+})
+
+test('task notification recovery resumes only a ready-to-commit result', () => {
+  assert.equal(
+    resolveMainAgentTurnRecovery({
+      eventType: 'task_notification',
+      eventStatus: 'processing',
+      turnStatus: 'processing',
+      headKind: 'ready_to_commit'
+    }).action,
+    'resume_ready_commit'
+  )
+  assert.equal(
+    resolveMainAgentTurnRecovery({
+      eventType: 'task_notification',
+      eventStatus: 'processing',
+      turnStatus: 'processing',
+      headKind: 'checkpoint'
     }).action,
     'fail_closed'
   )

@@ -38,6 +38,14 @@ export class PersonaStateRecord {
   @Column({ type: 'text', default: '' })
   stablePreferencesJson!: string
 
+  // 用户协作偏好（从旧 stablePreferencesJson 迁移读取）
+  @Column({ type: 'text', default: '' })
+  interactionPreferencesJson!: string
+
+  // 操作策略慢速基线（从旧 stablePreferencesJson 的 risk_tolerance 迁移读取）
+  @Column({ type: 'text', default: '' })
+  operationalBaselineJson!: string
+
   // 会话激素层（JSON）
   @Column({ type: 'text', default: '' })
   sessionHormonesJson!: string

@@ -2,8 +2,7 @@ import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type {
   MainAgentEvent,
   MainAgentBackgroundPersonaStagePayload,
-  MainAgentUserMessagePayload,
-  MainAgentTaskNotificationEvent
+  MainAgentUserMessagePayload
 } from '@share/cache/AItype/states/taskLifecycleState'
 import { logError } from '../../../../share/utils/error/error'
 import { mainAgentDispatchService } from './queue/mainAgentDispatchQueueService'
@@ -11,11 +10,10 @@ import { mainAgentChatRuntimeService } from './mainAgentChatRuntimeService'
 import { mainAgentEffectApplierService } from './orchestration/mainAgentEffectApplierService'
 import { orchestrateMainAgentEvent } from './orchestration/mainAgentEventOrchestration'
 import { mainAgentLifecycleControlService } from './lifecycle/mainAgentLifecycleControlService'
-import { taskNotificationConsumerService } from './notification/taskNotificationConsumerService'
+import { taskNotificationConsumeNode } from './notification/nodes/taskNotificationConsumeNode'
 import { taskNotificationDispatchBridge } from './queue/taskNotificationDispatchBridge'
 import { mainAgentTurnService } from './mainAgentTurnService'
 import { taskNotificationService } from '../../task/taskNotificationService'
-import { interactionObservationService } from '../agentrsystem/manager/personal/interactionObservationService'
 import { mainAgentTurnVersionService } from './version/mainAgentTurnVersionService'
 
 class MainAgentEntryService {
@@ -82,8 +80,19 @@ class MainAgentEntryService {
         await mainAgentTurnService.markProcessing(turn.id)
         return { turnId: turn.id }
       },
-      controlUserMessage: (userEvent, runtimeOnChunk) =>
-        mainAgentLifecycleControlService.controlUserMessage(userEvent, runtimeOnChunk),
+      createTaskNotificationTurn: async ({ eventId, sessionId }) => {
+        const turn = await mainAgentTurnService.createTaskNotificationTurn({
+          eventId,
+          sessionId
+        })
+        const resumeFromHead =
+          turn.status === 'processing' &&
+          (await mainAgentTurnVersionService.getHeadKind(turn.id)) === 'ready_to_commit'
+        await mainAgentTurnService.markProcessing(turn.id)
+        return { turnId: turn.id, resumeFromHead }
+      },
+      controlUserMessage: (userEvent) =>
+        mainAgentLifecycleControlService.controlUserMessage(userEvent),
       runUserMessage: (
         eventId,
         turnId,
@@ -111,8 +120,18 @@ class MainAgentEntryService {
           sessionId,
           payload
         ),
-      consumeTaskNotification: (taskEvent) =>
-        this.consumeTaskNotificationEvent(taskEvent),
+      prepareTaskNotification: async (taskEvent) => {
+        const consumed = await taskNotificationConsumeNode.consume(taskEvent)
+        return consumed.kind === 'consumed' ? consumed.taskEvent : null
+      },
+      runTaskNotification: (eventId, turnId, sessionId, taskEvent, resumeFromHead) =>
+        mainAgentChatRuntimeService.runTaskNotification(
+          eventId,
+          turnId,
+          sessionId,
+          taskEvent,
+          resumeFromHead
+        ),
       applyEffects: (result) => mainAgentEffectApplierService.apply(result),
       completeTaskNotificationConsumption: (taskEvent) =>
         taskNotificationService
@@ -121,66 +140,11 @@ class MainAgentEntryService {
             taskEvent.payload.notificationId,
             taskEvent.id
           )
-          .then(async (result) => {
-            if (!result) {
-              return
-            }
-
-            const pendingContext =
-              result.payload.pendingContext &&
-              typeof result.payload.pendingContext === 'object' &&
-              !Array.isArray(result.payload.pendingContext)
-                ? result.payload.pendingContext
-                : {}
-
-            const entityNames = [
-              typeof pendingContext.targetCharacterName === 'string'
-                ? pendingContext.targetCharacterName
-                : null
-            ].filter((item): item is string => Boolean(item))
-
-            const worldNames = [
-              typeof pendingContext.targetWorldName === 'string'
-                ? pendingContext.targetWorldName
-                : null
-            ].filter((item): item is string => Boolean(item))
-
-            const observationType =
-              taskEvent.type === 'task_notification' && result.notification.type === 'subagent_completed'
-                ? 'task_completed'
-                : taskEvent.type === 'task_notification' &&
-                    result.notification.type === 'subagent_needs_input'
-                  ? 'task_needs_input'
-                  : taskEvent.type === 'task_notification' &&
-                      result.notification.type === 'subagent_cancelled'
-                    ? 'task_cancelled'
-                    : 'task_failed'
-
-            await interactionObservationService.record({
-              type: observationType,
-              source: 'task_queue',
-              summary: result.notice.message.slice(0, 160),
-              payload: {
-                taskId: result.activeTask.id,
-                taskTitle: result.activeTask.title,
-                taskStatus: result.activeTask.status,
-                notificationId: result.notification.id,
-                message: result.notice.message,
-                summary: result.payload.summary,
-                entityNames,
-                worldNames
-              }
-            })
-          }),
+          .then(() => undefined),
       logUserMessageError: (error) => logError('Error in stream:', error)
     }, { onChunk })
   }
 
-  private async consumeTaskNotificationEvent(
-    event: MainAgentTaskNotificationEvent
-  ) {
-    return taskNotificationConsumerService.consume(event)
-  }
 }
 
 export const mainAgentEntryService = new MainAgentEntryService()

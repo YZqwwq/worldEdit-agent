@@ -4,6 +4,7 @@ import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
 import type {
   MainAgentBackgroundPersonaStagePayload,
+  MainAgentTaskEvent,
   TaskLifecycleState
 } from '@share/cache/AItype/states/taskLifecycleState'
 import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
@@ -53,6 +54,150 @@ const readGraphTurnResult = (value: unknown): MainAgentGraphTurnResult | undefin
 }
 
 class MainAgentChatRuntimeService {
+  async runTaskNotification(
+    eventId: string,
+    turnId: number,
+    sessionId: string,
+    taskEvent: MainAgentTaskEvent,
+    resumeFromHead = false
+  ): Promise<MainAgentChatRuntimeResult> {
+    const runId = randomUUID()
+    const controller = mainAgentRunControlService.startRun({ eventId, turnId })
+    let fullText = ''
+    const restoredHead = resumeFromHead
+      ? await mainAgentTurnVersionService.loadHead(turnId)
+      : null
+    if (resumeFromHead && !restoredHead) {
+      throw new Error(`Recovering task notification turn ${turnId} has no restorable HEAD.`)
+    }
+    if (restoredHead?.kind === 'ready_to_commit') {
+      return {
+        fullText: restoredHead.candidate.finalResponse.content,
+        interrupted: false,
+        graphResult: {
+          workspace: restoredHead.candidate.workspace,
+          finalResponse: restoredHead.candidate.finalResponse
+        }
+      }
+    }
+    const restoredState = restoredHead?.kind === 'checkpoint' ? restoredHead.state : null
+    const restoredWorkspace = restoredState?.turnWorkspace
+    const [memorySlots, persona] = restoredWorkspace
+      ? [restoredWorkspace.base.memorySlots, restoredWorkspace.base.persona]
+      : await Promise.all([
+          memorySlotService.reconcileFromObservations(),
+          loadPersonaState()
+        ])
+    const observationType =
+      taskEvent.payload.outcome === 'completed'
+        ? 'task_completed'
+        : taskEvent.payload.outcome === 'needs_input'
+          ? 'task_needs_input'
+          : taskEvent.payload.outcome === 'cancelled'
+            ? 'task_cancelled'
+            : 'task_failed'
+    const baseWorkspace = restoredWorkspace ?? createTurnWorkspace({
+      eventId,
+      turnId,
+      sessionId,
+      runId,
+      memorySlots,
+      persona
+    })
+    const turnWorkspace = restoredWorkspace ?? withObservationDraft(baseWorkspace, {
+      id: (memorySlots.lastObservationId ?? 0) + 1,
+      type: observationType,
+      source: 'task_queue',
+      summary: taskEvent.payload.summary || taskEvent.notice.message,
+      payload: {
+        taskId: taskEvent.taskId,
+        notificationId: taskEvent.notificationId,
+        notificationType: taskEvent.notificationType,
+        outcome: taskEvent.payload.outcome,
+        message: taskEvent.payload.message,
+        details: taskEvent.payload.details
+      },
+      createdAt: new Date().toISOString()
+    })
+    const runtimeEventText = [
+      `子 Agent 返回了任务「${taskEvent.activeTask.title}」的执行事件。`,
+      `结果类型：${taskEvent.payload.outcome}`,
+      `摘要：${taskEvent.payload.summary || '(none)'}`,
+      `消息：${taskEvent.payload.message || '(none)'}`
+    ].join('\n')
+    let graphResult: MainAgentGraphTurnResult | undefined
+
+    try {
+      return await runWithTraceContext(runId, { turnId }, async () => {
+        await mainAgentTurnVersionService.runInTurn({ eventId, turnId }, async () => {
+          const graphInput = restoredState ?? {
+              messages: [
+                new HumanMessage({
+                  content: runtimeEventText,
+                  additional_kwargs: {
+                    isRuntimeEvent: true,
+                    runtimeEventKind: 'task_notification'
+                  }
+                })
+              ],
+              runtimeEvent: {
+                kind: 'task_notification',
+                taskEvent
+              },
+              turnInput: {
+                kind: 'task_notification' as const,
+                source: 'subagent' as const,
+                content: runtimeEventText,
+                occurredAt: new Date().toISOString(),
+                taskEvent
+              },
+              taskLifecycle: {
+                activeTask: taskEvent.activeTask,
+                notice: taskEvent.notice
+              },
+              turnWorkspace
+            }
+          const stream = await agent.streamEvents(
+            graphInput,
+            { version: 'v2', signal: controller.signal } as {
+              version: 'v2'
+              signal: AbortSignal
+            }
+          )
+          for await (const event of stream) {
+            if (
+              event.event === 'on_chat_model_stream' &&
+              event.metadata?.langgraph_node === 'expressionNode'
+            ) {
+              const chunk = event.data.chunk
+              if (chunk?.content) fullText += contentToText(chunk.content)
+            }
+            if (event.event === 'on_chain_end') {
+              graphResult = readGraphTurnResult(event.data?.output) ?? graphResult
+            }
+          }
+          if (controller.signal.aborted) {
+            throw new Error('Task notification turn was interrupted.')
+          }
+          if (!graphResult) {
+            throw new Error('Task notification turn completed without a final result.')
+          }
+          await mainAgentTurnVersionService.prepareReadyToCommit(
+            graphResult,
+            'task_notification_consumer'
+          )
+        })
+        return {
+          fullText: graphResult?.finalResponse?.content ?? fullText,
+          interrupted: false,
+          graphResult
+        }
+      })
+    } finally {
+      mainAgentRunControlService.finishRun(eventId)
+    }
+  }
+
   async runUserMessage(
     eventId: string,
     turnId: number,
@@ -137,6 +282,12 @@ class MainAgentChatRuntimeService {
                 )
               })
             ],
+            turnInput: {
+              kind: 'user_message' as const,
+              source: 'user' as const,
+              content: message,
+              occurredAt: userMessageCreatedAtIso
+            },
             taskLifecycle,
             workspaceContext,
             turnWorkspace
@@ -152,7 +303,7 @@ class MainAgentChatRuntimeService {
           for await (const event of stream) {
             if (
               event.event === 'on_chat_model_stream' &&
-              event.metadata?.langgraph_node === 'llmCall'
+              event.metadata?.langgraph_node === 'expressionNode'
             ) {
               const chunk = event.data.chunk
               if (chunk && chunk.content) {
@@ -255,7 +406,13 @@ class MainAgentChatRuntimeService {
                   }
                 })
               ],
-              backgroundPersonaStage: payload,
+              turnInput: {
+                kind: 'background_persona_stage' as const,
+                source: 'system' as const,
+                content: stageMessage,
+                occurredAt: new Date().toISOString(),
+                backgroundStage: payload
+              },
               turnWorkspace
             },
             { version: 'v2', signal: controller.signal } as {
@@ -267,7 +424,7 @@ class MainAgentChatRuntimeService {
           for await (const event of stream) {
             if (
               event.event === 'on_chat_model_stream' &&
-              event.metadata?.langgraph_node === 'llmCall'
+              event.metadata?.langgraph_node === 'expressionNode'
             ) {
               const chunk = event.data.chunk
               if (chunk && chunk.content) {

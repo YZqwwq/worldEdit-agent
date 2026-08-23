@@ -220,6 +220,44 @@ export class MemoryManager {
     })
   }
 
+  public async restoreCheckpointAtomically<T>(
+    checkpoint: MemoryCheckpoint,
+    transactionWork: (manager: EntityManager) => Promise<T>
+  ): Promise<T> {
+    await this.initialize()
+    return this.withLock(async () => {
+      const draft: MemoryCommitDraft = {
+        state: JSON.parse(JSON.stringify(checkpoint.state)) as StateData,
+        shortTerm: checkpoint.shortTerm.map((message) => ({ ...message })),
+        longTerm: JSON.parse(JSON.stringify(checkpoint.longTerm)) as MemoryLongTermSnapshot,
+        archiveBuffer: checkpoint.archiveBuffer.map((message) => ({ ...message })),
+        lastStageIndex: checkpoint.lastStageIndex,
+        lastArchivedAt: checkpoint.lastArchivedAt
+      }
+      draft.state.archive_threshold = RUNTIME_ARCHIVE_HARD_LIMIT
+      draft.state.archive_min_interval_ms ??= 0
+      draft.state.short_term_limit = RUNTIME_SHORT_TERM_LIMIT
+
+      const result = await AppDataSource.transaction(async (manager) => {
+        await memoryStageService.deleteAfterStageIndex(
+          draft.state.session_id,
+          draft.lastStageIndex,
+          manager
+        )
+        await this.saveDraftWithManager(manager, draft)
+        return transactionWork(manager)
+      })
+
+      this.state = draft.state
+      this.shortTerm = draft.shortTerm
+      this.longTerm = draft.longTerm
+      this.archiveBuffer = draft.archiveBuffer
+      this.lastStageIndex = draft.lastStageIndex
+      this.lastArchivedAt = draft.lastArchivedAt
+      return result
+    })
+  }
+
   public async archivePendingIfNeeded(): Promise<void> {
     await this.initialize()
     await this.withLock(async () => {

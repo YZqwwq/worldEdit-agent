@@ -2,6 +2,18 @@ import type { MemorySlotSnapshot } from './memorySlots'
 import type { PersonaState } from './personalState'
 import type { InteractionObservationSnapshot } from './interactionObservation'
 import type { ToolChangeSetSummary } from './toolEffect'
+import type { TurnLifecycleState } from './turnLifecycle'
+import type { SelfExperienceDraft, TurnExperienceIntent } from './selfModel'
+
+export type ExpressionAffect =
+  | 'natural'
+  | 'bright'
+  | 'tender'
+  | 'melancholic'
+  | 'concerned'
+  | 'tense'
+  | 'firm'
+  | 'irritated'
 
 export type TurnWorkspaceMemoryMessage = {
   role: 'user' | 'ai'
@@ -11,6 +23,44 @@ export type TurnWorkspaceMemoryMessage = {
 export type MainAgentFinalResponse = {
   messageId: string
   content: string
+}
+
+export type TurnCognitiveState = {
+  objective: string
+  understanding: string
+  selfPosition?: string
+  personalMeaning?: string
+  provisionalStance?: string
+  knowledgeGap?: string
+  nextObservationGoal?: string
+  lastEvidenceImpact?: 'supports' | 'refines' | 'contradicts' | 'insufficient' | 'irrelevant'
+  previousUnderstanding?: string
+  evidenceRefs: string[]
+  unresolvedQuestions: string[]
+  phase: 'forming' | 'observing' | 'revising' | 'ready'
+  revision: number
+  updatedAt: string
+}
+
+export type ResponseOrientation = {
+  mode: 'conversation' | 'answer' | 'opinion' | 'result' | 'clarification'
+  coreResponse: string
+  selfPosition: string
+  personalMeaning?: string
+  expressionAffect: ExpressionAffect
+  stance?: string
+  basis?: string[]
+  relationalIntent?:
+    | 'share_reaction'
+    | 'answer_directly'
+    | 'challenge'
+    | 'support'
+    | 'invite_discussion'
+    | 'report_result'
+  selectedPoints: string[]
+  uncertainty?: string
+  depth: 'brief' | 'normal' | 'expanded'
+  experienceIntent?: TurnExperienceIntent
 }
 
 export type TurnWorkspaceDurableToolReceipt = {
@@ -49,6 +99,10 @@ export type TurnWorkspace = {
   base: {
     memorySlots: MemorySlotSnapshot
     persona: PersonaState | null
+    identityAnchor?: {
+      prompt: string
+      capturedAt: string
+    }
   }
   draft: {
     memorySlots?: MemorySlotSnapshot
@@ -58,6 +112,10 @@ export type TurnWorkspace = {
     durableToolReceipts: TurnWorkspaceDurableToolReceipt[]
     changeSet?: ToolChangeSetSummary
     observations: InteractionObservationSnapshot[]
+    cognitiveState?: TurnCognitiveState
+    responseOrientation?: ResponseOrientation
+    lifecycle?: TurnLifecycleState
+    selfExperience?: SelfExperienceDraft
   }
 }
 
@@ -71,7 +129,7 @@ export type MainAgentReadyToCommitCandidate = {
   eventId: string
   turnId: number
   sessionId: string
-  consumer: 'chat_runtime'
+  consumer: 'chat_runtime' | 'task_notification_consumer'
   status: 'completed'
   workspace: TurnWorkspace
   finalResponse: MainAgentFinalResponse

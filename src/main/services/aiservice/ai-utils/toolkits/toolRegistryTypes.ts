@@ -24,7 +24,6 @@ export type ToolActivationState = {
   quickTools?: string[]
   toolCallCounts?: Record<string, number>
   taskLifecycle?: TaskLifecycleState
-  toolLoopFinalizing?: boolean
 }
 
 export type ToolsetRegistryEntry = {

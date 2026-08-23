@@ -4,7 +4,7 @@
       v-for="message in messages"
       :key="message.id"
       :message="message"
-      :participant="participants?.[message.sender]"
+      :participant="message.sender === 'system' ? undefined : participants?.[message.sender]"
       :can-revert="message.id === revertibleMessageId"
       :document-diff-locatable="documentDiffLocatable"
       @edit-avatar="$emit('edit-avatar', $event)"
@@ -25,7 +25,7 @@ import type { WorldDocumentDiffHunk } from '@share/cache/worldbuilding/worldDocu
 import type { ChatParticipantProfile } from '../types'
 
 defineEmits<{
-  (e: 'edit-avatar', sender: ChatSender): void
+  (e: 'edit-avatar', sender: Exclude<ChatSender, 'system'>): void
   (e: 'revert-message', message: ChatMessage): void
   (e: 'document-diff-locate', payload: {
     reference: ChatMessageDocumentDiffReference
@@ -35,7 +35,7 @@ defineEmits<{
 
 defineProps<{
   messages: ChatMessage[]
-  participants?: Partial<Record<ChatSender, ChatParticipantProfile>>
+  participants?: Partial<Record<Exclude<ChatSender, 'system'>, ChatParticipantProfile>>
   revertibleMessageId?: number
   documentDiffLocatable?: boolean
 }>()

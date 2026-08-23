@@ -6,7 +6,8 @@ import { getObservationText } from './personaObservationUtils'
 export interface MoodAppraisalPromptInput {
   moodPrompt: string
   observations: InteractionObservationSnapshot[]
-  currentUserText: string
+  currentEventText: string
+  eventSource: 'user' | 'subagent' | 'system'
   recentHistory: RecentDialogueMessage[]
   previousMood?: MoodAssessment | null | undefined
 }
@@ -42,13 +43,15 @@ const buildPreviousStateDigest = (mood: MoodAssessment | null | undefined): stri
 export const buildMoodAppraisalPrompt = (input: MoodAppraisalPromptInput): string =>
   `你是 Agent 情感系统中的事件评价器。
 
-你只评价当前用户消息以及用户产生的交互事件。工具调用、任务执行状态和系统能力不属于你的判断范围。
+你评价当前 Turn 输入对 Agent 的意义。输入可能来自用户、子 Agent 或系统，但它们都只是本轮事件，不是不同的认知流程。
 
 评价规则：
 ${input.moodPrompt.trim() || '(empty)'}
 
-当前用户消息（本轮唯一的新语言事件）：
-${input.currentUserText.trim() || '(none)'}
+当前事件来源：${input.eventSource}
+
+当前事件（本轮唯一的新语言事件）：
+${input.currentEventText.trim() || '(none)'}
 
 近期对话背景（只用于理解指代和关系连续性，不作为新事件重复评价）：
 ${input.recentHistory.length ? JSON.stringify(input.recentHistory) : '(none)'}
@@ -82,6 +85,7 @@ ${buildPreviousStateDigest(input.previousMood)}
 4. 不从“暂未看到方案”推断 Agent 没有能力。
 5. 普通请求通常是 neutral；不要为了产生情绪而夸大评价。
 6. 只输出一个 JSON 对象，不解释，不输出 Markdown。
+7. 只有来源为 user 时才评价 userState 和用户关系影响。来源为 subagent 或 system 时，userState 必须为 {"mood":"calm","valence":0,"confidence":0}，relationshipImpact 必须为 0；这类事件仍可通过其他事件字段影响 Agent 自身评价。
 
 输出：
 {"userState":{"mood":"calm","valence":0,"confidence":0.5},"eventKind":"neutral","valence":0,"salience":1,"novelty":0,"futureProspect":0,"agency":"unknown","normImpact":0,"relationshipImpact":0,"controlSignal":"unknown","confidence":1}`

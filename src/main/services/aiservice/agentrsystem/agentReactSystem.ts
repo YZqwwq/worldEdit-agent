@@ -9,10 +9,15 @@ import { instantPerceptionNode } from './node/instantperceptionnode/instantPerce
 import { shouldContinue } from './endlogic/shouldContinue'
 import { withNodeTrace } from '../../log/trace/withNodeTrace'
 import { withTurnVersionBoundary } from './execution/withTurnVersionBoundary'
+import { expressionNode } from './node/expressionnode/expressionNode'
+import { cognitionRevisionNode } from './node/cognitionrevisionnode/cognitionRevisionNode'
 
 const versionedNode = <TResult>(
   name: Parameters<typeof withTurnVersionBoundary>[0],
-  node: (state: typeof MessagesState.State) => Promise<TResult>
+  node: (
+    state: typeof MessagesState.State,
+    config?: { signal?: AbortSignal }
+  ) => Promise<TResult>
 ) => withTurnVersionBoundary(name, withNodeTrace(name, node))
 
 const routeTurnStart = (state: typeof MessagesState.State) =>
@@ -23,23 +28,27 @@ export const agent = new StateGraph(MessagesState)
   .addNode('instantPerceptionNode', versionedNode('instantPerceptionNode', instantPerceptionNode))
   .addNode('contextNode', versionedNode('contextNode', contextNode)) // 添加 context 节点
   .addNode('llmCall', versionedNode('llmCall', llmCall))
+  .addNode('expressionNode', versionedNode('expressionNode', expressionNode))
   .addNode('toolNode', versionedNode('toolNode', toolNode))
   .addNode('toolContextReloadNode', versionedNode('toolContextReloadNode', toolContextReloadNode))
+  .addNode('cognitionRevisionNode', versionedNode('cognitionRevisionNode', cognitionRevisionNode))
   .addNode('memoryNode', versionedNode('memoryNode', memoryNode)) // 添加 memory 节点
   .addConditionalEdges(START, routeTurnStart, [
     'instantPerceptionNode',
     'contextNode',
     'llmCall',
+    'expressionNode',
     'toolNode',
     'toolContextReloadNode',
+    'cognitionRevisionNode',
     'memoryNode'
   ])
   .addEdge('instantPerceptionNode', 'contextNode')
   .addEdge('contextNode', 'llmCall') // 从 contextNode -> llmCall
-  // llmCall 的条件分支：如果有 ToolCall -> toolNode；否则 -> memoryNode
-  // 注意：shouldContinue 在异常情况下可能返回 END，所以映射中包含 END
-  .addConditionalEdges('llmCall', shouldContinue, ['toolNode', 'memoryNode', END])
+  .addConditionalEdges('llmCall', shouldContinue, ['llmCall', 'toolNode', 'expressionNode'])
   .addEdge('toolNode', 'toolContextReloadNode')
-  .addEdge('toolContextReloadNode', 'llmCall')
+  .addEdge('toolContextReloadNode', 'cognitionRevisionNode')
+  .addEdge('cognitionRevisionNode', 'llmCall')
+  .addEdge('expressionNode', 'memoryNode')
   .addEdge('memoryNode', END) // memoryNode -> END
   .compile()

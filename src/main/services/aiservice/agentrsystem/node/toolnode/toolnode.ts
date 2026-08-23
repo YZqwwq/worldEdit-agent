@@ -33,9 +33,7 @@ import {
   appendTurnExecutionAction,
   createTurnExecutionAction,
   createTurnExecutionLedger,
-  findBlockedUnchangedInvocation,
-  markTurnForFinalization,
-  shouldFinalizeToolLoop
+  findBlockedUnchangedInvocation
 } from '../../execution/turnExecutionLifecycle'
 import {
   withDurableToolReceipt,
@@ -420,79 +418,12 @@ export async function toolNode(
   const activatedToolsets: string[] = []
   const activatedTools: string[] = []
   let toolCallCounts = { ...(state.toolCallCounts ?? {}) }
-  let repeatedInvalidInvocationCount = 0
   let executionLedger = state.turnExecutionLedger ?? createTurnExecutionLedger('处理当前用户请求')
   let nextWorkspace = state.turnWorkspace
   const recordExecution = (input: Parameters<typeof createTurnExecutionAction>[0]): void => {
     executionLedger = appendTurnExecutionAction(executionLedger, createTurnExecutionAction(input))
   }
 
-  if (shouldFinalizeToolLoop(executionLedger)) {
-    const guardMessage =
-      '本轮工具行动已经超过正常连续决策范围。不要继续调用工具；请依据本轮执行账本和已有证据形成受限但诚实的最终回答。'
-    for (const toolCall of msg.tool_calls) {
-      const actionId = randomUUID()
-      const toolCallId = toolCall.id ?? actionId
-      if (toolCall.id) {
-        const toolMessage = createToolMessage({
-          content: JSON.stringify({
-            ok: false,
-            toolName: toolCall.name,
-            error: {
-              code: 'TOOL_LOOP_FINALIZATION',
-              message: guardMessage
-            }
-          }),
-          toolCallId,
-          name: toolCall.name,
-          status: 'error'
-        })
-        toolMessages.push(toolMessage)
-        if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
-        pendingToolContext.push({
-          id: randomUUID(),
-          toolCallId,
-          transcriptMessageIds: [lastMessage.id, toolMessage.id].filter(
-            (id): id is string => typeof id === 'string' && id.length > 0
-          ),
-          toolName: toolCall.name,
-          retention: 'ephemeral',
-          ok: false,
-          argsSummary: stringifyCompact(toolCall.args ?? {}),
-          resultSummary: guardMessage,
-          createdAtLoop: state.llmCalls ?? 0
-        })
-      }
-      recordExecution({
-        actionId,
-        toolCallId,
-        toolName: toolCall.name,
-        args: toolCall.args,
-        ok: false,
-        status: 'cancelled',
-        summary: '运行时取消了新的工具行动，并进入本轮异常收尾。',
-        startedAt: new Date().toISOString(),
-        fallbackRetryable: false
-      })
-    }
-    executionLedger = markTurnForFinalization(executionLedger)
-    traceDecision('toolNode', {
-      title: '决策: 工具循环进入异常收尾',
-      summary: `modelStep=${executionLedger.modelStep}，取消 ${msg.tool_calls.length} 个新工具调用`,
-      data: {
-        modelStep: executionLedger.modelStep,
-        actionCount: executionLedger.actions.length,
-        cancelledTools: msg.tool_calls.map((call: { name: string }) => call.name)
-      }
-    })
-    return {
-      messages: toolMessages,
-      pendingToolContext,
-      activeToolTranscriptIds: [...new Set(activeToolTranscriptIds)],
-      turnExecutionLedger: executionLedger,
-      toolLoopFinalizing: true
-    }
-  }
   // 遍历工具组执行调用
   for (const toolCall of msg.tool_calls) {
     const actionId = randomUUID()
@@ -744,7 +675,6 @@ export async function toolNode(
       toolCall.args
     )
     if (blockedInvocation) {
-      repeatedInvalidInvocationCount += 1
       const content = JSON.stringify(
         {
           ok: false,
@@ -1331,12 +1261,6 @@ export async function toolNode(
     })
   }
 
-  const finalizeRepeatedInvalidInvocation =
-    repeatedInvalidInvocationCount > 0 && repeatedInvalidInvocationCount === msg.tool_calls.length
-  if (finalizeRepeatedInvalidInvocation) {
-    executionLedger = markTurnForFinalization(executionLedger, 'repeated_invalid_action')
-  }
-
   const successfulToolNames = executedTools
     .filter((tool) => tool.ok !== false)
     .map((tool) => String(tool.name))
@@ -1355,7 +1279,6 @@ export async function toolNode(
     activeTools: [...new Set(activatedTools)],
     toolCallCounts,
     turnExecutionLedger: executionLedger,
-    toolLoopFinalizing: finalizeRepeatedInvalidInvocation,
     ...(nextWorkspace ? { turnWorkspace: nextWorkspace } : {})
   }
 }

@@ -36,12 +36,14 @@ export const agentWorkspaceContextService = {
     const routeName = String(route.name || 'Unknown')
     const worldId = routeParam(route, 'worldId')
     const entityId = routeParam(route, 'entityId')
+    const documentId = routeParam(route, 'documentId')
     currentContext.value = {
       pageKind: routePageKinds[routeName] || 'other',
       routeName,
       capturedAt: new Date().toISOString(),
       world: worldId ? { id: worldId } : undefined,
-      entity: entityId ? { id: entityId } : undefined
+      entity: entityId ? { id: entityId } : undefined,
+      document: documentId ? { id: documentId } : undefined
     }
   },
 

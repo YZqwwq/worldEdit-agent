@@ -284,15 +284,21 @@ class WorldEntityDocumentService {
       if (input.contentFormat !== undefined && input.contentFormat !== 'html') {
         throw new Error(`Unsupported document content format: ${input.contentFormat}`)
       }
+      const nextTitle =
+        input.title !== undefined ? normalizeDocumentTitle(input.title) : document.title
+      const nextContentHtml =
+        input.contentHtml !== undefined
+          ? normalizeContentHtml(input.contentHtml)
+          : document.contentHtml
+      if (nextTitle === document.title && nextContentHtml === document.contentHtml) {
+        return toPayload(document)
+      }
       await ensureWorldDocumentHistoryBranchWithManager(manager, document.worldId)
       const updateResult = await documentRepo.update(
         { id: document.id, revision: expectedRevision },
         {
-          title: input.title !== undefined ? normalizeDocumentTitle(input.title) : document.title,
-          contentHtml:
-            input.contentHtml !== undefined
-              ? normalizeContentHtml(input.contentHtml)
-              : document.contentHtml,
+          title: nextTitle,
+          contentHtml: nextContentHtml,
           contentFormat: 'html',
           revision: expectedRevision + 1
         }

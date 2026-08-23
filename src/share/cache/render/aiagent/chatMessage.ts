@@ -3,7 +3,7 @@ import type { MainAgentMessageFileMediaType } from '../../AItype/states/mainAgen
 import type { MainAgentMessageStatus } from '../../AItype/states/mainAgentTurnState'
 import type { AgentArtifactKind } from '../../AItype/states/agentArtifact'
 
-export type ChatSender = 'user' | 'ai'
+export type ChatSender = 'user' | 'ai' | 'system'
 
 export interface ChatMessageAttachment {
   fileId: string

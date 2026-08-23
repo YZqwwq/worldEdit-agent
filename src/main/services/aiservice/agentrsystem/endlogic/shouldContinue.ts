@@ -1,63 +1,24 @@
-import { AIMessage } from '@langchain/core/messages'
-import { END } from '@langchain/langgraph'
 import { MessagesState } from '../state/messageState'
 import { traceDecision } from '../../../log/trace/agentTraceEmitter'
 
+const ROUTES = {
+  deliberate: 'llmCall',
+  execute_tools: 'toolNode',
+  express: 'expressionNode'
+} as const
+
 export async function shouldContinue(
   state: typeof MessagesState.State
-): Promise<string | typeof END> {
-  const lastMessage = state.messages.at(-1)
-
-  if (lastMessage == null) return END // 这里可能需要改为 memoryNode？如果没消息也需要归档吗？通常不会发生。
-
-  // Check if it's an AI message (AIMessage or AIMessageChunk)
-  // Using loose check for robustness against version mismatches or Chunk types
-  const isAIMessage = lastMessage instanceof AIMessage || lastMessage.constructor.name === 'AIMessageChunk' || lastMessage._getType() === 'ai'
-  
-  if (!isAIMessage) {
-    return END
+): Promise<(typeof ROUTES)[keyof typeof ROUTES]> {
+  const directive = state.loopDirective
+  if (!directive) {
+    throw new Error('llmCall must commit a loopDirective before routing.')
   }
-
-  // Cast to any to access tool_calls safely if types don't align perfectly
-  const msg = lastMessage as any
-
-  // If the LLM makes a tool call, then perform an action
-  // 检查最后一条消息是否包含工具调用，如果不包含则结束。
-  if (msg.tool_calls?.length) {
-    if (state.toolLoopFinalizing) {
-      traceDecision('shouldContinue', {
-        title: '决策: 异常收尾停止工具路由',
-        summary: '无工具模式仍收到工具调用，route=memoryNode',
-        data: {
-          toolCallCount: msg.tool_calls.length,
-          route: 'memoryNode',
-          reason: 'tool_loop_finalizing'
-        }
-      })
-      return 'memoryNode'
-    }
-    traceDecision('shouldContinue', {
-      title: '决策: shouldContinue 路由',
-      summary: `route=toolNode，toolCalls=${msg.tool_calls.length}`,
-      data: {
-        lastMessageType: lastMessage.constructor.name,
-        toolCallCount: msg.tool_calls.length,
-        route: 'toolNode'
-      }
-    })
-    return 'toolNode'
-  }
-
+  const route = ROUTES[directive]
   traceDecision('shouldContinue', {
-    title: '决策: shouldContinue 路由',
-    summary: 'route=memoryNode',
-    data: {
-      lastMessageType: lastMessage.constructor.name,
-      toolCallCount: 0,
-      route: 'memoryNode'
-    }
+    title: '决策: Agent Loop 路由',
+    summary: `${directive} -> ${route}`,
+    data: { directive, route }
   })
-  // Otherwise, we stop (reply to the user)
-  // 改为跳转到 memoryNode 进行记忆管理
-  return 'memoryNode'
+  return route
 }

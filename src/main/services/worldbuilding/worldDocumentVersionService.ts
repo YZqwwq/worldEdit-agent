@@ -531,6 +531,18 @@ export const commitWorldDocumentChangeSetWithManager = async (
     let parent = branch.headCommitId
       ? await manager.getRepository(WorldDocumentCommitRecord).findOneBy({ id: branch.headCommitId })
       : null
+    if (parent && changeSetId.startsWith('human:')) {
+      const otherHumanChanges = await changeRepository
+        .createQueryBuilder('change')
+        .where('change.worldId = :worldId', { worldId })
+        .andWhere('change.status = :status', { status: 'staged' })
+        .andWhere('change.changeSetId != :changeSetId', { changeSetId })
+        .andWhere('change.changeSetId LIKE :humanPrefix', { humanPrefix: 'human:%' })
+        .getCount()
+      if (otherHumanChanges > 0) {
+        throw new Error('当前世界存在其他未同步的人类编辑，请刷新工作区后再 commit。')
+      }
+    }
 
     let commitDocuments: Map<string, RestorableDocument>
     if (parent) {
@@ -852,6 +864,13 @@ export const restoreWorldDocumentCommitWithManager = async (
     : null
   if (!head || head.id !== input.expectedHeadCommitId) {
     throw new WorldDocumentHistoryConflictError(input.expectedHeadCommitId, head?.id ?? '')
+  }
+  const pendingChanges = await manager.getRepository(WorldDocumentChangeRecord).countBy({
+    worldId: target.worldId,
+    status: 'staged'
+  })
+  if (pendingChanges > 0) {
+    throw new Error('当前工作区存在未提交变更，请先 commit 后再恢复版本。')
   }
 
   const desired = await readTreeDocuments(manager, target.worldId, target.rootTreeHash)

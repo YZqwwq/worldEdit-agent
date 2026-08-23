@@ -48,7 +48,7 @@ export const resolveMainAgentTurnRecovery = (
       }
     }
     if (
-      state.eventType === 'user_message' &&
+      (state.eventType === 'user_message' || state.eventType === 'task_notification') &&
       state.turnStatus === 'processing' &&
       state.headKind === 'ready_to_commit'
     ) {

@@ -1,13 +1,22 @@
 // 人格指标：数值引擎层，用于行为控制与平滑演化
-export interface PersonaMetrics {
-  // 自主性：0(完全询问) -> 1(完全自主)
+// 用户希望与 Agent 如何协作。它不是 Self Core，也不代表人格价值。
+export interface InteractionPreference {
+  // 用户授权倾向：0(更常询问) -> 1(更常委托)
   autonomy_level: number
-  // 冗长度：0(只给代码/结论) -> 1(详细长文)
+  // 回应展开程度：0(简短) -> 1(详细)
   verbosity_index: number
-  // 风险偏好：0(保守) -> 1(高风险探索)
-  risk_tolerance: number
-  // 正式度：0(随意简短) -> 1(礼貌正式)
+  // 表达正式度：0(自然口语) -> 1(正式)
   formality_score: number
+}
+
+// 供本轮行动策略使用的慢速操作倾向，不属于稳定人格。
+export interface OperationalBaseline {
+  risk_tolerance: number
+}
+
+// 编译后的兼容指标：只作为本轮策略和表达 Prompt 的输入，不作为人格存储层。
+export interface PersonaMetrics extends InteractionPreference {
+  risk_tolerance: number
 }
 
 export interface PersonaMetricDelta {
@@ -33,8 +42,10 @@ export interface PersonaState {
   persona_id: string
   // 最近更新时间（ISO）
   last_updated: string
-  // 稳定偏好层：长期慢变量
-  stable_preferences: PersonaMetrics
+  // 用户协作偏好：可适配，但不改变 Self Core
+  interaction_preferences: InteractionPreference
+  // 操作策略的慢速基线：不注入人格锚点
+  operational_baseline: OperationalBaseline
   // 会话激素层：中期波动
   session_hormones: PersonaMetricDelta
   // 瞬时状态层：短期快变量

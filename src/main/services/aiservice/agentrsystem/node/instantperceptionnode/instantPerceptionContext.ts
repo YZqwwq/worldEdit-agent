@@ -9,7 +9,8 @@ export type RecentDialogueMessage = {
 }
 
 export type InstantPerceptionContext = {
-  currentUserText: string
+  currentEventText: string
+  source: 'user' | 'subagent' | 'system'
   recentHistory: RecentDialogueMessage[]
 }
 
@@ -23,7 +24,8 @@ const compact = (value: string, max = 420): string => {
   return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`
 }
 
-const getCurrentUserText = (state: typeof MessagesState.State): string => {
+const getCurrentEventText = (state: typeof MessagesState.State): string => {
+  if (state.turnInput) return state.turnInput.content.trim()
   const message = state.messages
     .slice()
     .reverse()
@@ -34,7 +36,7 @@ const getCurrentUserText = (state: typeof MessagesState.State): string => {
 export const buildInstantPerceptionContext = async (
   state: typeof MessagesState.State
 ): Promise<InstantPerceptionContext> => {
-  const currentUserText = getCurrentUserText(state)
+  const currentEventText = getCurrentEventText(state)
   const snapshot = await memoryManager.getSnapshot()
   const recentHistory = snapshot.shortTerm
     .slice(-RECENT_DIALOGUE_MESSAGE_LIMIT)
@@ -47,7 +49,8 @@ export const buildInstantPerceptionContext = async (
     .filter((message) => message.text.length > 0)
 
   return {
-    currentUserText,
+    currentEventText,
+    source: state.turnInput?.source ?? 'user',
     recentHistory
   }
 }

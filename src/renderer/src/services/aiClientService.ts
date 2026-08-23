@@ -180,6 +180,7 @@ function handleStreamChunk(chunk: StreamChunk): void {
       break
 
     case 'stream_error':
+      msg.sender = chunk.sender
       msg.text =
         msg.text === '正在思考中...' || !msg.text.trim()
           ? chunk.message || '模型超时，未收到回复。'
@@ -187,6 +188,7 @@ function handleStreamChunk(chunk: StreamChunk): void {
       isLoading.value = false
       setAgentStage(null)
       cleanupListener()
+      if (chunk.persisted) void refreshHistory()
       break
 
     case 'interrupted':

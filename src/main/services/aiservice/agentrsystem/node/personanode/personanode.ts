@@ -28,7 +28,7 @@ import {
  *
  * personaNode 仍然是 AI 人格侧的统一入口，内部按职责委托给：
  * - personaEvolutionService: 从观测更新长期/会话/瞬时人格参数。
- * - moodAppraisalService: 只评价用户消息和用户交互事件。
+ * - moodAppraisalService: 评价当前 Turn 输入对 Agent 的意义。
  * - emotionDynamicsCompiler: 负责情绪刺激、惯性、衰减和状态投影。
  * - moodDynamicsBoundary: 将原始情绪裁剪回角色稳定边界。
  * - personaPolicyCompiler: 编译本轮采样、工具、行动和记忆策略。
@@ -67,15 +67,25 @@ export async function personaNode(
     title: '输入快照: personaNode',
     summary: `观测 ${observations.length} 条，用户情绪=${slots.user_mood.current_mood || 'none'}`,
     data: {
-      personaState,
-      config,
-      moodPrompt,
-      expressionProfile,
-      previousMood: slots.ai_mood.current ?? null,
-      observations,
-      slots,
+      personaId: personaState.persona_id,
+      personaUpdatedAt: personaState.last_updated,
+      observationCount: observations.length,
+      observationTypes: observations.map((observation) => observation.type),
+      lastObservationId: slots.lastObservationId,
+      userMood: slots.user_mood,
+      previousMood: slots.ai_mood.current
+        ? {
+            primaryEmotion: slots.ai_mood.current.primaryEmotion,
+            secondaryEmotion: slots.ai_mood.current.secondaryEmotion,
+            intensity: slots.ai_mood.current.intensity,
+            generatedAt: slots.ai_mood.current.generatedAt
+          }
+        : null,
       workspaceProfile: workspaceProfile?.id ?? null,
-      sceneCharacter: sceneCharacter ?? null
+      sceneCharacter: sceneCharacter?.id ?? null,
+      expressionProfile: expressionProfile.id,
+      moodPromptChars: moodPrompt.length,
+      configuredSignalRuleCount: config.signalRules.length
     }
   })
 
@@ -84,8 +94,9 @@ export async function personaNode(
     .reverse()
     .find(
       (observation) =>
+        perceptionContext.source === 'user' &&
         observation.type === 'user_message' &&
-        getObservationText(observation).trim() === perceptionContext.currentUserText.trim()
+        getObservationText(observation).trim() === perceptionContext.currentEventText.trim()
     )
 
   const reconciled = await reconcilePersonaState({
@@ -93,7 +104,7 @@ export async function personaNode(
     observations,
     slots,
     config,
-    signalContext: contextualUserObservation
+    signalContext: perceptionContext.source === 'user' && contextualUserObservation
       ? {
           observationId: contextualUserObservation.id,
           recentDialogue: perceptionContext.recentHistory
@@ -106,7 +117,8 @@ export async function personaNode(
   const appraisal = await inferMoodAppraisal({
     moodPrompt,
     observations,
-    currentUserText: perceptionContext.currentUserText,
+    currentEventText: perceptionContext.currentEventText,
+    eventSource: perceptionContext.source,
     recentHistory: perceptionContext.recentHistory,
     previousMood: slots.ai_mood.current
   })
@@ -131,11 +143,14 @@ export async function personaNode(
 
   const nextSlots = {
     ...slots,
-    user_mood: projectUserMoodSlot(appraisal, {
-      observationId: contextualUserObservation?.id ?? slots.lastObservationId + 1,
-      retentionObservations: config.slot.userMoodRetentionObservations,
-      nowIso
-    }),
+    user_mood:
+      perceptionContext.source === 'user'
+        ? projectUserMoodSlot(appraisal, {
+            observationId: contextualUserObservation?.id ?? slots.lastObservationId + 1,
+            retentionObservations: config.slot.userMoodRetentionObservations,
+            nowIso
+          })
+        : slots.user_mood,
     ai_mood: {
       current: moodAssessment,
       updatedAt: moodAssessment.generatedAt
@@ -182,7 +197,7 @@ export async function personaNode(
         summary: expressionProfile.summary
       },
       sampling: policy.sampling,
-      action: policy.action
+      cognition: policy.cognition
     }
   })
 

@@ -69,7 +69,7 @@ export interface AgentStageChunk {
 
 export type StreamChunk =
   | { type: 'text_delta'; content: string } // 文本增量
-  | { type: 'stream_error'; message: string } // 传输层错误信息（与内容层 ErrorPart 区分）
+  | { type: 'stream_error'; message: string; sender: 'system'; persisted: boolean } // 独立系统故障通知
   | { type: 'interrupted'; fullContent: AIContentPart[] }
   | { type: 'agent_trace'; record: AgentTraceRecord } // 结构化节点日志
   | AgentStageChunk // 面向用户的执行阶段提示

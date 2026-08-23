@@ -7,12 +7,12 @@ export class Message {
   @PrimaryGeneratedColumn()
   id!: number
 
-  // 角色：用户或 AI
+  // 角色：用户、AI 主体或独立系统通知
   @Column({
     type: 'text', // SQLite 中 text 类型兼容性最好
     nullable: false
   })
-  role!: 'user' | 'ai'
+  role!: 'user' | 'ai' | 'system'
 
   // 消息内容
   @Column({

@@ -34,6 +34,7 @@ import { WorldDocumentBranchRecord } from '../../share/entity/database/WorldDocu
 import { WorldDocumentIntegrityCacheRecord } from '../../share/entity/database/WorldDocumentIntegrityCacheRecord'
 import { AgentWorldCognitionSpaceRecord } from '../../share/entity/database/AgentWorldCognitionSpaceRecord'
 import { AgentWorldCognitionNodeRecord } from '../../share/entity/database/AgentWorldCognitionNodeRecord'
+import { SelfExperienceRecord } from '../../share/entity/database/SelfExperienceRecord'
 
 export const applicationEntities = [
   Message,
@@ -70,6 +71,7 @@ export const applicationEntities = [
   WorldDocumentIntegrityCacheRecord,
   AgentWorldCognitionSpaceRecord,
   AgentWorldCognitionNodeRecord,
+  SelfExperienceRecord,
   CharacterImpressionRecord,
   ToolUsageStatsRecord
 ]

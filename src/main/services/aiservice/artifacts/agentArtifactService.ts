@@ -144,8 +144,8 @@ class AgentArtifactService {
     return records.length > 0 ? repo.save(records) : []
   }
 
-  async revertTurnArtifacts(turnId: number): Promise<void> {
-    const repo = AppDataSource.getRepository(AgentArtifactRecord)
+  async revertTurnArtifacts(turnId: number, manager?: EntityManager): Promise<void> {
+    const repo = manager?.getRepository(AgentArtifactRecord) ?? AppDataSource.getRepository(AgentArtifactRecord)
     const records = await repo.find({ where: { turnId } })
     for (const record of records) {
       record.status = 'reverted'

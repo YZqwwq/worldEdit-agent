@@ -3,6 +3,7 @@ import type { EntityManager } from 'typeorm'
 import { WorldEntityDocumentRecord } from '@share/entity/database/WorldEntityDocumentRecord'
 import { WorldDocumentBranchRecord } from '@share/entity/database/WorldDocumentBranchRecord'
 import { WorldDocumentCommitRecord } from '@share/entity/database/WorldDocumentCommitRecord'
+import { WorldDocumentChangeRecord } from '@share/entity/database/WorldDocumentChangeRecord'
 import type {
   ApplyWorldDocumentMergeInput,
   WorldDocumentMergePreviewPayload
@@ -12,10 +13,14 @@ import {
   ensureActiveWorldDocumentBranchWithManager,
   readTreeDocuments,
   stageWorldDocumentChangeWithManager,
+  type WorldDocumentEditSource,
   type WorldDocumentSnapshotEntry
 } from './worldDocumentVersionService'
 import { buildWorldDocumentContentDiff } from './worldDocumentDiffService'
-import { worldDocumentMarkdownToHtml } from '../aiservice/ai-utils/tools/document/worldDocumentMarkdownCodec'
+import {
+  worldDocumentHtmlToMarkdown,
+  worldDocumentMarkdownToHtml
+} from '../aiservice/ai-utils/tools/document/worldDocumentMarkdownCodec'
 import { mergeWorldDocumentText } from './worldDocumentThreeWayTextMerge'
 
 const sourceHtml = (entry: WorldDocumentSnapshotEntry): string =>
@@ -55,15 +60,20 @@ const tryMergeDocument = (
     currentMetadata !== baseMetadata &&
     incomingMetadata !== baseMetadata
   ) return null
-  if (
-    base.source.format !== 'markdown' ||
-    current.source.format !== 'markdown' ||
-    incoming.source.format !== 'markdown'
-  ) return null
+  const toMergeSource = (entry: WorldDocumentSnapshotEntry): WorldDocumentEditSource => ({
+    format: 'markdown',
+    content:
+      entry.source.format === 'markdown'
+        ? entry.source.content
+        : worldDocumentHtmlToMarkdown(entry.source.content)
+  })
+  const baseSource = toMergeSource(base)
+  const currentSource = toMergeSource(current)
+  const incomingSource = toMergeSource(incoming)
   const content = mergeWorldDocumentText(
-    base.source.content,
-    current.source.content,
-    incoming.source.content
+    baseSource.content,
+    currentSource.content,
+    incomingSource.content
   )
   if (content === null) return null
   const state =
@@ -124,6 +134,13 @@ const resolveMerge = async (
     sourceBranch.worldId,
     latest?.id ?? null
   )
+  const pendingChanges = await manager.getRepository(WorldDocumentChangeRecord).countBy({
+    worldId: sourceBranch.worldId,
+    status: 'staged'
+  })
+  if (pendingChanges > 0) {
+    throw new Error('当前工作区存在未提交变更，请先 commit 后再合并方案。')
+  }
   if (active.id === sourceBranch.id) throw new Error('不能将当前方案合并到自身。')
   if (!active.headCommitId || !sourceBranch.headCommitId) throw new Error('设定方案尚无可合并版本。')
   const base = await commonAncestor(manager, active.headCommitId, sourceBranch.headCommitId)

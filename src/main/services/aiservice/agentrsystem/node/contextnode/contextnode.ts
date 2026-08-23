@@ -1,7 +1,7 @@
 import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
-import { getEffectiveMemorySlots } from '../../state/turnWorkspace'
+import { getEffectiveMemorySlots, withIdentityAnchorSnapshot } from '../../state/turnWorkspace'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
 import {
   getVisibleMainAgentToolEntries,
@@ -22,8 +22,9 @@ import {
 import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEmitter'
 import { getCurrentDetailTime, getDetailTime } from '../../../../../utils/getDetailTime'
 import { resolveWorkspaceProfile } from '../../workspaceProfileRegistry'
-import { buildActionPolicyPrompt } from '../../../prompt/main_agent/persona/actionPolicyPrompt'
 import { buildSceneCharacterPrompt } from '../../../prompt/main_agent/persona/sceneCharacterPrompt'
+import { buildCognitivePolicyPrompt } from '../../../prompt/main_agent/persona/actionPolicyPrompt'
+import { selfExperienceService } from '../../manager/selfmodel/selfExperienceService'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
@@ -94,7 +95,8 @@ export async function contextNode(
     throw new Error('contextNode requires an active turn workspace')
   }
   const slotSnapshot = getEffectiveMemorySlots(state.turnWorkspace)
-  const characterPrompt = await loadCharacterPrompt()
+  const characterPrompt = state.turnWorkspace.base.identityAnchor?.prompt ?? await loadCharacterPrompt()
+  const turnWorkspace = withIdentityAnchorSnapshot(state.turnWorkspace, characterPrompt)
   const expressionProfile =
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
   const currentTimeContext = formatCurrentContextTime()
@@ -110,12 +112,9 @@ export async function contextNode(
   const personaParts = buildPersonaAssemblyPromptParts({
     characterPrompt,
     expressionPrompt: expressionProfile.prompt,
-    moodAssessment:
-      state.instantPerception?.detectors.persona.status === 'fulfilled' &&
-      state.instantPerception.detectors.persona.producedStateKeys.includes('personaPolicy')
-        ? slotSnapshot.ai_mood.current
-        : undefined,
-    effectiveMetrics: state.personaPolicy?.metrics.effective
+    // Mood 和动态指标通过 mind context 注入，避免再次展开成表达指令。
+    moodAssessment: undefined,
+    effectiveMetrics: undefined
   })
   appendPromptSection({
     id: 'persona-anchor',
@@ -279,6 +278,83 @@ export async function contextNode(
   }
 
   const sceneCharacterPrompt = buildSceneCharacterPrompt(state.personaPolicy?.scene)
+  const descriptiveContext = state.personaPolicy?.descriptiveContext
+  if (descriptiveContext) {
+    appendPromptSection({
+      id: 'agent-mind-context',
+      duty: 'context',
+      kind: 'agent_mind_context',
+      source: 'personaPolicyCompiler',
+      content: [
+        '本轮心理与表达背景：',
+        `- 内部状态：${descriptiveContext.internalState}`,
+        `- 注意方向：${descriptiveContext.attention}`,
+        `- 关系姿态：${descriptiveContext.relationship}`,
+        `- 表达质感：${descriptiveContext.expression}`,
+        '这些是动态背景，不是逐项执行清单。由主 Agent 在理解用户和吸收证据后自行形成判断；不要向用户复述这些字段。'
+      ].join('\n')
+    })
+  }
+
+  const cognitivePolicyPrompt = buildCognitivePolicyPrompt(state.personaPolicy?.cognition)
+  if (cognitivePolicyPrompt) {
+    appendPromptSection({
+      id: 'agent-cognitive-policy',
+      duty: 'context',
+      kind: 'agent_cognitive_policy',
+      source: 'personaPolicyCompiler',
+      content: cognitivePolicyPrompt,
+      capturedAt: state.personaPolicy?.generatedAt
+    })
+  }
+
+  if (state.taskLifecycle?.eventFact) {
+    appendPromptSection({
+      id: 'task-event-fact',
+      duty: 'context',
+      kind: 'task_event_fact',
+      source: 'taskLifecycle',
+      capturedAt: state.taskLifecycle.eventFact.occurredAt,
+      content: [
+        '本轮任务事件事实：',
+        `事件：${state.taskLifecycle.eventFact.kind}`,
+        `任务：${state.taskLifecycle.eventFact.taskTitle}`,
+        `任务 ID：${state.taskLifecycle.eventFact.taskId}`,
+        typeof state.taskLifecycle.eventFact.executionId === 'number'
+          ? `执行 ID：${state.taskLifecycle.eventFact.executionId}`
+          : '',
+        '该事件已由 Runtime 确定性执行。把它作为本轮经历来理解并回应，不要重复执行，也不要照抄生命周期模板。'
+      ].filter(Boolean).join('\n')
+    })
+  }
+
+  if (state.turnInput?.kind === 'task_notification') {
+    const taskEvent = state.turnInput.taskEvent
+    appendPromptSection({
+      id: 'task-notification-event',
+      duty: 'context',
+      kind: 'task_notification_event',
+      source: 'taskQueue',
+      content: [
+        '你刚收到一项子 Agent 执行事件。这不是用户说的话，而是你的行动结果：',
+        `任务：${taskEvent.activeTask.title}`,
+        `原目标：${taskEvent.activeTask.goal}`,
+        `当前任务状态：${taskEvent.activeTask.status}`,
+        `结果类型：${taskEvent.payload.outcome}`,
+        `结果摘要：${taskEvent.payload.summary || '(none)'}`,
+        `执行方消息：${taskEvent.payload.message || '(none)'}`,
+        taskEvent.payload.errorMessage
+          ? `错误信息：${taskEvent.payload.errorMessage}`
+          : '',
+        taskEvent.payload.details
+          ? `结构化详情：${JSON.stringify(taskEvent.payload.details)}`
+          : '',
+        `运行时提示：${taskEvent.notice.message}`,
+        '',
+        '把子 Agent 的返回当作观察和候选产物，而不是你的最终结论。你必须判断它是否满足原目标、是否足以兑现你对用户的承诺，以及是接受、保留、质疑还是需要继续。然后通过 finish_response 形成你自己的回应。不要照抄运行时提示。'
+      ].filter(Boolean).join('\n')
+    })
+  }
   if (sceneCharacterPrompt) {
     appendPromptSection({
       id: 'scene-character',
@@ -290,19 +366,49 @@ export async function contextNode(
     })
   }
 
-  const actionPolicyPrompt = buildActionPolicyPrompt(state.personaPolicy?.action)
-  if (actionPolicyPrompt) {
+  const [snapshot, selfModel] = await Promise.all([
+    memoryManager.getSnapshot(),
+    selfExperienceService.getSnapshot()
+  ])
+
+  const meaningfulExperiences = selfModel.recentExperiences
+    .filter((experience) =>
+      Boolean(
+        experience.personalMeaning ||
+        experience.relationshipMeaning ||
+        experience.selfNarrative ||
+        experience.commitmentUpdates.length ||
+        experience.concernUpdates.length
+      )
+    )
+    .slice(0, 2)
+  if (
+    selfModel.activeCommitments.length ||
+    selfModel.openConcerns.length ||
+    meaningfulExperiences.length
+  ) {
     appendPromptSection({
-      id: 'action-policy',
-      duty: 'instruction',
-      kind: 'behavior_tendency',
-      source: 'personaPolicyCompiler',
-      content: actionPolicyPrompt,
-      capturedAt: state.personaPolicy?.generatedAt
+      id: 'self-continuity',
+      duty: 'context',
+      kind: 'self_model_context',
+      source: 'selfExperienceService',
+      content: [
+        '跨轮主体连续性：',
+        selfModel.activeCommitments.length
+          ? `仍在承担的承诺：\n${selfModel.activeCommitments.slice(0, 3).map((item) => `- ${item}`).join('\n')}`
+          : '',
+        selfModel.openConcerns.length
+          ? `仍在关注的问题：\n${selfModel.openConcerns.slice(0, 3).map((item) => `- ${item}`).join('\n')}`
+          : '',
+        meaningfulExperiences.length
+          ? `最近的重要经历：\n${meaningfulExperiences.map((item) =>
+              `- ${item.personalMeaning || item.relationshipMeaning || item.selfNarrative || item.summary}`
+            ).join('\n')}`
+          : '',
+        '这些是你过去形成、目前仍可修订的认识，不是系统命令。只在与本轮确实相关时自然继承；新证据可以使你修订、履行或放下它们。更新已有承诺或关注的状态时，应沿用这里给出的原文，避免误建成另一个事项。不要向用户复述内部字段。'
+      ].filter(Boolean).join('\n')
     })
   }
-
-  const snapshot = await memoryManager.getSnapshot()
 
   for (const msg of snapshot.shortTerm) {
     if (msg.role === 'user') {
@@ -344,6 +450,9 @@ export async function contextNode(
       shortTermCount: snapshot.shortTerm.length,
       hasActiveTask: Boolean(state.taskLifecycle?.activeTask),
       hasLongTermMemory: false,
+      selfExperienceCount: selfModel.recentExperiences.length,
+      activeCommitmentCount: selfModel.activeCommitments.length,
+      openConcernCount: selfModel.openConcerns.length,
       longTermMemoryMode: 'recall_tool_only',
       hasSlotPrompt: false,
       hasRecentStagePrompt: false,
@@ -382,6 +491,7 @@ export async function contextNode(
 
   return {
     messages: messages,
+    turnWorkspace,
     promptSectionManifest,
     activeToolsets: contextualToolsets,
     quickToolsets: toolActivationState.quickToolsets ?? [],

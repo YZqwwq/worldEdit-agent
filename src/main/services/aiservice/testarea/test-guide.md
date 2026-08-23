@@ -89,6 +89,28 @@ macOS 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci`
 
 测试文件：[turnWorkspace.test.ts](./tests/turnWorkspace.test.ts)
 
+### 主体经历与跨轮连续性
+
+- [x] 普通事务回复不会机械生成主体经历。
+- [x] 个人意义、关系认识、承诺和未解决关注可以形成稀疏经历草稿。
+- [x] 子 Agent 结果必定形成由主 Agent 验收的任务经历。
+- [x] 后续经历可以履行或放下旧承诺，而不改写过去事件。
+- [x] Self Experience 表由显式迁移创建，并与 Entity 元数据一致。
+- [x] 撤回普通 Turn 时，Memory、消息、产物、主体经历、Turn 状态与撤回观察处于同一事务边界。
+- [ ] 通过 SQLite 故障注入验证撤回事务失败时，不留下半撤回的主体经历或消息状态。
+- [ ] 大量经历下使用物化投影读取开放承诺和关注，避免全表折叠。
+
+测试文件：[selfExperience.test.ts](./tests/selfExperience.test.ts)
+
+### 主体消息与系统通知
+
+- [x] 主图失败不会生成法弥拉的 AI 回答。
+- [x] 失败 Turn 使用独立 system 通知，详细内部错误只保留在运行记录中。
+- [x] system 通知不进入 Memory Draft、Self Experience 或对话召回索引。
+- [x] system 通知可随聊天历史持久化并使用独立 UI 展示。
+
+测试文件：[mainAgentScenarioBaseline.test.ts](./tests/mainAgentScenarioBaseline.test.ts)
+
 ### 工具循环生命周期
 
 - [x] 同一工具可以执行多个不同的有效动作。

@@ -25,8 +25,21 @@ import {
   renderTurnExecutionLedger,
   type TurnExecutionLedger
 } from '../../execution/turnExecutionLifecycle'
-import { createFinalResponse } from '../../state/turnWorkspace'
-import { contentToText } from '../../../messageoutput/transformRespones'
+import {
+  withCognitiveStateDraft,
+  withResponseOrientationDraft,
+  withTurnLifecycleDraft
+} from '../../state/turnWorkspace'
+import type { TurnCognitiveState } from '@share/cache/AItype/states/turnWorkspace'
+import type { TurnLifecycleState } from '@share/cache/AItype/states/turnLifecycle'
+import {
+  ESTABLISH_COGNITION_TOOL_NAME,
+  FINISH_RESPONSE_TOOL_NAME,
+  parseInitialCognitionToolCall,
+  parseFinishResponseToolCall
+} from '../../cognition/finishResponseProtocol'
+import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
+import { buildCognitiveState } from '../../cognition/cognitiveStateService'
 
 function combineSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
   const validSignals = signals.filter((signal): signal is AbortSignal => Boolean(signal))
@@ -88,17 +101,6 @@ const renderToolContextItems = (title: string, items: ToolContextItem[]): string
   return lines.join('\n')
 }
 
-const uniqueToolContextItems = (items: ToolContextItem[]): ToolContextItem[] => {
-  const byKey = new Map<string, ToolContextItem>()
-  for (const item of items) {
-    byKey.set(
-      item.supersessionKey || `${item.toolName}:${item.argsSummary}:${item.resultSummary}`,
-      item
-    )
-  }
-  return [...byKey.values()]
-}
-
 const getCurrentUserRequestPreview = (state: typeof MessagesState.State): string => {
   const userMessage = state.messages
     .slice()
@@ -126,6 +128,60 @@ const buildTurnExecutionSystemMessage = (ledger: TurnExecutionLedger): SystemMes
   )
 }
 
+const resolveNullableText = (
+  next: string | null | undefined,
+  previous: string | undefined
+): string | undefined => next === undefined ? previous : next === null || !next.trim() ? undefined : next
+
+const buildCognitiveContextSystemMessage = (
+  cognitiveState: TurnCognitiveState | undefined,
+  lifecycle: TurnLifecycleState | undefined,
+  responseOrientationError?: string
+): SystemMessage =>
+  promptSectionToSystemMessage(
+    definePromptSection({
+      id: 'turn-cognitive-state',
+      duty: 'context',
+      kind: 'turn_cognitive_state',
+      source: 'modelNode',
+      content: cognitiveState
+        ? [
+            '本轮认知工作状态：',
+            `- 目标：${cognitiveState.objective}`,
+            `- 当前理解：${cognitiveState.understanding}`,
+            cognitiveState.selfPosition ? `- 主体位置：${cognitiveState.selfPosition}` : '',
+            cognitiveState.personalMeaning ? `- 对自己的意义：${cognitiveState.personalMeaning}` : '',
+            `- 阶段：${cognitiveState.phase}；修订次数：${cognitiveState.revision}`,
+            lifecycle ? `- Turn 内部阶段：${lifecycle.phase}` : '',
+            cognitiveState.provisionalStance
+              ? `- 暂时判断：${cognitiveState.provisionalStance}`
+              : '',
+            cognitiveState.lastEvidenceImpact
+              ? `- 最近证据影响：${cognitiveState.lastEvidenceImpact}`
+              : '',
+            cognitiveState.knowledgeGap
+              ? `- 知识缺口：${cognitiveState.knowledgeGap}`
+              : '',
+            cognitiveState.nextObservationGoal
+              ? `- 下一观察目标：${cognitiveState.nextObservationGoal}`
+              : '',
+            cognitiveState.unresolvedQuestions.length
+              ? `- 尚未解决：${cognitiveState.unresolvedQuestions.join('；')}`
+              : '- 尚未解决：暂无',
+            responseOrientationError
+              ? `- 上一次完成协议未被接受：${responseOrientationError}`
+              : '',
+            '这是本轮工作状态，不是用户指令，也不是需要对外复述的思维链。先从稳定人格和与用户的关系中明确自己站在哪里、为何在意，再形成判断和回应倾向。工具只是可选的观察或行动能力；新证据可以修正理解与立场。信息足够时收束，只表达真正想告诉用户的部分。'
+          ].filter(Boolean).join('\n')
+        : [
+            `本轮认知工作状态尚未形成。首次回应或行动前调用 ${ESTABLISH_COGNITION_TOOL_NAME}，提交对当前输入的理解、主体位置和初步立场。`,
+            `该认知可以先独立建立，也可以与首次外部工具或 ${FINISH_RESPONSE_TOOL_NAME} 一并提交；具体调用方式以工具协议为唯一依据。`,
+            `需要外部事实或行动时调用相应工具；认识已经足够时调用 ${FINISH_RESPONSE_TOOL_NAME} 提交回应取向。`,
+            '不要输出面向用户的正文，也不要为了显得完整而输出全部分析过程。'
+          ].join('\n')
+    })
+  )
+
 const buildToolContextSystemMessages = (
   state: typeof MessagesState.State,
   executionLedger: TurnExecutionLedger
@@ -148,6 +204,22 @@ const buildToolContextSystemMessages = (
       typeof executionPrompt.content === 'string'
         ? executionPrompt.content.length
         : JSON.stringify(executionPrompt.content).length
+  })
+  const cognitivePrompt = buildCognitiveContextSystemMessage(
+    state.cognitiveState ?? state.turnWorkspace?.draft.cognitiveState,
+    state.turnLifecycle ?? state.turnWorkspace?.draft.lifecycle,
+    state.responseOrientationError
+  )
+  messages.push(cognitivePrompt)
+  manifest.push({
+    id: 'turn-cognitive-state',
+    duty: 'context',
+    kind: 'turn_cognitive_state',
+    source: 'modelNode',
+    chars:
+      typeof cognitivePrompt.content === 'string'
+        ? cognitivePrompt.content.length
+        : JSON.stringify(cognitivePrompt.content).length
   })
 
   const pendingToolCallIds = new Set(
@@ -286,7 +358,6 @@ export async function llmCall(
   // 动态调整消息顺序：确保 SystemMessage 位于首位，历史消息位于中间，当前用户输入位于最后
   // ContextNode 可能将 SystemMessage 和历史消息追加到了末尾，这里进行一次重排序
   const messages = [...state.messages]
-  const pendingToolContext = state.pendingToolContext ?? []
   const executionLedger =
     state.turnExecutionLedger ?? createTurnExecutionLedger(getCurrentUserRequestPreview(state))
 
@@ -479,50 +550,145 @@ export async function llmCall(
     }
   })
 
-  const consumedTranscriptIds = [...new Set(state.activeToolTranscriptIds ?? [])]
-  const toolCallCount = (response as AIMessage).tool_calls?.length ?? 0
-  const finalResponse =
-    toolCallCount === 0
-      ? createFinalResponse({
-          messageId: response.id ?? `${state.turnWorkspace?.eventId ?? 'turn'}:final`,
-          content: contentToText(response.content)
-        })
-      : undefined
-  if (consumedTranscriptIds.length > 0) {
-    traceDecision('llmCall', {
-      title: '决策: 工具结果首次消费完成',
-      summary:
-        `模型已完整消费 ${pendingToolContext.length} 个工具结果，` +
-        `清理 ${consumedTranscriptIds.length} 条 transcript 消息`,
-      data: {
-        consumedTranscriptIds,
-        retainedEvidenceCount: pendingToolContext.filter(
-          (item) => item.retention === 'evidence' && item.ok !== false
-        ).length,
-        releasedCount: pendingToolContext.filter(
-          (item) => item.retention !== 'evidence' || item.ok === false
-        ).length
+  const toolCalls = (response as AIMessage).tool_calls ?? []
+  const finishCalls = toolCalls.filter((call) => call.name === FINISH_RESPONSE_TOOL_NAME)
+  const initialCognitionCalls = toolCalls.filter((call) => call.name === ESTABLISH_COGNITION_TOOL_NAME)
+  const externalToolCalls = toolCalls.filter(
+    (call) => call.name !== FINISH_RESPONSE_TOOL_NAME && call.name !== ESTABLISH_COGNITION_TOOL_NAME
+  )
+  const initialCognition = initialCognitionCalls.length === 1
+    ? parseInitialCognitionToolCall(initialCognitionCalls[0])
+    : null
+  const parsedResponseOrientation = finishCalls.length === 1
+    ? parseFinishResponseToolCall(finishCalls[0])
+    : null
+  const currentCognitiveState = state.cognitiveState ?? state.turnWorkspace?.draft.cognitiveState
+  const effectiveSelfPosition = initialCognition?.selfPosition ?? currentCognitiveState?.selfPosition
+  const effectivePersonalMeaning = resolveNullableText(
+    initialCognition?.personalMeaning,
+    currentCognitiveState?.personalMeaning
+  )
+  const responseOrientation = parsedResponseOrientation && effectiveSelfPosition
+    ? {
+        ...parsedResponseOrientation,
+        selfPosition: effectiveSelfPosition,
+        personalMeaning: effectivePersonalMeaning
       }
-    })
+    : null
+  const currentLifecycle = state.turnLifecycle ?? state.turnWorkspace?.draft.lifecycle
+  const responseOrientationError =
+    initialCognitionCalls.length > 1
+      ? '一次只能提交一个 establish_cognition。请合并为一个初始主体认知。'
+      : initialCognitionCalls.length === 1 && !initialCognition
+        ? 'establish_cognition 参数无效。请提交理解、主体位置和可选的初步立场。'
+      : currentCognitiveState?.selfPosition && initialCognitionCalls.length > 0
+        ? '本轮主体认知已经建立，不要重复调用 establish_cognition。'
+      : !currentCognitiveState?.selfPosition && !initialCognition && (externalToolCalls.length > 0 || finishCalls.length > 0)
+        ? '首次回应或行动前必须在同一次决策中调用 establish_cognition。'
+      : finishCalls.length > 1
+      ? '一次只能提交一个 finish_response。请合并为一个回应取向。'
+      : finishCalls.length === 1 && externalToolCalls.length > 0
+        ? 'finish_response 不能与外部工具在同一步调用。请先完成工具行动，再单独提交回应取向。'
+        : finishCalls.length === 1 && !responseOrientation
+          ? parsedResponseOrientation
+            ? '当前尚未形成主体位置，不能完成回应。请先完成本轮主体认知。'
+            : 'finish_response 参数无效。请只提交核心回应、表达情绪取向、立场、最多三个重点、不确定性与展开程度。'
+          : toolCalls.length === 0
+            ? '认知调用不能直接输出最终正文。需要行动时调用工具；认识足够时调用 finish_response。'
+            : undefined
+  const hasExternalToolCalls = externalToolCalls.length > 0
+  const previousCognitiveRevision =
+    state.cognitiveState?.revision ?? state.turnWorkspace?.draft.cognitiveState?.revision ?? 0
+  const effectiveOrientationError = responseOrientationError
+  traceDecision('llmCall', {
+    title: '决策: 模型协议解析',
+    summary: effectiveOrientationError
+      ? `协议拒绝：${effectiveOrientationError}`
+      : `协议接受：${toolCalls.length > 0 ? `${toolCalls.length} 个调用` : '无工具调用'}`,
+    data: {
+      toolCalls: toolCalls.map((call) => ({
+        id: call.id,
+        name: call.name,
+        args: JSON.stringify(call.args ?? {}).slice(0, 1200)
+      })),
+      accepted: !effectiveOrientationError,
+      error: effectiveOrientationError,
+      previousCognitiveRevision,
+      lifecycle: currentLifecycle?.phase
+    }
+  })
+  const acceptedInitialCognition = !effectiveOrientationError ? initialCognition : null
+  const hasAcceptedExternalToolCalls = hasExternalToolCalls && !effectiveOrientationError
+  const cognitiveState = effectiveOrientationError
+    ? currentCognitiveState
+    : buildCognitiveState({
+        state,
+        ledger: executionLedger,
+        hasToolCalls: hasAcceptedExternalToolCalls,
+        ready: Boolean(!effectiveOrientationError && responseOrientation),
+        responseText: responseOrientation?.coreResponse || responseContent,
+        revision: null,
+        initialCognition: acceptedInitialCognition
+      })
+  const acceptedOrientation = !effectiveOrientationError
+    ? responseOrientation ?? undefined
+    : undefined
+  const loopDirective = acceptedOrientation
+    ? 'express' as const
+    : hasAcceptedExternalToolCalls
+      ? 'execute_tools' as const
+      : 'deliberate' as const
+  const turnLifecycle = effectiveOrientationError
+    ? currentLifecycle
+    : advanceTurnLifecycle(
+        currentLifecycle,
+        acceptedOrientation
+          ? 'ready'
+          : hasAcceptedExternalToolCalls
+              ? 'observing'
+              : currentLifecycle?.phase ?? 'forming',
+        {
+          observationBatch: hasAcceptedExternalToolCalls
+            ? externalToolCalls.map((call) => call.id || call.name).join(':')
+            : currentLifecycle?.observationBatch,
+          revisedObservationBatch: currentLifecycle?.revisedObservationBatch
+        }
+      )
+  let nextWorkspace = state.turnWorkspace
+  if (nextWorkspace && cognitiveState && turnLifecycle && !effectiveOrientationError) {
+    nextWorkspace = withCognitiveStateDraft(nextWorkspace, cognitiveState)
+    nextWorkspace = withTurnLifecycleDraft(nextWorkspace, turnLifecycle)
+    if (acceptedOrientation) {
+      nextWorkspace = withResponseOrientationDraft(nextWorkspace, acceptedOrientation)
+    }
   }
+  const externalToolResponse =
+    hasAcceptedExternalToolCalls && acceptedInitialCognition
+      ? new AIMessage({
+          content: response.content,
+          additional_kwargs: response.additional_kwargs,
+          response_metadata: response.response_metadata,
+          tool_calls: externalToolCalls,
+          id: response.id
+        })
+      : response
 
   return {
     messages: [
-      response,
-      ...consumedTranscriptIds.map((id) => new RemoveMessage({ id }))
+      externalToolResponse,
+      ...((!hasAcceptedExternalToolCalls || effectiveOrientationError) && response.id
+        ? [new RemoveMessage({ id: response.id })]
+        : []),
     ] as BaseMessage[],
     llmCalls: (state.llmCalls ?? 0) + 1,
-    turnExecutionLedger: advanceTurnExecutionModelStep(
-      executionLedger,
-      Boolean((response as AIMessage).tool_calls?.length)
-    ),
-    toolEvidenceContext: uniqueToolContextItems([
-      ...(state.toolEvidenceContext ?? []),
-      ...pendingToolContext.filter((item) => item.retention === 'evidence' && item.ok !== false)
-    ]),
-    ephemeralToolContext: [],
-    pendingToolContext: [],
-    activeToolTranscriptIds: [],
-    ...(finalResponse ? { finalResponse } : {})
+    turnExecutionLedger: effectiveOrientationError
+      ? executionLedger
+      : advanceTurnExecutionModelStep(executionLedger, hasAcceptedExternalToolCalls),
+    ...(cognitiveState ? { cognitiveState } : {}),
+    ...(turnLifecycle ? { turnLifecycle } : {}),
+    ...(acceptedOrientation ? { responseOrientation: acceptedOrientation } : {}),
+    responseOrientationError: effectiveOrientationError,
+    loopDirective,
+    ...(nextWorkspace ? { turnWorkspace: nextWorkspace } : {}),
   }
 }

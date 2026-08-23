@@ -7,7 +7,7 @@ import type {
 
 type TransitionMap<TStatus extends string> = Record<TStatus, readonly TStatus[]>
 
-export type MainAgentCommitOwner = 'turn' | 'notification'
+export type MainAgentCommitOwner = 'turn' | 'turn_then_notification'
 export type MainAgentRecoveryStrategy = 'compensate_fail' | 'replay'
 
 export interface MainAgentFlowRule {
@@ -28,9 +28,9 @@ export const MAIN_AGENT_FLOW_RULES: Record<MainAgentEventType, MainAgentFlowRule
   },
   task_notification: {
     eventType: 'task_notification',
-    owner: 'notification',
-    startWhen: 'notification pending -> processing with mainAgentEventId bound',
-    commitWhen: 'notification processing -> consumed after effect apply succeeds',
+    owner: 'turn_then_notification',
+    startWhen: 'notification pending -> processing and subject turn queued -> processing',
+    commitWhen: 'subject turn commits first, then notification processing -> consumed',
     recoveryStrategy: 'replay'
   },
   background_persona_stage: {

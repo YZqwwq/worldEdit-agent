@@ -7,6 +7,7 @@ import { WorldDocumentChangeRecord } from '@share/entity/database/WorldDocumentC
 import { WorldDocumentCheckpointRecord } from '@share/entity/database/WorldDocumentCheckpointRecord'
 import { WorldDocumentBranchRecord } from '@share/entity/database/WorldDocumentBranchRecord'
 import { WorldDocumentContentVersionRecord } from '@share/entity/database/WorldDocumentContentVersionRecord'
+import { WorldEntityDocumentRecord } from '@share/entity/database/WorldEntityDocumentRecord'
 import {
   checkoutWorldDocumentCommitWithManager,
   applyWorldDocumentCommitWithManager,
@@ -281,14 +282,20 @@ export const listWorldDocumentCommitHistory = async (
     ensureActiveWorldDocumentBranchWithManager(manager, normalizedWorldId, latest?.id ?? null)
   )
   const commits: WorldDocumentCommitRecord[] = []
-  let cursor = branch.headCommitId
+  const pendingCommitIds = branch.headCommitId ? [branch.headCommitId] : []
+  const visitedCommitIds = new Set<string>()
   const max = Math.min(100, Math.max(1, Math.floor(limit)))
-  while (cursor && commits.length < max) {
-    const commit = await repository.findOneBy({ id: cursor })
-    if (!commit) break
+  while (pendingCommitIds.length > 0 && commits.length < max) {
+    const commitId = pendingCommitIds.shift()!
+    if (visitedCommitIds.has(commitId)) continue
+    visitedCommitIds.add(commitId)
+    const commit = await repository.findOneBy({ id: commitId })
+    if (!commit) continue
     commits.push(commit)
-    cursor = commit.parentCommitId
+    if (commit.parentCommitId) pendingCommitIds.push(commit.parentCommitId)
+    if (commit.mergeParentCommitId) pendingCommitIds.push(commit.mergeParentCommitId)
   }
+  commits.sort((left, right) => right.sequence - left.sequence)
   const visibleCommits = commits.filter(
     (commit) => commit.origin !== 'system' || isBaselineCommit(commit)
   )
@@ -524,6 +531,43 @@ export const getWorldDocumentVersionStatus = async (
     worldId: normalizedWorldId,
     status: 'staged'
   })
+  const stagedContentIds = [
+    ...new Set(
+      staged.flatMap((change) =>
+        [change.beforeContentVersionId, change.afterContentVersionId].filter(Boolean) as string[]
+      )
+    )
+  ]
+  const stagedContents = stagedContentIds.length
+    ? await AppDataSource.getRepository(WorldDocumentContentVersionRecord).findBy({
+        id: In(stagedContentIds)
+      })
+    : []
+  const stagedContentById = new Map(stagedContents.map((content) => [content.id, content]))
+  const headDocuments = head
+    ? await AppDataSource.transaction((manager) =>
+        readTreeDocuments(manager, normalizedWorldId, head.rootTreeHash)
+      )
+    : new Map()
+  const currentDocuments = new Map(
+    (
+      await AppDataSource.getRepository(WorldEntityDocumentRecord).findBy({
+        worldId: normalizedWorldId
+      })
+    ).map((document) => [document.id, document])
+  )
+  const pendingChanges = staged.map((change) => {
+    const payload = toChangePayload(change, stagedContentById)
+    const beforeSource = headDocuments.get(change.documentId)?.source ?? null
+    const current = currentDocuments.get(change.documentId)
+    const afterSource = current
+      ? { format: 'html_editor' as const, content: current.contentHtml || '' }
+      : null
+    return {
+      ...payload,
+      contentDiff: buildWorldDocumentContentDiff(beforeSource, afterSource)
+    }
+  })
   const integrity = await getCachedWorldDocumentIntegrityReport(AppDataSource, normalizedWorldId)
   return {
     worldId: normalizedWorldId,
@@ -534,7 +578,8 @@ export const getWorldDocumentVersionStatus = async (
       documentIds: [...new Set(staged.map((change) => change.documentId))],
       origins: [
         ...new Set(staged.map((change) => (change.changeSetId.startsWith('human:') ? 'human' : 'agent')))
-      ]
+      ],
+      changes: pendingChanges
     },
     checkpoints: await listWorldDocumentCheckpoints(normalizedWorldId),
     branches: await listWorldDocumentBranches(normalizedWorldId),

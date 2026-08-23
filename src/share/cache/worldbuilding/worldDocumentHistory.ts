@@ -131,6 +131,7 @@ export type WorldDocumentVersionStatusPayload = {
     documentCount: number
     documentIds: string[]
     origins: WorldDocumentHistoryOrigin[]
+    changes: WorldDocumentCommitChangePayload[]
   }
   checkpoints: WorldDocumentCheckpointPayload[]
   branches: WorldDocumentBranchPayload[]

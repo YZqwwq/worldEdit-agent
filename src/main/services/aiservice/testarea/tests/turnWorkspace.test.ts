@@ -14,7 +14,6 @@ import {
   withToolChangeSetSummary
 } from '../../agentrsystem/state/turnWorkspace'
 import { buildDurableToolEffectCheckpointState } from '../../agentrsystem/execution/durableToolEffectCheckpoint'
-import { shouldBypassInteractivePerception } from '../../agentrsystem/node/instantperceptionnode/instantPerceptionRouting'
 import { resolveTurnWorkspaceCommitPolicy } from '../../runtime/orchestration/turnCommitPolicy'
 
 const createWorkspace = () =>
@@ -67,11 +66,6 @@ test('turn workspace carries one finalizable draft without duplicate derived eff
     messageId: ' message-1 ',
     content: ' 回答 '
   })
-})
-
-test('background persona stages bypass interactive perception', () => {
-  assert.equal(shouldBypassInteractivePerception(undefined), false)
-  assert.equal(shouldBypassInteractivePerception({} as never), true)
 })
 
 test('background commits cannot publish interactive memory slots', () => {

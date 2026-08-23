@@ -12,6 +12,42 @@ type AppSchemaMigration = {
 
 const migrations: AppSchemaMigration[] = [
   {
+    id: '20260822_persona_state_responsibility_split',
+    up: async (manager) => {
+      const columns = (await manager.query('PRAGMA table_info(persona_state)')) as Array<{
+        name: string
+      }>
+      const names = new Set(columns.map((column) => column.name))
+      if (!names.has('interactionPreferencesJson')) {
+        await manager.query(
+          "ALTER TABLE persona_state ADD COLUMN interactionPreferencesJson text NOT NULL DEFAULT ''"
+        )
+      }
+      if (!names.has('operationalBaselineJson')) {
+        await manager.query(
+          "ALTER TABLE persona_state ADD COLUMN operationalBaselineJson text NOT NULL DEFAULT ''"
+        )
+      }
+      await manager.query(`
+        UPDATE persona_state
+        SET interactionPreferencesJson = CASE
+              WHEN interactionPreferencesJson = '' THEN json_object(
+                'autonomy_level', autonomyLevel,
+                'verbosity_index', verbosityIndex,
+                'formality_score', formalityScore
+              )
+              ELSE interactionPreferencesJson
+            END,
+            operationalBaselineJson = CASE
+              WHEN operationalBaselineJson = '' THEN json_object(
+                'risk_tolerance', riskTolerance
+              )
+              ELSE operationalBaselineJson
+            END
+      `)
+    }
+  },
+  {
     id: '20260819_application_schema_baseline',
     up: async (manager) => {
       for (const sql of APPLICATION_SCHEMA_BASELINE_TABLE_SQL) await manager.query(sql)
@@ -389,6 +425,41 @@ const migrations: AppSchemaMigration[] = [
             );
         END
       `)
+    }
+  },
+  {
+    id: '20260822_self_experience',
+    up: async (manager) => {
+      await manager.query(`
+        CREATE TABLE IF NOT EXISTS self_experience (
+          id text PRIMARY KEY NOT NULL,
+          eventId text NOT NULL UNIQUE,
+          turnId integer NOT NULL,
+          sessionId text NOT NULL DEFAULT 'default',
+          kind text NOT NULL,
+          summary text NOT NULL DEFAULT '',
+          understanding text NOT NULL DEFAULT '',
+          selfPosition text NOT NULL DEFAULT '',
+          personalMeaning text NOT NULL DEFAULT '',
+          stance text NOT NULL DEFAULT '',
+          relationshipMeaning text NOT NULL DEFAULT '',
+          selfNarrative text NOT NULL DEFAULT '',
+          commitmentUpdatesJson text NOT NULL DEFAULT '[]',
+          concernUpdatesJson text NOT NULL DEFAULT '[]',
+          evidenceRefsJson text NOT NULL DEFAULT '[]',
+          confidence real NOT NULL DEFAULT 0.5,
+          revision integer NOT NULL DEFAULT 1,
+          supersedesExperienceId text NULL,
+          occurredAt text NOT NULL,
+          createdAt datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `)
+      await manager.query(
+        'CREATE UNIQUE INDEX IF NOT EXISTS IDX_self_experience_turn ON self_experience (turnId)'
+      )
+      await manager.query(
+        'CREATE INDEX IF NOT EXISTS IDX_self_experience_created ON self_experience (createdAt)'
+      )
     }
   }
 ]

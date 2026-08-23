@@ -380,10 +380,12 @@ export function initializeAIEndpoints(): void {
       // 注意：结束信号现在由 chunk.type === 'done' 携带，不再需要单独的 ai:streamDone
     } catch (error: unknown) {
       // 这里的 catch 主要是捕获 aiService 本身未处理的异常
-      const errMsg = error instanceof Error ? error.message : String(error)
+      console.error('Unhandled AI stream failure:', error)
       event.sender.send('ai:streamChunk', {
         type: 'stream_error',
-        message: errMsg
+        message: '消息处理发生系统故障，请稍后重试。',
+        sender: 'system',
+        persisted: false
       } as StreamChunk)
     }
   })

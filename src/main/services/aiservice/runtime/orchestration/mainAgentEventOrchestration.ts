@@ -3,6 +3,7 @@ import type {
   MainAgentEvent,
   MainAgentBackgroundPersonaStageEvent,
   MainAgentEventConsumptionResult,
+  MainAgentTaskEvent,
   MainAgentTaskNotificationEvent,
   MainAgentUserMessageEvent,
   TaskLifecycleState
@@ -25,6 +26,8 @@ type MainAgentRuntimeResult = {
   interruptedWorkspace?: TurnWorkspace
   interruption?: MainAgentInterruptionRecord
 }
+
+const USER_MESSAGE_FAILURE_NOTICE = '本轮处理未能完成。你可以重试这条消息。'
 
 export type MainAgentEventOrchestrationDependencies = {
   createChatTurn: (input: {
@@ -50,15 +53,26 @@ export type MainAgentEventOrchestrationDependencies = {
     eventId: string
     sessionId: string
   }) => Promise<{ turnId: number }>
+  createTaskNotificationTurn: (input: {
+    eventId: string
+    sessionId: string
+  }) => Promise<{ turnId: number; resumeFromHead?: boolean }>
+  prepareTaskNotification: (
+    event: MainAgentTaskNotificationEvent
+  ) => Promise<MainAgentTaskEvent | null>
+  runTaskNotification: (
+    eventId: string,
+    turnId: number,
+    sessionId: string,
+    taskEvent: MainAgentTaskEvent,
+    resumeFromHead?: boolean
+  ) => Promise<MainAgentRuntimeResult>
   runBackgroundPersonaStage: (
     eventId: string,
     turnId: number,
     sessionId: string,
     payload: MainAgentBackgroundPersonaStageEvent['payload']
   ) => Promise<MainAgentRuntimeResult>
-  consumeTaskNotification: (
-    event: MainAgentTaskNotificationEvent
-  ) => Promise<MainAgentEventConsumptionResult>
   applyEffects: (result: MainAgentEventConsumptionResult) => Promise<void>
   completeTaskNotificationConsumption: (
     event: MainAgentTaskNotificationEvent
@@ -68,10 +82,6 @@ export type MainAgentEventOrchestrationDependencies = {
 
 type UserMessagePreparedState =
   | {
-      kind: 'handled'
-      result: MainAgentEventConsumptionResult
-    }
-  | {
       kind: 'chat_runtime'
       turnId: number
       taskLifecycle?: TaskLifecycleState
@@ -80,7 +90,11 @@ type UserMessagePreparedState =
 
 type MainAgentEventPreparedStateMap = {
   user_message: UserMessagePreparedState
-  task_notification: null
+  task_notification: {
+    turnId: number
+    taskEvent: MainAgentTaskEvent
+    resumeFromHead?: boolean
+  } | null
   background_persona_stage: { turnId: number }
 }
 
@@ -201,6 +215,7 @@ const buildFailedUserMessageResult = (
   onChunk?: (chunk: StreamChunk) => void
 ): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(event)
+  const errorMessage = dependencies.logUserMessageError(error)
   return {
     handled: true,
     consumer: 'chat_runtime',
@@ -214,7 +229,8 @@ const buildFailedUserMessageResult = (
               turnId,
               status: 'failed',
               consumer: 'chat_runtime',
-              errorMessage: dependencies.logUserMessageError(error)
+              errorMessage,
+              systemNotice: USER_MESSAGE_FAILURE_NOTICE
             }
           ] as MainAgentEventConsumptionResult['effects'])
         : []),
@@ -222,7 +238,7 @@ const buildFailedUserMessageResult = (
         ...effectContext,
         type: 'stream_error',
         onChunk,
-        message: dependencies.logUserMessageError(error)
+        message: USER_MESSAGE_FAILURE_NOTICE
       }
     ]
   }
@@ -247,34 +263,6 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
     }
 
     const control = await dependencies.controlUserMessage(event, runtime?.onChunk)
-    if (control.handledResult) {
-      const visibleMessageEffect = control.handledResult.effects.find(
-        (effect) => effect.type === 'save_message' && effect.role === 'ai'
-      )
-      if (!visibleMessageEffect || visibleMessageEffect.type !== 'save_message') {
-        throw new Error('Lifecycle control result is missing its canonical visible response')
-      }
-      return {
-        kind: 'handled',
-        result: {
-          ...control.handledResult,
-          effects: [
-            {
-              ...createEffectContext(event),
-              type: 'commit_turn',
-              turnId: turn.turnId,
-              status: 'completed',
-              consumer: 'lifecycle_control',
-              finalResponse: {
-                messageId: `${event.id}:lifecycle`,
-                content: visibleMessageEffect.content
-              }
-            },
-            ...control.handledResult.effects.filter((effect) => effect.type !== 'save_message')
-          ]
-        }
-      }
-    }
 
     return {
       kind: 'chat_runtime',
@@ -284,10 +272,6 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
     }
   },
   async consume(event, prepared, dependencies, runtime) {
-    if (prepared.kind === 'handled') {
-      return prepared.result
-    }
-
     try {
       const result = await dependencies.runUserMessage(
         event.id,
@@ -324,11 +308,74 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
 const taskNotificationHandler: MainAgentEventHandler<MainAgentTaskNotificationEvent> = {
   eventType: 'task_notification',
   owner: MAIN_AGENT_FLOW_RULES.task_notification.owner,
-  async consume(event, _prepared, dependencies) {
-    return dependencies.consumeTaskNotification(event)
+  async prepare(event, dependencies) {
+    const taskEvent = await dependencies.prepareTaskNotification(event)
+    if (!taskEvent) return null
+    const turn = await dependencies.createTaskNotificationTurn({
+      eventId: event.id,
+      sessionId: event.sessionId
+    })
+    return { turnId: turn.turnId, taskEvent, resumeFromHead: turn.resumeFromHead }
   },
-  async commit(event, _result, dependencies) {
-    await dependencies.completeTaskNotificationConsumption(event)
+  async consume(event, prepared, dependencies) {
+    if (!prepared) {
+      return {
+        handled: false,
+        consumer: 'task_notification_consumer',
+        summary: 'task_notification_missing_or_already_consumed',
+        effects: []
+      }
+    }
+    try {
+      const result = await dependencies.runTaskNotification(
+        event.id,
+        prepared.turnId,
+        event.sessionId,
+        prepared.taskEvent,
+        prepared.resumeFromHead
+      )
+      if (result.interrupted || !result.graphResult?.finalResponse?.content.trim()) {
+        throw new Error('Task notification subject turn did not complete.')
+      }
+      return {
+        handled: true,
+        consumer: 'task_notification_consumer',
+        summary: 'task_notification_integrated_by_subject',
+        effects: [
+          {
+            ...createEffectContext(event),
+            type: 'commit_turn',
+            turnId: prepared.turnId,
+            status: 'completed',
+            consumer: 'task_notification_consumer',
+            finalResponse: result.graphResult.finalResponse,
+            workspace: result.graphResult.workspace
+          },
+          {
+            ...createEffectContext(event),
+            type: 'emit_trace',
+            taskId: prepared.taskEvent.taskId,
+            actor: 'main_agent',
+            stage: 'main_response_user',
+            message: '主 Agent 已理解、验收并回应子 Agent 的执行结果。',
+            dedupeKey: `${event.id}:main_response_user:main_agent`,
+            payload: {
+              notificationType: prepared.taskEvent.notificationType,
+              outcome: prepared.taskEvent.payload.outcome
+            }
+          }
+        ]
+      }
+    } catch (error) {
+      throw new Error(
+        `Task notification subject integration failed: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  },
+  async commit(event, result, dependencies) {
+    if (result.handled && result.summary === 'task_notification_integrated_by_subject') {
+      await dependencies.completeTaskNotificationConsumption(event)
+    }
   }
 }
 

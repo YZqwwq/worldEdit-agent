@@ -45,10 +45,7 @@ export type TurnExecutionLedger = {
   modelStep: number
   actions: TurnExecutionAction[]
   unresolvedItems: string[]
-  finalizationReason?: 'loop_limit' | 'repeated_invalid_action'
 }
-
-export const MAX_MODEL_STEPS_BEFORE_FINALIZATION = 6
 
 const compact = (value: string, max = 260): string => {
   const normalized = String(value || '')
@@ -244,20 +241,6 @@ export const advanceTurnExecutionModelStep = (
   phase: hasToolCalls ? 'acting' : 'answering'
 })
 
-export const markTurnForFinalization = (
-  ledger: TurnExecutionLedger,
-  reason: TurnExecutionLedger['finalizationReason'] = 'loop_limit'
-): TurnExecutionLedger => ({
-  ...ledger,
-  phase: 'answering',
-  finalizationReason: reason
-})
-
-export const shouldFinalizeToolLoop = (ledger: TurnExecutionLedger | undefined): boolean =>
-  Boolean(
-    ledger && !ledger.finalizationReason && ledger.modelStep >= MAX_MODEL_STEPS_BEFORE_FINALIZATION
-  )
-
 const renderSubject = (subject: TurnExecutionSubject | undefined): string => {
   if (!subject) return '未指定对象'
   return [subject.type, subject.label, subject.id].filter(Boolean).join(' / ')
@@ -316,11 +299,7 @@ export const renderTurnExecutionLedger = (ledger: TurnExecutionLedger): string =
     ledger.unresolvedItems.length > 0
       ? `当前明确缺口：${ledger.unresolvedItems.join('；')}`
       : '当前明确缺口：账本中没有已知缺口。',
-    ledger.finalizationReason
-      ? ledger.finalizationReason === 'repeated_invalid_action'
-        ? '运行时发现同一无效参数被原样重复提交，已进入收尾阶段：不得继续调用工具；请说明当前缺口，不要声称工具没有能力。'
-        : '运行时已进入异常收尾阶段：不得继续调用工具；请依据已有结果给出受限但诚实的最终回答。'
-      : '下一步判断：先检查已完成行动和现有证据是否足以满足用户目标；足够则直接回答，只有存在具体缺口时才继续行动。',
+    '账本边界：这里只陈述已经发生的行动和执行状态，不决定下一步回应、观察或行动。',
     incomplete.some(
       (action) =>
         action.status === 'accepted' ||

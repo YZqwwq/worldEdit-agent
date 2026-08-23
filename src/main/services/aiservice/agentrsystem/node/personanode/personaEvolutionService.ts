@@ -3,6 +3,7 @@ import type { MemorySlotSnapshot } from '@share/cache/AItype/states/memorySlots'
 import type { PersonaConfig } from '@share/cache/AItype/states/personaConfig'
 import type {
   PersonaBufferItem,
+  InteractionPreference,
   PersonaMetricDelta,
   PersonaMetrics,
   PersonaState
@@ -18,8 +19,6 @@ import { getObservationText } from './personaObservationUtils'
 import { inferSignals } from './personaSignalInference'
 import type { PersonaSignal, SignalCategory } from './personaTypes'
 import type { RecentDialogueMessage } from '../instantperceptionnode/instantPerceptionContext'
-
-const cloneMetrics = (input: PersonaMetrics): PersonaMetrics => ({ ...input })
 
 const addMetricDelta = (
   delta: PersonaMetricDelta,
@@ -38,23 +37,6 @@ const addMetricDelta = (
   return delta
 }
 
-const addStableMetric = (
-  metrics: PersonaMetrics,
-  category: SignalCategory,
-  amount: number
-): PersonaMetrics => {
-  if (category === '自主性') {
-    metrics.autonomy_level = clamp01(roundTo(metrics.autonomy_level + amount))
-  } else if (category === '详略度') {
-    metrics.verbosity_index = clamp01(roundTo(metrics.verbosity_index + amount))
-  } else if (category === '探索性') {
-    metrics.risk_tolerance = clamp01(roundTo(metrics.risk_tolerance + amount))
-  } else if (category === '正式度') {
-    metrics.formality_score = clamp01(roundTo(metrics.formality_score + amount))
-  }
-  return metrics
-}
-
 const decayDelta = (input: PersonaMetricDelta, factor: number): PersonaMetricDelta => ({
   autonomy_level: roundTo(input.autonomy_level * factor),
   verbosity_index: roundTo(input.verbosity_index * factor),
@@ -62,43 +44,46 @@ const decayDelta = (input: PersonaMetricDelta, factor: number): PersonaMetricDel
   formality_score: roundTo(input.formality_score * factor)
 })
 
+const cloneMetrics = (input: PersonaMetrics): PersonaMetrics => ({ ...input })
+
 const synthesizeMetrics = (
-  stable: PersonaMetrics,
+  interaction: InteractionPreference,
+  operational: { risk_tolerance: number },
   session: PersonaMetricDelta,
   transient: PersonaMetricDelta,
   config: PersonaConfig
 ): PersonaMetrics => ({
   autonomy_level: clamp01(
     roundTo(
-      stable.autonomy_level +
+      interaction.autonomy_level +
         session.autonomy_level * config.layerWeights.session +
         transient.autonomy_level * config.layerWeights.transient
     )
   ),
   verbosity_index: clamp01(
     roundTo(
-      stable.verbosity_index +
+      interaction.verbosity_index +
         session.verbosity_index * config.layerWeights.session +
         transient.verbosity_index * config.layerWeights.transient
     )
   ),
   risk_tolerance: clamp01(
     roundTo(
-      stable.risk_tolerance +
+      operational.risk_tolerance +
         session.risk_tolerance * config.layerWeights.session +
         transient.risk_tolerance * config.layerWeights.transient
     )
   ),
   formality_score: clamp01(
     roundTo(
-      stable.formality_score +
+      interaction.formality_score +
         session.formality_score * config.layerWeights.session +
         transient.formality_score * config.layerWeights.transient
     )
   )
 })
 
-// 将用户偏好信号和任务观测沉淀进长期、会话、瞬时三层人格数值状态。
+// 将用户协作信号、操作基线和短时观测分别写入各自责任层。
 const applyTaskObservationEffect = (
   state: PersonaState,
   observation: InteractionObservationSnapshot,
@@ -136,9 +121,14 @@ export const reconcilePersonaState = async (input: {
 }> => {
   const next: PersonaState = {
     ...input.state,
-    stable_preferences: cloneMetrics(
-      input.state.stable_preferences || createNeutralPersonaMetrics()
-    ),
+    interaction_preferences: {
+      autonomy_level: input.state.interaction_preferences?.autonomy_level ?? 0.5,
+      verbosity_index: input.state.interaction_preferences?.verbosity_index ?? 0.5,
+      formality_score: input.state.interaction_preferences?.formality_score ?? 0.5
+    },
+    operational_baseline: {
+      risk_tolerance: input.state.operational_baseline?.risk_tolerance ?? 0.5
+    },
     session_hormones: decayDelta(
       input.state.session_hormones || createZeroPersonaDelta(),
       input.config.decay.sessionFactor
@@ -165,11 +155,26 @@ export const reconcilePersonaState = async (input: {
           : []
       )
       for (const signal of signals) {
-        addStableMetric(
-          next.stable_preferences,
-          signal.category,
-          signal.delta * input.config.learningRates.stableFromSignal
-        )
+        const stableAmount = signal.delta * input.config.learningRates.stableFromSignal
+        if (signal.category === '探索性') {
+          next.operational_baseline.risk_tolerance = clamp01(
+            roundTo(next.operational_baseline.risk_tolerance + stableAmount)
+          )
+        } else {
+          if (signal.category === '自主性') {
+            next.interaction_preferences.autonomy_level = clamp01(
+              next.interaction_preferences.autonomy_level + stableAmount
+            )
+          } else if (signal.category === '详略度') {
+            next.interaction_preferences.verbosity_index = clamp01(
+              next.interaction_preferences.verbosity_index + stableAmount
+            )
+          } else if (signal.category === '正式度') {
+            next.interaction_preferences.formality_score = clamp01(
+              next.interaction_preferences.formality_score + stableAmount
+            )
+          }
+        }
         addMetricDelta(
           next.session_hormones,
           signal.category,
@@ -211,7 +216,8 @@ export const reconcilePersonaState = async (input: {
 
     next.last_observation_id = observation.id
     next.metrics = synthesizeMetrics(
-      next.stable_preferences,
+      next.interaction_preferences,
+      next.operational_baseline,
       next.session_hormones,
       next.transient_state,
       input.config
@@ -219,7 +225,8 @@ export const reconcilePersonaState = async (input: {
   }
 
   next.metrics = synthesizeMetrics(
-    next.stable_preferences,
+    next.interaction_preferences,
+    next.operational_baseline,
     next.session_hormones,
     next.transient_state,
     input.config

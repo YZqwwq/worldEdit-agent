@@ -2,7 +2,7 @@ import { Annotation, messagesStateReducer } from '@langchain/langgraph'
 import { BaseMessage } from '@langchain/core/messages'
 import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
 import type {
-  MainAgentBackgroundPersonaStagePayload,
+  MainAgentRuntimeEvent,
   TaskLifecycleState
 } from '@share/cache/AItype/states/taskLifecycleState'
 import type { ExpressionPromptProfileState } from '@share/cache/AItype/states/expressionPromptProfile'
@@ -13,9 +13,16 @@ import type { PromptSectionManifestItem } from '../../prompt/main_agent/shared/p
 import type { TurnExecutionLedger } from '../execution/turnExecutionLifecycle'
 import type {
   MainAgentFinalResponse,
+  ResponseOrientation,
+  TurnCognitiveState,
   TurnWorkspace
 } from '@share/cache/AItype/states/turnWorkspace'
 import type { MainAgentResumePoint } from '../../runtime/version/turnVersionSnapshot'
+import type {
+  AgentLoopDirective,
+  TurnLifecycleState
+} from '@share/cache/AItype/states/turnLifecycle'
+import type { TurnInput } from '@share/cache/AItype/states/turnInput'
 
 export type ToolContextSourceRef = {
   type: 'message' | 'url' | 'entity' | 'task' | 'tool' | 'unknown'
@@ -64,6 +71,10 @@ export type InstantPerceptionSnapshot = {
 }
 
 export const MessagesState = Annotation.Root({
+  turnInput: Annotation<TurnInput | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
   resumeFromNode: Annotation<MainAgentResumePoint | undefined>({
     reducer: (_x, y) => y,
     default: () => undefined
@@ -86,10 +97,6 @@ export const MessagesState = Annotation.Root({
     default: () => undefined
   }),
   taskLifecycle: Annotation<TaskLifecycleState | undefined>({
-    reducer: (x, y) => y ?? x,
-    default: () => undefined
-  }),
-  backgroundPersonaStage: Annotation<MainAgentBackgroundPersonaStagePayload | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),
@@ -161,9 +168,29 @@ export const MessagesState = Annotation.Root({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),
-  toolLoopFinalizing: Annotation<boolean>({
-    reducer: (x, y) => y ?? x ?? false,
-    default: () => false
+  runtimeEvent: Annotation<MainAgentRuntimeEvent | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  turnLifecycle: Annotation<TurnLifecycleState | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  cognitiveState: Annotation<TurnCognitiveState | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  responseOrientation: Annotation<ResponseOrientation | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
+  }),
+  responseOrientationError: Annotation<string | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
+  }),
+  loopDirective: Annotation<AgentLoopDirective | undefined>({
+    reducer: (_x, y) => y,
+    default: () => undefined
   }),
   turnWorkspace: Annotation<TurnWorkspace | undefined>({
     reducer: (x, y) => y ?? x,

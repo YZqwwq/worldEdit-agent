@@ -1,4 +1,3 @@
-import { app } from 'electron'
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import {
@@ -43,11 +42,6 @@ const writePromptFile = async (targetPath: string, content: string): Promise<voi
 }
 
 const initializePromptFile = async (targetPath: string, defaultContent: string): Promise<void> => {
-  if (!app.isPackaged) {
-    await writePromptFile(targetPath, defaultContent)
-    return
-  }
-
   if (!existsSync(targetPath)) {
     await writePromptFile(targetPath, defaultContent)
   }

@@ -11,8 +11,10 @@ export type MainAgentResumePoint =
   | 'instantPerceptionNode'
   | 'contextNode'
   | 'llmCall'
+  | 'expressionNode'
   | 'toolNode'
   | 'toolContextReloadNode'
+  | 'cognitionRevisionNode'
   | 'memoryNode'
 
 type PersistedTurnGraphSnapshot = {
@@ -85,7 +87,7 @@ export const deserializeReadyToCommitCandidate = (
     typeof candidate.eventId !== 'string' ||
     typeof candidate.turnId !== 'number' ||
     typeof candidate.sessionId !== 'string' ||
-    candidate.consumer !== 'chat_runtime' ||
+    !['chat_runtime', 'task_notification_consumer'].includes(String(candidate.consumer)) ||
     candidate.status !== 'completed' ||
     !candidate.workspace ||
     typeof candidate.workspace !== 'object' ||

@@ -5,6 +5,8 @@ import type {
   MainAgentEffect,
   MainAgentEventConsumptionResult,
   MainAgentBackgroundPersonaStageEvent,
+  MainAgentTaskNotificationEvent,
+  MainAgentTaskEvent,
   MainAgentUserMessageEvent
 } from '@share/cache/AItype/states/taskLifecycleState'
 import { createDefaultMemorySlots } from '../../agentrsystem/manager/memory/memoryWritePolicy'
@@ -88,7 +90,11 @@ test('document discussion keeps one coherent path from page snapshot to final co
     },
     createBackgroundPersonaStageTurn: async () => ({ turnId: 0 }),
     runBackgroundPersonaStage: async () => ({ fullText: '', interrupted: false }),
-    consumeTaskNotification: async () => {
+    createTaskNotificationTurn: async () => ({ turnId: 0 }),
+    prepareTaskNotification: async () => {
+      throw new Error('not used in this scenario')
+    },
+    runTaskNotification: async () => {
       throw new Error('not used in this scenario')
     },
     applyEffects: async (result: MainAgentEventConsumptionResult) => {
@@ -150,6 +156,168 @@ test('the current document page activates the document capability package', () =
   )
 })
 
+test('a graph failure becomes a system notice instead of a Famila response', async () => {
+  const event = createScenarioEvent()
+  const appliedEffects: MainAgentEffect[] = []
+  const streamedChunks: StreamChunk[] = []
+  const internalError = 'database failed at D:/private/database.sqlite'
+  const dependencies: MainAgentEventOrchestrationDependencies = {
+    createChatTurn: async () => ({ turnId: 502 }),
+    controlUserMessage: async () => ({}),
+    runUserMessage: async () => {
+      throw new Error(internalError)
+    },
+    createBackgroundPersonaStageTurn: async () => ({ turnId: 0 }),
+    runBackgroundPersonaStage: async () => ({ fullText: '', interrupted: false }),
+    createTaskNotificationTurn: async () => ({ turnId: 0 }),
+    prepareTaskNotification: async () => null,
+    runTaskNotification: async () => ({ fullText: '', interrupted: false }),
+    applyEffects: async (result) => {
+      appliedEffects.push(...result.effects)
+      for (const effect of result.effects) {
+        if (effect.type === 'stream_error') {
+          effect.onChunk?.({
+            type: 'stream_error',
+            message: effect.message,
+            sender: 'system',
+            persisted: true
+          })
+        }
+      }
+    },
+    completeTaskNotificationConsumption: async () => undefined,
+    logUserMessageError: (error) => (error instanceof Error ? error.message : String(error))
+  }
+
+  const result = await orchestrateMainAgentEvent(event, dependencies, {
+    onChunk: (chunk) => streamedChunks.push(chunk)
+  })
+
+  assert.equal(result.summary, 'user_message_failed')
+  assert.deepEqual(
+    appliedEffects.map((effect) => effect.type),
+    ['commit_turn', 'stream_error']
+  )
+  const commit = appliedEffects[0]
+  assert.equal(commit.type, 'commit_turn')
+  assert.equal(commit.status, 'failed')
+  assert.equal(commit.errorMessage, internalError)
+  assert.equal(commit.systemNotice, '本轮处理未能完成。你可以重试这条消息。')
+  assert.equal(commit.finalResponse, undefined)
+  assert.equal(commit.workspace, undefined)
+  assert.deepEqual(streamedChunks, [
+    {
+      type: 'stream_error',
+      message: '本轮处理未能完成。你可以重试这条消息。',
+      sender: 'system',
+      persisted: true
+    }
+  ])
+  assert.equal(JSON.stringify(streamedChunks).includes('database.sqlite'), false)
+})
+
+test('a task notification becomes a subject-owned turn before it is consumed', async () => {
+  const event: MainAgentTaskNotificationEvent = {
+    id: 'event-task-notification-1',
+    type: 'task_notification',
+    source: 'task_queue',
+    sessionId: 'default',
+    priority: 'deferred',
+    createdAt: Date.parse(CURRENT_DOCUMENT_CONTEXT.capturedAt),
+    payload: { taskId: 71, notificationId: 81 }
+  }
+  const taskEvent: MainAgentTaskEvent = {
+    source: 'task_queue',
+    taskId: 71,
+    notificationId: 81,
+    notificationType: 'subagent_completed',
+    activeTask: {
+      id: 71,
+      title: '检查人物设定',
+      goal: '检查人物描述与基础设定是否一致',
+      summary: '正在检查人物设定',
+      status: 'awaiting_user_confirmation',
+      executorKind: 'character_editor'
+    },
+    notice: {
+      type: 'task_waiting_confirmation',
+      message: '子 Agent 已完成，请确认。'
+    },
+    payload: {
+      protocolVersion: 'subagent/v1',
+      outcome: 'completed',
+      summary: '检查完成，发现一处时间线冲突。',
+      message: '菲尔娜的年龄与纪年存在一处冲突。',
+      details: { kind: 'completed', changedScopes: ['人物志/菲尔娜'] }
+    }
+  }
+  const workspace = withMemoryMessagesDraft(
+    createTurnWorkspace({
+      eventId: event.id,
+      turnId: 701,
+      sessionId: event.sessionId,
+      runId: 'run-task-notification-1',
+      memorySlots: createDefaultMemorySlots(),
+      persona: null
+    }),
+    [{ role: 'ai', content: '检查做完了，但我发现菲尔娜的年龄和纪年对不上。' }]
+  )
+  const appliedEffects: MainAgentEffect[] = []
+  let receivedTaskEvent: MainAgentTaskEvent | undefined
+  let notificationConsumed = false
+  const dependencies: MainAgentEventOrchestrationDependencies = {
+    createChatTurn: async () => ({ turnId: 0 }),
+    controlUserMessage: async () => ({}),
+    runUserMessage: async () => ({ fullText: '', interrupted: false }),
+    createBackgroundPersonaStageTurn: async () => ({ turnId: 0 }),
+    runBackgroundPersonaStage: async () => ({ fullText: '', interrupted: false }),
+    createTaskNotificationTurn: async () => ({ turnId: 701 }),
+    prepareTaskNotification: async () => taskEvent,
+    runTaskNotification: async (_eventId, _turnId, _sessionId, received) => {
+      receivedTaskEvent = received
+      return {
+        fullText: '检查做完了，但我发现菲尔娜的年龄和纪年对不上。',
+        interrupted: false,
+        graphResult: {
+          workspace,
+          finalResponse: createFinalResponse({
+            messageId: 'response-task-notification-1',
+            content: '检查做完了，但我发现菲尔娜的年龄和纪年对不上。'
+          })
+        }
+      }
+    },
+    applyEffects: async (result) => {
+      assert.equal(notificationConsumed, false)
+      appliedEffects.push(...result.effects)
+    },
+    completeTaskNotificationConsumption: async () => {
+      notificationConsumed = true
+    },
+    logUserMessageError: (error) => (error instanceof Error ? error.message : String(error))
+  }
+
+  const result = await orchestrateMainAgentEvent(event, dependencies)
+
+  assert.equal(result.summary, 'task_notification_integrated_by_subject')
+  assert.deepEqual(receivedTaskEvent, taskEvent)
+  assert.equal(notificationConsumed, true)
+  assert.deepEqual(
+    appliedEffects.map((effect) => effect.type),
+    ['commit_turn', 'emit_trace']
+  )
+  const commit = appliedEffects[0]
+  assert.equal(commit.type, 'commit_turn')
+  assert.equal(commit.consumer, 'task_notification_consumer')
+  assert.equal(
+    commit.finalResponse?.content,
+    '检查做完了，但我发现菲尔娜的年龄和纪年对不上。'
+  )
+  assert.deepEqual(commit.workspace?.draft.memoryMessages, [
+    { role: 'ai', content: '检查做完了，但我发现菲尔娜的年龄和纪年对不上。' }
+  ])
+})
+
 test('an interrupted turn commits its stable workspace and interruption boundary', async () => {
   const event = createScenarioEvent()
   const appliedEffects: MainAgentEffect[] = []
@@ -195,7 +363,11 @@ test('an interrupted turn commits its stable workspace and interruption boundary
     }),
     createBackgroundPersonaStageTurn: async () => ({ turnId: 0 }),
     runBackgroundPersonaStage: async () => ({ fullText: '', interrupted: false }),
-    consumeTaskNotification: async () => {
+    createTaskNotificationTurn: async () => ({ turnId: 0 }),
+    prepareTaskNotification: async () => {
+      throw new Error('not used')
+    },
+    runTaskNotification: async () => {
       throw new Error('not used')
     },
     applyEffects: async (result) => {
@@ -265,7 +437,11 @@ test('an interrupted background stage commits the same stable workspace boundary
         resumePoint: 'instantPerceptionNode'
       }
     }),
-    consumeTaskNotification: async () => {
+    createTaskNotificationTurn: async () => ({ turnId: 0 }),
+    prepareTaskNotification: async () => {
+      throw new Error('not used')
+    },
+    runTaskNotification: async () => {
       throw new Error('not used')
     },
     applyEffects: async (result) => {

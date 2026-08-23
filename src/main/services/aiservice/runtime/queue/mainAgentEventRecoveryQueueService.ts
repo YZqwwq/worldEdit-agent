@@ -100,6 +100,14 @@ class MainAgentEventRecoveryService {
         continue
       }
 
+      if (notification.status === 'pending') {
+        await mainAgentDispatchService.enqueueTaskNotification({
+          taskId: event.payload.taskId,
+          notificationId: event.payload.notificationId
+        })
+        continue
+      }
+
       if (notification.status === 'processing') {
         if (notification.mainAgentEventId !== event.id) {
           await taskNotificationService.resetMainAgentConsumptionToPending(
@@ -109,8 +117,44 @@ class MainAgentEventRecoveryService {
           continue
         }
 
-        await mainAgentEventLogService.resetToQueued(event.id)
-        mainAgentDispatchService.stageRecoveredEvent(event)
+        const turn = await mainAgentTurnService.findByEventId(event.id)
+        if (turn?.status === 'completed') {
+          await taskNotificationService.completeMainAgentConsumption(
+            event.payload.taskId,
+            event.payload.notificationId,
+            event.id
+          )
+          await mainAgentEventLogService.markCompleted(event.id, {
+            consumer: 'task_notification_consumer',
+            summary: 'task_notification_subject_turn_committed_during_startup_recovery'
+          })
+          continue
+        }
+        const decision = resolveMainAgentTurnRecovery({
+          eventType: event.type,
+          eventStatus: 'processing',
+          turnStatus: turn?.status ?? null,
+          headKind: turn ? await mainAgentTurnVersionService.getHeadKind(turn.id) : null,
+          hasUnknownToolEffects: await hasUnknownToolEffectsForEvent(AppDataSource, event.id)
+        })
+        if (decision.action === 'resume_ready_commit') {
+          await mainAgentEventLogService.resetToQueued(event.id)
+          mainAgentDispatchService.stageRecoveredEvent(event)
+          continue
+        }
+
+        await taskNotificationService.resetMainAgentConsumptionToPending(
+          notification.taskId,
+          notification.id
+        )
+        if (turn) {
+          await mainAgentTurnService.markFailed(turn.id, decision.reason)
+        }
+        await mainAgentEventLogService.markFailed(event.id, {
+          consumer: 'task_notification_consumer',
+          summary: 'task_notification_reconciled_failed_during_startup',
+          errorMessage: decision.reason
+        })
       }
     }
   }

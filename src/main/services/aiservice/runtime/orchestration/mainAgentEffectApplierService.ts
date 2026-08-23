@@ -99,7 +99,9 @@ class MainAgentEffectApplierService {
       case 'stream_error':
         effect.onChunk?.({
           type: 'stream_error',
-          message: effect.message
+          message: effect.message,
+          sender: 'system',
+          persisted: true
         })
         return
       case 'record_interaction_observation':

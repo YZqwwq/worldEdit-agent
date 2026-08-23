@@ -6,10 +6,7 @@ import {
   createTurnExecutionAction,
   createTurnExecutionLedger,
   findBlockedUnchangedInvocation,
-  markTurnForFinalization,
-  MAX_MODEL_STEPS_BEFORE_FINALIZATION,
-  renderTurnExecutionLedger,
-  shouldFinalizeToolLoop
+  renderTurnExecutionLedger
 } from '../../agentrsystem/execution/turnExecutionLifecycle'
 import { toolContextReloadNode } from '../../agentrsystem/node/toolcontextreloadnode/toolContextReloadNode'
 import { mainAgentRunControlService } from '../../runtime/mainAgentRunControlService'
@@ -170,19 +167,6 @@ test('a newer document edit continuation supersedes the stale revision for the s
   )
 })
 
-test('the loop limit enters a ledger-based finalization phase', () => {
-  let ledger = createTurnExecutionLedger('完成一个多步骤任务')
-  for (let index = 0; index < MAX_MODEL_STEPS_BEFORE_FINALIZATION; index += 1) {
-    ledger = advanceTurnExecutionModelStep(ledger, true)
-  }
-  assert.equal(shouldFinalizeToolLoop(ledger), true)
-
-  ledger = markTurnForFinalization(ledger)
-  assert.equal(ledger.phase, 'answering')
-  assert.equal(shouldFinalizeToolLoop(ledger), false)
-  assert.match(renderTurnExecutionLedger(ledger), /异常收尾阶段/)
-})
-
 test('unchanged arguments are blocked after a deterministic input failure', () => {
   let ledger = createTurnExecutionLedger('读取人物文档目录')
   ledger = appendTurnExecutionAction(
@@ -214,16 +198,6 @@ test('unchanged arguments are blocked after a deterministic input failure', () =
     undefined
   )
   assert.match(renderTurnExecutionLedger(ledger), /必须修改参数后重试/)
-})
-
-test('repeated invalid actions can enter an explicit finalization state', () => {
-  const ledger = markTurnForFinalization(
-    createTurnExecutionLedger('读取人物文档'),
-    'repeated_invalid_action'
-  )
-
-  assert.equal(ledger.finalizationReason, 'repeated_invalid_action')
-  assert.match(renderTurnExecutionLedger(ledger), /同一无效参数被原样重复提交/)
 })
 
 test('eventual actions remain unresolved until a later completed state replaces them', () => {

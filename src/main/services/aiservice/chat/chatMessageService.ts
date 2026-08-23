@@ -1,4 +1,5 @@
 import { AppDataSource } from '../../../database'
+import type { EntityManager } from 'typeorm'
 import { Message } from '@share/entity/database/Message'
 import {
   hasMainAgentFileContent,
@@ -18,7 +19,7 @@ class ChatMessageService {
   }
 
   private async persistMessage(
-    role: 'user' | 'ai',
+    role: 'user' | 'ai' | 'system',
     content: string,
     options?: {
       sessionId?: string
@@ -33,7 +34,7 @@ class ChatMessageService {
     const consumer = options?.consumer?.trim() || null
     const sessionId = options?.sessionId?.trim() || 'default'
     const existing =
-      eventId && role === 'ai'
+      eventId && (role === 'ai' || role === 'system')
         ? await this.repo.findOne({
             where: {
               eventId,
@@ -71,7 +72,7 @@ class ChatMessageService {
   }
 
   async saveMessage(
-    role: 'user' | 'ai',
+    role: 'user' | 'ai' | 'system',
     content: string,
     options?: {
       sessionId?: string
@@ -91,7 +92,7 @@ class ChatMessageService {
   }
 
   async saveMessageOrThrow(
-    role: 'user' | 'ai',
+    role: 'user' | 'ai' | 'system',
     content: string,
     options?: {
       sessionId?: string
@@ -164,19 +165,20 @@ class ChatMessageService {
     }
   }
 
-  async markMessagesReverted(messageIds: number[]): Promise<void> {
+  async markMessagesReverted(messageIds: number[], manager?: EntityManager): Promise<void> {
     if (messageIds.length === 0) {
       return
     }
 
     const uniqueIds = [...new Set(messageIds)]
-    const messages = await this.repo.find({
+    const repo = manager?.getRepository(Message) ?? this.repo
+    const messages = await repo.find({
       where: uniqueIds.map((id) => ({ id }))
     })
     for (const message of messages) {
       message.status = 'reverted'
     }
-    await this.repo.save(messages)
+    await repo.save(messages)
   }
 
   async markMessagesRevertedByEvent(eventId: string, role?: 'user' | 'ai'): Promise<void> {

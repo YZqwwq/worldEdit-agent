@@ -44,6 +44,7 @@ export const REVERTIBLE_MAIN_AGENT_TURN_STATUSES = [
 
 export type MainAgentTurnConsumer =
   | 'chat_runtime'
+  | 'task_notification_consumer'
   | 'lifecycle_control'
   | 'background_persona_stage_consumer'
 

@@ -20,6 +20,7 @@ import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAg
 import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
 import type { TurnWorkspaceDurableToolReceipt } from '@share/cache/AItype/states/turnWorkspace'
 import { commitWorldDocumentChangeSetWithManager } from '../../../worldbuilding/worldDocumentVersionService'
+import { selfExperienceService } from '../../agentrsystem/manager/selfmodel/selfExperienceService'
 
 export type MainAgentTurnCommitInput = Pick<
   MainAgentCommitTurnEffect,
@@ -32,6 +33,7 @@ export type MainAgentTurnCommitInput = Pick<
   | 'workspace'
   | 'interruption'
   | 'errorMessage'
+  | 'systemNotice'
   | 'observations'
 >
 
@@ -120,10 +122,36 @@ class MainAgentTurnCommitter {
         aiMessage = await messageRepo.save(aiMessage)
         aiMessageId = aiMessage.id
       }
+      if (input.status === 'failed' && input.systemNotice?.trim()) {
+        let systemMessage = await messageRepo.findOne({
+          where: {
+            eventId: input.eventId,
+            role: 'system',
+            consumer: 'system_runtime'
+          },
+          order: { id: 'DESC' }
+        })
+        if (!systemMessage) systemMessage = messageRepo.create()
+        const systemNotice = input.systemNotice.trim()
+        systemMessage.role = 'system'
+        systemMessage.content = systemNotice
+        systemMessage.contentJson = serializeMainAgentMessageContent([
+          { type: 'text', text: systemNotice }
+        ])
+        systemMessage.type = 'text'
+        systemMessage.requestId = `${input.eventId}:system-error`
+        systemMessage.sessionId = input.sessionId
+        systemMessage.turnId = input.turnId
+        systemMessage.status = 'committed'
+        systemMessage.eventId = input.eventId
+        systemMessage.consumer = 'system_runtime'
+        await messageRepo.save(systemMessage)
+      }
 
       const now = new Date()
       if (
         input.consumer === 'chat_runtime' ||
+        input.consumer === 'task_notification_consumer' ||
         input.consumer === 'lifecycle_control' ||
         input.consumer === 'background_persona_stage_consumer'
       ) {
@@ -169,6 +197,17 @@ class MainAgentTurnCommitter {
           }
           await savePersonaState(persona, manager)
         }
+        if (input.status === 'completed' && input.workspace.draft.selfExperience) {
+          await selfExperienceService.commitTurnExperience(
+            {
+              eventId: input.eventId,
+              turnId: input.turnId,
+              sessionId: input.sessionId,
+              draft: input.workspace.draft.selfExperience
+            },
+            manager
+          )
+        }
       }
 
       if (input.status !== 'interrupted') {
@@ -199,6 +238,7 @@ class MainAgentTurnCommitter {
           workspace: input.workspace,
           interruption: input.interruption,
           errorMessage: input.errorMessage,
+          systemNotice: input.systemNotice,
           observations: input.observations
         })
       })

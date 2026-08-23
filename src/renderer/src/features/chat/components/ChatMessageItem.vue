@@ -1,6 +1,18 @@
 <template>
   <article class="w-full" :class="rowClass">
-    <div class="grid w-full gap-3" :class="layoutClass">
+    <div v-if="isSystem" class="flex w-full justify-center px-4 py-1">
+      <div
+        class="max-w-[min(100%,720px)] border-l-2 border-slate-300 bg-slate-50 px-3 py-2 text-[12px] leading-5 text-slate-500"
+        role="status"
+      >
+        <span class="mr-2 font-semibold text-slate-600">系统</span>
+        <span>{{ message.text }}</span>
+        <time v-if="formattedTime" class="ml-2 text-[11px] text-slate-400">
+          {{ formattedTime }}
+        </time>
+      </div>
+    </div>
+    <div v-else class="grid w-full gap-3" :class="layoutClass">
       <div class="flex pt-1" :class="avatarWrapClass">
         <ChatAvatar
           :accent="profile.accent"
@@ -12,7 +24,7 @@
           :avatar-offset-x="profile.avatarOffsetX"
           :avatar-offset-y="profile.avatarOffsetY"
           :interactive="true"
-          @edit="$emit('edit-avatar', message.sender)"
+          @edit="$emit('edit-avatar', participantSender)"
         />
       </div>
 
@@ -143,7 +155,7 @@ const props = defineProps<{
 }>()
 
 defineEmits<{
-  (e: 'edit-avatar', sender: ChatSender): void
+  (e: 'edit-avatar', sender: Exclude<ChatSender, 'system'>): void
   (e: 'revert-message', message: ChatMessage): void
   (e: 'document-diff-locate', payload: {
     reference: ChatMessageDocumentDiffReference
@@ -152,7 +164,7 @@ defineEmits<{
 }>()
 
 const defaultProfiles: Record<
-  ChatSender,
+  Exclude<ChatSender, 'system'>,
   Required<Pick<ChatParticipantProfile, 'label' | 'nickname' | 'avatarText' | 'accent'>> &
     Pick<
       ChatParticipantProfile,
@@ -194,7 +206,8 @@ const defaultProfiles: Record<
 }
 
 const profile = computed(() => {
-  const base = defaultProfiles[props.message.sender]
+  const sender = props.message.sender === 'user' ? 'user' : 'ai'
+  const base = defaultProfiles[sender]
   return {
     ...base,
     ...(props.participant ?? {})
@@ -202,6 +215,10 @@ const profile = computed(() => {
 })
 
 const isUser = computed(() => props.message.sender === 'user')
+const isSystem = computed(() => props.message.sender === 'system')
+const participantSender = computed<Exclude<ChatSender, 'system'>>(() =>
+  props.message.sender === 'user' ? 'user' : 'ai'
+)
 
 const showRevertAction = computed(() => Boolean(props.canRevert) && isUser.value)
 
@@ -210,7 +227,9 @@ const formattedTime = computed(() => {
   return getFrontendMessageTime(props.message.timestamp)
 })
 
-const rowClass = computed(() => (isUser.value ? 'flex justify-end' : 'flex justify-start'))
+const rowClass = computed(() =>
+  isSystem.value ? 'flex justify-center' : isUser.value ? 'flex justify-end' : 'flex justify-start'
+)
 
 const layoutClass = computed(() =>
   isUser.value ? 'grid-cols-[minmax(0,1fr)_56px]' : 'grid-cols-[56px_minmax(0,1fr)]'

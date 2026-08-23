@@ -8,6 +8,7 @@ import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentEventRecord } from '@share/entity/database/MainAgentEventRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
 import { AgentArtifactRecord } from '@share/entity/database/AgentArtifactRecord'
+import { SelfExperienceRecord } from '@share/entity/database/SelfExperienceRecord'
 import { memoryManager } from '../agentrsystem/manager/memory/MemoryManager'
 import { memorySlotService } from '../agentrsystem/manager/memory/memorySlotService'
 import {
@@ -31,6 +32,7 @@ class AiSessionMaintenanceService {
     mainAgentRunControlService.reset()
     await chatMessageService.clearAll()
     await AppDataSource.getRepository(AgentArtifactRecord).clear()
+    await AppDataSource.getRepository(SelfExperienceRecord).clear()
     await AppDataSource.getRepository(MainAgentEventRecord).clear()
     await AppDataSource.getRepository(MainAgentTurnVersionRecord).clear()
     await AppDataSource.getRepository(MainAgentTurnRecord).clear()
@@ -53,6 +55,7 @@ class AiSessionMaintenanceService {
       await manager.getRepository(TaskExecutionRecord).clear()
       await manager.getRepository(TaskRecord).clear()
       await manager.getRepository(AgentArtifactRecord).clear()
+      await manager.getRepository(SelfExperienceRecord).clear()
       await manager.getRepository(MainAgentEventRecord).clear()
       await manager.getRepository(MainAgentTurnVersionRecord).clear()
       await manager.getRepository(MainAgentTurnRecord).clear()
@@ -83,6 +86,7 @@ class AiSessionMaintenanceService {
     mainAgentRunControlService.reset()
     await chatMessageService.clearAll()
     await AppDataSource.getRepository(AgentArtifactRecord).clear()
+    await AppDataSource.getRepository(SelfExperienceRecord).clear()
     await AppDataSource.getRepository(MainAgentEventRecord).clear()
     await AppDataSource.getRepository(MainAgentTurnVersionRecord).clear()
     await AppDataSource.getRepository(MainAgentTurnRecord).clear()

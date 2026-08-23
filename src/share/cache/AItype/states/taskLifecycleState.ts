@@ -74,6 +74,7 @@ export type TaskLifecycleDecisionType =
 
 export type TaskNoticeType =
   | 'task_started'
+  | 'task_completed'
   | 'task_waiting_confirmation'
   | 'task_needs_input'
   | 'task_failed'
@@ -207,7 +208,7 @@ export interface MainAgentEffectBase {
 
 export interface MainAgentSaveMessageEffect extends MainAgentEffectBase {
   type: 'save_message'
-  role: 'user' | 'ai'
+  role: 'user' | 'ai' | 'system'
   content: string
   turnId?: number
   messageStatus?: MainAgentMessageStatus
@@ -268,6 +269,7 @@ export interface MainAgentCommitTurnEffect extends MainAgentEffectBase {
   workspace?: TurnWorkspace
   interruption?: import('./turnWorkspace').MainAgentInterruptionRecord
   errorMessage?: string
+  systemNotice?: string
   observations?: Array<{
     type: import('./interactionObservation').InteractionObservationType
     source: import('./interactionObservation').InteractionObservationSource
@@ -312,14 +314,6 @@ export interface MainAgentTaskEvent {
   payload: SubAgentProtocolPayload
 }
 
-export type MainAgentTaskDecisionAction = 'none' | 'ask_user' | 'resume_subagent'
-
-export interface MainAgentTaskDecision {
-  action: MainAgentTaskDecisionAction
-  reason: string
-  visibleMessage?: string
-}
-
 export interface TaskLifecycleDecision {
   type: TaskLifecycleDecisionType
   confidence: number
@@ -343,4 +337,22 @@ export interface TaskLifecycleState {
   decision?: TaskLifecycleDecision
   notice?: TaskLifecycleNotice
   capability?: TaskCapabilityState
+  eventFact?: {
+    kind:
+      | 'task_cancelled'
+      | 'task_completed'
+      | 'task_continued'
+      | 'task_status_requested'
+      | 'task_input_needs_clarification'
+    taskId: number
+    executionId?: number
+    taskTitle: string
+    source: 'user_instruction' | 'runtime'
+    occurredAt: string
+  }
+}
+
+export type MainAgentRuntimeEvent = {
+  kind: 'task_notification'
+  taskEvent: MainAgentTaskEvent
 }

@@ -1,11 +1,5 @@
 import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
-import type {
-  PersonaActionPolicy,
-  PersonaScenePolicy
-} from '@share/cache/AItype/states/personaPolicy'
-
-const clampActionLevel = (value: number): number => Math.min(1, Math.max(0, value))
-const roundActionLevel = (value: number): number => Math.round(value * 1000) / 1000
+import type { PersonaScenePolicy } from '@share/cache/AItype/states/personaPolicy'
 
 export interface WorkspaceRelatedToolset {
   id: string
@@ -83,13 +77,6 @@ const DOCUMENT_EDITING_PROFILE: WorkspaceProfileDefinition = {
     expressionBias: {
       longFormDelivery: 'prefer_independent_content'
     },
-    actionBias: {
-      autonomyDrive: 0.04,
-      evidenceNeed: 0.14,
-      recallNeed: 0.03,
-      writeConservatism: 0.12,
-      toolPersistence: 0.08
-    }
   }
 }
 
@@ -107,7 +94,6 @@ const cloneScenePolicy = (
           directions: [...mode.directions]
         })),
         expressionBias: policy.expressionBias ? { ...policy.expressionBias } : undefined,
-        actionBias: { ...policy.actionBias }
       }
     : undefined
 
@@ -124,17 +110,4 @@ export const resolveWorkspaceProfile = (
     relatedToolsets: profile.relatedToolsets.map((toolset) => ({ ...toolset })),
     scenePolicy: cloneScenePolicy(profile.scenePolicy)
   }
-}
-
-export const applyWorkspaceSceneActionBias = (
-  action: PersonaActionPolicy,
-  scene: PersonaScenePolicy | null | undefined
-): PersonaActionPolicy => {
-  if (!scene) return { ...action }
-
-  const next = { ...action }
-  for (const key of Object.keys(next) as Array<keyof PersonaActionPolicy>) {
-    next[key] = roundActionLevel(clampActionLevel(next[key] + (scene.actionBias[key] ?? 0)))
-  }
-  return next
 }

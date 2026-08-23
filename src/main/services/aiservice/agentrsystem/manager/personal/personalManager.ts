@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises'
 import type { EntityManager } from 'typeorm'
 import type {
   PersonaBufferItem,
+  InteractionPreference,
+  OperationalBaseline,
   PersonaMetricDelta,
   PersonaMetrics,
   PersonaState
@@ -20,6 +22,16 @@ export const createNeutralPersonaMetrics = (): PersonaMetrics => ({
   verbosity_index: 0.5,
   risk_tolerance: 0.5,
   formality_score: 0.5
+})
+
+export const createNeutralInteractionPreference = (): InteractionPreference => ({
+  autonomy_level: 0.5,
+  verbosity_index: 0.5,
+  formality_score: 0.5
+})
+
+export const createNeutralOperationalBaseline = (): OperationalBaseline => ({
+  risk_tolerance: 0.5
 })
 
 export const createZeroPersonaDelta = (): PersonaMetricDelta => ({
@@ -53,6 +65,28 @@ const parseMetrics = (value: unknown, fallback: PersonaMetrics): PersonaMetrics 
     verbosity_index: clamp01(isNumber(value.verbosity_index) ? value.verbosity_index : fallback.verbosity_index),
     risk_tolerance: clamp01(isNumber(value.risk_tolerance) ? value.risk_tolerance : fallback.risk_tolerance),
     formality_score: clamp01(isNumber(value.formality_score) ? value.formality_score : fallback.formality_score)
+  }
+}
+
+const parseInteractionPreference = (
+  value: unknown,
+  fallback: InteractionPreference
+): InteractionPreference => {
+  if (!isRecord(value)) return fallback
+  return {
+    autonomy_level: clamp01(isNumber(value.autonomy_level) ? value.autonomy_level : fallback.autonomy_level),
+    verbosity_index: clamp01(isNumber(value.verbosity_index) ? value.verbosity_index : fallback.verbosity_index),
+    formality_score: clamp01(isNumber(value.formality_score) ? value.formality_score : fallback.formality_score)
+  }
+}
+
+const parseOperationalBaseline = (
+  value: unknown,
+  fallback: OperationalBaseline
+): OperationalBaseline => {
+  if (!isRecord(value)) return fallback
+  return {
+    risk_tolerance: clamp01(isNumber(value.risk_tolerance) ? value.risk_tolerance : fallback.risk_tolerance)
   }
 }
 
@@ -104,7 +138,8 @@ const buildDefaultPersonaState = (): PersonaState => {
   return {
     persona_id: 'default',
     last_updated: new Date().toISOString(),
-    stable_preferences: metrics,
+    interaction_preferences: createNeutralInteractionPreference(),
+    operational_baseline: createNeutralOperationalBaseline(),
     session_hormones: createZeroPersonaDelta(),
     transient_state: createZeroPersonaDelta(),
     metrics,
@@ -135,7 +170,18 @@ export const parsePersonaStateText = (text: string): PersonaState | null => {
   }
 
   const metrics = parseMetrics(raw.metrics, defaults.metrics)
-  const stable = parseMetrics(raw.stable_preferences, metrics)
+  const legacyStable = parseMetrics(raw.stable_preferences, metrics)
+  const interaction = parseInteractionPreference(
+    raw.interaction_preferences,
+    {
+      autonomy_level: legacyStable.autonomy_level,
+      verbosity_index: legacyStable.verbosity_index,
+      formality_score: legacyStable.formality_score
+    }
+  )
+  const operational = parseOperationalBaseline(raw.operational_baseline, {
+    risk_tolerance: legacyStable.risk_tolerance
+  })
   const session = parseDelta(raw.session_hormones, defaults.session_hormones)
   const transient = parseDelta(raw.transient_state, defaults.transient_state)
   const buffer = parseBuffer(raw.recent_interaction_buffer)
@@ -143,7 +189,8 @@ export const parsePersonaStateText = (text: string): PersonaState | null => {
   return {
     persona_id: raw.persona_id,
     last_updated: raw.last_updated,
-    stable_preferences: stable,
+    interaction_preferences: interaction,
+    operational_baseline: operational,
     session_hormones: session,
     transient_state: transient,
     metrics,
@@ -165,9 +212,20 @@ const toState = (row: PersonaStateRecord): PersonaState => {
   return {
     persona_id: row.personaId || defaults.persona_id,
     last_updated: row.lastUpdated || defaults.last_updated,
-    stable_preferences: parseMetrics(
-      parseJson<Record<string, unknown>>(row.stablePreferencesJson || '', {}),
-      metrics
+    interaction_preferences: parseInteractionPreference(
+      parseJson<Record<string, unknown>>(row.interactionPreferencesJson || '',
+        {
+          autonomy_level: metrics.autonomy_level,
+          verbosity_index: metrics.verbosity_index,
+          formality_score: metrics.formality_score
+        }),
+      createNeutralInteractionPreference()
+    ),
+    operational_baseline: parseOperationalBaseline(
+      parseJson<Record<string, unknown>>(row.operationalBaselineJson || '', {
+        risk_tolerance: metrics.risk_tolerance
+      }),
+      createNeutralOperationalBaseline()
     ),
     session_hormones: parseDelta(
       parseJson<Record<string, unknown>>(row.sessionHormonesJson || '', {}),
@@ -192,7 +250,14 @@ const applyStateToRow = (row: PersonaStateRecord, state: PersonaState): PersonaS
   row.riskTolerance = state.metrics.risk_tolerance
   row.formalityScore = state.metrics.formality_score
   row.recentInteractionBufferJson = JSON.stringify(state.recent_interaction_buffer ?? [])
-  row.stablePreferencesJson = JSON.stringify(state.stable_preferences ?? createNeutralPersonaMetrics())
+  // 保留旧列供旧版本读取，但新的职责拆分只写入专用列。
+  row.stablePreferencesJson = JSON.stringify({})
+  row.interactionPreferencesJson = JSON.stringify(
+    state.interaction_preferences ?? createNeutralInteractionPreference()
+  )
+  row.operationalBaselineJson = JSON.stringify(
+    state.operational_baseline ?? createNeutralOperationalBaseline()
+  )
   row.sessionHormonesJson = JSON.stringify(state.session_hormones ?? createZeroPersonaDelta())
   row.transientStateJson = JSON.stringify(state.transient_state ?? createZeroPersonaDelta())
   row.lastObservationId = state.last_observation_id ?? 0
@@ -265,7 +330,10 @@ export const resetPersonaSessionDynamics = async (): Promise<void> => {
   const state = (await loadPersonaState()) ?? buildDefaultPersonaState()
   state.session_hormones = createZeroPersonaDelta()
   state.transient_state = createZeroPersonaDelta()
-  state.metrics = { ...state.stable_preferences }
+  state.metrics = {
+    ...state.interaction_preferences,
+    risk_tolerance: state.operational_baseline.risk_tolerance
+  }
   state.recent_interaction_buffer = []
   state.last_observation_id = 0
   state.evolution_turn = 0

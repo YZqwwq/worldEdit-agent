@@ -5,6 +5,8 @@ import type {
   TurnWorkspace
 } from '@share/cache/AItype/states/turnWorkspace'
 import type { ToolChangeSetSummary } from '@share/cache/AItype/states/toolEffect'
+import type { TurnLifecycleState } from '@share/cache/AItype/states/turnLifecycle'
+import type { SelfExperienceDraft } from '@share/cache/AItype/states/selfModel'
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
@@ -38,6 +40,23 @@ export const getEffectiveMemorySlots = (workspace: TurnWorkspace): MemorySlotSna
 export const getEffectivePersona = (workspace: TurnWorkspace): PersonaState | null => {
   const persona = workspace.draft.persona ?? workspace.base.persona
   return persona ? clone(persona) : null
+}
+
+export const withIdentityAnchorSnapshot = (
+  workspace: TurnWorkspace,
+  prompt: string
+): TurnWorkspace => {
+  if (workspace.base.identityAnchor) return workspace
+  return {
+    ...workspace,
+    base: {
+      ...workspace.base,
+      identityAnchor: {
+        prompt,
+        capturedAt: new Date().toISOString()
+      }
+    }
+  }
 }
 
 export const withMemorySlotsDraft = (
@@ -121,6 +140,50 @@ export const withObservationDraft = (
   draft: {
     ...workspace.draft,
     observations: [...workspace.draft.observations, clone(observation)]
+  }
+})
+
+export const withCognitiveStateDraft = (
+  workspace: TurnWorkspace,
+  cognitiveState: TurnWorkspace['draft']['cognitiveState']
+): TurnWorkspace => ({
+  ...workspace,
+  draft: {
+    ...workspace.draft,
+    cognitiveState: cognitiveState ? clone(cognitiveState) : undefined
+  }
+})
+
+export const withResponseOrientationDraft = (
+  workspace: TurnWorkspace,
+  responseOrientation: TurnWorkspace['draft']['responseOrientation']
+): TurnWorkspace => ({
+  ...workspace,
+  draft: {
+    ...workspace.draft,
+    responseOrientation: responseOrientation ? clone(responseOrientation) : undefined
+  }
+})
+
+export const withTurnLifecycleDraft = (
+  workspace: TurnWorkspace,
+  lifecycle: TurnLifecycleState
+): TurnWorkspace => ({
+  ...workspace,
+  draft: {
+    ...workspace.draft,
+    lifecycle: clone(lifecycle)
+  }
+})
+
+export const withSelfExperienceDraft = (
+  workspace: TurnWorkspace,
+  experience: SelfExperienceDraft | undefined
+): TurnWorkspace => ({
+  ...workspace,
+  draft: {
+    ...workspace.draft,
+    selfExperience: experience ? clone(experience) : undefined
   }
 })
 

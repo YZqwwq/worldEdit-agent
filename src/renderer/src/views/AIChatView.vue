@@ -287,11 +287,24 @@
 
               <div class="mt-4 grid gap-4 lg:grid-cols-3">
                 <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <h5 class="mb-3 text-sm font-medium text-slate-800">稳定偏好层</h5>
+                  <h5 class="mb-3 text-sm font-medium text-slate-800">协作偏好</h5>
                   <div class="space-y-2">
                     <div
-                      v-for="metric in personaMetricEntries(memorySnapshotData.persona.stable_preferences)"
-                      :key="`stable-${metric.key}`"
+                      v-for="metric in personaMetricEntries(memorySnapshotData.persona.interaction_preferences)"
+                      :key="`interaction-${metric.key}`"
+                      class="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs text-slate-700"
+                    >
+                      <span>{{ metric.label }}</span>
+                      <span class="font-medium">{{ metric.value.toFixed(2) }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <h5 class="mb-3 text-sm font-medium text-slate-800">操作基线</h5>
+                  <div class="space-y-2">
+                    <div
+                      v-for="metric in personaMetricEntries(memorySnapshotData.persona.operational_baseline)"
+                      :key="`operational-${metric.key}`"
                       class="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs text-slate-700"
                     >
                       <span>{{ metric.label }}</span>
@@ -1645,11 +1658,11 @@ const deltaToneClass = (value: number): string => {
   return 'border-gray-200 bg-white text-gray-600'
 }
 
-const personaMetricEntries = (metrics: PersonaMetrics) =>
-  PERSONA_METRICS.map((metric) => ({
-    ...metric,
-    value: metrics[metric.key]
-  }))
+const personaMetricEntries = (metrics: Partial<Record<PersonaMetricKey, number>>) =>
+  PERSONA_METRICS.flatMap((metric) => {
+    const value = metrics[metric.key]
+    return typeof value === 'number' ? [{ ...metric, value }] : []
+  })
 
 const personaDeltaEntries = (metrics: PersonaMetricDelta) =>
   PERSONA_METRICS.map((metric) => ({

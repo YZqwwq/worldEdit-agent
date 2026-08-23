@@ -3,7 +3,7 @@ import test from 'node:test'
 import type { MoodEventAppraisal } from '@share/cache/AItype/states/moodAssessment'
 import type { CharacterMoodBoundary } from '@share/cache/AItype/states/characterMoodBoundary'
 import type { InteractionObservationSnapshot } from '@share/cache/AItype/states/interactionObservation'
-import type { PersonaActionPolicy } from '@share/cache/AItype/states/personaPolicy'
+import type { PersonaCognitivePolicy } from '@share/cache/AItype/states/personaPolicy'
 import { buildActionPolicyPrompt } from '../../prompt/main_agent/persona/actionPolicyPrompt'
 import { buildPersonaAssemblyPromptParts } from '../../prompt/main_agent/persona/personaAssemblyPrompt'
 import { buildSceneCharacterPrompt } from '../../prompt/main_agent/persona/sceneCharacterPrompt'
@@ -17,6 +17,8 @@ import {
   compileMoodAssessment,
   NEUTRAL_MOOD_APPRAISAL
 } from '../../agentrsystem/node/personanode/emotionDynamicsCompiler'
+import { normalizeMoodAppraisalForSource } from '../../agentrsystem/node/personanode/moodAppraisalSource'
+import { parseMoodAppraisal } from '../../agentrsystem/node/personanode/moodAppraisalContract'
 import {
   applyMoodExpressionDeltaToMetrics,
   buildPolicy
@@ -41,6 +43,29 @@ const compile = (
   nowIso = '2026-08-16T00:00:00.000Z',
   boundary: CharacterMoodBoundary = FAMILA_CHARACTER_MOOD_BOUNDARY
 ) => compileMoodAssessment({ appraisal: event, previousMood, nowIso, boundary })
+
+test('model appraisal is quantized at the mood boundary', () => {
+  const parsed = parseMoodAppraisal({
+    userState: { mood: 'calm', valence: 0, confidence: 0.5 },
+    eventKind: 'neutral',
+    valence: -0.6,
+    salience: 1.4,
+    novelty: 0.2,
+    futureProspect: 0.7,
+    agency: 'unknown',
+    normImpact: 0,
+    relationshipImpact: 0,
+    controlSignal: 'unknown',
+    confidence: 0.8
+  })
+
+  assert.equal(parsed.valence, -1)
+  assert.equal(parsed.salience, 1)
+  assert.equal(parsed.novelty, 0)
+  assert.equal(parsed.futureProspect, 1)
+  assert.equal(parsed.confidence, 1)
+  assert.equal(parsed.userState.confidence, 0.5)
+})
 
 test('low-confidence appraisal cannot cause a sharp emotional jump', () => {
   const event = {
@@ -79,7 +104,8 @@ test('appraisal prompt includes user interaction events and excludes task result
   const prompt = buildMoodAppraisalPrompt({
     moodPrompt: '保持低振幅。',
     observations,
-    currentUserText: '先停一下。',
+    currentEventText: '先停一下。',
+    eventSource: 'user',
     recentHistory: [{ role: 'assistant', text: '我先继续说明。' }]
   })
 
@@ -102,6 +128,24 @@ test('task results do not synthesize a user mood without user evidence', () => {
 
   assert.deepEqual(slots.user_mood, { confidence: 0 })
   assert.equal(slots.lastObservationId, 7)
+})
+
+test('non-user events cannot mutate perceived user mood or relationship', () => {
+  const normalized = normalizeMoodAppraisalForSource(
+    appraisal({
+      userState: { mood: 'frustrated', valence: -1, confidence: 1 },
+      eventKind: 'obstacle',
+      relationshipImpact: -2,
+      salience: 3,
+      confidence: 3
+    }),
+    'subagent'
+  )
+
+  assert.deepEqual(normalized.userState, { mood: 'calm', valence: 0, confidence: 0 })
+  assert.equal(normalized.relationshipImpact, 0)
+  assert.equal(normalized.eventKind, 'obstacle')
+  assert.equal(normalized.salience, 3)
 })
 
 test('one appraisal projects user state into memory and bounded response behavior', () => {
@@ -147,10 +191,9 @@ test('one appraisal projects user state into memory and bounded response behavio
     updatedAt: '2026-08-16T00:00:00.000Z',
     expiresAfterObservationId: 15
   })
-  assert.ok(uncertainPolicy.action.clarificationNeed > calmPolicy.action.clarificationNeed)
-  assert.ok(uncertainPolicy.action.evidenceNeed > calmPolicy.action.evidenceNeed)
-  assert.equal(uncertainPolicy.action.autonomyDrive, calmPolicy.action.autonomyDrive)
-  assert.equal(uncertainPolicy.action.toolPersistence, calmPolicy.action.toolPersistence)
+  assert.equal(uncertainPolicy.cognition.clarification, 'clarify_material_ambiguity')
+  assert.equal(uncertainPolicy.cognition.evidence, 'verify_before_concluding')
+  assert.equal(uncertainPolicy.cognition.persistence, calmPolicy.cognition.persistence)
   assert.equal(uncertainPolicy.metrics.base.risk_tolerance, calmPolicy.metrics.base.risk_tolerance)
   assert.match(parts.instruction, /关键前提和不确定边界说清楚/)
   assert.doesNotMatch(parts.instruction, /userState|uncertain|confidence.*0\.8/)
@@ -192,9 +235,9 @@ test('low-confidence perceived user state does not steer memory or behavior', ()
     formality_score: 0.5
   }
   assert.deepEqual(
-    buildPolicy(metrics, metrics, compile(lowConfidence), [], '2026-08-16T00:00:00.000Z').action,
+    buildPolicy(metrics, metrics, compile(lowConfidence), [], '2026-08-16T00:00:00.000Z').cognition,
     buildPolicy(metrics, metrics, compile(NEUTRAL_MOOD_APPRAISAL), [], '2026-08-16T00:00:00.000Z')
-      .action
+      .cognition
   )
   assert.doesNotMatch(parts.instruction, /受挫点/)
 })
@@ -321,8 +364,8 @@ test('accumulated slow mood still affects action after a low-confidence ordinary
 
   assert.equal(ordinary.appraisal.confidence, 0)
   assert.ok(ordinary.slowMood.stress > DEFAULT_SLOW_MOOD.stress)
-  assert.ok(ordinaryPolicy.action.caution > baselinePolicy.action.caution)
-  assert.ok(ordinaryPolicy.action.writeConservatism > baselinePolicy.action.writeConservatism)
+  assert.equal(ordinaryPolicy.cognition.writing, 'verify_scope_and_result')
+  assert.equal(baselinePolicy.cognition.writing, 'normal')
 })
 
 test('ordinary neutral dialogue does not accumulate boredom', () => {
@@ -366,7 +409,7 @@ test('mood expression deltas never rewrite autonomy or risk', () => {
 
   assert.equal(effective.autonomy_level, base.autonomy_level)
   assert.equal(effective.risk_tolerance, base.risk_tolerance)
-  assert.equal(policy.action.toolPersistence, 0.208)
+  assert.equal(policy.cognition.persistence, 'stop_and_report_gap')
 })
 
 test('formality remains an expression metric and does not change recall behavior', () => {
@@ -380,8 +423,8 @@ test('formality remains an expression metric and does not change recall behavior
   const formal = { ...informal, formality_score: 0.9 }
 
   assert.equal(
-    buildPolicy(informal, informal, mood, [], '2026-08-16T00:00:00.000Z').action.recallNeed,
-    buildPolicy(formal, formal, mood, [], '2026-08-16T00:00:00.000Z').action.recallNeed
+    buildPolicy(informal, informal, mood, [], '2026-08-16T00:00:00.000Z').cognition.recall,
+    buildPolicy(formal, formal, mood, [], '2026-08-16T00:00:00.000Z').cognition.recall
   )
 })
 
@@ -412,14 +455,12 @@ test('main-agent prompt receives semantic projection without raw state scores', 
 })
 
 test('action prompt hides scores and keeps tool permission separate', () => {
-  const action: PersonaActionPolicy = {
-    autonomyDrive: 0.74,
-    caution: 0.72,
-    clarificationNeed: 0.42,
-    evidenceNeed: 0.7,
-    recallNeed: 0.64,
-    writeConservatism: 0.68,
-    toolPersistence: 0.66
+  const action: PersonaCognitivePolicy = {
+    clarification: 'proceed_when_clear',
+    evidence: 'verify_before_concluding',
+    recall: 'recall_when_relevant',
+    persistence: 'try_one_alternative',
+    writing: 'verify_scope_and_result'
   }
   const prompt = buildActionPolicyPrompt(action)
   assert.doesNotMatch(prompt, /=\d/)

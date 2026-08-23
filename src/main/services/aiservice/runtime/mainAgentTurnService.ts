@@ -20,6 +20,7 @@ import {
 } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
 import { interactionObservationService } from '../agentrsystem/manager/personal/interactionObservationService'
 import { agentArtifactService } from '../artifacts/agentArtifactService'
+import { selfExperienceService } from '../agentrsystem/manager/selfmodel/selfExperienceService'
 
 type SerializedMemoryCheckpoint = {
   state?: MemoryCheckpoint['state']
@@ -154,6 +155,35 @@ class MainAgentTurnService {
       eventId: input.eventId,
       sessionId: input.sessionId,
       consumer: 'background_persona_stage_consumer',
+      status: 'queued',
+      userMessageId: null,
+      aiMessageId: null,
+      headVersionId: null,
+      reversible: 0,
+      memoryCheckpointJson: JSON.stringify(memoryCheckpoint),
+      errorMessage: '',
+      startedAt: null,
+      completedAt: null,
+      interruptedAt: null,
+      pausedAt: null,
+      cancelledAt: null,
+      revertedAt: null
+    })
+    return this.repo.save(turn)
+  }
+
+  async createTaskNotificationTurn(input: {
+    eventId: string
+    sessionId: string
+  }): Promise<MainAgentTurnRecord> {
+    const existing = await this.repo.findOneBy({ eventId: input.eventId })
+    if (existing) return existing
+
+    const memoryCheckpoint = await memoryManager.getCheckpoint()
+    const turn = this.repo.create({
+      eventId: input.eventId,
+      sessionId: input.sessionId,
+      consumer: 'task_notification_consumer',
       status: 'queued',
       userMessageId: null,
       aiMessageId: null,
@@ -335,32 +365,44 @@ class MainAgentTurnService {
       }
     }
 
-    await memoryManager.restoreCheckpoint(checkpoint)
     const userMessage =
       typeof turn.userMessageId === 'number' && turn.userMessageId > 0
         ? await this.messageRepo.findOneBy({ id: turn.userMessageId })
         : null
-    await chatMessageService.markMessagesReverted(
-      [turn.userMessageId, turn.aiMessageId].filter(
-        (id): id is number => typeof id === 'number' && id > 0
-      )
-    )
-    await agentArtifactService.revertTurnArtifacts(turn.id)
-
-    assertMainAgentTurnStatusTransition(turn.status, 'reverted')
-    turn.status = 'reverted'
-    turn.revertedAt = new Date()
-    await this.repo.save(turn)
-
-    await interactionObservationService.record({
-      type: 'user_revert',
-      source: 'user',
-      summary: '用户撤回了最后一轮普通聊天回复。',
-      payload: {
-        revertedTurnId: turn.id,
-        userMessageId: turn.userMessageId,
-        aiMessageId: turn.aiMessageId
+    await memoryManager.restoreCheckpointAtomically(checkpoint, async (manager) => {
+      const turnRepo = manager.getRepository(MainAgentTurnRecord)
+      const transactionalTurn = await turnRepo.findOneBy({ id: turn.id })
+      if (!transactionalTurn) {
+        throw new Error(`Cannot revert missing turn: ${turn.id}`)
       }
+      if (transactionalTurn.status !== turn.status) {
+        throw new Error(`Turn ${turn.id} changed while it was being reverted.`)
+      }
+
+      await chatMessageService.markMessagesReverted(
+        [transactionalTurn.userMessageId, transactionalTurn.aiMessageId].filter(
+          (id): id is number => typeof id === 'number' && id > 0
+        ),
+        manager
+      )
+      await agentArtifactService.revertTurnArtifacts(transactionalTurn.id, manager)
+      await selfExperienceService.revertTurnExperience(transactionalTurn.id, manager)
+
+      assertMainAgentTurnStatusTransition(transactionalTurn.status, 'reverted')
+      transactionalTurn.status = 'reverted'
+      transactionalTurn.revertedAt = new Date()
+      await turnRepo.save(transactionalTurn)
+
+      await interactionObservationService.record({
+        type: 'user_revert',
+        source: 'user',
+        summary: '用户撤回了最后一轮普通聊天回复。',
+        payload: {
+          revertedTurnId: transactionalTurn.id,
+          userMessageId: transactionalTurn.userMessageId,
+          aiMessageId: transactionalTurn.aiMessageId
+        }
+      }, manager)
     })
 
     return {

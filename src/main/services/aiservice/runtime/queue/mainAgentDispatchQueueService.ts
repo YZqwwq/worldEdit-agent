@@ -13,6 +13,7 @@ import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAg
 import { mainAgentEventLogService } from './mainAgentEventLogQueueService'
 import { mainAgentTurnService } from '../mainAgentTurnService'
 import { isTerminalMainAgentTurnStatus } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
+import { taskNotificationService } from '../../../task/taskNotificationService'
 
 type DispatchHandlers = {
   processEvent?: (
@@ -309,9 +310,25 @@ class MainAgentDispatchService {
             errorMessage
           })
           const turn = await mainAgentTurnService.findByEventId(entry.event.id)
+          if (entry.event.type === 'task_notification') {
+            const notification = await taskNotificationService.getNotification(
+              entry.event.payload.taskId,
+              entry.event.payload.notificationId
+            )
+            if (
+              notification?.status === 'processing' &&
+              notification.mainAgentEventId === entry.event.id &&
+              turn?.status !== 'completed'
+            ) {
+              await taskNotificationService.resetMainAgentConsumptionToPending(
+                entry.event.payload.taskId,
+                entry.event.payload.notificationId
+              )
+            }
+          }
           if (
             (await mainAgentEventLogService.getStatus(entry.event.id)) === 'processing' &&
-            (!turn || !isTerminalMainAgentTurnStatus(turn.status))
+            (!turn || turn.status === 'failed' || !isTerminalMainAgentTurnStatus(turn.status))
           ) {
             await mainAgentEventLogService.markFailed(entry.event.id, { errorMessage })
           }

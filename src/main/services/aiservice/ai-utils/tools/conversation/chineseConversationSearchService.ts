@@ -176,10 +176,13 @@ const loadCandidateMessages = async (input: {
       )
       .map((turn) => turn.id)
   )
-  const historicalRows = loadedRows.filter((row) => {
+  const historicalRows = loadedRows.filter(
+    (row): row is Message & { role: 'user' | 'ai' } => {
+    if (row.role !== 'user' && row.role !== 'ai') return false
     if (row.consumer && row.consumer !== 'chat_runtime') return false
     return typeof row.turnId !== 'number' || eligibleTurnIds.has(row.turnId)
-  })
+    }
+  )
   const rows = excludeConversationMessages(historicalRows, input.excludedMessages)
 
   const turnKeys: string[] = []
