@@ -28,12 +28,13 @@ import type {
 } from '@share/cache/AItype/states/reasoningChannel'
 
 export type ToolContextSourceRef = {
-  type: 'message' | 'url' | 'entity' | 'task' | 'tool' | 'unknown'
+  type: 'message' | 'url' | 'entity' | 'document' | 'task' | 'tool' | 'unknown'
   id?: string | number
   title?: string
   url?: string
   entityType?: WorldEntityType
   worldId?: string
+  revision?: number
 }
 
 export type ToolContextItem = {
@@ -174,6 +175,10 @@ export const MessagesState = Annotation.Root({
   reasoningMode: Annotation<ReasoningChannelMode | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
+  }),
+  consecutiveEmptyModelResponses: Annotation<number>({
+    reducer: (_x, y) => y,
+    default: () => 0
   }),
   reasoningSegments: Annotation<TurnReasoningSegment[]>({
     reducer: (x, y) => [...(x ?? []), ...(y ?? [])],

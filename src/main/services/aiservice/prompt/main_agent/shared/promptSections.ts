@@ -77,3 +77,14 @@ export const toPromptSectionManifestItem = (section: PromptSection): PromptSecti
   capturedAt: section.capturedAt,
   chars: section.content.length
 })
+
+export const replacePromptManifestScope = (
+  previous: PromptSectionManifestItem[],
+  current: PromptSectionManifestItem[],
+  scopedIds: ReadonlySet<string>
+): PromptSectionManifestItem[] => {
+  const stable = previous.filter((item) => !scopedIds.has(item.id))
+  const byId = new Map<string, PromptSectionManifestItem>()
+  for (const item of [...stable, ...current]) byId.set(item.id, item)
+  return [...byId.values()]
+}

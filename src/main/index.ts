@@ -10,6 +10,7 @@ import { taskRecoveryService } from './services/task/taskRecoveryService'
 import { subAgentExecutionQueueService } from './services/task/queue/subAgentExecutionQueueService'
 import { mainAgentEventRecoveryService } from './services/aiservice/runtime/queue/mainAgentEventRecoveryQueueService'
 import { reconcilePendingWorldDocumentChangeSets } from './services/worldbuilding/worldDocumentVersionRepositoryService'
+import { configureAgentTraceStorage } from './services/log/trace/agentTraceStore'
 
 function createWindow(): void {
   // Create the browser window.
@@ -63,46 +64,47 @@ if (!hasSingleInstanceLock) {
     mainWindow.focus()
   })
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
+  // This method will be called when Electron has finished
+  // initialization and is ready to create browser windows.
+  // Some APIs can only be used after this event occurs.
   app.whenReady().then(async () => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+    // Set app user model id for windows
+    electronApp.setAppUserModelId('com.electron')
+    configureAgentTraceStorage(join(app.getPath('userData'), 'diagnostics', 'agent-traces'))
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
+    // Default open or close DevTools by F12 in development
+    // and ignore CommandOrControl + R in production.
+    // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+    // IPC test
+    ipcMain.on('ping', () => console.log('pong'))
 
-  // 初始化数据库
-  await initDatabase()
+    // 初始化数据库
+    await initDatabase()
 
-  await initMemoryStorage()
-  registerAppResourceProtocol()
+    await initMemoryStorage()
+    registerAppResourceProtocol()
 
-  initializeAIEndpoints() // 调用
-  await taskRecoveryService.recoverInterruptedExecutions()
-  await subAgentExecutionQueueService.enqueueQueuedExecutions()
-  await mainAgentEventRecoveryService.reconcileTurnOwnedEvents()
-  await mainAgentEventRecoveryService.reconcileLegacyPausedTurn()
-  await reconcilePendingWorldDocumentChangeSets()
-  await mainAgentEventRecoveryService.reconcileTaskNotificationEvents()
-  await mainAgentEventRecoveryService.enqueueQueuedEvents()
-  await taskRecoveryService.enqueuePendingNotifications()
+    initializeAIEndpoints() // 调用
+    await taskRecoveryService.recoverInterruptedExecutions()
+    await subAgentExecutionQueueService.enqueueQueuedExecutions()
+    await mainAgentEventRecoveryService.reconcileTurnOwnedEvents()
+    await mainAgentEventRecoveryService.reconcileLegacyPausedTurn()
+    await reconcilePendingWorldDocumentChangeSets()
+    await mainAgentEventRecoveryService.reconcileTaskNotificationEvents()
+    await mainAgentEventRecoveryService.enqueueQueuedEvents()
+    await taskRecoveryService.enqueuePendingNotifications()
 
-  createWindow()
+    createWindow()
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+    app.on('activate', function () {
+      // On macOS it's common to re-create a window in the app when the
+      // dock icon is clicked and there are no other windows open.
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
   })
 }
 

@@ -18,6 +18,7 @@ import {
   MAIN_AGENT_FLOW_RULES,
   type MainAgentCommitOwner
 } from '@share/cache/AItype/states/mainAgentOrchestrationRules'
+import { isAgentLoopTerminationError } from '../../agentrsystem/execution/reasoningLoopPolicy'
 
 type MainAgentRuntimeResult = {
   fullText: string
@@ -74,19 +75,16 @@ export type MainAgentEventOrchestrationDependencies = {
     payload: MainAgentBackgroundPersonaStageEvent['payload']
   ) => Promise<MainAgentRuntimeResult>
   applyEffects: (result: MainAgentEventConsumptionResult) => Promise<void>
-  completeTaskNotificationConsumption: (
-    event: MainAgentTaskNotificationEvent
-  ) => Promise<void>
+  completeTaskNotificationConsumption: (event: MainAgentTaskNotificationEvent) => Promise<void>
   logUserMessageError: (error: unknown) => string
 }
 
-type UserMessagePreparedState =
-  | {
-      kind: 'chat_runtime'
-      turnId: number
-      taskLifecycle?: TaskLifecycleState
-      resumeFromHead?: boolean
-    }
+type UserMessagePreparedState = {
+  kind: 'chat_runtime'
+  turnId: number
+  taskLifecycle?: TaskLifecycleState
+  resumeFromHead?: boolean
+}
 
 type MainAgentEventPreparedStateMap = {
   user_message: UserMessagePreparedState
@@ -216,6 +214,10 @@ const buildFailedUserMessageResult = (
 ): MainAgentEventConsumptionResult => {
   const effectContext = createEffectContext(event)
   const errorMessage = dependencies.logUserMessageError(error)
+  const systemNotice = isAgentLoopTerminationError(error)
+    ? error.userNotice
+    : USER_MESSAGE_FAILURE_NOTICE
+  const failedWorkspace = isAgentLoopTerminationError(error) ? error.turnWorkspace : undefined
   return {
     handled: true,
     consumer: 'chat_runtime',
@@ -230,7 +232,8 @@ const buildFailedUserMessageResult = (
               status: 'failed',
               consumer: 'chat_runtime',
               errorMessage,
-              systemNotice: USER_MESSAGE_FAILURE_NOTICE
+              systemNotice,
+              workspace: failedWorkspace
             }
           ] as MainAgentEventConsumptionResult['effects'])
         : []),
@@ -238,7 +241,7 @@ const buildFailedUserMessageResult = (
         ...effectContext,
         type: 'stream_error',
         onChunk,
-        message: USER_MESSAGE_FAILURE_NOTICE
+        message: systemNotice
       }
     ]
   }
@@ -300,7 +303,13 @@ const userMessageHandler: MainAgentEventHandler<MainAgentUserMessageEvent> = {
       }
       return buildCompletedResult(event, prepared.turnId, result.graphResult, runtime?.onChunk)
     } catch (error) {
-      return buildFailedUserMessageResult(event, prepared.turnId, dependencies, error, runtime?.onChunk)
+      return buildFailedUserMessageResult(
+        event,
+        prepared.turnId,
+        dependencies,
+        error,
+        runtime?.onChunk
+      )
     }
   }
 }
@@ -445,29 +454,31 @@ const buildFailedBackgroundStageResult = (
     summary: 'background_persona_stage_failed',
     effects: [
       ...(typeof turnId === 'number'
-        ? ([{
-            ...effectContext,
-            type: 'commit_turn',
-            turnId,
-            status: 'failed',
-            consumer: 'background_persona_stage_consumer',
-            errorMessage: message,
-            observations: [
-              {
-                type: 'background_persona_stage_failed',
-                source: 'background_persona',
-                summary: `${event.payload.title} / ${event.payload.stageId} failed`,
-                payload: {
-                  backgroundTaskId: event.payload.backgroundTaskId,
-                  stageId: event.payload.stageId,
-                  stageKind: event.payload.stageKind,
-                  title: event.payload.title,
-                  resumePointer: event.payload.resumePointer,
-                  error: message
+        ? ([
+            {
+              ...effectContext,
+              type: 'commit_turn',
+              turnId,
+              status: 'failed',
+              consumer: 'background_persona_stage_consumer',
+              errorMessage: message,
+              observations: [
+                {
+                  type: 'background_persona_stage_failed',
+                  source: 'background_persona',
+                  summary: `${event.payload.title} / ${event.payload.stageId} failed`,
+                  payload: {
+                    backgroundTaskId: event.payload.backgroundTaskId,
+                    stageId: event.payload.stageId,
+                    stageKind: event.payload.stageKind,
+                    title: event.payload.title,
+                    resumePointer: event.payload.resumePointer,
+                    error: message
+                  }
                 }
-              }
-            ]
-          }] satisfies MainAgentEventConsumptionResult['effects'])
+              ]
+            }
+          ] satisfies MainAgentEventConsumptionResult['effects'])
         : [])
     ]
   }

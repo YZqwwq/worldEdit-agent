@@ -22,6 +22,7 @@ import {
   type MainAgentEventOrchestrationDependencies
 } from '../../runtime/orchestration/mainAgentEventOrchestration'
 import { resolveWorkspaceProfile } from '../../agentrsystem/workspaceProfileRegistry'
+import { AgentLoopTerminationError } from '../../agentrsystem/execution/reasoningLoopPolicy'
 
 const CURRENT_DOCUMENT_CONTEXT = {
   pageKind: 'document' as const,
@@ -216,6 +217,50 @@ test('a graph failure becomes a system notice instead of a Famila response', asy
   assert.equal(JSON.stringify(streamedChunks).includes('database.sqlite'), false)
 })
 
+test('a loop limit explains the stop and preserves the stable workspace reference', async () => {
+  const event = createScenarioEvent()
+  const appliedEffects: MainAgentEffect[] = []
+  const workspace = createTurnWorkspace({
+    eventId: event.id,
+    turnId: 503,
+    sessionId: event.sessionId,
+    runId: 'run-loop-limit',
+    memorySlots: createDefaultMemorySlots(),
+    persona: null
+  })
+  const loopError = new AgentLoopTerminationError(
+    'consecutive_empty_responses',
+    'provider returned empty responses'
+  )
+  loopError.turnWorkspace = workspace
+  const dependencies: MainAgentEventOrchestrationDependencies = {
+    createChatTurn: async () => ({ turnId: 503 }),
+    controlUserMessage: async () => ({}),
+    runUserMessage: async () => {
+      throw loopError
+    },
+    createBackgroundPersonaStageTurn: async () => ({ turnId: 0 }),
+    runBackgroundPersonaStage: async () => ({ fullText: '', interrupted: false }),
+    createTaskNotificationTurn: async () => ({ turnId: 0 }),
+    prepareTaskNotification: async () => null,
+    runTaskNotification: async () => ({ fullText: '', interrupted: false }),
+    applyEffects: async (result) => {
+      appliedEffects.push(...result.effects)
+    },
+    completeTaskNotificationConsumption: async () => undefined,
+    logUserMessageError: (error) => (error instanceof Error ? error.message : String(error))
+  }
+
+  await orchestrateMainAgentEvent(event, dependencies)
+  const commit = appliedEffects.find((effect) => effect.type === 'commit_turn')
+  const streamError = appliedEffects.find((effect) => effect.type === 'stream_error')
+  assert.equal(commit?.type, 'commit_turn')
+  assert.equal(commit?.workspace, workspace)
+  assert.match(commit?.systemNotice ?? '', /连续没有返回有效内容/)
+  assert.equal(streamError?.type, 'stream_error')
+  assert.equal(streamError?.message, commit?.systemNotice)
+})
+
 test('a task notification becomes a subject-owned turn before it is consumed', async () => {
   const event: MainAgentTaskNotificationEvent = {
     id: 'event-task-notification-1',
@@ -309,10 +354,7 @@ test('a task notification becomes a subject-owned turn before it is consumed', a
   const commit = appliedEffects[0]
   assert.equal(commit.type, 'commit_turn')
   assert.equal(commit.consumer, 'task_notification_consumer')
-  assert.equal(
-    commit.finalResponse?.content,
-    '检查做完了，但我发现菲尔娜的年龄和纪年对不上。'
-  )
+  assert.equal(commit.finalResponse?.content, '检查做完了，但我发现菲尔娜的年龄和纪年对不上。')
   assert.deepEqual(commit.workspace?.draft.memoryMessages, [
     { role: 'ai', content: '检查做完了，但我发现菲尔娜的年龄和纪年对不上。' }
   ])

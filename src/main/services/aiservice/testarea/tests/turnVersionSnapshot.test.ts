@@ -80,14 +80,17 @@ const createState = (): typeof MessagesState.State =>
       ]
     },
     reasoningMode: 'native',
-    reasoningSegments: [{
-      id: 'reasoning:ai-1',
-      text: '先读取文档，再修正人物判断。',
-      mode: 'native',
-      modelStep: 1,
-      createdAt: '2026-08-10T00:00:02.000Z',
-      followsObservation: false
-    }]
+    consecutiveEmptyModelResponses: 1,
+    reasoningSegments: [
+      {
+        id: 'reasoning:ai-1',
+        text: '先读取文档，再修正人物判断。',
+        mode: 'native',
+        modelStep: 1,
+        createdAt: '2026-08-10T00:00:02.000Z',
+        followsObservation: false
+      }
+    ]
   }) as unknown as typeof MessagesState.State
 
 const createVersionDataSource = async (database: string): Promise<DataSource> => {
@@ -182,6 +185,7 @@ test('turn graph snapshot restores messages, workspace and exact resume point', 
   assert.equal(restored.turnWorkspace?.eventId, 'event-1')
   assert.equal(restored.turnExecutionLedger?.actions[0].status, 'completed')
   assert.equal(restored.reasoningMode, 'native')
+  assert.equal(restored.consecutiveEmptyModelResponses, 1)
   assert.equal(restored.reasoningSegments?.[0].text, '先读取文档，再修正人物判断。')
 })
 

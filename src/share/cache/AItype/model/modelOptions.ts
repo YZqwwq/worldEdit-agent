@@ -1,4 +1,5 @@
 import { ModelVendor } from './modelVender'
+import type { ReasoningProtocolPreference } from '../states/reasoningChannel'
 
 export interface ModelOptions {
   vendor: ModelVendor
@@ -10,6 +11,7 @@ export interface ModelOptions {
   useResponsesApi?: boolean
   mainAgentTimeoutMs?: number
   mainAgentMaxTokens?: number
+  reasoningProtocol?: ReasoningProtocolPreference
   modelKwargs?: Record<string, unknown>
   systemPrompt?: string
 }

@@ -1,8 +1,7 @@
-import { appendFileSync } from 'node:fs'
-import { join } from 'node:path'
 import * as z from 'zod'
 import { modelConfigService } from '../../../../modelconfig/modelConfigService'
 import { defineAgentTool } from '../../core/agentTool'
+import { traceArtifact } from '../../../../log/trace/agentTraceEmitter'
 
 const officialWebSearchInputSchema = z.object({
   query: z.string().trim().min(1, 'query is required'),
@@ -60,11 +59,6 @@ type DashScopeNativeGenerationResponse = {
 const DASHSCOPE_GENERATION_URL =
   'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation'
 const DEFAULT_DASHSCOPE_SEARCH_MODEL = 'qwen-plus'
-const WEB_SEARCH_DEBUG_LOG_PATH = join(
-  process.cwd(),
-  'src/main/services/log/logs/official-web-search-debug.jsonl'
-)
-
 const safeSerialize = (value: unknown): unknown => {
   try {
     return JSON.parse(JSON.stringify(value))
@@ -76,19 +70,7 @@ const safeSerialize = (value: unknown): unknown => {
   }
 }
 
-const appendDebugLog = (record: Record<string, unknown>): void => {
-  try {
-    appendFileSync(WEB_SEARCH_DEBUG_LOG_PATH, `${JSON.stringify(record)}\n`)
-  } catch {
-    // ignore debug log failure
-  }
-}
-
-const toSingleLine = (text: string): string =>
-  text
-    .replace(/\s+/g, ' ')
-    .replace(/\*+/g, '')
-    .trim()
+const toSingleLine = (text: string): string => text.replace(/\s+/g, ' ').replace(/\*+/g, '').trim()
 
 const truncateText = (text: string, maxLength: number): string =>
   text.length <= maxLength ? text : `${text.slice(0, Math.max(0, maxLength - 1)).trim()}…`
@@ -112,10 +94,7 @@ const buildSearchSummary = (input: {
 
 const isResponsesOnlySearchModel = (model: string): boolean => {
   const normalized = model.trim().toLowerCase()
-  return (
-    normalized.startsWith('qwen3.7-') ||
-    normalized.startsWith('qwen3.6-')
-  )
+  return normalized.startsWith('qwen3.7-') || normalized.startsWith('qwen3.6-')
 }
 
 const resolveDashScopeSearchModel = (model: string): string => {
@@ -298,36 +277,39 @@ export const officialWebSearchTool = defineAgentTool({
       resultCount
     })
 
-    appendDebugLog({
-      timestamp: new Date().toISOString(),
-      request: {
-        model,
-        query: input.query,
-        reason: input.reason ?? null,
-        protocol: 'dashscope_native_generation',
-        enable_search: true,
-        search_options: {
-          forced_search: true,
-          enable_source: true,
-          search_strategy: 'max'
-        }
-      },
-      parsed: {
-        usedSearch,
-        searchMode: 'forced',
-        hasStructuredSources,
-        resultCount,
-        sourceCount: sources.length,
-        sources,
-        rawAnswerPreview: rawAnswer.slice(0, 500),
-        candidatePaths: {
-          output_search_info: safeSerialize(response.output?.search_info),
-          usage_plugins_search: safeSerialize(response.usage?.plugins?.search),
-          output_choice0_message: safeSerialize(response.output?.choices?.[0]?.message),
-          usage: safeSerialize(response.usage)
-        }
-      },
-      rawCompletion: safeSerialize(response)
+    traceArtifact('officialWebSearch', {
+      title: '产物: 官方联网搜索诊断',
+      summary: `${model} 返回 ${resultCount} 条结构化来源`,
+      data: {
+        request: {
+          model,
+          query: input.query,
+          reason: input.reason ?? null,
+          protocol: 'dashscope_native_generation',
+          enable_search: true,
+          search_options: {
+            forced_search: true,
+            enable_source: true,
+            search_strategy: 'max'
+          }
+        },
+        parsed: {
+          usedSearch,
+          searchMode: 'forced',
+          hasStructuredSources,
+          resultCount,
+          sourceCount: sources.length,
+          sources,
+          rawAnswerPreview: rawAnswer.slice(0, 500),
+          candidatePaths: {
+            output_search_info: safeSerialize(response.output?.search_info),
+            usage_plugins_search: safeSerialize(response.usage?.plugins?.search),
+            output_choice0_message: safeSerialize(response.output?.choices?.[0]?.message),
+            usage: safeSerialize(response.usage)
+          }
+        },
+        rawCompletion: safeSerialize(response)
+      }
     })
 
     return {

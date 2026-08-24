@@ -16,7 +16,8 @@
 - Provider Adapter 已能从 `reasoning_content`、metadata 和 reasoning content block 中分离推理与可见正文；不支持原生 reasoning 的模型走纯文本双调用兼容路径。
 - 主模型不再绑定 `establish_cognition` 和 `finish_response` 两个结构表单工具。
 - 工具执行后直接回到同一个 `llmCall`；结构化认知修订节点已经删除。
-- 原生 reasoning 模型产生 `content` 后直接进入确定性的 `outputGuardNode`；兼容模型由 `finalAnswerNode` 根据本轮自然语言思考生成正文，再进入相同守卫。
+- 所有模型形成结论后都进入 `finalAnswerNode`；主循环中的原生 `content` 也只作为内部结论保存，不会直接成为用户可见回复。
+- Expression Profile 已从主推理 Context 移出，只在 Final Composition 中与全局表达契约一起出现；人格、心理背景和认知倾向仍参与主循环。
 - 旧独立表达节点、结构化认知类型、表单工具和历史恢复点已经全部删除。
 - 工具权限、用户确认、effect receipt、事务、checkpoint、恢复、Memory commit 和 Self Core Authority 均未迁移到模型认知层。
 
@@ -32,8 +33,7 @@
 - Provider Adapter 将 `reasoning_content` 与用户可见 `content` 分离。
 - AI tool call 与原生 `ToolMessage` 组成 Observation Stream；工具结果本身不进入 reasoning。
 - 工具完成后回到同一个 `llmCall`，由模型产生观察后的下一段 reasoning。
-- 原生 reasoning 模型的 `content` 直接进入 `outputGuardNode`。
-- 不提供独立 reasoning 通道的模型通过纯文本双调用完成“内部认知结果 -> 最终回答”。
+- 原生与非原生 reasoning 模型都通过“内部认知结果 -> Final Composition -> Output Guard”形成唯一最终回复。
 - 旧 cognitive state、response orientation、表单工具、认知修订节点、独立表达节点和旧恢复点均已删除。
 - 主 Turn 不再生成或提交 `selfExperience`、`selfCoreRevision`，临时 reasoning 没有身份写权限。
 
@@ -50,7 +50,6 @@ START
        |     -> llmCall
        |-> finalAnswerNode
        |     -> outputGuardNode
-       `-> outputGuardNode
   -> memoryNode
   -> END
 ```
@@ -58,6 +57,8 @@ START
 思维链已经建立，但还没有达到“Provider 差异下可稳定依赖”的完成状态。下一轮开发应先加固 Reasoning Runtime Contract，再开发 Post-Turn Observer。
 
 ### 缺陷 1：Reasoning 模式按单次响应猜测，Turn 内可能摇摆
+
+> 2026-08-24 已完成第一阶段：Runtime 支持 `native / emulated / auto` 协议偏好；首次有效响应确定实际方式后写入 Turn 状态，后续工具循环不再重新猜测，checkpoint 恢复会保留结果。全空响应不会被用于猜测协议。已补协议锁定、工具优先和恢复测试。后续只需根据真实 Provider 验证结果补充已知模型 capability，不应再改回逐响应判断。
 
 当前 `llmCall` 根据本次响应是否含有 reasoning 文本判断：
 
@@ -122,7 +123,7 @@ type TurnReasoningEvent =
       kind: 'final_content'
       sequence: number
       messageId: string
-      source: 'native_content' | 'final_composition'
+      source: 'final_composition'
     }
 ```
 
@@ -138,29 +139,16 @@ type TurnReasoningEvent =
 - checkpoint 恢复不能重复追加已存在的 event。
 - `reasoningSegmentId`、`toolCallId`、`messageId` 必须能解析到真实载荷。
 
-### 缺陷 3：原生 final content 暂时不能逐 token 安全流式输出
+### 原生与普通模型的最终出口（已完成）
 
-Runtime 目前只流式转发 `finalAnswerNode` 的模型正文。这样可以防止 `llmCall` 中兼容模式的内部思考文本泄漏给用户，但原生 reasoning 模型的最终 `content` 也只能在图完成后通过 canonical response 一次性返回。
-
-不能简单把 `llmCall` 的所有 content chunk 转发，因为在响应结束前 Runtime 还不能确认：
-
-- 当前 Turn 是 native 还是 emulated。
-- 本次正文是内部认知结果还是用户可见回答。
-- 后续是否还会出现 tool call。
-
-修复应建立基于已锁定 Reasoning Protocol 的流式门：
-
-```text
-native + 已确认 final content channel
-  -> 可以流式发送 final delta
-
-emulated / protocol 未锁定 / 本步包含 tool call
-  -> 不发送用户可见 delta
-```
-
-在无法可靠区分 Provider chunk 的情况下，宁可保留完成后一次性发送，也不能泄漏 reasoning。
+- 主循环中的任何文本都按内部认知处理，不直接向用户展示。
+- 工具调用结束且模型形成结论后，统一进入 Final Composition。
+- Final Composition 最后才读取 Expression Profile，并输出唯一可见正文；流式边界不再依赖 Provider 是否提供独立 reasoning 通道。
+- Output Guard 只接受来自 Final Composition 的候选，不再允许原生模型正文绕过最终表达边界。
 
 ### 缺陷 4：Provider reasoning 解析还未经过真实接口验证
+
+> 2026-08-24 已补轻量适配入口：Provider Profile 可以声明默认使用原生、兼容或自动探测，也允许模型配置显式覆盖。当前关闭 thinking 的 Qwen 固定走兼容路径；未知或未来模型保留自动探测。真实接口矩阵仍待外部环境验证。
 
 当前 Adapter 已支持读取：
 
@@ -204,14 +192,18 @@ emulated / protocol 未锁定 / 本步包含 tool call
 - 不输出“根据以上分析”“综合来看”等思考过程包装。
 - 比旧结构表表达明显更短、更像正常交流。
 
-### 缺陷 5：兼容模式的最终调用边界还需要加固
+### 统一模型的最终调用边界（已完成第一阶段）
 
-`finalAnswerNode` 当前会读取本轮自然语言思考和 observation，再请求同一模型给出最终回答。这比回应取向结构表合理，但仍有两个风险：
+> 2026-08-24 已完成确定性 Output Guard 第一阶段：最终回复必须引用本 Turn 中真实存在且内容一致的 Final Composition 消息；内部认知消息、仍携带工具请求的消息、尚未被主模型消费的工具 observation，以及仍处于行动阶段的执行账本都会被拒绝。Guard 不通过中文关键词猜测“是否说谎”，工具事实仍以 Receipt、ChangeSet 和 Artifact 为权威。
 
-- 最后一条消息可能是标记为内部 reasoning 的 assistant message，部分 Provider 可能倾向于续写它，而不是重新面向用户作答。
+> 同日已将 Final Composition 统一应用到所有模型：不再把内部 AI/Tool transcript 原样重放给模型，而是仅提供当前用户请求、必要历史、受控认知记录、仍有效工具证据、执行账本和最后阶段的表达要求，降低续写内部思考与复述工具过程的概率。
+
+`finalAnswerNode` 会读取本轮自然语言思考和 observation，再请求同一模型给出最终回答。这比回应取向结构表合理，仍需在真实 Provider 上验证两个风险：
+
+- 受控认知摘要是否仍会令部分 Provider 倾向于复述分析，而不是重新面向用户作答。
 - 最终沟通边界目前依赖附加 SystemMessage；不同 Provider 对消息顺序和后置系统消息的接受程度可能不同。
 
-应把兼容模式的最终调用整理成明确的 Final Composition Input：
+当前 Final Composition Input 为：
 
 ```text
 System：稳定人格、关系、表达负面边界、事实纪律
@@ -223,6 +215,8 @@ Final instruction：现在只生成对用户的最终回答
 这里可以有 Runtime 消息角色和阶段标记，但不能重新设计成 `basis / selectedPoints / depth` 表单，也不能要求模型逐项复述 reasoning。
 
 ### 缺陷 6：空响应的 `deliberate` 路由缺少硬终止条件
+
+> 2026-08-24 已完成第一阶段：连续全空响应最多允许一次纠正重试，第二次明确终止；全空响应不会写入消息历史；单 Turn 最多执行 12 次主模型调用。单次模型调用原有超时继续生效。Turn 总耗时与累计费用暂不增加第二套限制，等待运行指标证明需要后再处理。
 
 当模型既没有 reasoning、content，也没有 tool call 时，当前路由会进入 `deliberate -> llmCall`。如果 Provider 持续返回空响应，可能形成无限模型循环。
 
@@ -244,6 +238,8 @@ maxConsecutiveEmptyResponses = 2
 具体数值应允许配置，并在 Trace 中记录触发原因。
 
 ### 缺陷 7：Prompt Manifest 会在循环中重复累积
+
+> 2026-08-24 已修复：ContextNode 的稳定清单继续保留；每次模型调用的 reasoning contract、执行账本、工具证据、临时状态和空响应纠正项采用当前值替换，已经失效的调用级条目会移除，不再跨循环累积。
 
 `llmCall` 会把已有 `promptSectionManifest` 与本次 Runtime sections 再次合并。多轮工具循环后，同一 section 可能在 manifest 和 checkpoint 中重复出现。
 
@@ -295,6 +291,8 @@ Observer 读取用户输入、reasoning 引用或受控摘要、tool call、obse
 
 #### Step 1：建立 Reasoning Protocol 与 Turn 锁定
 
+状态：第一阶段已完成。显式偏好、自动探测、Turn 锁定、checkpoint 保留与核心回归测试已经落地；真实 Provider capability 验证待进行。
+
 - 在模型配置或 Provider Profile 中加入 `native / emulated / auto`。
 - 为已知模型建立 capability resolver。
 - `auto` 只允许首次有效响应探测一次。
@@ -313,6 +311,8 @@ Observer 读取用户输入、reasoning 引用或受控摘要、tool call、obse
 验收：能确定地重建 `reasoning -> tool call -> observation -> reasoning -> final content` 顺序，而不复制载荷。
 
 #### Step 3：修复循环终止与 Manifest 累积
+
+状态：循环终止已完成；Manifest 累积仍待修复。
 
 - 增加最大模型步骤和连续空响应限制。
 - 清理 call-local prompt manifest。
@@ -708,15 +708,15 @@ Runtime 同时必须从权限上保证 observation 无法取得 system 指令地
 
 有些信息同时影响运行和认知，应使用“结构化权威记录 -> 自然语言投影”的单向关系：
 
-| Runtime 权威结构 | Agent 可感知投影 |
-| --- | --- |
-| Self Core revision | 稳定身份、价值和边界的自然语言描述 |
-| Relationship metrics / events | 当前关系位置和仍需在意之事 |
-| Mood metrics | 当前注意、反应和距离感的轻量心理背景 |
-| Tool permission | 当前可以做什么、什么需要用户确认 |
-| Task lifecycle | 当前任务是否继续、等待或已经结束 |
-| Memory records | 与当前问题相关的少量记忆内容及其来源边界 |
-| Observation receipt | 工具以外部观察身份返回的内容 |
+| Runtime 权威结构              | Agent 可感知投影                         |
+| ----------------------------- | ---------------------------------------- |
+| Self Core revision            | 稳定身份、价值和边界的自然语言描述       |
+| Relationship metrics / events | 当前关系位置和仍需在意之事               |
+| Mood metrics                  | 当前注意、反应和距离感的轻量心理背景     |
+| Tool permission               | 当前可以做什么、什么需要用户确认         |
+| Task lifecycle                | 当前任务是否继续、等待或已经结束         |
+| Memory records                | 与当前问题相关的少量记忆内容及其来源边界 |
+| Observation receipt           | 工具以外部观察身份返回的内容             |
 
 投影不能反向成为权威写入。模型在 reasoning 中生成的自我解释、关系判断和情绪感受只能成为候选，经相应治理服务验证后才能持久化。
 
@@ -841,11 +841,12 @@ Turn Bootstrap
 - 工具后再次调用同一 Reasoning Model，自然产生修订后的 reasoning。
 - Runtime 自动建立 observation 与后续 reasoning 的可见性关联。
 
-### 阶段 3：直接生成最终 content（已完成）
+### 阶段 3：统一 Final Composition（已完成）
 
-- 模型无 tool calls 且产生非空 `content` 时进入 ready-to-commit。
-- 模型直接产生 final content，由 Output Guard 验证，不存在回应取向兼容协议和独立表达节点。
-- 对比最终回答是否更自然、简短且保持事实与立场。
+- 主模型无 tool calls 且形成有效结论时统一进入 Final Composition。
+- 原生模型的 `content` 会作为内部结论传递，普通模型的正文继续作为内部认知传递。
+- Expression Profile 只在 Final Composition 出现，由 Agent 在最后结合心理背景选择情绪显露方式。
+- Output Guard 仅验证唯一 Final 来源、工具消费状态和事实载荷边界。
 
 ### 阶段 4：迁移长期状态提取（待 Reasoning Runtime Contract 稳定后推进）
 
@@ -897,7 +898,7 @@ Turn Bootstrap
 - 主 Agent 在当前 Turn 内以纯文本 reasoning 连续思考，并可在工具观察后自然修订。
 - 工具结果只作为 observation 进入模型上下文，调试、存储和审计均不将其标记为 reasoning。
 - 主路径不再要求模型填写 `understanding / basis / selectedPoints / depth` 等认知表单。
-- 同一模型在思考结束后直接产生 final content，独立 expression 生成不再是正常路径。
+- 主模型先形成内部结论，Final Composition 再形成唯一 final content；不恢复旧式独立 Expression Node。
 - Runtime 仍能可靠完成权限校验、工具执行、事务、checkpoint、中断恢复、回滚和原子提交。
 - Self Core、Mood、Relationship 和 Memory 以自然语言投影参与认知，同时保持各自结构化所有权和写入治理。
 - 当前 Turn 使用 append-only provider 消息序列，缓存命中与 token 成本能够被实际观测。

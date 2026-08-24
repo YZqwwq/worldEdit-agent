@@ -1,9 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, existsSync, renameSync, rmSync, statSync } from 'node:fs'
-import { join } from 'node:path'
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type { AgentTraceRecord } from '@share/cache/render/aiagent/agentTrace'
+import { appendAgentTraceRecord, prepareAgentTraceRun } from './agentTraceStore'
 
 export type AgentTraceRuntimeContext = {
   runId: string
@@ -17,25 +16,6 @@ export type AgentTraceRuntimeContext = {
 }
 
 const agentTraceStorage = new AsyncLocalStorage<AgentTraceRuntimeContext>()
-const TRACE_LOG_PATH = join(process.cwd(), 'src/main/services/log/logs/agent-trace.jsonl')
-const PREVIOUS_TRACE_LOG_PATH = join(
-  process.cwd(),
-  'src/main/services/log/logs/agent-trace.previous.jsonl'
-)
-const MAX_TRACE_LOG_BYTES = 8 * 1024 * 1024
-
-const appendTraceRecord = (record: AgentTraceRecord): void => {
-  try {
-    if (existsSync(TRACE_LOG_PATH) && statSync(TRACE_LOG_PATH).size >= MAX_TRACE_LOG_BYTES) {
-      rmSync(PREVIOUS_TRACE_LOG_PATH, { force: true })
-      renameSync(TRACE_LOG_PATH, PREVIOUS_TRACE_LOG_PATH)
-    }
-    appendFileSync(TRACE_LOG_PATH, `${JSON.stringify(record)}\n`)
-  } catch {
-    // Logging must never break the Agent run.
-  }
-}
-
 export const captureTraceRecord = (record: AgentTraceRecord): void => {
   const context = agentTraceStorage.getStore()
   if (!context) return
@@ -75,9 +55,10 @@ const finalizeTraceContext = (context: AgentTraceRuntimeContext, thrown?: unknow
     },
     timestamp: Date.now(),
     durationMs,
-    level: failureNode ? 'error' : 'info'
+    level: failureNode ? 'error' : 'info',
+    sequence: context.recordCount + 1
   }
-  appendTraceRecord(record)
+  appendAgentTraceRecord(record)
   context.emitChunk?.({ type: 'agent_trace', record })
 }
 
@@ -89,6 +70,7 @@ export function runWithTraceContext<T>(
   },
   fn: () => Promise<T>
 ): Promise<T> {
+  prepareAgentTraceRun()
   const context: AgentTraceRuntimeContext = {
     runId,
     turnId: options.turnId,

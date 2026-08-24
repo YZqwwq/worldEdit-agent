@@ -59,7 +59,7 @@ import {
   getLatestHumanMessageText,
   registerToolConfirmationRequest
 } from './toolExecutionProtocol'
-import { extractEntitySourceRefs } from './toolContextSourceRefs'
+import { extractToolSourceRefs } from './toolContextSourceRefs'
 
 const compact = (value: string, max = 900): string => {
   const normalized = String(value || '')
@@ -199,7 +199,7 @@ const buildSourceRefs = (
     }))
   }
 
-  return extractEntitySourceRefs(data)
+  return extractToolSourceRefs(data)
 }
 
 const buildToolContextSupersessionKey = (

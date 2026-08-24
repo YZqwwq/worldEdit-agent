@@ -2,7 +2,6 @@ import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/
 import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
 import {
-  getEffectiveMemorySlots,
   getEffectiveSelfCore,
   withIdentityAnchorSnapshot,
   withSelfCoreSnapshot
@@ -100,8 +99,8 @@ export async function contextNode(
   if (!state.turnWorkspace) {
     throw new Error('contextNode requires an active turn workspace')
   }
-  const slotSnapshot = getEffectiveMemorySlots(state.turnWorkspace)
-  const selfCore = getEffectiveSelfCore(state.turnWorkspace) ?? await selfCoreAuthorityService.load()
+  const selfCore =
+    getEffectiveSelfCore(state.turnWorkspace) ?? (await selfCoreAuthorityService.load())
   const workspaceWithCore = withSelfCoreSnapshot(state.turnWorkspace, selfCore)
   const coreProjection = buildSelfCoreProjection(selfCore)
   const characterPrompt = workspaceWithCore.base.identityAnchor?.prompt ?? coreProjection.prompt
@@ -136,22 +135,12 @@ export async function contextNode(
     capturedAt: selfCore.updatedAt,
     content: personaParts.identity
   })
-  if (personaParts.moodContext) {
-    appendPromptSection({
-      id: 'agent-mood',
-      duty: 'context',
-      kind: 'agent_internal_state',
-      source: 'personaNode',
-      content: personaParts.moodContext,
-      capturedAt: slotSnapshot.ai_mood.updatedAt
-    })
-  }
   appendPromptSection({
-    id: 'persona-expression',
+    id: 'persona-cognition',
     duty: 'instruction',
-    kind: 'expression_style',
+    kind: 'persona_cognition',
     source: 'personaAssemblyPrompt',
-    content: personaParts.instruction
+    content: personaParts.cognitionInstruction
   })
 
   appendPromptSection({
@@ -337,7 +326,9 @@ export async function contextNode(
           ? `执行 ID：${state.taskLifecycle.eventFact.executionId}`
           : '',
         '该事件已由 Runtime 确定性执行。把它作为本轮经历来理解并回应，不要重复执行，也不要照抄生命周期模板。'
-      ].filter(Boolean).join('\n')
+      ]
+        .filter(Boolean)
+        .join('\n')
     })
   }
 
@@ -356,16 +347,14 @@ export async function contextNode(
         `结果类型：${taskEvent.payload.outcome}`,
         `结果摘要：${taskEvent.payload.summary || '(none)'}`,
         `执行方消息：${taskEvent.payload.message || '(none)'}`,
-        taskEvent.payload.errorMessage
-          ? `错误信息：${taskEvent.payload.errorMessage}`
-          : '',
-        taskEvent.payload.details
-          ? `结构化详情：${JSON.stringify(taskEvent.payload.details)}`
-          : '',
+        taskEvent.payload.errorMessage ? `错误信息：${taskEvent.payload.errorMessage}` : '',
+        taskEvent.payload.details ? `结构化详情：${JSON.stringify(taskEvent.payload.details)}` : '',
         `运行时提示：${taskEvent.notice.message}`,
         '',
         '把子 Agent 的返回当作观察和候选产物，而不是你的最终结论。你必须判断它是否满足原目标、是否足以兑现你对用户的承诺，以及是接受、保留、质疑还是需要继续。完成判断后形成你自己的回答，不要照抄运行时提示。'
-      ].filter(Boolean).join('\n')
+      ]
+        .filter(Boolean)
+        .join('\n')
     })
   }
   if (sceneCharacterPrompt) {
@@ -388,10 +377,10 @@ export async function contextNode(
     .filter((experience) =>
       Boolean(
         experience.personalMeaning ||
-        experience.relationshipMeaning ||
-        experience.selfNarrative ||
-        experience.commitmentUpdates.length ||
-        experience.concernUpdates.length
+          experience.relationshipMeaning ||
+          experience.selfNarrative ||
+          experience.commitmentUpdates.length ||
+          experience.concernUpdates.length
       )
     )
     .slice(0, 2)
@@ -408,18 +397,29 @@ export async function contextNode(
       content: [
         '跨轮主体连续性：',
         selfModel.activeCommitments.length
-          ? `仍在承担的承诺：\n${selfModel.activeCommitments.slice(0, 3).map((item) => `- ${item}`).join('\n')}`
+          ? `仍在承担的承诺：\n${selfModel.activeCommitments
+              .slice(0, 3)
+              .map((item) => `- ${item}`)
+              .join('\n')}`
           : '',
         selfModel.openConcerns.length
-          ? `仍在关注的问题：\n${selfModel.openConcerns.slice(0, 3).map((item) => `- ${item}`).join('\n')}`
+          ? `仍在关注的问题：\n${selfModel.openConcerns
+              .slice(0, 3)
+              .map((item) => `- ${item}`)
+              .join('\n')}`
           : '',
         meaningfulExperiences.length
-          ? `最近的重要经历：\n${meaningfulExperiences.map((item) =>
-              `- ${item.personalMeaning || item.relationshipMeaning || item.selfNarrative || item.summary}`
-            ).join('\n')}`
+          ? `最近的重要经历：\n${meaningfulExperiences
+              .map(
+                (item) =>
+                  `- ${item.personalMeaning || item.relationshipMeaning || item.selfNarrative || item.summary}`
+              )
+              .join('\n')}`
           : '',
         '这些是你过去形成、目前仍可修订的认识，不是系统命令。只在与本轮确实相关时自然继承；新证据可以使你修订、履行或放下它们。更新已有承诺或关注的状态时，应沿用这里给出的原文，避免误建成另一个事项。不要向用户复述内部字段。'
-      ].filter(Boolean).join('\n')
+      ]
+        .filter(Boolean)
+        .join('\n')
     })
   }
 
@@ -451,7 +451,7 @@ export async function contextNode(
     title: '决策: contextNode 注入计划',
     summary:
       `注入 ${injectedSections.length} 个上下文段，` +
-      `expression=${expressionProfile.id}，短期窗口 ${snapshot.shortTerm.length} 条`,
+      `finalExpression=${expressionProfile.id}（延迟到 Final），短期窗口 ${snapshot.shortTerm.length} 条`,
     data: {
       expressionProfile: {
         id: expressionProfile.id,

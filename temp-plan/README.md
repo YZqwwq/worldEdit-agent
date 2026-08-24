@@ -8,6 +8,7 @@
 2. `document-editor-plan.md`：文档版本、撤销和 TipTap 局部编辑。
 3. `agent-document-reading-plan.md`：自由文档边界、Agent 文档发现与认知缓存。
 4. `mood-system.md`：当前情绪架构及剩余一致性问题。
+5. `agent-observability-plan.md`：Agent Trace、AI 按需诊断、费用统计与日志保留。
 
 只阅读与当前任务有关的专题。发生跨模块修改时，再补读 `agent-core-plan.md`。
 
@@ -18,6 +19,7 @@
 3. 完成 Turn 恢复、EffectReceipt 和提交后动作的真实进程验收。
 4. 治理 Quick Access、工具目录和 Context 预算。
 5. 将长期记忆升级为可追溯的重要事件。
+6. 完成 Agent Trace 的跨平台验收，并补齐模型调用与费用汇总。
 
 ## 维护规则
 

@@ -1,6 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type {
   AgentTraceLevel,
   AgentTracePhase,
@@ -8,6 +6,7 @@ import type {
 } from '@share/cache/render/aiagent/agentTrace'
 import type { AgentStageChunk } from '@share/cache/render/aiagent/aiContent'
 import { captureTraceRecord, getTraceContext } from './agentTraceRuntime'
+import { appendAgentTraceRecord, persistAgentTraceArtifact } from './agentTraceStore'
 
 type AgentTraceDetail = {
   title?: string
@@ -18,10 +17,10 @@ type AgentTraceDetail = {
   durationMs?: number
 }
 
-const TRACE_LOG_PATH = join(process.cwd(), 'src/main/services/log/logs/agent-trace.jsonl')
-const TRACE_ARTIFACT_ROOT = join(process.cwd(), 'src/main/services/log/logs/artifacts')
 const MAX_INLINE_STRING_CHARS = 2_000
 const MAX_INLINE_VALUE_CHARS = 6_000
+const SENSITIVE_KEY =
+  /^(?:authorization|cookie|password|secret|api[-_]?key|access[-_]?token|refresh[-_]?token)$/i
 
 type TraceArtifactReference = {
   $artifactRef: string
@@ -36,13 +35,12 @@ const persistArtifact = (value: unknown, kind: 'text' | 'json'): TraceArtifactRe
   const runId = context?.runId || 'unscoped'
   const serialized = kind === 'text' ? String(value) : JSON.stringify(value)
   const artifactId = randomUUID()
-  const relativePath = `${runId}/${artifactId}.${kind === 'text' ? 'txt' : 'json'}`
-  try {
-    mkdirSync(join(TRACE_ARTIFACT_ROOT, runId), { recursive: true })
-    writeFileSync(join(TRACE_ARTIFACT_ROOT, relativePath), serialized, 'utf8')
-  } catch {
-    // Keep the reference metadata even when artifact persistence is unavailable.
-  }
+  const relativePath = persistAgentTraceArtifact({
+    runId,
+    artifactId,
+    extension: kind === 'text' ? 'txt' : 'json',
+    content: serialized
+  })
   return {
     $artifactRef: relativePath.replace(/\\/g, '/'),
     kind,
@@ -52,7 +50,20 @@ const persistArtifact = (value: unknown, kind: 'text' | 'json'): TraceArtifactRe
   }
 }
 
-const sanitizeValue = (value: unknown): unknown => {
+const redactSensitiveValue = (value: unknown, seen = new WeakSet<object>()): unknown => {
+  if (!value || typeof value !== 'object') return value
+  if (seen.has(value)) return { circular: true }
+  seen.add(value)
+  if (Array.isArray(value)) return value.map((item) => redactSensitiveValue(item, seen))
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+      key,
+      SENSITIVE_KEY.test(key) ? '[REDACTED]' : redactSensitiveValue(item, seen)
+    ])
+  )
+}
+
+const sanitizeRedactedValue = (value: unknown): unknown => {
   if (typeof value === 'string') {
     return value.length > MAX_INLINE_STRING_CHARS ? persistArtifact(value, 'text') : value
   }
@@ -65,20 +76,24 @@ const sanitizeValue = (value: unknown): unknown => {
     return { unserializable: true }
   }
   if (serialized.length > MAX_INLINE_VALUE_CHARS) return persistArtifact(value, 'json')
-  if (Array.isArray(value)) return value.map(sanitizeValue)
+  if (Array.isArray(value)) return value.map(sanitizeRedactedValue)
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, sanitizeValue(item)])
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+      key,
+      sanitizeRedactedValue(item)
+    ])
   )
 }
+
+const sanitizeValue = (value: unknown): unknown =>
+  sanitizeRedactedValue(redactSensitiveValue(value))
 
 const sanitizeData = (
   data: Record<string, unknown> | undefined
 ): Record<string, unknown> | undefined => {
   if (!data) return undefined
   try {
-    return Object.fromEntries(
-      Object.entries(data).map(([key, value]) => [key, sanitizeValue(value)])
-    ) as Record<string, unknown>
+    return sanitizeValue(data) as Record<string, unknown>
   } catch {
     return {
       unserializable: true
@@ -106,7 +121,8 @@ const buildRecord = (
     data: sanitizeData(detail?.data),
     timestamp: Date.now(),
     durationMs: detail?.durationMs,
-    level: detail?.level || 'info'
+    level: detail?.level || 'info',
+    sequence: context.recordCount + 1
   }
 }
 
@@ -122,18 +138,12 @@ const emitRecord = (record: AgentTraceRecord | null): AgentTraceRecord | null =>
     })
   }
 
-  try {
-    appendFileSync(TRACE_LOG_PATH, `${JSON.stringify(record)}\n`)
-  } catch {
-    // ignore
-  }
+  appendAgentTraceRecord(record)
 
   return record
 }
 
-export const emitAgentStage = (
-  stage: Omit<AgentStageChunk, 'type'>
-): void => {
+export const emitAgentStage = (stage: Omit<AgentStageChunk, 'type'>): void => {
   const context = getTraceContext()
   if (!context?.emitChunk) return
 
@@ -193,7 +203,11 @@ export const traceError = (
       title: detail?.title || `异常: ${node}`,
       summary:
         detail?.summary ||
-        (error instanceof Error ? error.message : typeof error === 'string' ? error : 'unknown error'),
+        (error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : 'unknown error'),
       data: {
         ...(detail?.data || {}),
         error:

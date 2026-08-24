@@ -1,15 +1,23 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { AIMessage } from '@langchain/core/messages'
+import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages'
 import { shouldContinue } from '../../agentrsystem/endlogic/shouldContinue'
 import { readDefaultResponseChannels } from '../../model-adapters/modelResponseChannels'
 import { outputGuardNode } from '../../agentrsystem/node/outputguardnode/outputGuardNode'
+import {
+  assertModelStepAvailable,
+  buildInternalCognitionText,
+  decideReasoningLoop
+} from '../../agentrsystem/execution/reasoningLoopPolicy'
+import { resolveProfileReasoningProtocol } from '../../model-adapters/modelReasoningProtocol'
+import { replacePromptManifestScope } from '../../prompt/main_agent/shared/promptSections'
+import { renderToolContextItems } from '../../agentrsystem/state/toolContextCollection'
+import { buildFinalCompositionMessages } from '../../agentrsystem/node/finalanswernode/finalComposition'
 
 test('reasoning loop routes only through runtime actions and final-content boundaries', async () => {
   assert.equal(await shouldContinue({ loopDirective: 'deliberate' } as any), 'llmCall')
   assert.equal(await shouldContinue({ loopDirective: 'execute_tools' } as any), 'toolNode')
   assert.equal(await shouldContinue({ loopDirective: 'compose_final' } as any), 'finalAnswerNode')
-  assert.equal(await shouldContinue({ loopDirective: 'finalize' } as any), 'outputGuardNode')
 })
 
 test('llm routing requires an explicit runtime directive', async () => {
@@ -17,10 +25,12 @@ test('llm routing requires an explicit runtime directive', async () => {
 })
 
 test('provider reasoning and visible content remain separate channels', () => {
-  const channels = readDefaultResponseChannels(new AIMessage({
-    content: '这是给用户的简短回答。',
-    additional_kwargs: { reasoning_content: '工具结果推翻了先前判断，因此需要收束。' }
-  }))
+  const channels = readDefaultResponseChannels(
+    new AIMessage({
+      content: '这是给用户的简短回答。',
+      additional_kwargs: { reasoning_content: '工具结果推翻了先前判断，因此需要收束。' }
+    })
+  )
   assert.deepEqual(channels, {
     reasoning: '工具结果推翻了先前判断，因此需要收束。',
     content: '这是给用户的简短回答。'
@@ -28,19 +38,221 @@ test('provider reasoning and visible content remain separate channels', () => {
 })
 
 test('reasoning content blocks never leak into visible content', () => {
-  const channels = readDefaultResponseChannels(new AIMessage({
-    content: [
-      { type: 'reasoning', reasoning: '内部判断' },
-      { type: 'text', text: '最终回答' }
-    ] as any
-  }))
+  const channels = readDefaultResponseChannels(
+    new AIMessage({
+      content: [
+        { type: 'reasoning', reasoning: '内部判断' },
+        { type: 'text', text: '最终回答' }
+      ] as any
+    })
+  )
   assert.deepEqual(channels, { reasoning: '内部判断', content: '最终回答' })
+})
+
+test('provider profiles expose a lightweight reasoning capability entry point', () => {
+  assert.equal(
+    resolveProfileReasoningProtocol('dashscope_qwen', { vendor: 'openai', model: 'qwen-plus' }),
+    'emulated'
+  )
+  assert.equal(
+    resolveProfileReasoningProtocol('dashscope_qwen', {
+      vendor: 'openai',
+      model: 'qwen-plus',
+      reasoningProtocol: 'native'
+    }),
+    'native'
+  )
+  assert.equal(
+    resolveProfileReasoningProtocol('anthropic', { vendor: 'anthropic', model: 'claude-future' }),
+    'auto'
+  )
+})
+
+test('call-local prompt manifest entries replace stale entries instead of accumulating', () => {
+  const result = replacePromptManifestScope(
+    [
+      { id: 'persona-anchor', duty: 'identity', kind: 'persona', source: 'context', chars: 10 },
+      { id: 'tool-evidence', duty: 'context', kind: 'tool', source: 'old', chars: 40 },
+      { id: 'empty-response-recovery', duty: 'execution', kind: 'retry', source: 'old', chars: 20 }
+    ],
+    [{ id: 'tool-evidence', duty: 'context', kind: 'tool', source: 'current', chars: 12 }],
+    new Set(['tool-evidence', 'empty-response-recovery'])
+  )
+  assert.deepEqual(
+    result.map((item) => `${item.id}:${item.source}`),
+    ['persona-anchor:context', 'tool-evidence:current']
+  )
+})
+
+test('compressed tool evidence retains confirmed entity and world references', () => {
+  const rendered = renderToolContextItems('工具证据：', [
+    {
+      id: 'evidence-1',
+      toolCallId: 'tool-1',
+      toolName: 'search_world_entities',
+      retention: 'evidence',
+      ok: true,
+      argsSummary: '{}',
+      resultSummary: '找到了菲尔娜。',
+      createdAtLoop: 1,
+      sourceRefs: [
+        {
+          type: 'entity',
+          id: 'entity-1',
+          title: '菲尔娜',
+          entityType: 'character',
+          worldId: 'world-1'
+        }
+      ]
+    }
+  ])
+  assert.match(rendered, /菲尔娜/)
+  assert.match(rendered, /entity-1/)
+  assert.match(rendered, /worldId=world-1/)
+})
+
+test('final composition uses controlled cognition and evidence instead of replaying internal transcript', () => {
+  const messages = buildFinalCompositionMessages({
+    messages: [
+      new SystemMessage('稳定人格'),
+      new HumanMessage({ content: '之前的话题', additional_kwargs: { isHistory: true } }),
+      new AIMessage({ content: '之前的回答', additional_kwargs: { isHistory: true } }),
+      new HumanMessage('请评价菲尔娜'),
+      new AIMessage({ content: '内部推理原文', additional_kwargs: { isInternalReasoning: true } }),
+      new ToolMessage({ content: '工具原始结果', tool_call_id: 'tool-1' })
+    ],
+    reasoningSegments: [
+      {
+        id: 'reasoning-1',
+        text: '她的克制比力量更重要。',
+        mode: 'emulated',
+        modelStep: 2,
+        createdAt: '2026-08-24T00:00:00.000Z',
+        followsObservation: true
+      }
+    ],
+    toolEvidenceContext: [
+      {
+        id: 'evidence-1',
+        toolName: 'read_character',
+        retention: 'evidence',
+        ok: true,
+        argsSummary: '{}',
+        resultSummary: '读取人物设定完成。',
+        createdAtLoop: 1,
+        sourceRefs: [{ type: 'entity', id: 'entity-1', title: '菲尔娜', entityType: 'character' }]
+      }
+    ],
+    turnExecutionLedger: {
+      objective: '评价菲尔娜',
+      phase: 'answering',
+      modelStep: 2,
+      actions: [],
+      unresolvedItems: []
+    },
+    expressionProfile: {
+      id: 'default',
+      title: '稳态表达',
+      summary: '最终表达测试',
+      prompt: '只在最终组织阶段可见的表达方案。'
+    }
+  } as any)
+
+  assert.equal(
+    messages.some((message) => message instanceof ToolMessage),
+    false
+  )
+  assert.equal(
+    messages.some((message) => message.additional_kwargs?.isInternalReasoning),
+    false
+  )
+  assert.equal(messages.at(-1)?.content, '请评价菲尔娜')
+  assert.match(String(messages[1].content), /她的克制比力量更重要/)
+  assert.match(String(messages[1].content), /entity-1/)
+  assert.match(String(messages[1].content), /全局表达契约/)
+  assert.match(String(messages[1].content), /只在最终组织阶段可见的表达方案/)
+  assert.match(String(messages[1].content), /自主选择要显露的情绪与强度/)
+})
+
+test('a native turn remains native when a later final response omits reasoning', () => {
+  const result = decideReasoningLoop({
+    lockedMode: 'native',
+    preference: 'auto',
+    response: { reasoning: '', content: '这是工具完成后的最终回答。', toolCallCount: 0 }
+  })
+  assert.equal(result.mode, 'native')
+  assert.equal(result.directive, 'compose_final')
+})
+
+test('native visible content becomes internal cognition for final composition', () => {
+  const cognition = buildInternalCognitionText('native', {
+    reasoning: '证据已经足够。',
+    content: '菲尔娜的克制比力量更重要。'
+  })
+  assert.match(cognition, /证据已经足够/)
+  assert.match(cognition, /本步形成的结论/)
+  assert.match(cognition, /菲尔娜的克制比力量更重要/)
+})
+
+test('an emulated turn does not switch protocol when later metadata contains reasoning', () => {
+  const result = decideReasoningLoop({
+    lockedMode: 'emulated',
+    preference: 'auto',
+    response: { reasoning: '供应商附带的推理元数据', content: '内部认知结果', toolCallCount: 0 }
+  })
+  assert.equal(result.mode, 'emulated')
+  assert.equal(result.directive, 'compose_final')
+})
+
+test('tool execution always wins over visible content and requires another model step', () => {
+  const result = decideReasoningLoop({
+    lockedMode: 'native',
+    response: { reasoning: '需要创建长文卡片。', content: '正在创建。', toolCallCount: 1 }
+  })
+  assert.equal(result.directive, 'execute_tools')
+})
+
+test('auto mode does not guess a protocol from a wholly empty response', () => {
+  const result = decideReasoningLoop({
+    preference: 'auto',
+    response: { reasoning: '', content: '', toolCallCount: 0 }
+  })
+  assert.equal(result.mode, undefined)
+  assert.equal(result.directive, 'deliberate')
+  assert.equal(result.consecutiveEmptyResponses, 1)
+})
+
+test('consecutive empty responses stop instead of looping forever', () => {
+  assert.throws(
+    () =>
+      decideReasoningLoop({
+        response: { reasoning: '', content: '', toolCallCount: 0 },
+        previousConsecutiveEmptyResponses: 1
+      }),
+    /consecutive empty model responses/
+  )
+})
+
+test('model step limit stops a turn without a final response', () => {
+  assert.doesNotThrow(() => assertModelStepAvailable(11))
+  assert.throws(() => assertModelStepAvailable(12), /model-step limit/)
 })
 
 test('output guard accepts one canonical final-content candidate', async () => {
   const result = await outputGuardNode({
+    messages: [new AIMessage({ id: 'final-1', content: '我更在意他信仰崩塌后的克制。' })],
+    reasoningMode: 'native',
+    turnExecutionLedger: {
+      objective: '讨论人物',
+      phase: 'answering',
+      modelStep: 1,
+      actions: [],
+      unresolvedItems: []
+    },
     finalContentCandidate: {
-      messageId: 'final-1', content: '我更在意他信仰崩塌后的克制。', source: 'native_content'
+      messageId: 'final-1',
+      content: '我更在意他信仰崩塌后的克制。',
+      source: 'final_composition'
     },
     turnLifecycle: { phase: 'forming', revision: 0, updatedAt: new Date().toISOString() }
   } as any)
@@ -49,9 +261,122 @@ test('output guard accepts one canonical final-content candidate', async () => {
 })
 
 test('output guard rejects internal reasoning wrappers', async () => {
-  await assert.rejects(outputGuardNode({
-    finalContentCandidate: {
-      messageId: 'final-2', content: '<think>内部判断</think>', source: 'final_composition'
-    }
-  } as any), /internal reasoning wrapper/)
+  await assert.rejects(
+    outputGuardNode({
+      messages: [new AIMessage({ id: 'final-2', content: '<think>内部判断</think>' })],
+      reasoningMode: 'emulated',
+      turnExecutionLedger: {
+        objective: '回答问题',
+        phase: 'answering',
+        modelStep: 1,
+        actions: [],
+        unresolvedItems: []
+      },
+      finalContentCandidate: {
+        messageId: 'final-2',
+        content: '<think>内部判断</think>',
+        source: 'final_composition'
+      }
+    } as any),
+    /internal reasoning wrapper/
+  )
+})
+
+test('output guard rejects a final candidate that still requests a tool', async () => {
+  await assert.rejects(
+    outputGuardNode({
+      messages: [
+        new AIMessage({
+          id: 'final-with-tool',
+          content: '我来创建长文卡片。',
+          tool_calls: [{ id: 'tool-1', name: 'create_artifact', args: {} }]
+        })
+      ],
+      reasoningMode: 'native',
+      turnExecutionLedger: {
+        objective: '创建长文',
+        phase: 'answering',
+        modelStep: 1,
+        actions: [],
+        unresolvedItems: []
+      },
+      finalContentCandidate: {
+        messageId: 'final-with-tool',
+        content: '我来创建长文卡片。',
+        source: 'final_composition'
+      }
+    } as any),
+    /still requests tools/
+  )
+})
+
+test('output guard rejects a final response before tool observations are consumed', async () => {
+  await assert.rejects(
+    outputGuardNode({
+      messages: [new AIMessage({ id: 'final-before-observation', content: '已经完成。' })],
+      reasoningMode: 'native',
+      pendingToolContext: [{ toolCallId: 'tool-1' }],
+      turnExecutionLedger: {
+        objective: '修改文档',
+        phase: 'answering',
+        modelStep: 2,
+        actions: [],
+        unresolvedItems: []
+      },
+      finalContentCandidate: {
+        messageId: 'final-before-observation',
+        content: '已经完成。',
+        source: 'final_composition'
+      }
+    } as any),
+    /pending tool observations/
+  )
+})
+
+test('output guard rejects internal candidates and non-composition sources', async () => {
+  await assert.rejects(
+    outputGuardNode({
+      messages: [
+        new AIMessage({
+          id: 'internal-final',
+          content: '内部结论',
+          additional_kwargs: { isInternalReasoning: true }
+        })
+      ],
+      reasoningMode: 'emulated',
+      turnExecutionLedger: {
+        objective: '回答问题',
+        phase: 'answering',
+        modelStep: 1,
+        actions: [],
+        unresolvedItems: []
+      },
+      finalContentCandidate: {
+        messageId: 'internal-final',
+        content: '内部结论',
+        source: 'final_composition'
+      }
+    } as any),
+    /internal reasoning message/
+  )
+
+  await assert.rejects(
+    outputGuardNode({
+      messages: [new AIMessage({ id: 'wrong-protocol', content: '最终回答' })],
+      reasoningMode: 'emulated',
+      turnExecutionLedger: {
+        objective: '回答问题',
+        phase: 'answering',
+        modelStep: 1,
+        actions: [],
+        unresolvedItems: []
+      },
+      finalContentCandidate: {
+        messageId: 'wrong-protocol',
+        content: '最终回答',
+        source: 'native_content'
+      }
+    } as any),
+    /final composition boundary/
+  )
 })

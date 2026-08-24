@@ -9,6 +9,7 @@ import type { ModelProviderProfile } from '@share/cache/AItype/model/modelProvid
 import type { ModelProtocolFamily } from '@share/cache/AItype/model/modelProtocolFamily'
 import type { ProxyResponseMetadata } from '@share/cache/AItype/model/proxyResponseMetadata'
 import type { ModelVendor } from '@share/cache/AItype/model/modelVender'
+import type { ReasoningProtocolPreference } from '@share/cache/AItype/states/reasoningChannel'
 import {
   buildQwenInputContent,
   getMainAgentContentPartsFromMessage,
@@ -17,10 +18,8 @@ import {
   parseMainAgentContentForPersistence,
   stripMainAgentContentPartsMetadata
 } from '../messagecontent/mainAgentMessageContentService'
-import {
-  readDefaultResponseChannels,
-  type ModelResponseChannels
-} from './modelResponseChannels'
+import { readDefaultResponseChannels, type ModelResponseChannels } from './modelResponseChannels'
+import { resolveProfileReasoningProtocol } from './modelReasoningProtocol'
 
 export type ModelProtocolFamilyAdapter = {
   family: ModelProtocolFamily
@@ -40,6 +39,7 @@ export type ModelProviderProfileSpec = {
   family: ModelProtocolFamily
   vendor: ModelVendor
   applyOptions: (options: ModelOptions) => ModelOptions
+  defaultReasoningProtocol: (options: ModelOptions) => ReasoningProtocolPreference
 }
 
 export type ConfiguredModelRuntime = {
@@ -50,6 +50,7 @@ export type ConfiguredModelRuntime = {
   profile: ModelProviderProfile
   familyAdapter: ModelProtocolFamilyAdapter
   profileSpec: ModelProviderProfileSpec
+  reasoningProtocol: ReasoningProtocolPreference
 }
 
 const cleanSchema = (schema: unknown): unknown => {
@@ -229,6 +230,9 @@ const openAIProfile: ModelProviderProfileSpec = {
   vendor: 'openai',
   applyOptions(options) {
     return options
+  },
+  defaultReasoningProtocol(options) {
+    return resolveProfileReasoningProtocol('openai', options)
   }
 }
 
@@ -248,6 +252,9 @@ const dashscopeQwenProfile: ModelProviderProfileSpec = {
             : false
       }
     }
+  },
+  defaultReasoningProtocol(options) {
+    return resolveProfileReasoningProtocol('dashscope_qwen', options)
   }
 }
 
@@ -257,6 +264,9 @@ const anthropicProfile: ModelProviderProfileSpec = {
   vendor: 'anthropic',
   applyOptions(options) {
     return options
+  },
+  defaultReasoningProtocol(options) {
+    return resolveProfileReasoningProtocol('anthropic', options)
   }
 }
 
@@ -266,8 +276,12 @@ export const resolveModelProviderProfile = (options: ModelOptions): ModelProvide
   }
 
   if (options.vendor === 'openai') {
-    const baseURL = String(options.baseURL || '').trim().toLowerCase()
-    const model = String(options.model || '').trim().toLowerCase()
+    const baseURL = String(options.baseURL || '')
+      .trim()
+      .toLowerCase()
+    const model = String(options.model || '')
+      .trim()
+      .toLowerCase()
     if (baseURL.includes('dashscope.aliyuncs.com') || model.startsWith('qwen')) {
       return 'dashscope_qwen'
     }
@@ -277,9 +291,7 @@ export const resolveModelProviderProfile = (options: ModelOptions): ModelProvide
   throw new Error(`Unsupported vendor: ${options.vendor}`)
 }
 
-export const getModelProviderProfileSpec = (
-  options: ModelOptions
-): ModelProviderProfileSpec => {
+export const getModelProviderProfileSpec = (options: ModelOptions): ModelProviderProfileSpec => {
   const profile = resolveModelProviderProfile(options)
   if (profile === 'anthropic') {
     return anthropicProfile
@@ -290,9 +302,8 @@ export const getModelProviderProfileSpec = (
   return openAIProfile
 }
 
-export const resolveModelProtocolFamily = (
-  options: ModelOptions
-): ModelProtocolFamily => getModelProviderProfileSpec(options).family
+export const resolveModelProtocolFamily = (options: ModelOptions): ModelProtocolFamily =>
+  getModelProviderProfileSpec(options).family
 
 export const getModelProtocolFamilyAdapter = (
   family: ModelProtocolFamily
@@ -303,9 +314,7 @@ export const getModelProtocolFamilyAdapter = (
   return openAICompatibleFamilyAdapter
 }
 
-export const createConfiguredModelRuntime = (
-  options: ModelOptions
-): ConfiguredModelRuntime => {
+export const createConfiguredModelRuntime = (options: ModelOptions): ConfiguredModelRuntime => {
   const profileSpec = getModelProviderProfileSpec(options)
   const effectiveOptions = profileSpec.applyOptions(options)
   const familyAdapter = getModelProtocolFamilyAdapter(profileSpec.family)
@@ -316,7 +325,9 @@ export const createConfiguredModelRuntime = (
     family: profileSpec.family,
     profile: profileSpec.profile,
     familyAdapter,
-    profileSpec
+    profileSpec,
+    reasoningProtocol:
+      effectiveOptions.reasoningProtocol ?? profileSpec.defaultReasoningProtocol(effectiveOptions)
   }
 }
 

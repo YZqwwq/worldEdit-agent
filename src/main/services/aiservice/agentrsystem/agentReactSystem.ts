@@ -14,10 +14,7 @@ import { outputGuardNode } from './node/outputguardnode/outputGuardNode'
 
 const versionedNode = <TResult>(
   name: Parameters<typeof withTurnVersionBoundary>[0],
-  node: (
-    state: typeof MessagesState.State,
-    config?: { signal?: AbortSignal }
-  ) => Promise<TResult>
+  node: (state: typeof MessagesState.State, config?: { signal?: AbortSignal }) => Promise<TResult>
 ) => withTurnVersionBoundary(name, withNodeTrace(name, node))
 
 const routeTurnStart = (state: typeof MessagesState.State) =>
@@ -44,12 +41,7 @@ export const agent = new StateGraph(MessagesState)
   ])
   .addEdge('instantPerceptionNode', 'contextNode')
   .addEdge('contextNode', 'llmCall')
-  .addConditionalEdges('llmCall', shouldContinue, [
-    'llmCall',
-    'toolNode',
-    'finalAnswerNode',
-    'outputGuardNode'
-  ])
+  .addConditionalEdges('llmCall', shouldContinue, ['llmCall', 'toolNode', 'finalAnswerNode'])
   .addEdge('toolNode', 'toolContextReloadNode')
   .addEdge('toolContextReloadNode', 'llmCall')
   .addEdge('finalAnswerNode', 'outputGuardNode')

@@ -17,10 +17,7 @@ import { agent } from '../agentrsystem/agentReactSystem'
 import { memorySlotService } from '../agentrsystem/manager/memory/memorySlotService'
 import { loadPersonaState } from '../agentrsystem/manager/personal/personalManager'
 import { selfCoreAuthorityService } from '../agentrsystem/manager/selfmodel/selfCoreAuthorityService'
-import {
-  createTurnWorkspace,
-  withObservationDraft
-} from '../agentrsystem/state/turnWorkspace'
+import { createTurnWorkspace, withObservationDraft } from '../agentrsystem/state/turnWorkspace'
 import {
   attachMainAgentContentPartsMetadata,
   getMainAgentContentPartsFromPersistedMessage,
@@ -32,6 +29,7 @@ import { runWithTraceContext } from '../../log/trace/agentTraceRuntime'
 import { mainAgentRunControlService } from './mainAgentRunControlService'
 import { chatMessageService } from '../chat/chatMessageService'
 import { mainAgentTurnVersionService } from './version/mainAgentTurnVersionService'
+import { isAgentLoopTerminationError } from '../agentrsystem/execution/reasoningLoopPolicy'
 
 export type MainAgentChatRuntimeResult = {
   fullText: string
@@ -65,9 +63,7 @@ class MainAgentChatRuntimeService {
     const runId = randomUUID()
     const controller = mainAgentRunControlService.startRun({ eventId, turnId })
     let fullText = ''
-    const restoredHead = resumeFromHead
-      ? await mainAgentTurnVersionService.loadHead(turnId)
-      : null
+    const restoredHead = resumeFromHead ? await mainAgentTurnVersionService.loadHead(turnId) : null
     if (resumeFromHead && !restoredHead) {
       throw new Error(`Recovering task notification turn ${turnId} has no restorable HEAD.`)
     }
@@ -102,30 +98,34 @@ class MainAgentChatRuntimeService {
           : taskEvent.payload.outcome === 'cancelled'
             ? 'task_cancelled'
             : 'task_failed'
-    const baseWorkspace = restoredWorkspace ?? createTurnWorkspace({
-      eventId,
-      turnId,
-      sessionId,
-      runId,
-      memorySlots,
-      persona,
-      selfCore
-    })
-    const turnWorkspace = restoredWorkspace ?? withObservationDraft(baseWorkspace, {
-      id: (memorySlots.lastObservationId ?? 0) + 1,
-      type: observationType,
-      source: 'task_queue',
-      summary: taskEvent.payload.summary || taskEvent.notice.message,
-      payload: {
-        taskId: taskEvent.taskId,
-        notificationId: taskEvent.notificationId,
-        notificationType: taskEvent.notificationType,
-        outcome: taskEvent.payload.outcome,
-        message: taskEvent.payload.message,
-        details: taskEvent.payload.details
-      },
-      createdAt: new Date().toISOString()
-    })
+    const baseWorkspace =
+      restoredWorkspace ??
+      createTurnWorkspace({
+        eventId,
+        turnId,
+        sessionId,
+        runId,
+        memorySlots,
+        persona,
+        selfCore
+      })
+    const turnWorkspace =
+      restoredWorkspace ??
+      withObservationDraft(baseWorkspace, {
+        id: (memorySlots.lastObservationId ?? 0) + 1,
+        type: observationType,
+        source: 'task_queue',
+        summary: taskEvent.payload.summary || taskEvent.notice.message,
+        payload: {
+          taskId: taskEvent.taskId,
+          notificationId: taskEvent.notificationId,
+          notificationType: taskEvent.notificationType,
+          outcome: taskEvent.payload.outcome,
+          message: taskEvent.payload.message,
+          details: taskEvent.payload.details
+        },
+        createdAt: new Date().toISOString()
+      })
     const runtimeEventText = [
       `子 Agent 返回了任务「${taskEvent.activeTask.title}」的执行事件。`,
       `结果类型：${taskEvent.payload.outcome}`,
@@ -138,39 +138,39 @@ class MainAgentChatRuntimeService {
       return await runWithTraceContext(runId, { turnId }, async () => {
         await mainAgentTurnVersionService.runInTurn({ eventId, turnId }, async () => {
           const graphInput = restoredState ?? {
-              messages: [
-                new HumanMessage({
-                  content: runtimeEventText,
-                  additional_kwargs: {
-                    isRuntimeEvent: true,
-                    runtimeEventKind: 'task_notification'
-                  }
-                })
-              ],
-              runtimeEvent: {
-                kind: 'task_notification',
-                taskEvent
-              },
-              turnInput: {
-                kind: 'task_notification' as const,
-                source: 'subagent' as const,
+            messages: [
+              new HumanMessage({
                 content: runtimeEventText,
-                occurredAt: new Date().toISOString(),
-                taskEvent
-              },
-              taskLifecycle: {
-                activeTask: taskEvent.activeTask,
-                notice: taskEvent.notice
-              },
-              turnWorkspace
-            }
-          const stream = await agent.streamEvents(
-            graphInput,
-            { version: 'v2', signal: controller.signal } as {
-              version: 'v2'
-              signal: AbortSignal
-            }
-          )
+                additional_kwargs: {
+                  isRuntimeEvent: true,
+                  runtimeEventKind: 'task_notification'
+                }
+              })
+            ],
+            runtimeEvent: {
+              kind: 'task_notification',
+              taskEvent
+            },
+            turnInput: {
+              kind: 'task_notification' as const,
+              source: 'subagent' as const,
+              content: runtimeEventText,
+              occurredAt: new Date().toISOString(),
+              taskEvent
+            },
+            taskLifecycle: {
+              activeTask: taskEvent.activeTask,
+              notice: taskEvent.notice
+            },
+            turnWorkspace
+          }
+          const stream = await agent.streamEvents(graphInput, {
+            version: 'v2',
+            signal: controller.signal
+          } as {
+            version: 'v2'
+            signal: AbortSignal
+          })
           for await (const event of stream) {
             if (
               event.event === 'on_chat_model_stream' &&
@@ -225,9 +225,7 @@ class MainAgentChatRuntimeService {
       persistedMessage?.createdAt instanceof Date
         ? persistedMessage.createdAt.toISOString()
         : new Date().toISOString()
-    const restoredHead = resumeFromHead
-      ? await mainAgentTurnVersionService.loadHead(turnId)
-      : null
+    const restoredHead = resumeFromHead ? await mainAgentTurnVersionService.loadHead(turnId) : null
     if (resumeFromHead && !restoredHead) {
       throw new Error(`Recovering turn ${turnId} has no restorable HEAD version.`)
     }
@@ -254,7 +252,9 @@ class MainAgentChatRuntimeService {
           loadPersonaState(),
           selfCoreAuthorityService.load()
         ])
-    const baseTurnWorkspace = restoredWorkspace ?? createTurnWorkspace({
+    const baseTurnWorkspace =
+      restoredWorkspace ??
+      createTurnWorkspace({
         eventId,
         turnId,
         sessionId: persistedMessage?.sessionId || 'default',
@@ -264,55 +264,57 @@ class MainAgentChatRuntimeService {
         selfCore
       })
     const userText = persistedMessage?.content?.trim() || contentToText(message).trim()
-    const turnWorkspace = restoredWorkspace ? restoredWorkspace : userText
-      ? withObservationDraft(baseTurnWorkspace, {
-          id: (memorySlots.lastObservationId ?? 0) + 1,
-          type: 'user_message',
-          source: 'user',
-          summary: userText.slice(0, 120),
-          payload: {
-            text: userText,
-            messageId: userMessageId,
-            eventId
-          },
-          createdAt: new Date().toISOString()
-        })
-      : baseTurnWorkspace
+    const turnWorkspace = restoredWorkspace
+      ? restoredWorkspace
+      : userText
+        ? withObservationDraft(baseTurnWorkspace, {
+            id: (memorySlots.lastObservationId ?? 0) + 1,
+            type: 'user_message',
+            source: 'user',
+            summary: userText.slice(0, 120),
+            payload: {
+              text: userText,
+              messageId: userMessageId,
+              eventId
+            },
+            createdAt: new Date().toISOString()
+          })
+        : baseTurnWorkspace
     let graphResult: MainAgentGraphTurnResult | undefined
     const controller = mainAgentRunControlService.startRun({ eventId, turnId })
 
     try {
       return await runWithTraceContext(runId, { turnId, emitChunk: onChunk }, async () => {
         const graphInput = restoredState ?? {
-            messages: [
-              new HumanMessage({
-                content: message,
-                additional_kwargs: attachMainAgentContentPartsMetadata(
-                  {
-                    [MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY]: userMessageCreatedAtIso
-                  },
-                  effectiveContent
-                )
-              })
-            ],
-            turnInput: {
-              kind: 'user_message' as const,
-              source: 'user' as const,
+          messages: [
+            new HumanMessage({
               content: message,
-              occurredAt: userMessageCreatedAtIso
-            },
-            taskLifecycle,
-            workspaceContext,
-            turnWorkspace
-          }
+              additional_kwargs: attachMainAgentContentPartsMetadata(
+                {
+                  [MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY]: userMessageCreatedAtIso
+                },
+                effectiveContent
+              )
+            })
+          ],
+          turnInput: {
+            kind: 'user_message' as const,
+            source: 'user' as const,
+            content: message,
+            occurredAt: userMessageCreatedAtIso
+          },
+          taskLifecycle,
+          workspaceContext,
+          turnWorkspace
+        }
         await mainAgentTurnVersionService.runInTurn({ eventId, turnId }, async () => {
-          const stream = await agent.streamEvents(
-            graphInput,
-            { version: 'v2', signal: controller.signal } as {
-              version: 'v2'
-              signal: AbortSignal
-            }
-          )
+          const stream = await agent.streamEvents(graphInput, {
+            version: 'v2',
+            signal: controller.signal
+          } as {
+            version: 'v2'
+            signal: AbortSignal
+          })
           for await (const event of stream) {
             if (
               event.event === 'on_chat_model_stream' &&
@@ -352,20 +354,35 @@ class MainAgentChatRuntimeService {
       const interrupted =
         controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')
       if (!interrupted) {
+        if (isAgentLoopTerminationError(error)) {
+          try {
+            await mainAgentRunControlService.waitForDurableToolExecutions(eventId)
+            const stable = await mainAgentTurnVersionService.loadStableInterruptionState(turnId)
+            error.turnWorkspace = stable.workspace
+          } catch (captureError) {
+            console.warn(
+              'Failed to attach the stable workspace to a loop termination:',
+              captureError
+            )
+          }
+        }
         throw error
       }
       await mainAgentRunControlService.waitForDurableToolExecutions(eventId)
       return {
         fullText,
         interrupted: true,
-        ...await this.captureInterruption(turnId, controller.signal.reason)
+        ...(await this.captureInterruption(turnId, controller.signal.reason))
       }
     } finally {
       mainAgentRunControlService.finishRun(eventId)
     }
   }
 
-  private async captureInterruption(turnId: number, reason: unknown): Promise<{
+  private async captureInterruption(
+    turnId: number,
+    reason: unknown
+  ): Promise<{
     interruptedWorkspace?: TurnWorkspace
     interruption: MainAgentInterruptionRecord
   }> {
@@ -470,7 +487,7 @@ class MainAgentChatRuntimeService {
       return {
         fullText,
         interrupted: true,
-        ...await this.captureInterruption(turnId, controller.signal.reason)
+        ...(await this.captureInterruption(turnId, controller.signal.reason))
       }
     } finally {
       mainAgentRunControlService.finishRun(eventId)

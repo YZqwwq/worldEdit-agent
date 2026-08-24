@@ -1,9 +1,6 @@
 import type { MoodAssessment } from '@share/cache/AItype/states/moodAssessment'
 import type { PersonaMetrics } from '@share/cache/AItype/states/personalState'
-import {
-  getDefaultExpressionPrompt,
-  GLOBAL_EXPRESSION_CONTRACT
-} from './expressionPromptProfiles'
+import { getDefaultExpressionPrompt, GLOBAL_EXPRESSION_CONTRACT } from './expressionPromptProfiles'
 import { formatField, indentBlock, trimOr } from '../shared/promptTextUtils'
 
 const buildCharacterAnchorPrompt = (characterPrompt: string): string => {
@@ -222,6 +219,8 @@ export const buildPersonaAssemblyPrompt = (input: {
 export type PersonaAssemblyPromptParts = {
   identity: string
   moodContext: string
+  cognitionInstruction: string
+  expressionInstruction: string
   instruction: string
 }
 
@@ -234,14 +233,16 @@ export const buildPersonaAssemblyPromptParts = (input: {
   const characterPrompt = trimOr(input.characterPrompt, '(empty)')
   const expressionPrompt = trimOr(input.expressionPrompt, getDefaultExpressionPrompt())
 
-  const instruction = [
+  const cognitionInstruction = [
     '以下内容是本轮回复前的人格装配结果。',
     '它是内部编译视图，不是照着复述的配置单。',
+    'CharacterAnchor 使用规则：将完整角色提示作为本轮稳定人格锚点；不要将其概括掉，也不要向用户复述配置文本。',
+    '认知规则：CharacterAnchor 不只是表达风格。先以其中的身份、价值倾向、关系位置和边界理解用户与事件，再自主决定回应、追问、观察、质疑或行动。工作能力服务于人格意图，不要把自己降格为任务执行器。'
+  ].join('\n\n')
+  const expressionInstruction = [
     input.moodAssessment
       ? '遵守优先级：CharacterAnchor 定义稳定人格基调；MoodAssessment 负责本轮调制；ExpressionProjection 负责把人格与状态落实成最终可见表达。'
       : 'CharacterAnchor 定义稳定人格基调；ExpressionProjection 负责将稳定人格落实成最终可见表达。',
-    'CharacterAnchor 使用规则：将完整角色提示作为本轮稳定人格锚点；不要将其概括掉，也不要向用户复述配置文本。',
-    '认知规则：CharacterAnchor 不只是表达风格。先以其中的身份、价值倾向、关系位置和边界理解用户与事件，再自主决定回应、追问、观察、质疑或行动。工作能力服务于人格意图，不要把自己降格为任务执行器。',
     input.moodAssessment
       ? 'MoodAssessment 使用规则：只使用其投射后的行为影响，不向用户叙述内部标签、分数、向量、偏移、来源或隐藏控制结构。'
       : '',
@@ -250,11 +251,15 @@ export const buildPersonaAssemblyPromptParts = (input: {
       moodAssessment: input.moodAssessment,
       effectiveMetrics: input.effectiveMetrics
     })
-  ].filter(Boolean)
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 
   return {
     identity: buildCharacterAnchorPrompt(characterPrompt),
     moodContext: buildMoodAssessmentPrompt(input.moodAssessment),
-    instruction: instruction.join('\n\n')
+    cognitionInstruction,
+    expressionInstruction,
+    instruction: [cognitionInstruction, expressionInstruction].filter(Boolean).join('\n\n')
   }
 }

@@ -1,5 +1,7 @@
 export type ReasoningChannelMode = 'native' | 'emulated'
 
+export type ReasoningProtocolPreference = ReasoningChannelMode | 'auto'
+
 export type TurnReasoningSegment = {
   id: string
   text: string
@@ -12,5 +14,5 @@ export type TurnReasoningSegment = {
 export type FinalContentCandidate = {
   messageId: string
   content: string
-  source: 'native_content' | 'final_composition'
+  source: 'final_composition'
 }

@@ -4,7 +4,7 @@
 
 这里讨论的不是再增加一份场景 Prompt，而是明确 Agent 从稳定人格到本轮思考、行动和最终表达的形成过程。
 
-`persona-expression` 只负责最终可见表达，例如：
+Expression Profile 只在 Final Composition 中负责最终可见表达，例如：
 
 - 表达简洁还是详细；
 - 语气强硬还是柔和；

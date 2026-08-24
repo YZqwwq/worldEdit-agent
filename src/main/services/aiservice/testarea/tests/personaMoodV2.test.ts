@@ -452,6 +452,9 @@ test('main-agent prompt receives semantic projection without raw state scores', 
   assert.match(prompt, /默认使用自然对话的篇幅/)
   assert.match(prompt, /active_expression_profile:\s+自然表达。/)
   assert.doesNotMatch(prompt, /publish_agent_artifact/)
+  assert.match(parts.cognitionInstruction, /身份、价值倾向、关系位置和边界/)
+  assert.doesNotMatch(parts.cognitionInstruction, /自然表达|ExpressionProjection/)
+  assert.match(parts.expressionInstruction, /active_expression_profile:\s+自然表达。/)
 })
 
 test('action prompt hides scores and keeps tool permission separate', () => {

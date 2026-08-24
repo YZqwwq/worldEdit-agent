@@ -6,7 +6,10 @@ import {
   defineAgentTool,
   parseAgentToolResultEnvelope
 } from '../../ai-utils/core/agentTool'
-import { extractEntitySourceRefs } from '../../agentrsystem/node/toolnode/toolContextSourceRefs'
+import {
+  extractDocumentSourceRefs,
+  extractEntitySourceRefs
+} from '../../agentrsystem/node/toolnode/toolContextSourceRefs'
 
 test('entity results become compact tool evidence references', () => {
   const refs = extractEntitySourceRefs({
@@ -79,6 +82,29 @@ test('character reading results infer the character type from the standard chara
         title: '洛兰',
         entityType: 'character',
         worldId: 'world-2'
+      }
+    ]
+  )
+})
+
+test('document results retain document identity and revision for later model steps', () => {
+  assert.deepEqual(
+    extractDocumentSourceRefs({
+      document: {
+        id: 'document-1',
+        worldId: 'world-1',
+        title: '菲尔娜人物志',
+        revision: 7,
+        markdown: '正文省略'
+      }
+    }),
+    [
+      {
+        type: 'document',
+        id: 'document-1',
+        title: '菲尔娜人物志',
+        worldId: 'world-1',
+        revision: 7
       }
     ]
   )
