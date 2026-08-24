@@ -3,19 +3,32 @@ import { AIMessage, AIMessageChunk } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
 import { getConfiguredModelRuntime } from '../../modelwithtool/model'
 import { contentToText } from '../../../messageoutput/transformRespones'
-import { traceArtifact, traceState } from '../../../../log/trace/agentTraceEmitter'
+import {
+  emitAgentTurnPhase,
+  traceArtifact,
+  traceState
+} from '../../../../log/trace/agentTraceEmitter'
 import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
 import { withTurnLifecycleDraft } from '../../state/turnWorkspace'
 import { buildFinalCompositionMessages } from './finalComposition'
+import {
+  createModelCallAbortScope,
+  resolveMainAgentTimeoutMs
+} from '../../execution/modelCallAbortScope'
 
 export async function finalAnswerNode(
   state: typeof MessagesState.State,
   config?: { signal?: AbortSignal }
 ): Promise<Partial<typeof MessagesState.State>> {
+  emitAgentTurnPhase({ phase: 'finalizing', label: '正在整理回答' })
   const runtime = await getConfiguredModelRuntime()
   const messages = buildFinalCompositionMessages(state)
   const prepared = await runtime.familyAdapter.prepareMessages(messages, runtime)
-  const options: Record<string, unknown> = { signal: config?.signal }
+  const abortScope = createModelCallAbortScope({
+    timeoutMs: resolveMainAgentTimeoutMs(runtime),
+    externalSignal: config?.signal
+  })
+  const options: Record<string, unknown> = { signal: abortScope.signal }
   const temperature = Number(runtime.effectiveOptions.temperature)
   if (Number.isFinite(temperature)) {
     options.temperature = Math.min(
@@ -32,9 +45,20 @@ export async function finalAnswerNode(
     data: { expressionProfile: state.expressionProfile?.id, reasoningMode: state.reasoningMode }
   })
   let chunk: AIMessageChunk | undefined
-  const stream = await runtime.model.stream(prepared, options as any)
-  for await (const current of stream)
-    chunk = chunk ? chunk.concat(current as AIMessageChunk) : (current as AIMessageChunk)
+  try {
+    const stream = await runtime.model.stream(prepared, options as any)
+    for await (const current of stream)
+      chunk = chunk ? chunk.concat(current as AIMessageChunk) : (current as AIMessageChunk)
+    if (abortScope.signal.aborted) {
+      throw config?.signal?.reason ?? abortScope.signal.reason ?? new Error('model_call_aborted')
+    }
+  } catch (error) {
+    if (abortScope.didTimeout() && !config?.signal?.aborted)
+      throw new Error('最终回答生成超时，未收到完整回复。')
+    throw error
+  } finally {
+    abortScope.dispose()
+  }
   const content = chunk ? contentToText(chunk.content).trim() : ''
   if (!content) throw new Error('finalAnswerNode returned empty content')
   const message = new AIMessage({ content, id: randomUUID() })

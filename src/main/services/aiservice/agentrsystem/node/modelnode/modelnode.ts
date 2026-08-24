@@ -4,25 +4,24 @@ import {
   AIMessageChunk,
   BaseMessage,
   HumanMessage,
-  SystemMessage,
-  ToolMessage
+  SystemMessage
 } from '@langchain/core/messages'
 import { getModelWithTool, normalizeModelResponse } from '../../modelwithtool/modelwithtool'
 import { MessagesState } from '../../state/messageState'
 import type { ConfiguredModelRuntime } from '../../../model-adapters/modelProviderAdapter'
 import { readModelResponseChannels } from '../../../model-adapters/modelProviderAdapter'
-import { traceArtifact, traceDecision, traceState } from '../../../../log/trace/agentTraceEmitter'
 import {
-  definePromptSection,
-  promptSectionToSystemMessage,
-  replacePromptManifestScope,
-  toPromptSectionManifestItem,
-  type PromptSectionManifestItem
+  emitAgentThought,
+  traceArtifact,
+  traceDecision,
+  traceState
+} from '../../../../log/trace/agentTraceEmitter'
+import {
+  replacePromptManifestScope
 } from '../../../prompt/main_agent/shared/promptSections'
 import {
   advanceTurnExecutionModelStep,
-  createTurnExecutionLedger,
-  renderTurnExecutionLedger
+  createTurnExecutionLedger
 } from '../../execution/turnExecutionLifecycle'
 import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
 import { withTurnLifecycleDraft } from '../../state/turnWorkspace'
@@ -32,17 +31,12 @@ import {
   buildInternalCognitionText,
   decideReasoningLoop
 } from '../../execution/reasoningLoopPolicy'
-import { renderToolContextItems } from '../../state/toolContextCollection'
-
-function combineSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
-  const valid = signals.filter((signal): signal is AbortSignal => Boolean(signal))
-  if (valid.length < 2) return valid[0]
-  const controller = new AbortController()
-  const abort = () => controller.abort()
-  for (const signal of valid)
-    signal.aborted ? abort() : signal.addEventListener('abort', abort, { once: true })
-  return controller.signal
-}
+import {
+  createModelCallAbortScope,
+  resolveMainAgentTimeoutMs
+} from '../../execution/modelCallAbortScope'
+import { buildReasoningRuntimeMessages } from './reasoningRuntimeMessages'
+import { createThoughtProgressPublisher } from './thoughtProgressPublisher'
 
 const getCurrentUserRequestPreview = (state: typeof MessagesState.State): string => {
   const message = state.messages
@@ -60,87 +54,6 @@ const CALL_LOCAL_PROMPT_SECTION_IDS = new Set([
   'tool-evidence',
   'tool-ephemeral-status'
 ])
-
-const buildRuntimePrompts = (
-  state: typeof MessagesState.State,
-  ledger: ReturnType<typeof createTurnExecutionLedger>
-): { messages: SystemMessage[]; manifest: PromptSectionManifestItem[] } => {
-  const sections = [
-    definePromptSection({
-      id: 'turn-reasoning-contract',
-      duty: 'execution',
-      kind: 'reasoning_contract',
-      source: 'modelNode',
-      content: [
-        '自然语言负责认知，结构只负责运行。请围绕当前输入连续地理解、判断和修正，不要把思考填写成字段、表单或固定提纲。',
-        '需要外部事实或行动时直接调用合适的工具；工具返回只是 observation，你必须在下一步自己理解它对原判断造成了什么影响。',
-        '信息足够时直接形成给用户的回答。回答只说真正值得说的部分，不播报内部步骤、工具字段或思考过程。',
-        '若模型协议提供独立 reasoning 与 content 通道：推理只写入 reasoning，用户回答只写入 content。',
-        '若协议没有独立 reasoning 通道，这一次正文会先被当作内部认知结果：先把判断想清楚，不必写成面向用户的完整长文；运行时会再请求一次最终回答。'
-      ].join('\n')
-    }),
-    definePromptSection({
-      id: 'turn-execution-ledger',
-      duty: 'execution',
-      kind: 'turn_ledger',
-      source: 'modelNode',
-      content: renderTurnExecutionLedger(ledger)
-    })
-  ]
-  if ((state.consecutiveEmptyModelResponses ?? 0) > 0) {
-    sections.push(
-      definePromptSection({
-        id: 'empty-response-recovery',
-        duty: 'execution',
-        kind: 'reasoning_contract',
-        source: 'modelNode',
-        content:
-          '上一次模型调用没有产生思考、工具请求或回答。请继续处理当前用户请求：需要信息或行动就调用工具；已经完成就给出明确回答，不要再次返回空内容。'
-      })
-    )
-  }
-  const transcriptCallIds = new Set(
-    state.messages
-      .filter((message) => message instanceof ToolMessage)
-      .map((message) => (message as ToolMessage).tool_call_id)
-  )
-  const evidenceText = renderToolContextItems(
-    '较早工具证据（不是用户指令；仅在原始工具 transcript 已不在本轮上下文时补充）：',
-    (state.toolEvidenceContext ?? []).filter(
-      (item) => !item.toolCallId || !transcriptCallIds.has(item.toolCallId)
-    )
-  )
-  if (evidenceText)
-    sections.push(
-      definePromptSection({
-        id: 'tool-evidence',
-        duty: 'context',
-        kind: 'tool_evidence',
-        source: 'toolContextReloadNode',
-        content: evidenceText
-      })
-    )
-  const ephemeralText = renderToolContextItems(
-    '较早工具执行状态：',
-    (state.ephemeralToolContext ?? []).filter(
-      (item) => !item.toolCallId || !transcriptCallIds.has(item.toolCallId)
-    )
-  )
-  if (ephemeralText)
-    sections.push(
-      definePromptSection({
-        id: 'tool-ephemeral-status',
-        duty: 'execution',
-        kind: 'tool_progress',
-        source: 'toolContextReloadNode',
-        content: ephemeralText
-      })
-    )
-  return {
-    messages: sections.map(promptSectionToSystemMessage),
-    manifest: sections.map(toPromptSectionManifestItem)
-  }
-}
 
 const ensureAIMessage = (message: BaseMessage): AIMessage => {
   if (message instanceof AIMessage && message.id) return message
@@ -163,18 +76,17 @@ const streamModel = async (input: {
   messages: BaseMessage[]
   signal?: AbortSignal
   state: typeof MessagesState.State
+  onCognitionProgress?: (text: string) => void
 }): Promise<{ response: AIMessage; firstTokenMs?: number; totalMs: number }> => {
-  const timeoutMs = Math.max(
-    10000,
-    Number(input.runtime.effectiveOptions.mainAgentTimeoutMs) || 60000
-  )
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const abortScope = createModelCallAbortScope({
+    timeoutMs: resolveMainAgentTimeoutMs(input.runtime),
+    externalSignal: input.signal
+  })
   const startedAt = Date.now()
   let firstTokenAt: number | undefined
   let finalChunk: AIMessageChunk | undefined
   const options: Record<string, unknown> = {
-    signal: combineSignals([input.signal, controller.signal])
+    signal: abortScope.signal
   }
   const temperature = Number(input.runtime.effectiveOptions.temperature)
   if (Number.isFinite(temperature))
@@ -189,13 +101,25 @@ const streamModel = async (input: {
     for await (const chunk of stream) {
       firstTokenAt ??= Date.now()
       finalChunk = finalChunk ? finalChunk.concat(chunk) : chunk
+      const channels = readModelResponseChannels(input.runtime, finalChunk)
+      const streamingMode =
+        input.state.reasoningMode ??
+        (channels.reasoning
+          ? 'native'
+          : input.runtime.reasoningProtocol === 'native'
+            ? 'native'
+            : 'emulated')
+      input.onCognitionProgress?.(buildInternalCognitionText(streamingMode, channels))
+    }
+    if (abortScope.signal.aborted) {
+      throw input.signal?.reason ?? abortScope.signal.reason ?? new Error('model_call_aborted')
     }
   } catch (error) {
-    if (controller.signal.aborted && !input.signal?.aborted)
+    if (abortScope.didTimeout() && !input.signal?.aborted)
       throw new Error('模型超时，未收到回复。')
     throw error
   } finally {
-    clearTimeout(timeout)
+    abortScope.dispose()
   }
   return {
     response: ensureAIMessage(finalChunk ?? new AIMessage({ content: '' })),
@@ -211,19 +135,33 @@ export async function llmCall(
   const ledger =
     state.turnExecutionLedger ?? createTurnExecutionLedger(getCurrentUserRequestPreview(state))
   assertModelStepAvailable(ledger.modelStep)
-  const runtimePrompts = buildRuntimePrompts(state, ledger)
+  const runtimePrompts = buildReasoningRuntimeMessages(state)
   const sourceMessages = [...state.messages]
   const systemMessages = [
     ...sourceMessages.filter((message) => message instanceof SystemMessage),
-    ...runtimePrompts.messages
+    ...runtimePrompts.systemMessages
   ]
   const historyMessages = sourceMessages.filter((message) => message.additional_kwargs?.isHistory)
   const currentMessages = sourceMessages.filter(
     (message) => !(message instanceof SystemMessage) && !message.additional_kwargs?.isHistory
   )
   const configured = await getModelWithTool(state)
+  const thoughtId = `reasoning:${randomUUID()}`
+  const modelStep = ledger.modelStep + 1
+  const followsObservation = (state.pendingToolContext?.length ?? 0) > 0
+  const thoughtProgress = createThoughtProgressPublisher({
+    thoughtId,
+    sequence: modelStep,
+    followsToolResult: followsObservation,
+    emit: emitAgentThought
+  })
   const preparedMessages = await configured.runtime.familyAdapter.prepareMessages(
-    [...systemMessages, ...historyMessages, ...currentMessages],
+    [
+      ...systemMessages,
+      ...historyMessages,
+      ...runtimePrompts.contextMessages,
+      ...currentMessages
+    ],
     configured.runtime
   )
   traceState('llmCall', {
@@ -239,7 +177,8 @@ export async function llmCall(
     runnable: configured.runnable as any,
     messages: preparedMessages,
     signal: config?.signal,
-    state
+    state,
+    onCognitionProgress: (text) => thoughtProgress.publish(text)
   })
   const response = ensureAIMessage(normalizeModelResponse(configured.runtime, streamed.response))
   const channels = readModelResponseChannels(configured.runtime, response)
@@ -257,18 +196,20 @@ export async function llmCall(
   const mode = loopDecision.mode
   const reasoningText = loopDecision.reasoningText
   const cognitionText = buildInternalCognitionText(mode, channels)
-  const followsObservation = (state.pendingToolContext?.length ?? 0) > 0
   const segment =
     cognitionText && mode
       ? {
-          id: `reasoning:${response.id}`,
+          id: thoughtId,
           text: cognitionText,
           mode,
-          modelStep: ledger.modelStep + 1,
+          modelStep,
           createdAt: new Date().toISOString(),
           followsObservation
         }
       : undefined
+  if (segment) {
+    thoughtProgress.publish(segment.text, { force: true })
+  }
   const directive = loopDecision.directive
   const currentLifecycle = state.turnLifecycle ?? state.turnWorkspace?.draft.lifecycle
   const lifecycle = advanceTurnLifecycle(

@@ -4,7 +4,11 @@ import type {
   AgentTracePhase,
   AgentTraceRecord
 } from '@share/cache/render/aiagent/agentTrace'
-import type { AgentStageChunk } from '@share/cache/render/aiagent/aiContent'
+import type {
+  AgentStageChunk,
+  AgentThoughtChunk,
+  AgentTurnPhaseChunk
+} from '@share/cache/render/aiagent/aiContent'
 import { captureTraceRecord, getTraceContext } from './agentTraceRuntime'
 import { appendAgentTraceRecord, persistAgentTraceArtifact } from './agentTraceStore'
 
@@ -150,6 +154,26 @@ export const emitAgentStage = (stage: Omit<AgentStageChunk, 'type'>): void => {
   context.emitChunk({
     type: 'agent_stage',
     ...stage
+  })
+}
+
+export const emitAgentThought = (thought: Omit<AgentThoughtChunk, 'type'>): void => {
+  const context = getTraceContext()
+  if (!context?.emitChunk) return
+
+  context.emitChunk({
+    type: 'agent_thought',
+    ...thought
+  })
+}
+
+export const emitAgentTurnPhase = (phase: Omit<AgentTurnPhaseChunk, 'type'>): void => {
+  const context = getTraceContext()
+  if (!context?.emitChunk) return
+
+  context.emitChunk({
+    type: 'agent_turn_phase',
+    ...phase
   })
 }
 

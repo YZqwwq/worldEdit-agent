@@ -67,10 +67,26 @@ export interface AgentStageChunk {
   detail?: string
 }
 
+export interface AgentThoughtChunk {
+  type: 'agent_thought'
+  thoughtId: string
+  text: string
+  sequence: number
+  followsToolResult: boolean
+}
+
+export interface AgentTurnPhaseChunk {
+  type: 'agent_turn_phase'
+  phase: 'thinking' | 'finalizing'
+  label: string
+}
+
 export type StreamChunk =
   | { type: 'text_delta'; content: string } // 文本增量
   | { type: 'stream_error'; message: string; sender: 'system'; persisted: boolean } // 独立系统故障通知
   | { type: 'interrupted'; fullContent: AIContentPart[] }
   | { type: 'agent_trace'; record: AgentTraceRecord } // 结构化节点日志
   | AgentStageChunk // 面向用户的执行阶段提示
+  | AgentThoughtChunk // 当前回合内已经形成的自然语言思考结果
+  | AgentTurnPhaseChunk // 当前回合的用户可见阶段
   | { type: 'done'; fullContent: AIContentPart[] } // 结束信号，携带完整结构化结果

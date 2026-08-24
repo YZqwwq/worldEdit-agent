@@ -25,23 +25,14 @@
         ref="messagesContainer"
         @scroll="handleMessagesScroll"
       >
-        <div
-          v-if="agentStage"
-          class="sticky top-0 z-10 mb-4 flex justify-start pointer-events-none"
-        >
-          <div
-            class="inline-flex max-w-[520px] items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm"
-          >
-            <span class="h-1.5 w-1.5 rounded-full bg-sky-500" />
-            <span class="truncate">{{ agentStage.label }}</span>
-          </div>
-        </div>
         <ChatMessageList
           :messages="messages"
           :participants="chatParticipants"
           :revertible-message-id="revertibleUserMessageId"
+          :turn-activity="turnActivity"
           @edit-avatar="openAvatarEditor"
           @revert-message="handleRevertLastTurn"
+          @toggle-turn-activity="toggleTurnActivity"
         />
       </div>
 
@@ -890,8 +881,9 @@ const {
   refreshHistory,
   purgeAllData,
   resetAgentState,
+  toggleTurnActivity,
   agentLogs,
-  agentStage
+  turnActivity
 } =
   useAIChatService()
 const userInput = ref('')

@@ -13,15 +13,16 @@ import type {
   ChatMessageDocumentDiffReference
 } from '../../../share/cache/render/aiagent/chatMessage'
 import { partsToMarkdown } from '../utils/aiToMarkdown'
-import type { AgentStageChunk, StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
+import type { StreamChunk } from '../../../share/cache/render/aiagent/aiContent'
 import type { AgentTraceRecord } from '../../../share/cache/render/aiagent/agentTrace'
+import type { AgentTurnActivity } from '../features/chat/turnActivity'
 
 export type AgentLog = AgentTraceRecord
 
 // A reactive reference to hold the list of chat messages
 const messages = ref<ChatMessage[]>([])
 const agentLogs = ref<AgentLog[]>([]) // 存储当前会话的监控日志
-const agentStage = ref<AgentStageChunk | null>(null)
+const turnActivity = ref<AgentTurnActivity | null>(null)
 
 // A reactive reference to track if the AI is currently thinking
 const isLoading = ref(false)
@@ -30,26 +31,37 @@ const isLoading = ref(false)
 let currentStreamingMessageId: number | null = null
 let currentStreamingText = ''
 let stopListening: (() => void) | null = null
-let stageClearTimer: ReturnType<typeof setTimeout> | null = null
+let turnActivityOrder = 0
 
-const setAgentStage = (stage: AgentStageChunk | null): void => {
-  if (stageClearTimer) {
-    clearTimeout(stageClearTimer)
-    stageClearTimer = null
-  }
-  agentStage.value = stage
+const nextTurnActivityOrder = (): number => {
+  turnActivityOrder += 1
+  return turnActivityOrder
 }
 
-const clearAgentStageSoon = (stageId: string): void => {
-  if (stageClearTimer) {
-    clearTimeout(stageClearTimer)
-  }
-  stageClearTimer = setTimeout(() => {
-    if (agentStage.value?.stageId === stageId) {
-      agentStage.value = null
-    }
-    stageClearTimer = null
-  }, 900)
+const updateTurnActivityPhase = (
+  phase: AgentTurnActivity['phase'],
+  label: string,
+  options?: { collapse?: boolean; completed?: boolean }
+): void => {
+  const activity = turnActivity.value
+  if (!activity) return
+  activity.phase = phase
+  activity.label = label
+  if (options?.collapse) activity.expanded = false
+  if (options?.completed) activity.completedAt = Date.now()
+}
+
+const reconcileTurnActivityMessage = (nextMessages: ChatMessage[]): void => {
+  const activity = turnActivity.value
+  if (!activity || currentStreamingMessageId || isLoading.value) return
+  const latestResponseMessage = [...nextMessages]
+    .reverse()
+    .find((message) => message.sender !== 'user')
+  if (latestResponseMessage) activity.messageId = latestResponseMessage.id
+}
+
+const toggleTurnActivity = (): void => {
+  if (turnActivity.value) turnActivity.value.expanded = !turnActivity.value.expanded
 }
 
 const buildChatAttachmentsFromContent = (
@@ -166,6 +178,7 @@ function handleStreamChunk(chunk: StreamChunk): void {
       }
       currentStreamingText += chunk.content
       msg.text = currentStreamingText
+      updateTurnActivityPhase('responding', '正在回答', { collapse: true })
       break
 
     case 'agent_trace':
@@ -173,10 +186,65 @@ function handleStreamChunk(chunk: StreamChunk): void {
       break
 
     case 'agent_stage':
-      setAgentStage(chunk)
-      if (chunk.status === 'done' || chunk.status === 'error') {
-        clearAgentStageSoon(chunk.stageId)
+      if (turnActivity.value) {
+        const existing = turnActivity.value.entries.find(
+          (entry) => entry.kind === 'tool' && entry.id === chunk.stageId
+        )
+        if (existing?.kind === 'tool') {
+          existing.label = chunk.label
+          existing.status = chunk.status
+          existing.detail = chunk.detail
+        } else {
+          turnActivity.value.entries.push({
+            kind: 'tool',
+            id: chunk.stageId,
+            order: nextTurnActivityOrder(),
+            label: chunk.label,
+            status: chunk.status,
+            detail: chunk.detail,
+            createdAt: Date.now()
+          })
+        }
+        const hasRunningTool = turnActivity.value.entries.some(
+          (entry) =>
+            entry.kind === 'tool' &&
+            (entry.status === 'start' || entry.status === 'running')
+        )
+        updateTurnActivityPhase(
+          hasRunningTool ? 'using_tools' : 'thinking',
+          hasRunningTool ? chunk.label : '正在继续思考'
+        )
       }
+      break
+
+    case 'agent_thought':
+      if (turnActivity.value) {
+        const existing = turnActivity.value.entries.find(
+          (entry) => entry.kind === 'thought' && entry.id === chunk.thoughtId
+        )
+        if (existing?.kind === 'thought') {
+          existing.text = chunk.text
+          existing.sequence = chunk.sequence
+          existing.followsToolResult = chunk.followsToolResult
+        } else {
+          turnActivity.value.entries.push({
+            kind: 'thought',
+            id: chunk.thoughtId,
+            order: nextTurnActivityOrder(),
+            text: chunk.text,
+            sequence: chunk.sequence,
+            followsToolResult: chunk.followsToolResult,
+            createdAt: Date.now()
+          })
+        }
+        updateTurnActivityPhase('thinking', '正在继续思考')
+      }
+      break
+
+    case 'agent_turn_phase':
+      updateTurnActivityPhase(chunk.phase, chunk.label, {
+        collapse: chunk.phase === 'finalizing'
+      })
       break
 
     case 'stream_error':
@@ -186,7 +254,10 @@ function handleStreamChunk(chunk: StreamChunk): void {
           ? chunk.message || '模型超时，未收到回复。'
           : `${msg.text}\n\n${chunk.message || '模型超时，未收到回复。'}`
       isLoading.value = false
-      setAgentStage(null)
+      updateTurnActivityPhase('error', '本轮处理没有完成', {
+        collapse: true,
+        completed: true
+      })
       cleanupListener()
       if (chunk.persisted) void refreshHistory()
       break
@@ -201,7 +272,10 @@ function handleStreamChunk(chunk: StreamChunk): void {
         }
       }
       isLoading.value = false
-      setAgentStage(null)
+      updateTurnActivityPhase('interrupted', '本轮处理已中断', {
+        collapse: true,
+        completed: true
+      })
       cleanupListener()
       void refreshHistory()
       break
@@ -212,7 +286,10 @@ function handleStreamChunk(chunk: StreamChunk): void {
         msg.text = partsToMarkdown(chunk.fullContent)
       }
       isLoading.value = false
-      setAgentStage(null)
+      updateTurnActivityPhase('done', '本轮思考过程', {
+        collapse: true,
+        completed: true
+      })
       cleanupListener()
       void refreshHistory()
       break
@@ -226,8 +303,7 @@ function cleanupListener(): void {
   }
   currentStreamingMessageId = null
   currentStreamingText = ''
-  setAgentStage(null)
-  // 注意：agentLogs 不在这里清除，可能用户想保留查看，直到下次发送前
+  // 本轮活动在完成后保留，直到下一条用户消息开始；调试日志也保留到下一轮。
 }
 
 /**
@@ -237,7 +313,9 @@ async function loadHistory(): Promise<void> {
   try {
     const history = await window.api.getHistory()
     if (history && Array.isArray(history)) {
-      messages.value = mapHistoryToMessages(history)
+      const nextMessages = mapHistoryToMessages(history)
+      messages.value = nextMessages
+      reconcileTurnActivityMessage(nextMessages)
     }
   } catch (error) {
     console.error('Failed to load history:', error)
@@ -251,7 +329,9 @@ async function refreshHistory(): Promise<void> {
   try {
     const history = await window.api.getHistory()
     if (history && Array.isArray(history)) {
-      messages.value = mapHistoryToMessages(history)
+      const nextMessages = mapHistoryToMessages(history)
+      messages.value = nextMessages
+      reconcileTurnActivityMessage(nextMessages)
     }
   } catch (error) {
     console.error('Failed to refresh history:', error)
@@ -272,7 +352,7 @@ async function clearHistory(): Promise<void> {
     await window.api.clearHistory()
     messages.value = []
     agentLogs.value = []
-    setAgentStage(null)
+    turnActivity.value = null
   } catch (error) {
     console.error('Failed to clear history:', error)
   }
@@ -299,6 +379,7 @@ async function revertLastChatTurn(): Promise<{
   try {
     const result = await window.api.revertLastChatTurn()
     if (result.ok) {
+      turnActivity.value = null
       await refreshHistory()
     }
     return result
@@ -325,7 +406,7 @@ async function purgeAllData(): Promise<void> {
     await window.api.purgeAllData()
     messages.value = []
     agentLogs.value = []
-    setAgentStage(null)
+    turnActivity.value = null
   } catch (error) {
     console.error('Failed to purge all data:', error)
   }
@@ -345,7 +426,7 @@ async function resetAgentState(): Promise<void> {
     await window.api.resetAgentState()
     messages.value = []
     agentLogs.value = []
-    setAgentStage(null)
+    turnActivity.value = null
   } catch (error) {
     console.error('Failed to reset agent state:', error)
   }
@@ -388,7 +469,8 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
   // 2. Set loading state & Init listener
   isLoading.value = true
   agentLogs.value = [] // 清空旧日志，开始新一轮监控
-  setAgentStage(null)
+  turnActivity.value = null
+  turnActivityOrder = 0
 
   // 注册监听器
   cleanupListener() // 确保清理旧的
@@ -401,10 +483,18 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
 
   messages.value.push({
     id: aiMsgId,
-    text: '正在思考中...',
+    text: '',
     sender: 'ai',
     timestamp: aiMsgId
   })
+  turnActivity.value = {
+    messageId: aiMsgId,
+    phase: 'thinking',
+    label: '正在理解你的问题',
+    expanded: true,
+    entries: [],
+    startedAt: Date.now()
+  }
 
   try {
     // 3. 调用流式接口
@@ -414,7 +504,10 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
     const msg = messages.value.find((m) => m.id === aiMsgId)
     if (msg) msg.text = '抱歉，与AI通信时发生错误。'
     isLoading.value = false
-    setAgentStage(null)
+    updateTurnActivityPhase('error', '本轮处理没有完成', {
+      collapse: true,
+      completed: true
+    })
     cleanupListener()
   }
 }
@@ -424,7 +517,7 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
 export function useAIChatService(): {
   messages: Ref<ChatMessage[]>
   agentLogs: Ref<AgentLog[]>
-  agentStage: Ref<AgentStageChunk | null>
+  turnActivity: Ref<AgentTurnActivity | null>
   isLoading: Ref<boolean>
   sendMessage: (input: MainAgentUserMessageInput) => Promise<void>
   interruptCurrentRun: () => Promise<{ ok: boolean; message: string }>
@@ -439,11 +532,12 @@ export function useAIChatService(): {
   clearHistory: () => Promise<void>
   purgeAllData: () => Promise<void>
   resetAgentState: () => Promise<void>
+  toggleTurnActivity: () => void
 } {
   return {
     messages,
     agentLogs,
-    agentStage,
+    turnActivity,
     isLoading,
     sendMessage,
     interruptCurrentRun,
@@ -452,6 +546,7 @@ export function useAIChatService(): {
     refreshHistory,
     clearHistory,
     purgeAllData,
-    resetAgentState
+    resetAgentState,
+    toggleTurnActivity
   }
 }

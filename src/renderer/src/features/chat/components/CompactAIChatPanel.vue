@@ -6,17 +6,14 @@
       :class="{ 'compact-chat-messages-initializing': !messagesReady }"
       @scroll="handleMessagesScroll"
     >
-      <div v-if="agentStage" class="compact-agent-stage">
-        <span class="compact-stage-dot" aria-hidden="true" />
-        <span>{{ agentStage.label }}</span>
-      </div>
-
       <ChatMessageList
         :messages="messages"
         :participants="chatParticipants"
         :revertible-message-id="revertibleUserMessageId"
         :document-diff-locatable="true"
+        :turn-activity="turnActivity"
         @revert-message="handleRevertLastTurn"
+        @toggle-turn-activity="toggleTurnActivity"
         @document-diff-locate="$emit('document-diff-locate', $event)"
       />
     </div>
@@ -75,7 +72,8 @@ const {
   revertLastChatTurn,
   loadHistory,
   refreshHistory,
-  agentStage
+  turnActivity,
+  toggleTurnActivity
 } = useAIChatService()
 
 const userInput = ref('')
@@ -416,14 +414,6 @@ onBeforeUnmount(() => {
   color: #1f2933;
 }
 
-.compact-stage-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: #5d7cfa;
-  box-shadow: 0 0 0 4px rgba(93, 124, 250, 0.12);
-}
-
 .compact-chat-messages {
   flex: 1;
   min-height: 0;
@@ -455,24 +445,6 @@ onBeforeUnmount(() => {
 
 .compact-chat-messages :deep(.chat-md-preview .md-editor-preview) {
   font-size: 13px !important;
-}
-
-.compact-agent-stage {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  display: inline-flex;
-  max-width: 100%;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.95);
-  padding: 6px 9px;
-  color: #667085;
-  font-size: 12px;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
 }
 
 .compact-chat-composer {

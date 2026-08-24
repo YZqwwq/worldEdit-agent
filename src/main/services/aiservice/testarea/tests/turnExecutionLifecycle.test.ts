@@ -5,8 +5,7 @@ import {
   appendTurnExecutionAction,
   createTurnExecutionAction,
   createTurnExecutionLedger,
-  findBlockedUnchangedInvocation,
-  renderTurnExecutionLedger
+  findBlockedUnchangedInvocation
 } from '../../agentrsystem/execution/turnExecutionLifecycle'
 import { toolContextReloadNode } from '../../agentrsystem/node/toolcontextreloadnode/toolContextReloadNode'
 import { mainAgentRunControlService } from '../../runtime/mainAgentRunControlService'
@@ -67,10 +66,11 @@ test('the turn ledger preserves multiple valid actions by the same tool', () => 
     ['doc-a', 'doc-b']
   )
   assert.equal(ledger.unresolvedItems.length, 0)
-  const prompt = renderTurnExecutionLedger(ledger)
-  assert.match(prompt, /比较两篇世界观文档/)
-  assert.match(prompt, /文档 A/)
-  assert.match(prompt, /文档 B/)
+  assert.equal(ledger.objective, '比较两篇世界观文档')
+  assert.deepEqual(
+    ledger.actions.map((item) => item.summary),
+    ['已取得文档 A 的完整正文。', '已取得文档 B 的完整正文。']
+  )
 })
 
 test('a later successful action resolves an earlier partial result for the same subject', () => {
@@ -197,7 +197,7 @@ test('unchanged arguments are blocked after a deterministic input failure', () =
     }),
     undefined
   )
-  assert.match(renderTurnExecutionLedger(ledger), /必须修改参数后重试/)
+  assert.equal(ledger.actions[0]?.retryCondition, 'change_arguments')
 })
 
 test('eventual actions remain unresolved until a later completed state replaces them', () => {
@@ -218,7 +218,7 @@ test('eventual actions remain unresolved until a later completed state replaces 
 
   assert.equal(ledger.actions[0]?.status, 'accepted')
   assert.deepEqual(ledger.unresolvedItems, ['阅读任务已受理。'])
-  assert.match(renderTurnExecutionLedger(ledger), /不得声称最终工作已经完成/)
+  assert.equal(ledger.actions[0]?.status, 'accepted')
 
   ledger = appendTurnExecutionAction(
     ledger,

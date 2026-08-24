@@ -1,6 +1,6 @@
 <template>
   <article class="w-full" :class="rowClass">
-    <div v-if="isSystem" class="flex w-full justify-center px-4 py-1">
+    <div v-if="isSystem" class="flex w-full flex-col items-center px-4 py-1">
       <div
         class="max-w-[min(100%,720px)] border-l-2 border-slate-300 bg-slate-50 px-3 py-2 text-[12px] leading-5 text-slate-500"
         role="status"
@@ -10,6 +10,12 @@
         <time v-if="formattedTime" class="ml-2 text-[11px] text-slate-400">
           {{ formattedTime }}
         </time>
+      </div>
+      <div v-if="turnActivity" class="mt-2 w-full max-w-[720px]">
+        <AgentTurnActivity
+          :activity="turnActivity"
+          @toggle="$emit('toggle-turn-activity')"
+        />
       </div>
     </div>
     <div v-else class="grid w-full gap-3" :class="layoutClass">
@@ -51,6 +57,12 @@
           class="max-w-[min(100%,960px)] rounded-[18px] border px-4 py-3 shadow-sm"
           :class="cardClass"
         >
+          <AgentTurnActivity
+            v-if="turnActivity"
+            :activity="turnActivity"
+            @toggle="$emit('toggle-turn-activity')"
+          />
+
           <div v-if="message.attachments?.length" class="flex flex-wrap gap-3">
             <a
               v-for="attachment in imageAttachments"
@@ -143,7 +155,9 @@ import { getFrontendMessageTime } from '../../../../../main/utils/getDetailTime'
 import ChatAvatar from './ChatAvatar.vue'
 import AgentArtifactReference from './AgentArtifactReference.vue'
 import AgentDocumentDiffReference from './AgentDocumentDiffReference.vue'
+import AgentTurnActivity from './AgentTurnActivity.vue'
 import type { ChatParticipantProfile } from '../types'
+import type { AgentTurnActivity as AgentTurnActivityState } from '../turnActivity'
 import type { WorldDocumentDiffHunk } from '@share/cache/worldbuilding/worldDocumentHistory'
 import type { ChatMessageDocumentDiffReference } from '@share/cache/render/aiagent/chatMessage'
 
@@ -152,11 +166,13 @@ const props = defineProps<{
   participant?: ChatParticipantProfile
   canRevert?: boolean
   documentDiffLocatable?: boolean
+  turnActivity?: AgentTurnActivityState
 }>()
 
 defineEmits<{
   (e: 'edit-avatar', sender: Exclude<ChatSender, 'system'>): void
   (e: 'revert-message', message: ChatMessage): void
+  (e: 'toggle-turn-activity'): void
   (e: 'document-diff-locate', payload: {
     reference: ChatMessageDocumentDiffReference
     hunk: WorldDocumentDiffHunk

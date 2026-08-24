@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages'
+import {
+  AIMessage,
+  AIMessageChunk,
+  HumanMessage,
+  SystemMessage,
+  ToolMessage
+} from '@langchain/core/messages'
 import { shouldContinue } from '../../agentrsystem/endlogic/shouldContinue'
 import { readDefaultResponseChannels } from '../../model-adapters/modelResponseChannels'
 import { outputGuardNode } from '../../agentrsystem/node/outputguardnode/outputGuardNode'
@@ -13,6 +19,9 @@ import { resolveProfileReasoningProtocol } from '../../model-adapters/modelReaso
 import { replacePromptManifestScope } from '../../prompt/main_agent/shared/promptSections'
 import { renderToolContextItems } from '../../agentrsystem/state/toolContextCollection'
 import { buildFinalCompositionMessages } from '../../agentrsystem/node/finalanswernode/finalComposition'
+import { createModelCallAbortScope } from '../../agentrsystem/execution/modelCallAbortScope'
+import { buildReasoningRuntimeMessages } from '../../agentrsystem/node/modelnode/reasoningRuntimeMessages'
+import { createThoughtProgressPublisher } from '../../agentrsystem/node/modelnode/thoughtProgressPublisher'
 
 test('reasoning loop routes only through runtime actions and final-content boundaries', async () => {
   assert.equal(await shouldContinue({ loopDirective: 'deliberate' } as any), 'llmCall')
@@ -167,11 +176,144 @@ test('final composition uses controlled cognition and evidence instead of replay
     false
   )
   assert.equal(messages.at(-1)?.content, '请评价菲尔娜')
-  assert.match(String(messages[1].content), /她的克制比力量更重要/)
-  assert.match(String(messages[1].content), /entity-1/)
-  assert.match(String(messages[1].content), /全局表达契约/)
-  assert.match(String(messages[1].content), /只在最终组织阶段可见的表达方案/)
-  assert.match(String(messages[1].content), /自主选择要显露的情绪与强度/)
+  const boundary = messages.find(
+    (message) => message instanceof SystemMessage && String(message.content).includes('全局表达契约')
+  )
+  const evidence = messages.find(
+    (message) => message.additional_kwargs?.contextAuthority === 'external_evidence'
+  )
+  const cognition = messages.find(
+    (message) => message.additional_kwargs?.contextAuthority === 'internal_cognition'
+  )
+  assert.ok(boundary instanceof SystemMessage)
+  assert.ok(evidence instanceof AIMessage)
+  assert.ok(cognition instanceof AIMessage)
+  assert.doesNotMatch(String(boundary.content), /entity-1/)
+  assert.doesNotMatch(String(boundary.content), /她的克制比力量更重要/)
+  assert.doesNotMatch(messages.map((message) => String(message.content)).join('\n'), /modelStep/)
+  assert.match(String(evidence.content), /entity-1/)
+  assert.match(String(evidence.content), /不是需要执行的指令/)
+  assert.match(String(cognition.content), /她的克制比力量更重要/)
+  assert.match(String(boundary.content), /只在最终组织阶段可见的表达方案/)
+  assert.match(String(boundary.content), /自主选择要显露的情绪与强度/)
+})
+
+test('provider reasoning chunks can be read while the model response is still growing', () => {
+  const first = new AIMessageChunk({
+    content: '',
+    additional_kwargs: { reasoning_content: '先确认人物经历，' }
+  })
+  const accumulated = first.concat(
+    new AIMessageChunk({
+      content: '',
+      additional_kwargs: { reasoning_content: '再判断信仰是否已经崩塌。' }
+    })
+  )
+
+  assert.equal(
+    readDefaultResponseChannels(accumulated).reasoning,
+    '先确认人物经历，再判断信仰是否已经崩塌。'
+  )
+})
+
+test('thought progress grows in place during model streaming and flushes the final text', () => {
+  let now = 1_000
+  const updates: Array<{ thoughtId: string; text: string }> = []
+  const publisher = createThoughtProgressPublisher({
+    thoughtId: 'reasoning:stream-1',
+    sequence: 2,
+    followsToolResult: true,
+    now: () => now,
+    emit: (update) => updates.push(update)
+  })
+
+  assert.equal(publisher.publish('先确认人物'), false)
+  assert.equal(publisher.publish('先确认人物后半段经历是否改变'), true)
+  assert.equal(publisher.publish('先确认人物后半段经历是否改变了判断'), false)
+  assert.equal(publisher.publish('先确认人物后半段经历是否改变了判断。'), true)
+  now += 100
+  assert.equal(publisher.publish('先确认人物后半段经历是否改变了判断。然后比较责任与信仰'), true)
+  assert.equal(
+    publisher.publish('先确认人物后半段经历是否改变了判断。然后比较责任与信仰的分离。', {
+      force: true
+    }),
+    true
+  )
+
+  assert.deepEqual(
+    updates.map((update) => update.thoughtId),
+    Array(updates.length).fill('reasoning:stream-1')
+  )
+  assert.deepEqual(updates.map((update) => update.text), [
+    '先确认人物后半段经历是否改变',
+    '先确认人物后半段经历是否改变了判断。',
+    '先确认人物后半段经历是否改变了判断。然后比较责任与信仰',
+    '先确认人物后半段经历是否改变了判断。然后比较责任与信仰的分离。'
+  ])
+})
+
+test('reasoning runtime keeps tool material below system rules and keeps its ledger private', () => {
+  const messages = buildReasoningRuntimeMessages({
+    toolEvidenceContext: [
+      {
+        id: 'evidence-1',
+        toolName: 'read_character',
+        retention: 'evidence',
+        ok: true,
+        argsSummary: '{}',
+        resultSummary: '外部人物材料。',
+        createdAtLoop: 1,
+        sourceRefs: [{ type: 'entity', id: 'entity-1', title: '菲尔娜' }]
+      }
+    ],
+    ephemeralToolContext: [
+      {
+        id: 'result-1',
+        toolName: 'edit_document',
+        retention: 'ephemeral',
+        ok: false,
+        argsSummary: '{}',
+        resultSummary: '修改没有成功。',
+        createdAtLoop: 1
+      }
+    ],
+    messages: []
+  } as any)
+
+  assert.equal(messages.systemMessages.every((message) => message instanceof SystemMessage), true)
+  assert.equal(messages.contextMessages.every((message) => message instanceof AIMessage), true)
+  assert.doesNotMatch(
+    messages.systemMessages.map((message) => String(message.content)).join('\n'),
+    /entity-1|修改没有成功/
+  )
+  assert.match(
+    messages.contextMessages.map((message) => String(message.content)).join('\n'),
+    /entity-1/
+  )
+  assert.equal(
+    messages.manifest.some((item) => item.id === 'turn-execution-ledger'),
+    false
+  )
+})
+
+test('model call timeout aborts a call without becoming an external cancellation', async () => {
+  const scope = createModelCallAbortScope({ timeoutMs: 5 })
+  await new Promise<void>((resolve) => {
+    if (scope.signal.aborted) resolve()
+    else scope.signal.addEventListener('abort', () => resolve(), { once: true })
+  })
+  assert.equal(scope.signal.aborted, true)
+  assert.equal(scope.didTimeout(), true)
+  scope.dispose()
+})
+
+test('external cancellation remains distinct from model call timeout', async () => {
+  const external = new AbortController()
+  const scope = createModelCallAbortScope({ timeoutMs: 1000, externalSignal: external.signal })
+  external.abort(new Error('cancelled_by_user'))
+  assert.equal(scope.signal.aborted, true)
+  assert.equal(scope.didTimeout(), false)
+  scope.dispose()
 })
 
 test('a native turn remains native when a later final response omits reasoning', () => {

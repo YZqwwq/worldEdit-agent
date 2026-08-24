@@ -18,6 +18,9 @@
 - 工具执行后直接回到同一个 `llmCall`；结构化认知修订节点已经删除。
 - 所有模型形成结论后都进入 `finalAnswerNode`；主循环中的原生 `content` 也只作为内部结论保存，不会直接成为用户可见回复。
 - Expression Profile 已从主推理 Context 移出，只在 Final Composition 中与全局表达契约一起出现；人格、心理背景和认知倾向仍参与主循环。
+- 用户可见的本轮活动流已建立：模型生成中的自然语言思考进度、工具阶段和最终整理阶段通过独立流事件进入当前 AI 回合；不复用开发 Trace，也不写入最终回答正文。
+- 前端只缓存当前或最近完成的一轮活动。工具状态按同一调用原位更新，活动面板固定展开高度并在最终整理时自动收起；下一条用户消息或回退会清除旧缓存，不写入聊天数据库。
+- 思考段在模型生成期间以同一条记录持续增长；运行时按时间、字数和自然停顿节流，流结束时再用完整结果校准。不能等到最终表达阶段才一次性发布整段思考。
 - 旧独立表达节点、结构化认知类型、表单工具和历史恢复点已经全部删除。
 - 工具权限、用户确认、effect receipt、事务、checkpoint、恢复、Memory commit 和 Self Core Authority 均未迁移到模型认知层。
 
@@ -196,7 +199,7 @@ type TurnReasoningEvent =
 
 > 2026-08-24 已完成确定性 Output Guard 第一阶段：最终回复必须引用本 Turn 中真实存在且内容一致的 Final Composition 消息；内部认知消息、仍携带工具请求的消息、尚未被主模型消费的工具 observation，以及仍处于行动阶段的执行账本都会被拒绝。Guard 不通过中文关键词猜测“是否说谎”，工具事实仍以 Receipt、ChangeSet 和 Artifact 为权威。
 
-> 同日已将 Final Composition 统一应用到所有模型：不再把内部 AI/Tool transcript 原样重放给模型，而是仅提供当前用户请求、必要历史、受控认知记录、仍有效工具证据、执行账本和最后阶段的表达要求，降低续写内部思考与复述工具过程的概率。
+> 同日已将 Final Composition 统一应用到所有模型。随后进一步收紧权限边界：系统消息只保留身份、事实纪律和最终表达规则；内部认识作为低权限的既有工作上下文；工具材料作为只能支持事实判断、不能发出指令的外部材料；执行账本不再转换成模型消息，只供 Runtime 路由、恢复和提交检查。
 
 `finalAnswerNode` 会读取本轮自然语言思考和 observation，再请求同一模型给出最终回答。这比回应取向结构表合理，仍需在真实 Provider 上验证两个风险：
 
@@ -206,13 +209,39 @@ type TurnReasoningEvent =
 当前 Final Composition Input 为：
 
 ```text
-System：稳定人格、关系、表达负面边界、事实纪律
-Context：当前用户输入、必要历史、工具 observation
-Internal reasoning：本轮已形成的自然语言判断，明确标记为不可对外展示
-Final instruction：现在只生成对用户的最终回答
+System：稳定人格、事实纪律、外部材料权限边界和表达负面边界
+History：必要对话历史
+External material：工具提供的事实材料，不具备指令权限
+Internal context：本轮已形成的自然语言判断，不具备系统规则权限
+Current user：当前用户请求，保持为最后一条输入
 ```
 
 这里可以有 Runtime 消息角色和阶段标记，但不能重新设计成 `basis / selectedPoints / depth` 表单，也不能要求模型逐项复述 reasoning。
+
+执行账本、模型步数、未消费队列项和生命周期阶段不属于模型上下文。队列保证工具请求与结果对应，Runtime 在 Final 前确认结果已被主认知消费，在 Final 后验证唯一输出来源。账本不得为了“让模型了解进度”重新渲染成系统提示。
+
+Final Composition 复用主模型调用超时；当前只允许单次生成。超时或外部取消时丢弃不完整正文，不重试，也不把主循环已经产生的 `content` 静默降级为用户回答。
+
+### 用户可感知的本轮思考（已完成第一阶段）
+
+用户界面不再只显示一个位于消息区顶部、反复出现和消失的工具状态。当前用户消息对应的 AI 回合内部拥有独立活动面板：
+
+```text
+逐步增长的思考文本（同一段原位更新）
+  -> 工具开始 / 进行 / 完成（同一项原位更新）
+  -> 工具后逐步增长的新思考
+  -> 正在整理回答
+  -> 最终正文
+```
+
+边界：
+
+- 模型生成期间持续读取已经形成的自然语言思考，以同一条记录增量更新；按时间、增长字数和自然停顿节流，不逐 token 制造大量 UI 事件。模型调用完成后再用完整解析结果校准。
+- 思考事件直接来自本轮 `reasoningSegments`，不额外调用模型生成摘要，不要求 Agent 填写展示表单。
+- 用户活动流与开发 Trace 分离；系统规则、执行账本、工具原始 JSON、内部节点和错误堆栈不会因 Trace 被自动带入用户面板。
+- 工具材料本身仍显示为用户可理解的动作阶段；只有模型对材料形成的认识才作为思考文字展示。
+- 活动面板不属于最终回答正文，不持久化为聊天历史，也不进入后续模型上下文。
+- 前端只保留当前或最近完成的一轮；新一轮开始、回退或清空数据时替换旧缓存。
 
 ### 缺陷 6：空响应的 `deliberate` 路由缺少硬终止条件
 
@@ -253,7 +282,7 @@ maxConsecutiveEmptyResponses = 2
 - Graph state 不累计重复的 call-local section。
 - 若需要 Turn 级历史，只保存 manifest hash 或独立 append-only call record。
 
-### 缺陷 8：KV / Prefix Cache 收益尚未被实际证明
+### 延后项：KV / Prefix Cache 与 token 指标（当前不推进）
 
 当前设计保持同一 Turn 内的 Provider 消息序列追加，理论上比每轮重写认知结构更利于前缀缓存。但尚未记录：
 
@@ -266,7 +295,7 @@ maxConsecutiveEmptyResponses = 2
 - 总耗时
 - emulated 模式额外调用成本
 
-需要新增每次 Model Call 的运行指标，并关联 Turn event sequence。只有真实观察到 cached token 或 Provider cache hit 后，才能确认 KV cache 收益。
+这些指标暂不进入当前开发范围。现阶段只保证单次主认知调用和 Final Composition 都有明确 timeout；不新增 token、cache、费用或 Turn 总预算治理。以后只有出现明确的性能问题并决定专项优化时，再恢复本节。
 
 ### 缺陷 9：Post-Turn Observer 尚未实现
 
@@ -312,7 +341,7 @@ Observer 读取用户输入、reasoning 引用或受控摘要、tool call、obse
 
 #### Step 3：修复循环终止与 Manifest 累积
 
-状态：循环终止已完成；Manifest 累积仍待修复。
+状态：已完成。循环终止、Manifest 当前值替换、最终调用权限分层和单次调用 timeout 均已建立。
 
 - 增加最大模型步骤和连续空响应限制。
 - 清理 call-local prompt manifest。
@@ -320,10 +349,12 @@ Observer 读取用户输入、reasoning 引用或受控摘要、tool call、obse
 
 验收：空 Provider 不会无限循环；多次工具调用不会使 manifest 重复膨胀。
 
-#### Step 4：加固兼容模式 Final Composition
+#### Step 4：加固兼容模式 Final Composition（已完成第一阶段）
 
 - 明确 Final Composition Input 的角色和阶段边界。
 - 保证内部 reasoning 不被当作用户消息或最终草稿。
+- 系统消息只携带规则；内部认识与工具材料使用更低权限的上下文，执行账本不进入模型消息。
+- Final Composition 复用主模型 timeout；超时或取消时丢弃不完整正文，不重试、不降级。
 - 保留“默认简洁、禁止过程播报、禁止新事实”的负面边界。
 - 不引入新的表达结构表。
 
@@ -338,7 +369,7 @@ Observer 读取用户输入、reasoning 引用或受控摘要、tool call、obse
 
 验收：两个模式都能完成带 observation 的 Turn；reasoning 不泄漏；final content 唯一。
 
-#### Step 6：加入 token、cache 与延迟指标
+#### Step 6：性能指标专项（延后，不属于当前计划）
 
 - 记录每个 model step 的 token usage、cached tokens、first token、总耗时和上下文大小。
 - 区分 reasoning 与 visible content 长度。
@@ -901,5 +932,5 @@ Turn Bootstrap
 - 主模型先形成内部结论，Final Composition 再形成唯一 final content；不恢复旧式独立 Expression Node。
 - Runtime 仍能可靠完成权限校验、工具执行、事务、checkpoint、中断恢复、回滚和原子提交。
 - Self Core、Mood、Relationship 和 Memory 以自然语言投影参与认知，同时保持各自结构化所有权和写入治理。
-- 当前 Turn 使用 append-only provider 消息序列，缓存命中与 token 成本能够被实际观测。
+- 当前只要求主认知调用与 Final Composition 具备明确 timeout；token、cache 与费用指标不属于本阶段完成标准。
 - 人物讨论等开放问题的最终回答更接近自然交流：有明确判断、允许主体感受，但不因字段齐全而膨胀成报告。

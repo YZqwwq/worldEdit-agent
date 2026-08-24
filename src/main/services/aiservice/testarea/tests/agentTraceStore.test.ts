@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentTraceRecord } from '@share/cache/render/aiagent/agentTrace'
+import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import {
   appendAgentTraceRecord,
   configureAgentTraceStorage,
@@ -13,7 +14,14 @@ import {
   readAgentTraceArtifact
 } from '../../../log/trace/agentTraceStore'
 import { runWithTraceContext } from '../../../log/trace/agentTraceRuntime'
-import { traceArtifact, traceDecision, traceState } from '../../../log/trace/agentTraceEmitter'
+import {
+  emitAgentStage,
+  emitAgentThought,
+  emitAgentTurnPhase,
+  traceArtifact,
+  traceDecision,
+  traceState
+} from '../../../log/trace/agentTraceEmitter'
 
 const makeRecord = (
   runId: string,
@@ -90,6 +98,41 @@ test('runtime traces receive a stable sequence and redact credential fields', as
     const artifact = readAgentTraceArtifact({ artifactRef })
     assert.doesNotMatch(artifact.content, /private-value/)
     assert.match(artifact.content, /\[REDACTED\]/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('user-visible turn activity streams separately from diagnostic trace records', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'worldedit-agent-trace-'))
+  configureAgentTraceStorage(root)
+  const chunks: StreamChunk[] = []
+  try {
+    await runWithTraceContext(
+      'run-user-activity',
+      { turnId: 9, emitChunk: (chunk) => chunks.push(chunk) },
+      async () => {
+        emitAgentThought({
+          thoughtId: 'thought-1',
+          text: '需要先确认后半段人物经历。',
+          sequence: 1,
+          followsToolResult: false
+        })
+        emitAgentStage({
+          stageId: 'tool-1',
+          label: '正在读取人物文档',
+          status: 'running'
+        })
+        emitAgentTurnPhase({ phase: 'finalizing', label: '正在整理回答' })
+      }
+    )
+
+    assert.deepEqual(
+      chunks.slice(0, 3).map((chunk) => chunk.type),
+      ['agent_thought', 'agent_stage', 'agent_turn_phase']
+    )
+    assert.equal(chunks[0].type === 'agent_thought' ? chunks[0].text : '', '需要先确认后半段人物经历。')
+    assert.equal(queryAgentTrace({ runId: 'run-user-activity' }).records.length, 1)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
