@@ -30,6 +30,7 @@ import { buildCognitivePolicyPrompt } from '../../../prompt/main_agent/persona/a
 import { selfExperienceService } from '../../manager/selfmodel/selfExperienceService'
 import { selfCoreAuthorityService } from '../../manager/selfmodel/selfCoreAuthorityService'
 import { buildSelfCoreProjection } from '../../../prompt/main_agent/persona/selfCoreProjection'
+import { renderExpressionPromptProfileCatalog } from '../../../prompt/main_agent/persona/expressionPromptProfiles'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
@@ -297,6 +298,14 @@ export async function contextNode(
       ].join('\n')
     })
   }
+
+  appendPromptSection({
+    id: 'expression-profile-catalog',
+    duty: 'context',
+    kind: 'expression_profile_catalog',
+    source: 'expressionPromptProfiles',
+    content: renderExpressionPromptProfileCatalog()
+  })
 
   const cognitivePolicyPrompt = buildCognitivePolicyPrompt(state.personaPolicy?.cognition)
   if (cognitivePolicyPrompt) {

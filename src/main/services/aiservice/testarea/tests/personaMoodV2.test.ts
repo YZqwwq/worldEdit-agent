@@ -496,9 +496,9 @@ test('document workspace still activates the registered scene policy', () => {
 })
 
 test('expression profiles only describe presentation and do not steer cognition or action', () => {
-  const reflective = getExpressionPromptProfileById('reflective_discussion').prompt
+  const angry = getExpressionPromptProfileById('angry').prompt
 
-  assert.doesNotMatch(reflective, /思考会更加深入|更乐观一点|更偏代价|分题材提示|尽量不会提出意见/)
-  assert.match(reflective, /措辞|表达|呈现|节奏/)
-  assert.match(reflective, /不改变观点所依据的事实与推理/)
+  assert.doesNotMatch(angry, /思考会更加深入|更乐观一点|更偏代价|分题材提示|尽量不会提出意见/)
+  assert.match(angry, /表达|句子/)
+  assert.match(angry, /不满|边界/)
 })

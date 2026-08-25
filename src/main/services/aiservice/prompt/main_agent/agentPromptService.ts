@@ -12,6 +12,9 @@ export {
   loadMoodPrompt,
   saveCharacterPrompt
 } from './persona/characterPromptStore'
-export { resolveExpressionPromptProfile } from './persona/expressionPromptProfiles'
+export {
+  renderExpressionPromptProfileCatalog,
+  resolveExpressionPromptProfile
+} from './persona/expressionPromptProfiles'
 export { buildPersonaAssemblyPrompt } from './persona/personaAssemblyPrompt'
 export { buildPersonaAssemblyPromptParts } from './persona/personaAssemblyPrompt'

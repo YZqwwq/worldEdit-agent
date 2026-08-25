@@ -2,7 +2,7 @@ import type { AgentToolRegistryEntry, ToolActivationState } from '../toolkits/to
 import { getToolVisibilityTier } from '../toolkits/toolRegistryTypes'
 
 const CAPABILITY_LAYER_DESCRIPTIONS: Record<string, string> = {
-  core: '核心工具：低成本、默认可见，用于工具底图查询、工具集激活、时间确认、按需长期回忆和短期历史回溯。',
+  core: '核心工具：低成本、默认可见，用于工具底图查询、工具集激活、时间确认、按需思考引导、长期回忆和短期历史回溯。',
   domain: '领域工具：访问本地世界观、角色、任务等业务数据库；默认按工具集激活后使用。',
   network: '联网工具：访问外部公开信息；默认按工具集激活后使用。',
   sub_agent: '子 agent 协作：启动或继续后台子 agent 流程，不用于普通查询。',

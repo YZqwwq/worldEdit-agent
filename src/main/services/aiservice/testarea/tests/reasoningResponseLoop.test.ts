@@ -177,7 +177,8 @@ test('final composition uses controlled cognition and evidence instead of replay
   )
   assert.equal(messages.at(-1)?.content, '请评价菲尔娜')
   const boundary = messages.find(
-    (message) => message instanceof SystemMessage && String(message.content).includes('全局表达契约')
+    (message) =>
+      message instanceof SystemMessage && String(message.content).includes('全局表达契约')
   )
   const evidence = messages.find(
     (message) => message.additional_kwargs?.contextAuthority === 'external_evidence'
@@ -244,12 +245,15 @@ test('thought progress grows in place during model streaming and flushes the fin
     updates.map((update) => update.thoughtId),
     Array(updates.length).fill('reasoning:stream-1')
   )
-  assert.deepEqual(updates.map((update) => update.text), [
-    '先确认人物后半段经历是否改变',
-    '先确认人物后半段经历是否改变了判断。',
-    '先确认人物后半段经历是否改变了判断。然后比较责任与信仰',
-    '先确认人物后半段经历是否改变了判断。然后比较责任与信仰的分离。'
-  ])
+  assert.deepEqual(
+    updates.map((update) => update.text),
+    [
+      '先确认人物后半段经历是否改变',
+      '先确认人物后半段经历是否改变了判断。',
+      '先确认人物后半段经历是否改变了判断。然后比较责任与信仰',
+      '先确认人物后半段经历是否改变了判断。然后比较责任与信仰的分离。'
+    ]
+  )
 })
 
 test('reasoning runtime keeps tool material below system rules and keeps its ledger private', () => {
@@ -280,8 +284,22 @@ test('reasoning runtime keeps tool material below system rules and keeps its led
     messages: []
   } as any)
 
-  assert.equal(messages.systemMessages.every((message) => message instanceof SystemMessage), true)
-  assert.equal(messages.contextMessages.every((message) => message instanceof AIMessage), true)
+  assert.equal(
+    messages.systemMessages.every((message) => message instanceof SystemMessage),
+    true
+  )
+  assert.equal(
+    messages.contextMessages.every((message) => message instanceof AIMessage),
+    true
+  )
+  assert.match(
+    messages.systemMessages.map((message) => String(message.content)).join('\n'),
+    /思考应形成比复述输入更多的认识/
+  )
+  assert.match(
+    messages.systemMessages.map((message) => String(message.content)).join('\n'),
+    /可以按需调用思考指南/
+  )
   assert.doesNotMatch(
     messages.systemMessages.map((message) => String(message.content)).join('\n'),
     /entity-1|修改没有成功/

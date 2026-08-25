@@ -28,6 +28,8 @@ import { activateToolsetTool } from '../tools/utility/activateToolset'
 import { addTool } from '../tools/utility/add'
 import { getTimeTool } from '../tools/utility/getTime'
 import { queryToolCatalogTool } from '../tools/utility/queryToolCatalog'
+import { consultThinkingGuideTool } from '../tools/thinking/consultThinkingGuide'
+import { selectExpressionProfileTool } from '../tools/thinking/selectExpressionProfile'
 import { deleteWorldEntityManualMentionTool } from '../tools/world/deleteWorldEntityManualMention'
 import { getEntityDetailTool } from '../tools/world/getEntityDetail'
 import { getWorldSchemaCatalogTool } from '../tools/world/getWorldSchemaCatalog'
@@ -67,10 +69,12 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     id: 'core_runtime',
     title: '核心运行工具',
     summary:
-      '主 agent 每轮都可使用的低成本工具：查询工具底图、激活工具集、确认时间、主动回忆长期/阶段记忆和回溯短期中文对话。',
-    tags: ['core', 'runtime', 'tool-discovery', 'memory', 'time'],
+      '主 agent 每轮都可使用的低成本工具：查询工具底图、激活工具集、确认时间、按需展开思考视角，以及主动回忆长期/阶段记忆和回溯短期中文对话。',
+    tags: ['core', 'runtime', 'tool-discovery', 'thinking-guide', 'memory', 'time'],
     activationHints: ['默认已挂载，无需激活。'],
-    whenToUse: ['处理普通对话、确认当前时间、按需回忆历史、回溯最近上下文、发现并激活专门工具集。'],
+    whenToUse: [
+      '处理普通对话、确认当前时间、按需展开人物/剧情思考视角、回忆历史、回溯最近上下文、发现并激活专门工具集。'
+    ],
     whenNotToUse: ['需要具体领域数据、联网搜索或写入能力时，应先查询并激活对应工具集。'],
     discoverable: false
   },
@@ -334,6 +338,34 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     capabilityLayer: 'core',
     capabilityGroup: '核心运行',
     capabilitySummary: '统一回忆待归档消息、阶段记忆与更早原始对话；长期摘要只作为方向提示。',
+    audience: 'main_agent',
+    access: 'read',
+    activationMode: 'always',
+    enabled: true,
+    turnCallLimit: 1
+  },
+  {
+    key: consultThinkingGuideTool.name,
+    tool: consultThinkingGuideTool,
+    toolsetId: 'core_runtime',
+    category: 'cognitive_guidance',
+    capabilityLayer: 'core',
+    capabilityGroup: '认知辅助',
+    capabilitySummary: '按需读取人物分析或剧情讨论的思考维度，帮助形成自己的认识。',
+    audience: 'main_agent',
+    access: 'read',
+    activationMode: 'always',
+    enabled: true,
+    turnCallLimit: 2
+  },
+  {
+    key: selectExpressionProfileTool.name,
+    tool: selectExpressionProfileTool,
+    toolsetId: 'core_runtime',
+    category: 'expression_selection',
+    capabilityLayer: 'core',
+    capabilityGroup: '认知辅助',
+    capabilitySummary: '根据 Agent 当前真实情绪选择只在最终组织阶段生效的表达方案。',
     audience: 'main_agent',
     access: 'read',
     activationMode: 'always',

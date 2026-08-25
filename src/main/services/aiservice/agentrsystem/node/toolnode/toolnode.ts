@@ -60,6 +60,7 @@ import {
   registerToolConfirmationRequest
 } from './toolExecutionProtocol'
 import { extractToolSourceRefs } from './toolContextSourceRefs'
+import { resolveExpressionProfileSelection } from '../../../ai-utils/tools/thinking/selectExpressionProfile'
 
 const compact = (value: string, max = 900): string => {
   const normalized = String(value || '')
@@ -420,6 +421,7 @@ export async function toolNode(
   let toolCallCounts = { ...(state.toolCallCounts ?? {}) }
   let executionLedger = state.turnExecutionLedger ?? createTurnExecutionLedger('处理当前用户请求')
   let nextWorkspace = state.turnWorkspace
+  let expressionProfile = state.expressionProfile
   const recordExecution = (input: Parameters<typeof createTurnExecutionAction>[0]): void => {
     executionLedger = appendTurnExecutionAction(executionLedger, createTurnExecutionAction(input))
   }
@@ -944,6 +946,12 @@ export async function toolNode(
         envelope?.data && typeof envelope.data === 'object'
           ? (envelope.data as Record<string, unknown>)
           : undefined
+      expressionProfile = resolveExpressionProfileSelection({
+        toolName: toolCall.name,
+        ok: effectiveToolOk,
+        data: envelopeData,
+        current: expressionProfile
+      })
       const sourceRefs = buildSourceRefs(toolCall.name, envelopeData)
       recordExecution({
         actionId,
@@ -1279,6 +1287,7 @@ export async function toolNode(
     activeTools: [...new Set(activatedTools)],
     toolCallCounts,
     turnExecutionLedger: executionLedger,
+    ...(expressionProfile ? { expressionProfile } : {}),
     ...(nextWorkspace ? { turnWorkspace: nextWorkspace } : {})
   }
 }

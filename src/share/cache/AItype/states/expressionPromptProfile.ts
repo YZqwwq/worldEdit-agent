@@ -1,4 +1,12 @@
-export type ExpressionPromptProfileId = 'default' | 'daily_chat' | 'reflective_discussion'
+export type ExpressionPromptProfileId =
+  | 'default'
+  | 'calm'
+  | 'joyful'
+  | 'excited'
+  | 'angry'
+  | 'sad'
+  | 'hurt'
+  | 'uneasy'
 
 export interface ExpressionPromptProfileState {
   id: ExpressionPromptProfileId
