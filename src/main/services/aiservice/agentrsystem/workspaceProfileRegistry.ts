@@ -24,7 +24,7 @@ export interface ResolvedWorkspaceProfile {
 const DOCUMENT_EDITING_PROFILE: WorkspaceProfileDefinition = {
   id: 'document_editing',
   matches: (workspace) => workspace.pageKind === 'document',
-  autoToolsets: ['world_document_editor', 'agent_artifact'],
+  autoToolsets: ['world_document_editor'],
   relatedToolsets: [
     {
       id: 'world_read',
@@ -73,10 +73,7 @@ const DOCUMENT_EDITING_PROFILE: WorkspaceProfileDefinition = {
           '始终区分已有事实、合理推导与新创作建议。'
         ]
       }
-    ],
-    expressionBias: {
-      longFormDelivery: 'prefer_independent_content'
-    },
+    ]
   }
 }
 
@@ -92,8 +89,7 @@ const cloneScenePolicy = (
         workModes: policy.workModes?.map((mode) => ({
           ...mode,
           directions: [...mode.directions]
-        })),
-        expressionBias: policy.expressionBias ? { ...policy.expressionBias } : undefined,
+        }))
       }
     : undefined
 

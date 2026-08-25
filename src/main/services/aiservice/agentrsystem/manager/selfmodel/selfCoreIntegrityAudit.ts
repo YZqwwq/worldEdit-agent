@@ -1,6 +1,6 @@
 import type { SelfCoreRevisionDraft, SelfCoreSnapshot } from '@share/cache/AItype/states/selfCore'
 import {
-  assertExperienceSelfCoreRevision,
+  assertSelfCoreRevision,
   parseSelfCoreSnapshot
 } from './selfCoreEvolution'
 
@@ -141,13 +141,23 @@ export const auditSelfCoreRevisionChain = (input: {
 
     if (!previousSnapshot) continue
     try {
-      assertExperienceSelfCoreRevision(previousSnapshot, {
-        authority: 'experience_integration',
-        changeKind: record.changeKind as SelfCoreRevisionDraft['changeKind'],
-        baseRevision: previousSnapshot.revision,
-        sourceRefs,
-        next: snapshot
-      })
+      const draft: SelfCoreRevisionDraft =
+        record.changeKind === 'authored_narrative_replaced'
+          ? {
+              authority: 'author',
+              changeKind: 'authored_narrative_replaced',
+              baseRevision: previousSnapshot.revision,
+              sourceRefs: sourceRefs as ['author:authored_narrative'],
+              next: snapshot
+            }
+          : {
+              authority: 'experience_integration',
+              changeKind: record.changeKind as 'narrative_thesis_added',
+              baseRevision: previousSnapshot.revision,
+              sourceRefs,
+              next: snapshot
+            }
+      assertSelfCoreRevision(previousSnapshot, draft)
     } catch {
       findings.push({ severity: 'error', code: 'invalid_revision_delta', revision: record.revision })
     }

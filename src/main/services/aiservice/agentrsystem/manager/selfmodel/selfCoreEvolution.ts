@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type {
+  SelfCoreAuthorRevisionDraft,
+  SelfCoreExperienceRevisionDraft,
   SelfCoreNarrativeThesis,
   SelfCoreRevisionDraft,
   SelfCoreSnapshot
@@ -106,7 +108,7 @@ const assertNarrativeThesisAddition = (
 
 export const assertExperienceSelfCoreRevision = (
   current: SelfCoreSnapshot,
-  draft: SelfCoreRevisionDraft
+  draft: SelfCoreExperienceRevisionDraft
 ): SelfCoreSnapshot => {
   const next = parseSelfCoreSnapshot(draft.next)
   if (draft.authority !== 'experience_integration') {
@@ -122,6 +124,86 @@ export const assertExperienceSelfCoreRevision = (
   return next
 }
 
+const authorLockedCoreState = (core: SelfCoreSnapshot): string =>
+  JSON.stringify({
+    schemaVersion: core.schemaVersion,
+    coreId: core.coreId,
+    identity: {
+      name: core.identity.name,
+      ontology: core.identity.ontology,
+      role: core.identity.role,
+      continuityStatement: core.identity.continuityStatement
+    },
+    values: core.values,
+    boundaries: core.boundaries,
+    agencyPrinciples: core.agencyPrinciples,
+    epistemicPrinciples: core.epistemicPrinciples,
+    relationalPrinciples: core.relationalPrinciples,
+    narrativeTheses: core.narrativeTheses,
+    createdAt: core.createdAt
+  })
+
+export const assertAuthorSelfCoreRevision = (
+  current: SelfCoreSnapshot,
+  draft: SelfCoreAuthorRevisionDraft
+): SelfCoreSnapshot => {
+  const next = parseSelfCoreSnapshot(draft.next)
+  if (draft.authority !== 'author' || draft.changeKind !== 'authored_narrative_replaced') {
+    throw new Error('Unsupported Self Core author revision.')
+  }
+  if (draft.baseRevision !== current.revision || next.revision !== current.revision + 1) {
+    throw new Error('Self Core revision must advance exactly once from its authoritative base.')
+  }
+  if (
+    current.coreId !== next.coreId ||
+    authorLockedCoreState(current) !== authorLockedCoreState(next)
+  ) {
+    throw new Error('Author narrative revision may only replace the authored narrative.')
+  }
+  if (next.identity.authoredNarrative === current.identity.authoredNarrative) {
+    throw new Error('Author narrative revision must change the authored narrative.')
+  }
+  if (
+    draft.sourceRefs.length !== 1 ||
+    draft.sourceRefs[0] !== 'author:authored_narrative'
+  ) {
+    throw new Error('Author narrative revision requires its explicit author source.')
+  }
+  return next
+}
+
+export const assertSelfCoreRevision = (
+  current: SelfCoreSnapshot,
+  draft: SelfCoreRevisionDraft
+): SelfCoreSnapshot =>
+  draft.authority === 'author'
+    ? assertAuthorSelfCoreRevision(current, draft)
+    : assertExperienceSelfCoreRevision(current, draft)
+
+export const createAuthoredNarrativeRevision = (
+  current: SelfCoreSnapshot,
+  authoredNarrative: string,
+  nowIso = new Date().toISOString()
+): SelfCoreAuthorRevisionDraft | null => {
+  const normalized = authoredNarrative.trim()
+  if (!normalized || normalized === current.identity.authoredNarrative) return null
+  return {
+    authority: 'author',
+    changeKind: 'authored_narrative_replaced',
+    baseRevision: current.revision,
+    sourceRefs: ['author:authored_narrative'],
+    next: {
+      ...current,
+      revision: current.revision + 1,
+      identity: {
+        ...current.identity,
+        authoredNarrative: normalized
+      },
+      updatedAt: nowIso
+    }
+  }
+}
+
 export const createNarrativeThesisRevision = (
   current: SelfCoreSnapshot,
   input: {
@@ -130,7 +212,7 @@ export const createNarrativeThesisRevision = (
     confidence: number
     nowIso?: string
   }
-): SelfCoreRevisionDraft | null => {
+): SelfCoreExperienceRevisionDraft | null => {
   const statement = normalizeStatement(input.statement)
   const sourceExperienceIds = parseStringArray(input.sourceExperienceIds)
   if (!statement || sourceExperienceIds.length === 0) return null

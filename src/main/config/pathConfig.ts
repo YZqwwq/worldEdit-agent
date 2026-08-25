@@ -100,7 +100,7 @@ export const getAiServicePromptDir = (): string => {
   return dir
 }
 
-export const getCharacterPromptProfilePath = (): string =>
+export const getAuthoredNarrativeTemplatePath = (): string =>
   join(getAiServicePromptDir(), 'character.md')
 
 export const getExpressionPromptProfilePath = (): string =>

@@ -197,6 +197,9 @@ test('final composition uses controlled cognition and evidence instead of replay
   assert.match(String(cognition.content), /她的克制比力量更重要/)
   assert.match(String(boundary.content), /只在最终组织阶段可见的表达方案/)
   assert.match(String(boundary.content), /自主选择要显露的情绪与强度/)
+  assert.match(String(boundary.content), /主体态度保真/)
+  assert.match(String(boundary.content), /不要把它们中和成无主体的客观报告/)
+  assert.match(String(boundary.content), /不要为了显得有人格而临时伪造/)
 })
 
 test('provider reasoning chunks can be read while the model response is still growing', () => {

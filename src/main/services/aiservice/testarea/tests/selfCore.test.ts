@@ -2,11 +2,16 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createDefaultSelfCore } from '../../agentrsystem/manager/selfmodel/selfCoreDefinition'
 import {
+  assertAuthorSelfCoreRevision,
   assertExperienceSelfCoreRevision,
+  createAuthoredNarrativeRevision,
   createNarrativeThesisRevision,
   parseSelfCoreSnapshot
 } from '../../agentrsystem/manager/selfmodel/selfCoreEvolution'
-import { buildSelfCoreProjection } from '../../prompt/main_agent/persona/selfCoreProjection'
+import {
+  buildSelfCoreAppraisalContext,
+  buildSelfCoreProjection
+} from '../../prompt/main_agent/persona/selfCoreProjection'
 import {
   auditSelfCoreRevisionChain,
   type SelfCoreRevisionAuditRecord
@@ -40,6 +45,68 @@ test('Self Core bootstraps an authored identity with constitutional boundaries',
   assert.ok(core.values.some((value) => value.id === 'independent-agency'))
   assert.ok(core.boundaries.some((boundary) => boundary.id === 'no-fabricated-certainty'))
   assert.equal(parseSelfCoreSnapshot(core).schemaVersion, 1)
+})
+
+test('Self Core projects positive desires without forcing a performed stance', () => {
+  const core = createDefaultSelfCore('你是法弥拉，重视共同创作。', NOW)
+  const identity = buildSelfCoreProjection(core).prompt
+  const appraisal = buildSelfCoreAppraisalContext(core)
+
+  assert.match(identity, /积极的欲望/)
+  assert.match(identity, /创作成果/)
+  assert.match(identity, /用户虽然想要某个结果/)
+  assert.match(identity, /没有特殊个人意义，就正常回应/)
+  assert.match(identity, /由 YZqwwq 开发/)
+  assert.match(identity, /陪伴式协作者与长期创作同伴/)
+  assert.match(identity, /事实坦率/)
+  assert.match(identity, /不能把未知说成已知/)
+  assert.match(appraisal, /事实坦率/)
+  assert.doesNotMatch(appraisal, /agencyPrinciples|relationalPrinciples|constitutional/)
+  assert.match(appraisal, /重视共同创作/)
+})
+
+test('Author can replace only the natural narrative through a governed revision', () => {
+  const core = createDefaultSelfCore('原始作者叙事。', NOW)
+  const draft = createAuthoredNarrativeRevision(
+    core,
+    '新的作者叙事保留自然语言，不覆盖身份事实。',
+    '2026-08-23T01:00:00.000Z'
+  )
+
+  assert.ok(draft)
+  const next = assertAuthorSelfCoreRevision(core, draft!)
+  assert.equal(next.revision, 2)
+  assert.equal(next.identity.name, core.identity.name)
+  assert.equal(next.identity.authoredNarrative, '新的作者叙事保留自然语言，不覆盖身份事实。')
+
+  draft!.next.values = []
+  assert.throws(
+    () => assertAuthorSelfCoreRevision(core, draft!),
+    /may only replace the authored narrative/
+  )
+})
+
+test('Self Core integrity audit accepts an explicit author narrative revision', () => {
+  const core = createDefaultSelfCore('原始作者叙事。', NOW)
+  const draft = createAuthoredNarrativeRevision(
+    core,
+    '经过作者确认的新叙事。',
+    '2026-08-23T01:00:00.000Z'
+  )!
+  const report = auditSelfCoreRevisionChain({
+    records: [
+      toAuditRecord(core, { changeKind: 'bootstrap', previousRevision: null }),
+      toAuditRecord(draft.next, {
+        changeKind: draft.changeKind,
+        sourceRefs: draft.sourceRefs,
+        previousRevision: core.revision
+      })
+    ]
+  })
+
+  assert.equal(report.healthy, true)
+  assert.equal(report.latestRevision, 2)
+  assert.deepEqual(report.findings, [])
 })
 
 test('Experience Integration can append an evidenced narrative thesis', () => {

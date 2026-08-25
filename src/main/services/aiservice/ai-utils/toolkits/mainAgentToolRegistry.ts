@@ -280,9 +280,9 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
   {
     id: 'agent_artifact',
     title: 'Agent 观点产物工具集',
-    summary: '创建、保存并读取可点击的 Agent 观点、分析或建议文档。',
+    summary: '发布能力常驻可用；按需激活后还可重新读取既有的 Agent 观点、分析或建议文档。',
     tags: ['agent', 'artifact', 'opinion', 'analysis', '观点', '分析', '交互文档'],
-    activationHints: ['文档编辑场景默认挂载；需要独立保存、展示或回看完整观点时使用。'],
+    activationHints: ['发布卡片无需激活；需要重新读取以前的完整观点时激活。'],
     whenToUse: ['需要保存和展示较长观点', '需要重新读取之前发布的观点产物'],
     whenNotToUse: ['简单交流即可回答', '需要修改用户正式世界观文档'],
     discoverable: true
@@ -794,7 +794,7 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     capabilitySummary: '将较长观点发布为可点击、可回看的独立产物。',
     audience: 'main_agent',
     access: 'write',
-    activationMode: 'manual',
+    activationMode: 'always',
     enabled: true,
     turnCallLimit: 2
   },

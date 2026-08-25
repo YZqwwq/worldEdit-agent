@@ -33,16 +33,11 @@ export interface PersonaSceneWorkMode {
   directions: string[]
 }
 
-export interface PersonaSceneExpressionBias {
-  longFormDelivery: 'default' | 'prefer_independent_content'
-}
-
 export interface PersonaScenePolicy {
   id: string
   label: string
   cognitiveDirections: string[]
   workModes?: PersonaSceneWorkMode[]
-  expressionBias?: PersonaSceneExpressionBias
 }
 
 export interface PersonaPolicyMetrics {

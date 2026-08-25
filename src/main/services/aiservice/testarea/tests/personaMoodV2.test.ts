@@ -27,6 +27,7 @@ import { resolveWorkspaceProfile } from '../../agentrsystem/workspaceProfileRegi
 import { buildMoodAppraisalPrompt } from '../../agentrsystem/node/personanode/moodAppraisalPrompt'
 import { projectUserMoodSlot } from '../../agentrsystem/node/personanode/userMoodProjection'
 import { getExpressionPromptProfileById } from '../../prompt/main_agent/persona/expressionPromptProfiles'
+import { DEFAULT_COMMUNICATION_HABITS } from '../../prompt/main_agent/persona/communicationHabits'
 import {
   applyObservationToMemorySlots,
   createDefaultMemorySlots
@@ -103,6 +104,7 @@ test('appraisal prompt includes user interaction events and excludes task result
   ]
   const prompt = buildMoodAppraisalPrompt({
     moodPrompt: '保持低振幅。',
+    selfContext: '我希望保留共同创作成果，也重视与用户之间的信任。',
     observations,
     currentEventText: '先停一下。',
     eventSource: 'user',
@@ -113,6 +115,9 @@ test('appraisal prompt includes user interaction events and excludes task result
   assert.doesNotMatch(prompt, /internal tool result must stay out of mood/)
   assert.equal(prompt.match(/先停一下。/g)?.length, 1)
   assert.match(prompt, /userState/)
+  assert.match(prompt, /共同创作成果/)
+  assert.match(prompt, /瞬时变化必须能追溯/)
+  assert.match(prompt, /用户提出一个目标，不等于它已经成为 Agent 的目标/)
   assert.match(prompt, /用户讨论负面题材、角色愤怒或故事冲突，不代表用户本人负面/)
 })
 
@@ -452,9 +457,22 @@ test('main-agent prompt receives semantic projection without raw state scores', 
   assert.match(prompt, /默认使用自然对话的篇幅/)
   assert.match(prompt, /active_expression_profile:\s+自然表达。/)
   assert.doesNotMatch(prompt, /publish_agent_artifact/)
-  assert.match(parts.cognitionInstruction, /身份、价值倾向、关系位置和边界/)
+  assert.match(parts.cognitionInstruction, /稳定自我使用规则/)
+  assert.match(parts.cognitionInstruction, /身份、价值倾向、关系位置与边界/)
+  assert.match(parts.cognitionInstruction, /用户的意图是需要认真回应的他者意图/)
+  assert.match(parts.cognitionInstruction, /你想促成或保留什么/)
+  assert.match(parts.cognitionInstruction, /不是要求逐项回答的内部表单/)
   assert.doesNotMatch(parts.cognitionInstruction, /自然表达|ExpressionProjection/)
   assert.match(parts.expressionInstruction, /active_expression_profile:\s+自然表达。/)
+})
+
+test('communication habits prefer long-form cards without becoming a runtime threshold', () => {
+  assert.match(DEFAULT_COMMUNICATION_HABITS, /见解、资讯、分析、解释、方案或独立创作/)
+  assert.match(DEFAULT_COMMUNICATION_HABITS, /接近或超过一百字/)
+  assert.match(DEFAULT_COMMUNICATION_HABITS, /不是机械阈值/)
+  assert.match(DEFAULT_COMMUNICATION_HABITS, /仍由内容的完整性、独立阅读价值、用户意图和你自己的表达意愿决定/)
+  assert.match(DEFAULT_COMMUNICATION_HABITS, /日常闲聊、玩笑、安慰、道歉/)
+  assert.doesNotMatch(DEFAULT_COMMUNICATION_HABITS, /content\.length|minimumVisibleCharacters|forceCard/)
 })
 
 test('action prompt hides scores and keeps tool permission separate', () => {
@@ -491,8 +509,7 @@ test('document workspace still activates the registered scene policy', () => {
   assert.match(prompt, /聚焦编辑/)
   assert.match(prompt, /一致性检查/)
   assert.match(prompt, /创作联想/)
-  assert.match(prompt, /独立内容载体/)
-  assert.doesNotMatch(prompt, /观点产物|publish_agent_artifact/)
+  assert.doesNotMatch(prompt, /独立内容载体|卡片|观点产物|publish_agent_artifact/)
 })
 
 test('expression profiles only describe presentation and do not steer cognition or action', () => {

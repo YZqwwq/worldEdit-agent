@@ -4,13 +4,13 @@
  */
 
 export {
-  getDefaultCharacterPrompt,
+  getDefaultAuthoredNarrativeTemplate,
   initializeAgentPromptStorage,
-  loadCharacterPrompt,
+  loadAuthoredNarrativeTemplate,
   loadExpressionPrompt,
   loadExpressionPromptProfile,
   loadMoodPrompt,
-  saveCharacterPrompt
+  saveAuthoredNarrativeTemplate
 } from './persona/characterPromptStore'
 export {
   renderExpressionPromptProfileCatalog,

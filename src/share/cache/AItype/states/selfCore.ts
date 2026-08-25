@@ -46,10 +46,22 @@ export type SelfCoreSnapshot = {
   updatedAt: string
 }
 
-export type SelfCoreRevisionDraft = {
+export type SelfCoreExperienceRevisionDraft = {
   authority: 'experience_integration'
   changeKind: 'narrative_thesis_added'
   baseRevision: number
   sourceRefs: string[]
   next: SelfCoreSnapshot
 }
+
+export type SelfCoreAuthorRevisionDraft = {
+  authority: 'author'
+  changeKind: 'authored_narrative_replaced'
+  baseRevision: number
+  sourceRefs: ['author:authored_narrative']
+  next: SelfCoreSnapshot
+}
+
+export type SelfCoreRevisionDraft =
+  | SelfCoreExperienceRevisionDraft
+  | SelfCoreAuthorRevisionDraft

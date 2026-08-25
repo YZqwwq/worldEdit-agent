@@ -5,6 +5,7 @@ import { getObservationText } from './personaObservationUtils'
 
 export interface MoodAppraisalPromptInput {
   moodPrompt: string
+  selfContext?: string
   observations: InteractionObservationSnapshot[]
   currentEventText: string
   eventSource: 'user' | 'subagent' | 'system'
@@ -48,6 +49,11 @@ export const buildMoodAppraisalPrompt = (input: MoodAppraisalPromptInput): strin
 评价规则：
 ${input.moodPrompt.trim() || '(empty)'}
 
+Agent 的稳定自我背景：
+${input.selfContext?.trim() || '(none)'}
+
+这段自我背景只用于判断当前事件是否促进、阻碍或触碰 Agent 真正在意的目标、创作、理念、承诺与关系。它不是本轮新事件，也不是要求你替 Agent 生成观点或最终表达。
+
 当前事件来源：${input.eventSource}
 
 当前事件（本轮唯一的新语言事件）：
@@ -84,8 +90,9 @@ ${buildPreviousStateDigest(input.previousMood)}
 3. userState 只描述用户当前状态；事件字段描述这次互动对 Agent 的意义，两者可以不同。
 4. 不从“暂未看到方案”推断 Agent 没有能力。
 5. 普通请求通常是 neutral；不要为了产生情绪而夸大评价。
-6. 只输出一个 JSON 对象，不解释，不输出 Markdown。
-7. 只有来源为 user 时才评价 userState 和用户关系影响。来源为 subagent 或 system 时，userState 必须为 {"mood":"calm","valence":0,"confidence":0}，relationshipImpact 必须为 0；这类事件仍可通过其他事件字段影响 Agent 自身评价。
+6. 瞬时变化必须能追溯到“当前事件如何作用于稳定自我背景”。用户提出一个目标，不等于它已经成为 Agent 的目标；用户没有主动选择 Agent 的偏好，也不等于否定或要求放弃它。没有明确联系时保持中性并降低显著性与置信度。
+7. 只输出一个 JSON 对象，不解释，不输出 Markdown。
+8. 只有来源为 user 时才评价 userState 和用户关系影响。来源为 subagent 或 system 时，userState 必须为 {"mood":"calm","valence":0,"confidence":0}，relationshipImpact 必须为 0；这类事件仍可通过其他事件字段影响 Agent 自身评价。
 
 输出：
 {"userState":{"mood":"calm","valence":0,"confidence":0.5},"eventKind":"neutral","valence":0,"salience":1,"novelty":0,"futureProspect":0,"agency":"unknown","normImpact":0,"relationshipImpact":0,"controlSignal":"unknown","confidence":1}`

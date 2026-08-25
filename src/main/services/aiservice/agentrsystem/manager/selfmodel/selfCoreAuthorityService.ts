@@ -2,10 +2,15 @@ import { In, type EntityManager, type Repository } from 'typeorm'
 import type { SelfCoreRevisionDraft, SelfCoreSnapshot } from '@share/cache/AItype/states/selfCore'
 import { SelfCoreRevisionRecord } from '@share/entity/database/SelfCoreRevisionRecord'
 import { SelfExperienceRecord } from '@share/entity/database/SelfExperienceRecord'
-import { loadCharacterPrompt } from '../../../prompt/main_agent/persona/characterPromptStore'
+import { loadAuthoredNarrativeTemplate } from '../../../prompt/main_agent/persona/characterPromptStore'
+import {
+  DEFAULT_CHARACTER_PROMPT,
+  isLegacyDefaultCharacterPrompt
+} from '../../../prompt/main_agent/shared/promptConstants'
 import { createDefaultSelfCore, DEFAULT_SELF_CORE_ID } from './selfCoreDefinition'
 import {
-  assertExperienceSelfCoreRevision,
+  assertSelfCoreRevision,
+  createAuthoredNarrativeRevision,
   parseSelfCoreSnapshot
 } from './selfCoreEvolution'
 import {
@@ -30,7 +35,7 @@ export class SelfCoreAuthorityService {
 
   constructor(dependencies: SelfCoreAuthorityServiceDependencies = {}) {
     this.coreId = dependencies.coreId?.trim() || DEFAULT_SELF_CORE_ID
-    this.loadAuthoredNarrative = dependencies.loadAuthoredNarrative ?? loadCharacterPrompt
+    this.loadAuthoredNarrative = dependencies.loadAuthoredNarrative ?? loadAuthoredNarrativeTemplate
   }
 
   private async repo(manager?: EntityManager): Promise<Repository<SelfCoreRevisionRecord>> {
@@ -56,8 +61,24 @@ export class SelfCoreAuthorityService {
     const repo = await this.repo(manager)
     const current = await this.findLatestRevision(repo)
     if (current) {
+      const snapshot = toSnapshot(current)
+      if (isLegacyDefaultCharacterPrompt(snapshot.identity.authoredNarrative)) {
+        const migration = createAuthoredNarrativeRevision(snapshot, DEFAULT_CHARACTER_PROMPT)
+        if (migration) {
+          try {
+            return await this.commitRevision(migration, manager)
+          } catch (error) {
+            const raced = await this.findLatestRevision(repo)
+            if (raced && raced.revision > snapshot.revision) {
+              await this.refreshIntegrityAuditIfNeeded(raced.revision, manager)
+              return toSnapshot(raced)
+            }
+            throw error
+          }
+        }
+      }
       await this.refreshIntegrityAuditIfNeeded(current.revision, manager)
-      return toSnapshot(current)
+      return snapshot
     }
 
     const initial = createDefaultSelfCore(await this.loadAuthoredNarrative())
@@ -132,7 +153,7 @@ export class SelfCoreAuthorityService {
     if (current.revision !== draft.baseRevision || current.coreId !== next.coreId) {
       throw new Error('Self Core revision conflict: the authoritative state has changed.')
     }
-    assertExperienceSelfCoreRevision(current, draft)
+    assertSelfCoreRevision(current, draft)
     const row = repo.create({
       id: `${next.coreId}:${next.revision}`,
       coreId: next.coreId,
@@ -146,6 +167,19 @@ export class SelfCoreAuthorityService {
     await repo.save(row)
     await this.auditIntegrity(manager)
     return next
+  }
+
+  /**
+   * 显式修改当前 Self Core 中的作者叙事，并写入身份修订链。
+   * 这与修改未来首次建核所用的叙事模板是两种不同操作。
+   */
+  async replaceAuthoredNarrative(
+    authoredNarrative: string,
+    manager?: EntityManager
+  ): Promise<SelfCoreSnapshot> {
+    const current = await this.load(manager)
+    const draft = createAuthoredNarrativeRevision(current, authoredNarrative)
+    return draft ? this.commitRevision(draft, manager) : current
   }
 
   async clear(manager?: EntityManager): Promise<void> {

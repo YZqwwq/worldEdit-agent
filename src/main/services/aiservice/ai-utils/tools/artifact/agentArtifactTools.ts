@@ -36,6 +36,7 @@ export const publishAgentArtifactTool = defineAgentTool({
   outputSchema: z.object({ artifact: artifactPayloadSchema }),
   metadata: {
     whenToUse: [
+      '你形成了需要较多篇幅展开、适合独立阅读的见解、资讯、分析、解释、方案或创作，并愿意用卡片交给用户',
       '需要将完整观点、系统分析或方案保存为可点击、可回看的独立内容',
       '需要为人物、设定或当前文档建立关联的 Agent 观点产物'
     ],
@@ -49,6 +50,8 @@ export const publishAgentArtifactTool = defineAgentTool({
     outputSummary: '返回已保存产物的 ID、标题和摘要，界面会将其展示为可点击产物。',
     usageContract: [
       'body 必须是主 Agent 自己认可的最终观点，工具不会替你重新创作或改写。',
+      '接近或超过一百字只是感受独立篇幅的参考，不是调用阈值；是否发布由内容、用户意图和你自己的表达意愿决定。',
+      '日常交流、情绪回应与关系互动不要仅因篇幅稍长而发布成卡片。',
       'Runtime 会自动关联当前世界、实体和文档；不要要求用户提供内部 ID。',
       '同一观点不要在同一 Turn 重复发布。'
     ],

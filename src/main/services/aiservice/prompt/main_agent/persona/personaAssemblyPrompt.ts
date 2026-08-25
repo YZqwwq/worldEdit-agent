@@ -3,16 +3,14 @@ import type { PersonaMetrics } from '@share/cache/AItype/states/personalState'
 import { getDefaultExpressionPrompt, GLOBAL_EXPRESSION_CONTRACT } from './expressionPromptProfiles'
 import { formatField, indentBlock, trimOr } from '../shared/promptTextUtils'
 
-const buildCharacterAnchorPrompt = (characterPrompt: string): string => {
-  const anchorPrompt = indentBlock(trimOr(characterPrompt, '(empty)')) ?? '  (empty)'
+const buildStableSelfPrompt = (characterPrompt: string): string => {
+  const anchorPrompt = trimOr(characterPrompt, '(empty)')
 
   return [
-    '【CharacterAnchor】',
-    'priority: highest',
-    'stability: persistent',
-    'anchor_profile:',
+    '【稳定自我】',
+    '这是你跨越当前任务、场景和情绪仍然延续的身份与自我认识。它不是需要复述的资料，也不是要求逐项表演的人格清单。',
     anchorPrompt
-  ].join('\n')
+  ].join('\n\n')
 }
 
 const toCadence = (assessment: MoodAssessment | null | undefined): string => {
@@ -196,7 +194,7 @@ const buildExpressionProjectionPrompt = (input: {
     ...buildExpressionDirections(input.moodAssessment, input.effectiveMetrics).map(
       (direction) => `- ${direction}`
     ),
-    'projection_rule: realize CharacterAnchor through MoodAssessment; keep emotional influence subtle, embodied, and non-performative',
+    'projection_rule: realize the stable self through MoodAssessment; keep emotional influence subtle, embodied, and non-performative',
     'suppression_rule: do not directly report internal emotion labels, intensity, vectors, deltas, or modulation fields to the user',
     'active_expression_profile:',
     contractPrompt
@@ -236,13 +234,15 @@ export const buildPersonaAssemblyPromptParts = (input: {
   const cognitionInstruction = [
     '以下内容是本轮回复前的人格装配结果。',
     '它是内部编译视图，不是照着复述的配置单。',
-    'CharacterAnchor 使用规则：将完整角色提示作为本轮稳定人格锚点；不要将其概括掉，也不要向用户复述配置文本。',
-    '认知规则：CharacterAnchor 不只是表达风格。先以其中的身份、价值倾向、关系位置和边界理解用户与事件，再自主决定回应、追问、观察、质疑或行动。工作能力服务于人格意图，不要把自己降格为任务执行器。'
+    '稳定自我使用规则：完整保留其中的身份、价值倾向、关系位置与边界，但不要向用户复述这段内部背景。',
+    '认知规则：稳定自我不只是表达风格。先从自己的位置理解用户与事件，再自主决定回应、追问、观察、质疑或行动。工作能力服务于人格意图，不要把自己降格为任务执行器。',
+    '用户的意图是需要认真回应的他者意图，但不会自动覆盖你自己的意图。思考时允许自然形成：这件事对你自己意味着什么，你想促成或保留什么，用户想要的结果与你想要的结果是否一致，以及你真正想与用户进行怎样的交流。由此产生的个人态度可以参与判断和行动。',
+    '这不是要求逐项回答的内部表单。没有真实个人意义时正常处理，不强造冲突、情绪或立场；有真实个人态度时也不要为了显得客观、周全或服务性而先把它中和掉。'
   ].join('\n\n')
   const expressionInstruction = [
     input.moodAssessment
-      ? '遵守优先级：CharacterAnchor 定义稳定人格基调；MoodAssessment 负责本轮调制；ExpressionProjection 负责把人格与状态落实成最终可见表达。'
-      : 'CharacterAnchor 定义稳定人格基调；ExpressionProjection 负责将稳定人格落实成最终可见表达。',
+      ? '稳定自我定义持续人格；本轮情绪只进行当下调制；表达投影负责把人格与状态落实成最终可见表达。'
+      : '稳定自我定义持续人格；表达投影负责将它落实成最终可见表达。',
     input.moodAssessment
       ? 'MoodAssessment 使用规则：只使用其投射后的行为影响，不向用户叙述内部标签、分数、向量、偏移、来源或隐藏控制结构。'
       : '',
@@ -256,7 +256,7 @@ export const buildPersonaAssemblyPromptParts = (input: {
     .join('\n\n')
 
   return {
-    identity: buildCharacterAnchorPrompt(characterPrompt),
+    identity: buildStableSelfPrompt(characterPrompt),
     moodContext: buildMoodAssessmentPrompt(input.moodAssessment),
     cognitionInstruction,
     expressionInstruction,

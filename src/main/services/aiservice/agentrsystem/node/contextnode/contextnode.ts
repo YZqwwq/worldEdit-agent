@@ -31,6 +31,7 @@ import { selfExperienceService } from '../../manager/selfmodel/selfExperienceSer
 import { selfCoreAuthorityService } from '../../manager/selfmodel/selfCoreAuthorityService'
 import { buildSelfCoreProjection } from '../../../prompt/main_agent/persona/selfCoreProjection'
 import { renderExpressionPromptProfileCatalog } from '../../../prompt/main_agent/persona/expressionPromptProfiles'
+import { DEFAULT_COMMUNICATION_HABITS } from '../../../prompt/main_agent/persona/communicationHabits'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
@@ -142,6 +143,13 @@ export async function contextNode(
     kind: 'persona_cognition',
     source: 'personaAssemblyPrompt',
     content: personaParts.cognitionInstruction
+  })
+  appendPromptSection({
+    id: 'communication-habits',
+    duty: 'instruction',
+    kind: 'communication_habits',
+    source: 'communicationHabits',
+    content: DEFAULT_COMMUNICATION_HABITS
   })
 
   appendPromptSection({

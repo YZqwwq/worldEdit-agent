@@ -150,7 +150,7 @@ test('the current document page activates the document capability package', () =
   const profile = resolveWorkspaceProfile(CURRENT_DOCUMENT_CONTEXT)
 
   assert.equal(profile?.id, 'document_editing')
-  assert.deepEqual(profile?.autoToolsets, ['world_document_editor', 'agent_artifact'])
+  assert.deepEqual(profile?.autoToolsets, ['world_document_editor'])
   assert.deepEqual(
     profile?.relatedToolsets.map((toolset) => toolset.id),
     ['world_read', 'character_narrative_reader']

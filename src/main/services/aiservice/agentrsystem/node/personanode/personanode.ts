@@ -19,9 +19,11 @@ import { getObservationText } from './personaObservationUtils'
 import {
   getEffectiveMemorySlots,
   getEffectivePersona,
+  getEffectiveSelfCore,
   withMemorySlotsDraft,
   withPersonaDraft
 } from '../../state/turnWorkspace'
+import { buildSelfCoreAppraisalContext } from '../../../prompt/main_agent/persona/selfCoreProjection'
 
 /**
  * 人格总控节点。
@@ -58,6 +60,7 @@ export async function personaNode(
     )
   ]
   const slots = getEffectiveMemorySlots(state.turnWorkspace)
+  const selfCore = getEffectiveSelfCore(state.turnWorkspace)
   const workspaceProfile = resolveWorkspaceProfile(state.workspaceContext)
   const sceneCharacter = workspaceProfile?.scenePolicy
   const expressionProfileDefinition = resolveExpressionPromptProfile()
@@ -116,6 +119,7 @@ export async function personaNode(
   const nowIso = new Date().toISOString()
   const appraisal = await inferMoodAppraisal({
     moodPrompt,
+    selfContext: selfCore ? buildSelfCoreAppraisalContext(selfCore) : undefined,
     observations,
     currentEventText: perceptionContext.currentEventText,
     eventSource: perceptionContext.source,
