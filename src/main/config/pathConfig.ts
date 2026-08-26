@@ -72,7 +72,10 @@ const migrateLegacyFile = (targetPath: string, candidateRelatives: string[][]): 
   }
 }
 
-const resolveDataFilePath = (relativeParts: string[], legacyCandidates: string[][] = []): string => {
+const resolveDataFilePath = (
+  relativeParts: string[],
+  legacyCandidates: string[][] = []
+): string => {
   const targetPath = join(getDataFamilaDailyRoot(), ...relativeParts)
   ensureDir(dirname(targetPath))
   migrateLegacyFile(targetPath, [relativeParts, ...legacyCandidates])
@@ -106,8 +109,9 @@ export const getAuthoredNarrativeTemplatePath = (): string =>
 export const getExpressionPromptProfilePath = (): string =>
   join(getAiServicePromptDir(), 'expression.md')
 
-export const getMoodPromptProfilePath = (): string =>
-  join(getAiServicePromptDir(), 'mood.md')
+export const getMoodPromptProfilePath = (): string => join(getAiServicePromptDir(), 'mood.md')
+
+export const getAgentHabitsPath = (): string => join(getAiServicePromptDir(), 'agent-habits.json')
 
 // 角色状态路径
 export const getPersonaStatePath = (): string =>
@@ -120,8 +124,7 @@ export const getPersonaStateFallbackPath = (): string =>
     join(getStaticFamilaDailyRoot(), 'role', 'persona_state.json')
   ])
 
-export const getPersonaConfigPath = (): string =>
-  resolveDataFilePath(['persona-config.json'])
+export const getPersonaConfigPath = (): string => resolveDataFilePath(['persona-config.json'])
 
 export const getPersonaConfigFallbackPath = (): string =>
   join(getStaticPromptResourceRoot(), 'persona-config.json')

@@ -30,6 +30,7 @@ import { getTimeTool } from '../tools/utility/getTime'
 import { queryToolCatalogTool } from '../tools/utility/queryToolCatalog'
 import { consultThinkingGuideTool } from '../tools/thinking/consultThinkingGuide'
 import { selectExpressionProfileTool } from '../tools/thinking/selectExpressionProfile'
+import { editAgentHabitTool } from '../tools/persona/editAgentHabit'
 import { deleteWorldEntityManualMentionTool } from '../tools/world/deleteWorldEntityManualMention'
 import { getEntityDetailTool } from '../tools/world/getEntityDetail'
 import { getWorldSchemaCatalogTool } from '../tools/world/getWorldSchemaCatalog'
@@ -69,11 +70,11 @@ export const mainAgentToolsets: ToolsetRegistryEntry[] = [
     id: 'core_runtime',
     title: '核心运行工具',
     summary:
-      '主 agent 每轮都可使用的低成本工具：查询工具底图、激活工具集、确认时间、按需展开思考视角，以及主动回忆长期/阶段记忆和回溯短期中文对话。',
-    tags: ['core', 'runtime', 'tool-discovery', 'thinking-guide', 'memory', 'time'],
+      '主 agent 每轮都可使用的低成本工具：查询工具底图、激活工具集、确认时间、按需展开思考视角、维护用户明确要求的长期习惯，以及主动回忆长期/阶段记忆和回溯短期中文对话。',
+    tags: ['core', 'runtime', 'tool-discovery', 'thinking-guide', 'habit', 'memory', 'time'],
     activationHints: ['默认已挂载，无需激活。'],
     whenToUse: [
-      '处理普通对话、确认当前时间、按需展开人物/剧情思考视角、回忆历史、回溯最近上下文、发现并激活专门工具集。'
+      '处理普通对话、确认当前时间、按需展开人物/剧情思考视角、维护用户明确要求的长期习惯、回忆历史、回溯最近上下文、发现并激活专门工具集。'
     ],
     whenNotToUse: ['需要具体领域数据、联网搜索或写入能力时，应先查询并激活对应工具集。'],
     discoverable: false
@@ -368,6 +369,20 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     capabilitySummary: '根据 Agent 当前真实情绪选择只在最终组织阶段生效的表达方案。',
     audience: 'main_agent',
     access: 'read',
+    activationMode: 'always',
+    enabled: true,
+    turnCallLimit: 1
+  },
+  {
+    key: editAgentHabitTool.name,
+    tool: editAgentHabitTool,
+    toolsetId: 'core_runtime',
+    category: 'persona_habit',
+    capabilityLayer: 'core',
+    capabilityGroup: '人格习惯',
+    capabilitySummary: '仅根据用户明确的长期要求，设置、替换或忘记 Agent 的持久行为习惯。',
+    audience: 'main_agent',
+    access: 'write',
     activationMode: 'always',
     enabled: true,
     turnCallLimit: 1

@@ -31,7 +31,8 @@ import { selfExperienceService } from '../../manager/selfmodel/selfExperienceSer
 import { selfCoreAuthorityService } from '../../manager/selfmodel/selfCoreAuthorityService'
 import { buildSelfCoreProjection } from '../../../prompt/main_agent/persona/selfCoreProjection'
 import { renderExpressionPromptProfileCatalog } from '../../../prompt/main_agent/persona/expressionPromptProfiles'
-import { DEFAULT_COMMUNICATION_HABITS } from '../../../prompt/main_agent/persona/communicationHabits'
+import { renderAgentHabitsPrompt } from '../../../prompt/main_agent/persona/communicationHabits'
+import { agentHabitStore } from '../../manager/personal/agentHabitStore'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
@@ -115,6 +116,7 @@ export async function contextNode(
   const currentTimeContext = formatCurrentContextTime()
   const currentUserMessageCreatedAt = getCurrentUserMessageCreatedAt(state)
   const workspaceProfile = resolveWorkspaceProfile(state.workspaceContext)
+  const agentHabits = await agentHabitStore.list()
   const contextualToolsets = workspaceProfile?.autoToolsets ?? []
   const toolActivationState = await resolveMainAgentToolActivationState({
     ...state,
@@ -145,11 +147,11 @@ export async function contextNode(
     content: personaParts.cognitionInstruction
   })
   appendPromptSection({
-    id: 'communication-habits',
+    id: 'agent-habits',
     duty: 'instruction',
-    kind: 'communication_habits',
-    source: 'communicationHabits',
-    content: DEFAULT_COMMUNICATION_HABITS
+    kind: 'agent_habits',
+    source: 'agentHabitStore',
+    content: renderAgentHabitsPrompt(agentHabits)
   })
 
   appendPromptSection({

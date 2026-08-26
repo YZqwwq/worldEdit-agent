@@ -42,6 +42,18 @@ export const getLatestHumanMessageText = (messages: BaseMessage[]): string => {
   return ''
 }
 
+const normalizeDirectiveEvidence = (value: string): string =>
+  value.trim().replace(/\s+/g, ' ').replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+
+export const currentUserMessageContainsDirectiveEvidence = (
+  currentUserMessage: string,
+  evidence: string
+): boolean => {
+  const normalizedMessage = normalizeDirectiveEvidence(currentUserMessage)
+  const normalizedEvidence = normalizeDirectiveEvidence(evidence)
+  return normalizedEvidence.length > 0 && normalizedMessage.includes(normalizedEvidence)
+}
+
 const confirmationCacheKey = (sessionId: string, confirmationKey: string): string =>
   `${sessionId}:${confirmationKey}`
 

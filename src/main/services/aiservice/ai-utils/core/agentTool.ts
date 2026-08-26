@@ -88,6 +88,7 @@ export interface AgentToolMetadata {
   completionSemantics?: AgentToolCompletionSemantics
   contextRetention?: AgentToolContextRetention
   effectRecovery?: ToolEffectRecoveryMode
+  userDirectiveEvidenceField?: string
   uiStage?: AgentToolUiStage
 }
 
@@ -221,6 +222,11 @@ const buildToolDescription = (
   }
   if (metadata.examples?.length) {
     lines.push(`Examples: ${metadata.examples.join(' | ')}`)
+  }
+  if (metadata.userDirectiveEvidenceField) {
+    lines.push(
+      `User directive rule: ${metadata.userDirectiveEvidenceField} must quote text from the current user message.`
+    )
   }
   lines.push(`Completion semantics: ${metadata.completionSemantics}`)
   if (metadata.completionSemantics === 'eventual') {

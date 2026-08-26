@@ -56,6 +56,7 @@ import { getToolChangeSetSummary } from '../../../../toolEffects/toolChangeSetSe
 import {
   buildToolConfirmationKey,
   consumeToolConfirmation,
+  currentUserMessageContainsDirectiveEvidence,
   getLatestHumanMessageText,
   registerToolConfirmationRequest
 } from './toolExecutionProtocol'
@@ -775,6 +776,19 @@ export async function toolNode(
       // 暂时使用 any 后续添加类型守卫
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const invokeTool = async (): Promise<unknown> => (tool as any).invoke(toolCall.args)
+      const userDirectiveEvidenceField = tool.agentMetadata.userDirectiveEvidenceField
+      if (userDirectiveEvidenceField) {
+        const evidence = toolCall.args?.[userDirectiveEvidenceField]
+        const currentUserMessage = getLatestHumanMessageText(state.messages)
+        if (
+          typeof evidence !== 'string' ||
+          !currentUserMessageContainsDirectiveEvidence(currentUserMessage, evidence)
+        ) {
+          throw new Error(
+            `INPUT_VALIDATION_FAILED: ${userDirectiveEvidenceField} must quote the current user message exactly.`
+          )
+        }
+      }
       if (effectExecutionContext) {
         const planned = await persistPlannedToolEffect(AppDataSource, effectExecutionContext)
         if (!planned.created) {
