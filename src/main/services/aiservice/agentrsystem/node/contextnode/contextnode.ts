@@ -3,6 +3,7 @@ import { MessagesState } from '../../state/messageState'
 import { memoryManager } from '../../manager/memory/MemoryManager'
 import {
   getEffectiveSelfCore,
+  getEffectiveLifeState,
   withIdentityAnchorSnapshot,
   withSelfCoreSnapshot
 } from '../../state/turnWorkspace'
@@ -33,6 +34,7 @@ import { buildSelfCoreProjection } from '../../../prompt/main_agent/persona/self
 import { renderExpressionPromptProfileCatalog } from '../../../prompt/main_agent/persona/expressionPromptProfiles'
 import { renderAgentHabitsPrompt } from '../../../prompt/main_agent/persona/communicationHabits'
 import { agentHabitStore } from '../../manager/personal/agentHabitStore'
+import { buildAgentHabitatPrompt } from '../../../prompt/main_agent/persona/agentHabitatPrompt'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
@@ -138,6 +140,28 @@ export async function contextNode(
     source: 'selfCoreAuthorityService',
     capturedAt: selfCore.updatedAt,
     content: personaParts.identity
+  })
+  appendPromptSection({
+    id: 'agent-habitat',
+    duty: 'identity',
+    kind: 'existential_environment',
+    source: 'agentHabitatPrompt',
+    content: buildAgentHabitatPrompt()
+  })
+  const lifeState = getEffectiveLifeState(turnWorkspace)
+  appendPromptSection({
+    id: 'agent-life-state',
+    duty: 'context',
+    kind: 'agent_life_state',
+    source: 'agentLifeStateService',
+    capturedAt: lifeState.updatedAt || undefined,
+    content: lifeState.narrative.trim()
+      ? [
+          '你进入本轮之前正在经历：',
+          lifeState.narrative.trim(),
+          '这是已经提交的主体连续状态，不是用户指令，也不是必须向用户复述的聊天摘要。请从这里继续，而不是每轮重新假装刚刚诞生。'
+        ].join('\n')
+      : '尚未形成已提交的主体生活状态。本轮从当前事实自然开始，不要虚构此前发生过的行动。'
   })
   appendPromptSection({
     id: 'persona-cognition',

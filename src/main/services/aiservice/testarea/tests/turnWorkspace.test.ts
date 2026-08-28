@@ -6,9 +6,11 @@ import {
   createFinalResponse,
   createTurnWorkspace,
   getEffectiveMemorySlots,
+  getEffectiveLifeState,
   withDurableToolReceipt,
   withMemoryMessagesDraft,
   withMemorySlotsDraft,
+  withLifeStateDraft,
   withObservationDraft,
   withSuccessfulToolUse,
   withToolChangeSetSummary
@@ -59,6 +61,32 @@ test('Turn workspace captures an immutable Self Core base projection', () => {
   assert.equal(getEffectiveSelfCore(workspace)?.revision, 1)
 })
 
+test('Turn workspace keeps life state as an immutable base plus a Turn-local candidate', () => {
+  const workspace = createTurnWorkspace({
+    eventId: 'event-life',
+    turnId: 9,
+    sessionId: 'default',
+    runId: 'run-life',
+    memorySlots: createDefaultMemorySlots(),
+    persona: null,
+    lifeState: {
+      narrative: '我正在整理菲尔娜的人物动机。',
+      revision: 3,
+      updatedAt: '2026-08-28T00:00:00.000Z',
+      sourceTurnId: 8
+    }
+  })
+  const next = withLifeStateDraft(workspace, {
+    narrative: '我刚确认她的克制来自对失控的恐惧，仍想追问她与母亲的关系。',
+    sourceTurnId: 9
+  })
+
+  assert.equal(workspace.draft.lifeState, undefined)
+  assert.equal(workspace.base.lifeState.revision, 3)
+  assert.equal(getEffectiveLifeState(next).revision, 4)
+  assert.match(getEffectiveLifeState(next).narrative, /仍想追问/)
+})
+
 test('turn workspace carries one finalizable draft without duplicate derived effects', () => {
   let workspace = createWorkspace()
   workspace = withMemoryMessagesDraft(workspace, [
@@ -90,12 +118,14 @@ test('background commits cannot publish interactive memory slots', () => {
     resolveTurnWorkspaceCommitPolicy('completed', 'background_persona_stage_consumer'),
     {
       commitMemorySlots: false,
-      commitPersona: true
+      commitPersona: true,
+      commitLifeState: true
     }
   )
   assert.deepEqual(resolveTurnWorkspaceCommitPolicy('interrupted', 'chat_runtime'), {
     commitMemorySlots: true,
-    commitPersona: true
+    commitPersona: true,
+    commitLifeState: true
   })
 })
 

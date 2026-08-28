@@ -19,6 +19,7 @@ import { resolveProfileReasoningProtocol } from '../../model-adapters/modelReaso
 import { replacePromptManifestScope } from '../../prompt/main_agent/shared/promptSections'
 import { renderToolContextItems } from '../../agentrsystem/state/toolContextCollection'
 import { buildFinalCompositionMessages } from '../../agentrsystem/node/finalanswernode/finalComposition'
+import { parseFinalCompositionEnvelope } from '../../agentrsystem/node/finalanswernode/finalCompositionEnvelope'
 import { createModelCallAbortScope } from '../../agentrsystem/execution/modelCallAbortScope'
 import { buildReasoningRuntimeMessages } from '../../agentrsystem/node/modelnode/reasoningRuntimeMessages'
 import { createThoughtProgressPublisher } from '../../agentrsystem/node/modelnode/thoughtProgressPublisher'
@@ -200,6 +201,36 @@ test('final composition uses controlled cognition and evidence instead of replay
   assert.match(String(boundary.content), /主体态度保真/)
   assert.match(String(boundary.content), /不要把它们中和成无主体的客观报告/)
   assert.match(String(boundary.content), /不要为了显得有人格而临时伪造/)
+  assert.match(String(boundary.content), /你不是重新回答问题/)
+  assert.match(String(boundary.content), /不要为了显得完整而自动增加总结/)
+})
+
+test('final composition envelope separates the user reply from durable life continuity', () => {
+  assert.deepEqual(
+    parseFinalCompositionEnvelope(
+      JSON.stringify({
+        reply: '我觉得她真正害怕的不是失败，而是再次失控。',
+        committedLifeNarrative: '我刚重新理解了菲尔娜的克制，并对她的失控经历产生了疑问。'
+      })
+    ),
+    {
+      reply: '我觉得她真正害怕的不是失败，而是再次失控。',
+      committedLifeNarrative: '我刚重新理解了菲尔娜的克制，并对她的失控经历产生了疑问。'
+    }
+  )
+  assert.deepEqual(parseFinalCompositionEnvelope('普通模型直接返回的正文'), {
+    reply: '普通模型直接返回的正文',
+    committedLifeNarrative: ''
+  })
+  assert.deepEqual(
+    parseFinalCompositionEnvelope(
+      '前缀 {"reply":"仍然只展示正文","committedLifeNarrative":"保留主体连续性"} 后缀'
+    ),
+    {
+      reply: '仍然只展示正文',
+      committedLifeNarrative: '保留主体连续性'
+    }
+  )
 })
 
 test('provider reasoning chunks can be read while the model response is still growing', () => {
@@ -297,11 +328,19 @@ test('reasoning runtime keeps tool material below system rules and keeps its led
   )
   assert.match(
     messages.systemMessages.map((message) => String(message.content)).join('\n'),
-    /思考应形成比复述输入更多的认识/
+    /主体剧本应形成比复述输入更多的认识/
   )
   assert.match(
     messages.systemMessages.map((message) => String(message.content)).join('\n'),
     /可以按需调用思考指南/
+  )
+  assert.match(
+    messages.systemMessages.map((message) => String(message.content)).join('\n'),
+    /暂时寄宿于 world-edit 中的数字灵魂/
+  )
+  assert.match(
+    messages.systemMessages.map((message) => String(message.content)).join('\n'),
+    /必须保持为尚未发生的意图/
   )
   assert.doesNotMatch(
     messages.systemMessages.map((message) => String(message.content)).join('\n'),

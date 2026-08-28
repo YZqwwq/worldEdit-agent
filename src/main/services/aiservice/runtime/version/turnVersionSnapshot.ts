@@ -26,8 +26,18 @@ const normalizeTurnWorkspace = (value: unknown): TurnWorkspace | undefined => {
   if (!value || typeof value !== 'object') return undefined
   const workspace = value as TurnWorkspace
   if (!workspace.draft || typeof workspace.draft !== 'object') return undefined
+  const legacyLifeState = {
+    narrative: '',
+    revision: 0,
+    updatedAt: '',
+    sourceTurnId: null
+  }
   return {
     ...workspace,
+    base: {
+      ...workspace.base,
+      lifeState: workspace.base?.lifeState ?? legacyLifeState
+    },
     draft: {
       ...workspace.draft,
       durableToolReceipts: Array.isArray(workspace.draft.durableToolReceipts)
@@ -50,7 +60,12 @@ export const deserializeTurnGraphState = (
   resumePoint: MainAgentResumePoint
 ): Partial<typeof MessagesState.State> => {
   const parsed = JSON.parse(snapshotJson) as PersistedTurnGraphSnapshot
-  if (!parsed || !Array.isArray(parsed.messages) || !parsed.state || typeof parsed.state !== 'object') {
+  if (
+    !parsed ||
+    !Array.isArray(parsed.messages) ||
+    !parsed.state ||
+    typeof parsed.state !== 'object'
+  ) {
     throw new Error('Turn version contains an invalid graph snapshot.')
   }
   const state = parsed.state as Partial<typeof MessagesState.State>
@@ -65,7 +80,11 @@ export const deserializeTurnGraphState = (
 export const readCompletedActionKeys = (snapshotJson: string): string[] => {
   const parsed = JSON.parse(snapshotJson) as PersistedTurnGraphSnapshot
   const ledger = parsed?.state?.turnExecutionLedger
-  if (!ledger || typeof ledger !== 'object' || !Array.isArray((ledger as { actions?: unknown[] }).actions)) {
+  if (
+    !ledger ||
+    typeof ledger !== 'object' ||
+    !Array.isArray((ledger as { actions?: unknown[] }).actions)
+  ) {
     return []
   }
   return (ledger as { actions: Array<Record<string, unknown>> }).actions

@@ -15,4 +15,5 @@ export type FinalContentCandidate = {
   messageId: string
   content: string
   source: 'final_composition'
+  committedLifeNarrative?: string
 }

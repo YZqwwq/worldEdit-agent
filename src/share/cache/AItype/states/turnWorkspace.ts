@@ -4,6 +4,7 @@ import type { InteractionObservationSnapshot } from './interactionObservation'
 import type { ToolChangeSetSummary } from './toolEffect'
 import type { TurnLifecycleState } from './turnLifecycle'
 import type { SelfCoreSnapshot } from './selfCore'
+import type { AgentLifeStateCandidate, AgentLifeStateSnapshot } from './agentLifeState'
 
 export type TurnWorkspaceMemoryMessage = {
   role: 'user' | 'ai'
@@ -52,6 +53,7 @@ export type TurnWorkspace = {
     memorySlots: MemorySlotSnapshot
     persona: PersonaState | null
     selfCore?: SelfCoreSnapshot | null
+    lifeState: AgentLifeStateSnapshot
     identityAnchor?: {
       prompt: string
       capturedAt: string
@@ -68,6 +70,7 @@ export type TurnWorkspace = {
     changeSet?: ToolChangeSetSummary
     observations: InteractionObservationSnapshot[]
     lifecycle?: TurnLifecycleState
+    lifeState?: AgentLifeStateCandidate
   }
 }
 

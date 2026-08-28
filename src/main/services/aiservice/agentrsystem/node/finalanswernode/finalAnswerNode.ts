@@ -9,12 +9,13 @@ import {
   traceState
 } from '../../../../log/trace/agentTraceEmitter'
 import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
-import { withTurnLifecycleDraft } from '../../state/turnWorkspace'
+import { withLifeStateDraft, withTurnLifecycleDraft } from '../../state/turnWorkspace'
 import { buildFinalCompositionMessages } from './finalComposition'
 import {
   createModelCallAbortScope,
   resolveMainAgentTimeoutMs
 } from '../../execution/modelCallAbortScope'
+import { parseFinalCompositionEnvelope } from './finalCompositionEnvelope'
 
 export async function finalAnswerNode(
   state: typeof MessagesState.State,
@@ -59,22 +60,37 @@ export async function finalAnswerNode(
   } finally {
     abortScope.dispose()
   }
-  const content = chunk ? contentToText(chunk.content).trim() : ''
-  if (!content) throw new Error('finalAnswerNode returned empty content')
+  const rawContent = chunk ? contentToText(chunk.content).trim() : ''
+  if (!rawContent) throw new Error('finalAnswerNode returned empty content')
+  const parsed = parseFinalCompositionEnvelope(rawContent)
+  const content = parsed.reply
+  if (!content) throw new Error('finalAnswerNode returned an empty reply')
   const message = new AIMessage({ content, id: randomUUID() })
   const currentLifecycle = state.turnLifecycle ?? state.turnWorkspace?.draft.lifecycle
   const lifecycle = advanceTurnLifecycle(currentLifecycle, 'ready')
   traceArtifact('finalAnswerNode', {
     title: '产物: 最终回答候选',
     summary: content.slice(0, 120),
-    data: { chars: content.length }
+    data: { chars: content.length, hasLifeState: Boolean(parsed.committedLifeNarrative) }
   })
+  let turnWorkspace = state.turnWorkspace
+    ? withTurnLifecycleDraft(state.turnWorkspace, lifecycle)
+    : undefined
+  if (turnWorkspace && parsed.committedLifeNarrative) {
+    turnWorkspace = withLifeStateDraft(turnWorkspace, {
+      narrative: parsed.committedLifeNarrative,
+      sourceTurnId: turnWorkspace.turnId
+    })
+  }
   return {
     messages: [message],
-    finalContentCandidate: { messageId: message.id!, content, source: 'final_composition' },
+    finalContentCandidate: {
+      messageId: message.id!,
+      content,
+      source: 'final_composition',
+      committedLifeNarrative: parsed.committedLifeNarrative || undefined
+    },
     turnLifecycle: lifecycle,
-    ...(state.turnWorkspace
-      ? { turnWorkspace: withTurnLifecycleDraft(state.turnWorkspace, lifecycle) }
-      : {})
+    ...(turnWorkspace ? { turnWorkspace } : {})
   }
 }

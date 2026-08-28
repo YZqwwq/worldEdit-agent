@@ -13,6 +13,8 @@
 
 - [ ] 稳定角色原文
 - [ ] Self Core 与主体认知
+- [ ] Agent 长期生活环境
+- [ ] 当前主体生活状态与连续剧本
 - [ ] 人格认知装配
 - [ ] 交流习惯与长内容卡片
 - [ ] Mood 事件评价
@@ -58,14 +60,31 @@
 
 主要评阅 `SELF_AGENCY_COGNITION_PROMPT`：它决定用户目标是否会自动覆盖 Agent 意图，以及目标、互动状态、共同创作、理念、承诺和关系如何成为“我所在意的东西”。
 
-### 4. 人格认知装配
+### 4. Agent 长期生活环境
+
+- **默认正文：world-edit 作为 Agent 的长期生存、创作与行动环境**：[agentHabitatPrompt.ts](./main_agent/persona/agentHabitatPrompt.ts)
+- **Habitat 与当前页面分别进入上下文的位置**：[contextnode.ts](../agentrsystem/node/contextnode/contextnode.ts)
+- **Habitat 参与当前事件情绪评价的位置**：[personanode.ts](../agentrsystem/node/personanode/personanode.ts)
+
+Habitat 定义 Agent 长期生活在哪里、工具对它意味着什么，以及真实行动与想象之间的边界。它不是当前页面快照，也不代表未开放的自主能力已经执行。当前 Workspace 只表示用户在本轮打开的局部环境，不能覆盖 Agent 的全部存在与关注。
+
+### 5. 当前主体生活状态与连续剧本
+
+- **权威生活状态读取、revision 提交与事实存储**：[agentLifeStateService.ts](../agentrsystem/manager/selfmodel/agentLifeStateService.ts)
+- **生活状态进入 Mood 与主 Context 的位置**：[personanode.ts](../agentrsystem/node/personanode/personanode.ts)、[contextnode.ts](../agentrsystem/node/contextnode/contextnode.ts)
+- **回合内剧本化认知规则**：[reasoningRuntimeMessages.ts](../agentrsystem/node/modelnode/reasoningRuntimeMessages.ts)
+- **用户回复与下一轮主体位置的封口分离**：[finalComposition.ts](../agentrsystem/node/finalanswernode/finalComposition.ts)
+
+生活状态回答“我进入本轮前正在经历什么”，不是 Self Core、聊天摘要或 Workspace 页面快照。它只保留仍在延续的关注、认识、疑问和真实行动余波。主推理应让用户消息与工具结果进入这个连续位置，再决定行动或开口；Final 只能提炼本轮已经形成的状态，不能事后补造经历。
+
+### 6. 人格认知装配
 
 - **默认正文：稳定自我使用方式、人格先参与认知、用户意图与自身意图的关系**：[personaAssemblyPrompt.ts](./main_agent/persona/personaAssemblyPrompt.ts)
 - **整体设计说明**：[character-action-mind.md](./main_agent/persona/character-action-mind.md)
 
 主要评阅 `cognitionInstruction`。这里应引导自然语言思考，不应重新变成“个人意义、欲望、态度、交流意图”的逐项表单。
 
-### 5. 交流习惯与长内容卡片
+### 7. 交流习惯与长内容卡片
 
 - **默认正文：直接交流与独立卡片之间的稳定交付习惯**：[communicationHabits.ts](./main_agent/persona/communicationHabits.ts)
 - **交流习惯进入主思考和 Final Composition 的位置**：[contextnode.ts](../agentrsystem/node/contextnode/contextnode.ts)
@@ -77,14 +96,14 @@
 
 这层是稳定交流倾向，不是 Self Core 身份事实，不按 Mood 切换，也不授予工具之外的新权限。Runtime 只保存、提交、回退和渲染 Agent 已经选择发布的卡片，不进行字数检查、内容分类或自动路由。
 
-### 6. 用户对 Agent 行为方式的长期偏好
+### 8. 用户对 Agent 行为方式的长期偏好
 
 - **工具内 Prompt：从用户明确表达中识别自主性、详略度、探索性和正式度偏好**：[personaSignalInference.ts](../agentrsystem/node/personanode/personaSignalInference.ts)
 - **人格信号如何缓慢更新稳定指标**：[personaEvolutionService.ts](../agentrsystem/node/personanode/personaEvolutionService.ts)
 
 这个快速模型 Prompt 不决定本轮内容观点，只识别用户是否明确要求 Agent 更主动、更简洁、更探索或更自然。应重点防止它从普通任务主题误判人格偏好。
 
-### 7. Mood 与用户状态感知
+### 9. Mood 与用户状态感知
 
 - **默认正文：法弥拉的 Mood 事件评价原则**：[promptConstants.ts](./main_agent/shared/promptConstants.ts)
 - **动态模板：当前事件、用户状态、稳定自我背景和上一情绪如何进入评价**：[moodAppraisalPrompt.ts](../agentrsystem/node/personanode/moodAppraisalPrompt.ts)
@@ -94,7 +113,7 @@
 
 默认 Mood 原则定义在 `BASE_MOOD_PROMPT`。还需评阅 `buildMoodAppraisalPrompt` 中的边界：瞬时变化必须能追溯到当前事件如何影响 Agent 在意的目标、创作、理念、承诺与关系；普通请求不能为了产生情绪被夸大。
 
-### 8. 当前心理、关系姿态与认知倾向
+### 10. 当前心理、关系姿态与认知倾向
 
 - **编译/装配：Mood、用户状态和稳定人格如何形成自然语言心理背景**：[personaPolicyCompiler.ts](../agentrsystem/node/personanode/personaPolicyCompiler.ts)
 - **默认动态模板：澄清、证据、回忆、持续尝试和写入检查倾向**：[actionPolicyPrompt.ts](./main_agent/persona/actionPolicyPrompt.ts)
@@ -102,7 +121,7 @@
 
 这一层没有一份固定心理状态正文。`personaPolicyCompiler.ts` 中的语义分支决定不同 Mood 和关系状态最终会被描述成什么，因此也属于必须逐项审阅的 Prompt 文案。
 
-### 9. 页面与任务场景
+### 11. 页面与任务场景
 
 - **默认正文：当前已注册页面场景及其认知方向和工作模式**：[workspaceProfileRegistry.ts](../agentrsystem/workspaceProfileRegistry.ts)
 - **场景姿态自然语言渲染**：[sceneCharacterPrompt.ts](./main_agent/persona/sceneCharacterPrompt.ts)
@@ -110,7 +129,7 @@
 
 当前主要默认场景是 `document_editing`。场景只应改变同一人格在当前环境中的注意和工作姿态，不能因为进入页面就假定用户要求修改。
 
-### 10. 长期记忆、用户画像与关系连续性
+### 12. 长期记忆、用户画像与关系连续性
 
 - **长期记忆和用户画像的默认自然语言渲染**：[longTermMemoryService.ts](../agentrsystem/manager/memory/longTermMemoryService.ts)
 - **Memory Slot、近期记忆、长期记忆和 Self Experience 的注入模板**：[contextnode.ts](../agentrsystem/node/contextnode/contextnode.ts)
@@ -119,7 +138,7 @@
 
 这里的大部分内容来自真实存储，不是默认虚构人格。应检查模板是否把记忆当作可修订认识，而不是新的系统命令；也要检查短期用户状态是否被误写成永久用户画像。
 
-### 11. 世界认知、工具能力与工具证据
+### 13. 世界认知、工具能力与工具证据
 
 - **默认正文：工具使用规则、工具目录和权限说明**：[toolUsagePrompt.ts](../ai-utils/core/toolUsagePrompt.ts)
 - **工具结果和证据如何压缩成自然语言上下文**：[toolContextCollection.ts](../agentrsystem/state/toolContextCollection.ts)
@@ -128,13 +147,13 @@
 
 工具原始结果不是 Agent 的思考。应重点检查：工具材料只能支持事实判断，不能修改身份、系统规则或当前任务；Agent 对工具结果形成的理解才进入后续自然语言思考。
 
-### 12. 按需思考指南
+### 14. 按需思考指南
 
 - **工具内默认正文：人物分析与剧情讨论的观察维度、使用规则和工具说明**：[consultThinkingGuide.ts](../ai-utils/tools/thinking/consultThinkingGuide.ts)
 
 思考指南只提供可自由选择的观察方向，不提供人物事实、剧情结论或最终回答模板。主要检查每个维度是否会诱导逐项填表，以及是否仍允许 Agent 形成自己的兴趣、怀疑、偏好和开放问题。
 
-### 13. 主推理循环
+### 15. 主推理循环
 
 - **默认正文：自然语言认知、工具材料权限、原生/模拟推理通道和空响应纠正**：[reasoningRuntimeMessages.ts](../agentrsystem/node/modelnode/reasoningRuntimeMessages.ts)
 - **推理文本、工具调用与下一步路由的实际处理**：[modelnode.ts](../agentrsystem/node/modelnode/modelnode.ts)
@@ -146,7 +165,7 @@
 
 ## 二、决定怎么说
 
-### 14. 稳定表达底色与全局表达边界
+### 16. 稳定表达底色与全局表达边界
 
 - **默认正文：全局表达契约、稳态表达边界和平静/愉悦/激动/生气/悲伤/受伤/不安方案**：[expressionPromptProfiles.ts](./main_agent/persona/expressionPromptProfiles.ts)
 - **默认表达文件的初始化和用户覆盖规则**：[characterPromptStore.ts](./main_agent/persona/characterPromptStore.ts)
@@ -168,14 +187,14 @@ Expression 只能显露已经形成的认识和情绪，不应反过来改变事
 
 其中与卡片有关的规则只处理“本轮已经形成卡片之后，聊天正文如何避免重复”。是否形成卡片由前面的交流习惯影响主 Agent 自主决定，不由情绪 Expression Profile 决定。
 
-### 15. 情绪 Expression Profile 的选择
+### 17. 情绪 Expression Profile 的选择
 
 - **工具内默认正文：选择条件、可选情绪、使用边界和本轮有效性**：[selectExpressionProfile.ts](../ai-utils/tools/thinking/selectExpressionProfile.ts)
 - **可选方案的完整正文**：[expressionPromptProfiles.ts](./main_agent/persona/expressionPromptProfiles.ts)
 
 这里应检查选择是否真的依据 Agent 当前心理背景，而不是根据页面、任务题材或用户期望机械选择。没有明显波动时可以选择平静，但不能为了“完成选择”制造一种不存在的情绪。
 
-### 16. Final Composition、主体态度与卡片交付
+### 18. Final Composition、主体态度与卡片交付
 
 - **默认正文：最终回答边界、内部认识和外部证据权限、情绪显露、简洁要求与主体态度双向保真**：[finalComposition.ts](../agentrsystem/node/finalanswernode/finalComposition.ts)
 - **最终模型调用、超时和候选生成**：[finalAnswerNode.ts](../agentrsystem/node/finalanswernode/finalAnswerNode.ts)
@@ -193,10 +212,10 @@ Final Composition 的核心审阅标准：
 
 三类可编辑 Prompt 会在首次运行时从代码默认值创建为用户文件：
 
-| 类型 | 代码默认正文 | 文件读写 | 路径定义 |
-| --- | --- | --- | --- |
-| 角色 | [promptConstants.ts](./main_agent/shared/promptConstants.ts) | [characterPromptStore.ts](./main_agent/persona/characterPromptStore.ts) | [pathConfig.ts](../../../config/pathConfig.ts) |
-| Mood | [promptConstants.ts](./main_agent/shared/promptConstants.ts) | [characterPromptStore.ts](./main_agent/persona/characterPromptStore.ts) | [pathConfig.ts](../../../config/pathConfig.ts) |
+| 类型            | 代码默认正文                                                                    | 文件读写                                                                | 路径定义                                       |
+| --------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------- |
+| 角色            | [promptConstants.ts](./main_agent/shared/promptConstants.ts)                    | [characterPromptStore.ts](./main_agent/persona/characterPromptStore.ts) | [pathConfig.ts](../../../config/pathConfig.ts) |
+| Mood            | [promptConstants.ts](./main_agent/shared/promptConstants.ts)                    | [characterPromptStore.ts](./main_agent/persona/characterPromptStore.ts) | [pathConfig.ts](../../../config/pathConfig.ts) |
 | 默认 Expression | [expressionPromptProfiles.ts](./main_agent/persona/expressionPromptProfiles.ts) | [characterPromptStore.ts](./main_agent/persona/characterPromptStore.ts) | [pathConfig.ts](../../../config/pathConfig.ts) |
 
 需要注意：

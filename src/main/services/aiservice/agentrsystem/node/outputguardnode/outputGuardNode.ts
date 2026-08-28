@@ -58,6 +58,13 @@ export const assertFinalOutputConsistency = (state: typeof MessagesState.State):
   if (contentToText(message.content).trim() !== content) {
     throw new Error('Final content candidate does not match its source message.')
   }
+  if (
+    candidate.committedLifeNarrative &&
+    state.turnWorkspace?.draft.lifeState?.narrative.trim() !==
+      candidate.committedLifeNarrative.trim()
+  ) {
+    throw new Error('Final life-state candidate does not match the Turn workspace draft.')
+  }
 }
 
 export async function outputGuardNode(

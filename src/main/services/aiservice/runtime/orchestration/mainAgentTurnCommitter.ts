@@ -20,6 +20,7 @@ import { parseMainAgentContentForPersistence } from '../../messagecontent/mainAg
 import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
 import type { TurnWorkspaceDurableToolReceipt } from '@share/cache/AItype/states/turnWorkspace'
 import { commitWorldDocumentChangeSetWithManager } from '../../../worldbuilding/worldDocumentVersionService'
+import { agentLifeStateService } from '../../agentrsystem/manager/selfmodel/agentLifeStateService'
 
 export type MainAgentTurnCommitInput = Pick<
   MainAgentCommitTurnEffect,
@@ -195,6 +196,18 @@ class MainAgentTurnCommitter {
               lastCommittedObservationId ?? input.workspace.draft.persona.last_observation_id
           }
           await savePersonaState(persona, manager)
+        }
+        if (workspaceCommitPolicy.commitLifeState && input.workspace.draft.lifeState) {
+          const committed = await agentLifeStateService.commitCandidateWithManager(
+            input.workspace.draft.lifeState,
+            input.workspace.base.lifeState.revision,
+            manager
+          )
+          if (!committed) {
+            throw new Error(
+              `Agent life state revision conflict: expected ${input.workspace.base.lifeState.revision}`
+            )
+          }
         }
       }
 
@@ -388,9 +401,7 @@ class MainAgentTurnCommitter {
     ].join('\n')
   }
 
-  private formatDocumentDiffContext(
-    receipts: TurnWorkspaceDurableToolReceipt[]
-  ): string {
+  private formatDocumentDiffContext(receipts: TurnWorkspaceDurableToolReceipt[]): string {
     const edits = receipts.filter(
       (receipt) => receipt.completionState === 'completed' && receipt.diffRef
     )

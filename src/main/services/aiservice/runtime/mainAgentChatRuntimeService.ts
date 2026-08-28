@@ -30,6 +30,7 @@ import { mainAgentRunControlService } from './mainAgentRunControlService'
 import { chatMessageService } from '../chat/chatMessageService'
 import { mainAgentTurnVersionService } from './version/mainAgentTurnVersionService'
 import { isAgentLoopTerminationError } from '../agentrsystem/execution/reasoningLoopPolicy'
+import { agentLifeStateService } from '../agentrsystem/manager/selfmodel/agentLifeStateService'
 
 export type MainAgentChatRuntimeResult = {
   fullText: string
@@ -79,16 +80,18 @@ class MainAgentChatRuntimeService {
     }
     const restoredState = restoredHead?.kind === 'checkpoint' ? restoredHead.state : null
     const restoredWorkspace = restoredState?.turnWorkspace
-    const [memorySlots, persona, selfCore] = restoredWorkspace
+    const [memorySlots, persona, selfCore, lifeState] = restoredWorkspace
       ? [
           restoredWorkspace.base.memorySlots,
           restoredWorkspace.base.persona,
-          restoredWorkspace.base.selfCore ?? null
+          restoredWorkspace.base.selfCore ?? null,
+          restoredWorkspace.base.lifeState
         ]
       : await Promise.all([
           memorySlotService.reconcileFromObservations(),
           loadPersonaState(),
-          selfCoreAuthorityService.load()
+          selfCoreAuthorityService.load(),
+          agentLifeStateService.load()
         ])
     const observationType =
       taskEvent.payload.outcome === 'completed'
@@ -107,7 +110,8 @@ class MainAgentChatRuntimeService {
         runId,
         memorySlots,
         persona,
-        selfCore
+        selfCore,
+        lifeState
       })
     const turnWorkspace =
       restoredWorkspace ??
@@ -241,16 +245,18 @@ class MainAgentChatRuntimeService {
     }
     const restoredState = restoredHead?.kind === 'checkpoint' ? restoredHead.state : null
     const restoredWorkspace = restoredState?.turnWorkspace
-    const [memorySlots, persona, selfCore] = restoredWorkspace
+    const [memorySlots, persona, selfCore, lifeState] = restoredWorkspace
       ? [
           restoredWorkspace.base.memorySlots,
           restoredWorkspace.base.persona,
-          restoredWorkspace.base.selfCore ?? null
+          restoredWorkspace.base.selfCore ?? null,
+          restoredWorkspace.base.lifeState
         ]
       : await Promise.all([
           memorySlotService.reconcileFromObservations(),
           loadPersonaState(),
-          selfCoreAuthorityService.load()
+          selfCoreAuthorityService.load(),
+          agentLifeStateService.load()
         ])
     const baseTurnWorkspace =
       restoredWorkspace ??
@@ -261,7 +267,8 @@ class MainAgentChatRuntimeService {
         runId,
         memorySlots,
         persona,
-        selfCore
+        selfCore,
+        lifeState
       })
     const userText = persistedMessage?.content?.trim() || contentToText(message).trim()
     const turnWorkspace = restoredWorkspace
@@ -316,22 +323,8 @@ class MainAgentChatRuntimeService {
             signal: AbortSignal
           })
           for await (const event of stream) {
-            if (
-              event.event === 'on_chat_model_stream' &&
-              event.metadata?.langgraph_node === 'finalAnswerNode'
-            ) {
-              const chunk = event.data.chunk
-              if (chunk && chunk.content) {
-                const token = contentToText(chunk.content)
-                if (token) {
-                  fullText += token
-                  onChunk?.({
-                    type: 'text_delta',
-                    content: token
-                  })
-                }
-              }
-            }
+            // Final Composition 同时生成用户正文和内部生活状态信封。
+            // 不转发底层原始 token，避免内部 JSON 短暂出现在用户界面。
             if (event.event === 'on_chain_end') {
               graphResult = readGraphTurnResult(event.data?.output) ?? graphResult
             }
@@ -348,6 +341,13 @@ class MainAgentChatRuntimeService {
           }
         })
         const canonicalText = graphResult?.finalResponse?.content ?? fullText
+        fullText = canonicalText
+        if (canonicalText) {
+          onChunk?.({
+            type: 'text_delta',
+            content: canonicalText
+          })
+        }
         return { fullText: canonicalText, interrupted: false, graphResult }
       })
     } catch (error) {
@@ -408,10 +408,11 @@ class MainAgentChatRuntimeService {
     const controller = mainAgentRunControlService.startRun({ eventId, turnId })
     let fullText = ''
     const stageMessage = this.buildBackgroundStageMessage(payload)
-    const [memorySlots, persona, selfCore] = await Promise.all([
+    const [memorySlots, persona, selfCore, lifeState] = await Promise.all([
       memorySlotService.reconcileFromObservations(),
       loadPersonaState(),
-      selfCoreAuthorityService.load()
+      selfCoreAuthorityService.load(),
+      agentLifeStateService.load()
     ])
     const turnWorkspace = createTurnWorkspace({
       eventId,
@@ -420,7 +421,8 @@ class MainAgentChatRuntimeService {
       runId,
       memorySlots,
       persona,
-      selfCore
+      selfCore,
+      lifeState
     })
     let graphResult: MainAgentGraphTurnResult | undefined
 

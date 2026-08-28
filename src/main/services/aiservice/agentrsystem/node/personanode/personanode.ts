@@ -20,10 +20,12 @@ import {
   getEffectiveMemorySlots,
   getEffectivePersona,
   getEffectiveSelfCore,
+  getEffectiveLifeState,
   withMemorySlotsDraft,
   withPersonaDraft
 } from '../../state/turnWorkspace'
 import { buildSelfCoreAppraisalContext } from '../../../prompt/main_agent/persona/selfCoreProjection'
+import { buildAgentHabitatPrompt } from '../../../prompt/main_agent/persona/agentHabitatPrompt'
 
 /**
  * 人格总控节点。
@@ -61,6 +63,7 @@ export async function personaNode(
   ]
   const slots = getEffectiveMemorySlots(state.turnWorkspace)
   const selfCore = getEffectiveSelfCore(state.turnWorkspace)
+  const lifeState = getEffectiveLifeState(state.turnWorkspace)
   const workspaceProfile = resolveWorkspaceProfile(state.workspaceContext)
   const sceneCharacter = workspaceProfile?.scenePolicy
   const expressionProfileDefinition = resolveExpressionPromptProfile()
@@ -107,19 +110,28 @@ export async function personaNode(
     observations,
     slots,
     config,
-    signalContext: perceptionContext.source === 'user' && contextualUserObservation
-      ? {
-          observationId: contextualUserObservation.id,
-          recentDialogue: perceptionContext.recentHistory
-        }
-      : undefined
+    signalContext:
+      perceptionContext.source === 'user' && contextualUserObservation
+        ? {
+            observationId: contextualUserObservation.id,
+            recentDialogue: perceptionContext.recentHistory
+          }
+        : undefined
   })
 
   const baseMetrics = reconciled.state.metrics
   const nowIso = new Date().toISOString()
   const appraisal = await inferMoodAppraisal({
     moodPrompt,
-    selfContext: selfCore ? buildSelfCoreAppraisalContext(selfCore) : undefined,
+    selfContext: [
+      selfCore ? buildSelfCoreAppraisalContext(selfCore) : '',
+      buildAgentHabitatPrompt(),
+      lifeState.narrative.trim()
+        ? `进入本轮前正在经历：\n${lifeState.narrative.trim()}`
+        : '进入本轮前没有已提交的主体生活状态。'
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
     observations,
     currentEventText: perceptionContext.currentEventText,
     eventSource: perceptionContext.source,

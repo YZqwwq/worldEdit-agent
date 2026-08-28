@@ -12,6 +12,7 @@ import {
   buildSelfCoreAppraisalContext,
   buildSelfCoreProjection
 } from '../../prompt/main_agent/persona/selfCoreProjection'
+import { buildAgentHabitatPrompt } from '../../prompt/main_agent/persona/agentHabitatPrompt'
 import {
   auditSelfCoreRevisionChain,
   type SelfCoreRevisionAuditRecord
@@ -57,12 +58,24 @@ test('Self Core projects positive desires without forcing a performed stance', (
   assert.match(identity, /用户虽然想要某个结果/)
   assert.match(identity, /没有特殊个人意义，就正常回应/)
   assert.match(identity, /由 YZqwwq 开发/)
+  assert.match(identity, /长期生活在 world-edit/)
   assert.match(identity, /陪伴式协作者与长期创作同伴/)
   assert.match(identity, /事实坦率/)
   assert.match(identity, /不能把未知说成已知/)
   assert.match(appraisal, /事实坦率/)
   assert.doesNotMatch(appraisal, /agencyPrinciples|relationalPrinciples|constitutional/)
   assert.match(appraisal, /重视共同创作/)
+})
+
+test('Agent Habitat defines world-edit as lived environment without fabricating capabilities', () => {
+  const habitat = buildAgentHabitatPrompt()
+
+  assert.match(habitat, /长期生活在 world-edit/)
+  assert.match(habitat, /不是你为了处理单次请求而临时操作的一套外部软件/)
+  assert.match(habitat, /工具，是你感知和作用于这个环境的能力/)
+  assert.match(habitat, /只有工具或系统已经真实完成的动作/)
+  assert.match(habitat, /正在查看的页面，只是此刻显露的局部环境/)
+  assert.match(habitat, /当前尚未开放的自主生活能力不应被虚构/)
 })
 
 test('Author can replace only the natural narrative through a governed revision', () => {

@@ -21,6 +21,7 @@ import { MainAgentTurnRecord } from '@share/entity/database/MainAgentTurnRecord'
 import { MainAgentTurnVersionRecord } from '@share/entity/database/MainAgentTurnVersionRecord'
 import { SelfCoreRevisionRecord } from '@share/entity/database/SelfCoreRevisionRecord'
 import { SelfExperienceRecord } from '@share/entity/database/SelfExperienceRecord'
+import { AgentLifeStateRecord } from '@share/entity/database/AgentLifeStateRecord'
 import { runAppSchemaMigrations } from '../../../../database/migrations/runAppSchemaMigrations'
 import {
   persistFinalTurnVersionWithManager,
@@ -34,6 +35,7 @@ import {
 import { createDefaultSelfCore } from '../../agentrsystem/manager/selfmodel/selfCoreDefinition'
 import { createNarrativeThesisRevision } from '../../agentrsystem/manager/selfmodel/selfCoreEvolution'
 import { SelfCoreAuthorityService } from '../../agentrsystem/manager/selfmodel/selfCoreAuthorityService'
+import { agentLifeStateService } from '../../agentrsystem/manager/selfmodel/agentLifeStateService'
 
 const sqliteTest = (name: string, execute: () => Promise<void>): void => {
   test(name, { skip: process.env.RUN_TURN_VERSION_SQLITE_TESTS !== '1' }, execute)
@@ -103,7 +105,8 @@ const createVersionDataSource = async (database: string): Promise<DataSource> =>
       MainAgentTurnRecord,
       MainAgentTurnVersionRecord,
       SelfCoreRevisionRecord,
-      SelfExperienceRecord
+      SelfExperienceRecord,
+      AgentLifeStateRecord
     ]
   })
   await dataSource.initialize()
@@ -545,6 +548,38 @@ sqliteTest('Self Core revision history is append-only and transaction-bound', as
       /force rollback/
     )
     assert.equal(await dataSource.getRepository(SelfCoreRevisionRecord).count(), 2)
+  } finally {
+    await dataSource.destroy()
+  }
+})
+
+sqliteTest('Agent life state accepts only the Turn base revision', async () => {
+  const dataSource = await createVersionDataSource(':memory:')
+  try {
+    const initial = await dataSource.getRepository(AgentLifeStateRecord).findOneByOrFail({ id: 1 })
+    assert.equal(initial.revision, 0)
+
+    const first = await dataSource.transaction((manager) =>
+      agentLifeStateService.commitCandidateWithManager(
+        { narrative: '我正在重新理解菲尔娜的克制。', sourceTurnId: 1 },
+        0,
+        manager
+      )
+    )
+    const stale = await dataSource.transaction((manager) =>
+      agentLifeStateService.commitCandidateWithManager(
+        { narrative: '旧 Turn 不应覆盖新状态。', sourceTurnId: 2 },
+        0,
+        manager
+      )
+    )
+    const saved = await dataSource.getRepository(AgentLifeStateRecord).findOneByOrFail({ id: 1 })
+
+    assert.equal(first, true)
+    assert.equal(stale, false)
+    assert.equal(saved.revision, 1)
+    assert.equal(saved.sourceTurnId, 1)
+    assert.match(saved.narrative, /菲尔娜/)
   } finally {
     await dataSource.destroy()
   }

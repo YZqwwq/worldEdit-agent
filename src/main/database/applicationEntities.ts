@@ -36,6 +36,7 @@ import { AgentWorldCognitionSpaceRecord } from '../../share/entity/database/Agen
 import { AgentWorldCognitionNodeRecord } from '../../share/entity/database/AgentWorldCognitionNodeRecord'
 import { SelfExperienceRecord } from '../../share/entity/database/SelfExperienceRecord'
 import { SelfCoreRevisionRecord } from '../../share/entity/database/SelfCoreRevisionRecord'
+import { AgentLifeStateRecord } from '../../share/entity/database/AgentLifeStateRecord'
 
 export const applicationEntities = [
   Message,
@@ -74,6 +75,7 @@ export const applicationEntities = [
   AgentWorldCognitionNodeRecord,
   SelfExperienceRecord,
   SelfCoreRevisionRecord,
+  AgentLifeStateRecord,
   CharacterImpressionRecord,
   ToolUsageStatsRecord
 ]

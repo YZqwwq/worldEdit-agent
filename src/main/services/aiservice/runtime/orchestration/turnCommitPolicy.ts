@@ -6,6 +6,7 @@ import type {
 export type TurnWorkspaceCommitPolicy = {
   commitMemorySlots: boolean
   commitPersona: boolean
+  commitLifeState: boolean
 }
 
 export const resolveTurnWorkspaceCommitPolicy = (
@@ -15,19 +16,22 @@ export const resolveTurnWorkspaceCommitPolicy = (
   if (status === 'failed') {
     return {
       commitMemorySlots: false,
-      commitPersona: false
+      commitPersona: false,
+      commitLifeState: false
     }
   }
 
   if (consumer === 'background_persona_stage_consumer') {
     return {
       commitMemorySlots: false,
-      commitPersona: true
+      commitPersona: true,
+      commitLifeState: true
     }
   }
 
   return {
     commitMemorySlots: true,
-    commitPersona: true
+    commitPersona: true,
+    commitLifeState: true
   }
 }

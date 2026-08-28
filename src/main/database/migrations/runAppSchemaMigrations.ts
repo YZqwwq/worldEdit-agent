@@ -482,6 +482,25 @@ const migrations: AppSchemaMigration[] = [
         'CREATE UNIQUE INDEX IF NOT EXISTS IDX_self_core_revision_core_revision ON self_core_revision (coreId, revision)'
       )
     }
+  },
+  {
+    id: '20260828_agent_life_state',
+    up: async (manager) => {
+      await manager.query(`
+        CREATE TABLE IF NOT EXISTS agent_life_state (
+          id integer PRIMARY KEY NOT NULL,
+          narrative text NOT NULL DEFAULT '',
+          revision integer NOT NULL DEFAULT 0,
+          sourceTurnId integer NULL,
+          updatedAt datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `)
+      await manager.query(`
+        INSERT INTO agent_life_state (id, narrative, revision, sourceTurnId)
+        VALUES (1, '', 0, NULL)
+        ON CONFLICT(id) DO NOTHING
+      `)
+    }
   }
 ]
 
