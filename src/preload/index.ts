@@ -92,7 +92,7 @@ type Api = {
     restoredInput?: MainAgentUserMessageInput
   }>
   clearHistory: () => Promise<void>
-  purgeAllData: () => Promise<number>
+  resetAgentSession: () => Promise<void>
   resetAgentState: () => Promise<void>
   getMemorySnapshot: () => Promise<MemoryInspectionPayload>
   getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
@@ -281,7 +281,7 @@ const api: Api = {
   interruptCurrentRun: () => ipcRenderer.invoke('ai:interruptCurrentRun'),
   revertLastChatTurn: () => ipcRenderer.invoke('ai:revertLastChatTurn'),
   clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
-  purgeAllData: () => ipcRenderer.invoke('ai:purgeAllData'),
+  resetAgentSession: () => ipcRenderer.invoke('ai:resetAgentSession'),
   resetAgentState: () => ipcRenderer.invoke('ai:resetAgentState'),
   getMemorySnapshot: () => ipcRenderer.invoke('ai:getMemorySnapshot'),
   getTaskMonitorSnapshot: () => ipcRenderer.invoke('ai:getTaskMonitorSnapshot'),

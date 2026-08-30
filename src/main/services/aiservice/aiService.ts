@@ -20,7 +20,8 @@ import { mainAgentTurnService, type RevertLastTurnResult } from './runtime/mainA
 import { resolveAgentWorkspaceContext } from './runtime/agentWorkspaceContextResolver'
 import { normalizeAgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
 
-const DEFAULT_SESSION_ID = 'default'
+const DEFAULT_SESSION_ID =
+  process.env.WORLDEDIT_AGENT_TEST_SESSION_ID?.trim() || 'default'
 
 type UserMessageDispatchPreparation = {
   event: MainAgentUserMessageEvent
@@ -42,8 +43,8 @@ class AIService {
     await aiSessionMaintenanceService.clearHistory()
   }
 
-  async purgeAllData(): Promise<void> {
-    await aiSessionMaintenanceService.purgeAllData()
+  async resetAgentSession(): Promise<void> {
+    await aiSessionMaintenanceService.resetAgentSession()
   }
 
   async resetPersonaStateOnly(): Promise<void> {

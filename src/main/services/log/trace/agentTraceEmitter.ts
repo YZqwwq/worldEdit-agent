@@ -2,14 +2,12 @@ import { createHash, randomUUID } from 'node:crypto'
 import type {
   AgentTraceLevel,
   AgentTracePhase,
-  AgentTraceRecord
+  AgentTraceRecord,
+  AgentTraceScope,
+  AgentTraceStatus
 } from '@share/cache/render/aiagent/agentTrace'
-import type {
-  AgentStageChunk,
-  AgentThoughtChunk,
-  AgentTurnPhaseChunk
-} from '@share/cache/render/aiagent/aiContent'
 import { captureTraceRecord, getTraceContext } from './agentTraceRuntime'
+import { emitAgentTraceChunk } from '../../aiservice/runtime/agentRuntimeOutput'
 import { appendAgentTraceRecord, persistAgentTraceArtifact } from './agentTraceStore'
 
 type AgentTraceDetail = {
@@ -17,8 +15,15 @@ type AgentTraceDetail = {
   summary?: string
   data?: Record<string, unknown>
   level?: AgentTraceLevel
-  parentId?: string
   durationMs?: number
+  scope?: AgentTraceScope
+  status?: AgentTraceStatus
+  modelStep?: number
+  toolBatchId?: string
+  toolCallId?: string
+  actionId?: string
+  changeSetId?: string
+  receiptIds?: string[]
 }
 
 const MAX_INLINE_STRING_CHARS = 2_000
@@ -113,13 +118,32 @@ const buildRecord = (
   const context = getTraceContext()
   if (!context) return null
 
+  const status =
+    detail?.status ??
+    (phase === 'enter'
+      ? 'started'
+      : phase === 'exit' || phase === 'artifact'
+        ? 'completed'
+        : phase === 'error'
+          ? 'failed'
+          : undefined)
+
   return {
     id: randomUUID(),
-    runId: context.runId,
+    sessionId: context.sessionId,
+    eventId: context.eventId,
     turnId: context.turnId,
-    parentId: detail?.parentId,
+    runId: context.runId,
+    scope: detail?.scope ?? 'node',
     node,
     phase,
+    status,
+    modelStep: detail?.modelStep,
+    toolBatchId: detail?.toolBatchId,
+    toolCallId: detail?.toolCallId,
+    actionId: detail?.actionId,
+    changeSetId: detail?.changeSetId,
+    receiptIds: detail?.receiptIds,
     title: detail?.title || `${phase}: ${node}`,
     summary: detail?.summary,
     data: sanitizeData(detail?.data),
@@ -134,47 +158,11 @@ const emitRecord = (record: AgentTraceRecord | null): AgentTraceRecord | null =>
   if (!record) return null
   captureTraceRecord(record)
 
-  const context = getTraceContext()
-  if (context?.emitChunk) {
-    context.emitChunk({
-      type: 'agent_trace',
-      record
-    })
-  }
+  emitAgentTraceChunk(record)
 
   appendAgentTraceRecord(record)
 
   return record
-}
-
-export const emitAgentStage = (stage: Omit<AgentStageChunk, 'type'>): void => {
-  const context = getTraceContext()
-  if (!context?.emitChunk) return
-
-  context.emitChunk({
-    type: 'agent_stage',
-    ...stage
-  })
-}
-
-export const emitAgentThought = (thought: Omit<AgentThoughtChunk, 'type'>): void => {
-  const context = getTraceContext()
-  if (!context?.emitChunk) return
-
-  context.emitChunk({
-    type: 'agent_thought',
-    ...thought
-  })
-}
-
-export const emitAgentTurnPhase = (phase: Omit<AgentTurnPhaseChunk, 'type'>): void => {
-  const context = getTraceContext()
-  if (!context?.emitChunk) return
-
-  context.emitChunk({
-    type: 'agent_turn_phase',
-    ...phase
-  })
 }
 
 export const traceEnter = (node: string, detail?: AgentTraceDetail): AgentTraceRecord | null =>
@@ -244,7 +232,6 @@ export const traceError = (
             : String(error)
       },
       durationMs: detail?.durationMs,
-      parentId: detail?.parentId,
       level: 'error'
     })
   )

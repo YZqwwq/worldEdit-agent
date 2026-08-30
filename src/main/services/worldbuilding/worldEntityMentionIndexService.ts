@@ -89,7 +89,10 @@ type RuntimeIndex = {
   builtAt: string
 }
 
-const require = createRequire(import.meta.url)
+// Works in both Electron's native ESM build and bundled CommonJS test runs.
+const require = createRequire(
+  typeof __filename === 'string' ? __filename : new URL(import.meta.url).pathname
+)
 const createBm25Engine = require('wink-bm25-text-search') as () => Bm25Engine
 const jieba = Jieba.withDict(dict)
 

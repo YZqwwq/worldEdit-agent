@@ -27,6 +27,7 @@ class ChatMessageService {
       status?: MainAgentMessageStatus
       eventId?: string | null
       consumer?: string | null
+      requestId?: string | null
       contentParts?: MainAgentMessageContentPart[]
     }
   ): Promise<Message> {
@@ -60,6 +61,7 @@ class ChatMessageService {
         ? 'structured'
         : 'text'
     message.sessionId = sessionId
+    message.requestId = options?.requestId?.trim() || message.requestId || null
     message.turnId = options?.turnId ?? message.turnId ?? null
     message.status = options?.status ?? 'committed'
     message.eventId = eventId
@@ -80,6 +82,7 @@ class ChatMessageService {
       status?: MainAgentMessageStatus
       eventId?: string | null
       consumer?: string | null
+      requestId?: string | null
       contentParts?: MainAgentMessageContentPart[]
     }
   ): Promise<Message | null> {
@@ -100,6 +103,7 @@ class ChatMessageService {
       status?: MainAgentMessageStatus
       eventId?: string | null
       consumer?: string | null
+      requestId?: string | null
       contentParts?: MainAgentMessageContentPart[]
     }
   ): Promise<Message> {

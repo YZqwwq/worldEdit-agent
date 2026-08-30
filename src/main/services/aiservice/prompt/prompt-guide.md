@@ -197,7 +197,7 @@ Expression 只能显露已经形成的认识和情绪，不应反过来改变事
 ### 18. Final Composition、主体态度与卡片交付
 
 - **默认正文：最终回答边界、内部认识和外部证据权限、情绪显露、简洁要求与主体态度双向保真**：[finalComposition.ts](../agentrsystem/node/finalanswernode/finalComposition.ts)
-- **最终模型调用、超时和候选生成**：[finalAnswerNode.ts](../agentrsystem/node/finalanswernode/finalAnswerNode.ts)
+- **表达环模型调用、超时和最终候选生成**：[expressionNode](../agentrsystem/node/finalanswernode/finalAnswerNode.ts)
 - **最终输出合法性检查（不是 Prompt）**：[outputGuardNode.ts](../agentrsystem/node/outputguardnode/outputGuardNode.ts)
 
 Final Composition 的核心审阅标准：

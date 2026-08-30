@@ -12,22 +12,24 @@ export const readCharacterNarrativeTaskBatchTool = defineAgentTool({
   inputSchema: readCharacterNarrativeTaskBatchInputSchema,
   outputSchema: readCharacterNarrativeTaskBatchOutputSchema,
   metadata: {
-    whenToUse: [
+    description: {
+      purpose: '从人物叙事阅读任务中读取下一批有序证据。',
+      whenToUse: [
       '已经通过 create_character_narrative_reading_task 得到 reading task',
       '需要按 firstCursor 或 nextCursor 继续读取人物文本正文',
       '需要按 unit mission 的顺序阅读多个文件或文件树',
       '正在建立或刷新人物印象，需要继续收集叙事文本证据'
     ],
-    whenNotToUse: [
+      whenNotToUse: [
       '还没有 reading task，应先 inspect catalog 再 create task',
       '上一次返回 hasMore=false，说明任务已读完，应开始综合输出',
       '只是查看目录，不需要正文'
     ],
-    inputSummary:
+      inputSummary:
       '传入 create_character_narrative_reading_task 返回的 task；cursor 可省略或传 firstCursor/nextCursor。',
-    outputSummary:
+      outputSummary:
       '返回当前阅读单元、单元 mission、本批 chunks、nextCursor、hasMoreInUnit、hasMore 和阅读动作提示。',
-    usageContract: [
+      usageContract: [
       '必须按 nextCursor 顺序读取，不要跳读。',
       'reading task 绑定创建时的 cognitionNodeId 和 cognitionRevision；认知范围变化后必须重新检查目录并创建任务。',
       '阅读每一批时必须围绕 currentUnit.mission 形成阶段理解。',
@@ -36,15 +38,14 @@ export const readCharacterNarrativeTaskBatchTool = defineAgentTool({
       '如果目标是刷新人物印象，最终 structuredText 必须综合所有已读 unit，而不是只复述最后一批文本。',
       '不要重复读取同一个 cursor，除非上一轮工具失败。'
     ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '正在阅读人物文本',
       doneLabel: '人物文本批次读取完成',
       errorLabel: '人物文本批次读取失败'
-    }
+    } },
+    execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     return characterNarrativeReadingService.readTaskBatch(input)

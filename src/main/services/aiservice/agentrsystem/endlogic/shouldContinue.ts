@@ -2,9 +2,11 @@ import { MessagesState } from '../state/messageState'
 import { traceDecision } from '../../../log/trace/agentTraceEmitter'
 
 const ROUTES = {
-  deliberate: 'llmCall',
+  deliberate: 'cognitionNode',
   execute_tools: 'toolNode',
-  compose_final: 'finalAnswerNode'
+  compose_final: 'expressionNode',
+  compose_expression_tools: 'expressionToolNode',
+  complete_expression: 'outputGuardNode'
 } as const
 
 export async function shouldContinue(
@@ -12,10 +14,10 @@ export async function shouldContinue(
 ): Promise<(typeof ROUTES)[keyof typeof ROUTES]> {
   const directive = state.loopDirective
   if (!directive) {
-    throw new Error('llmCall must commit a loopDirective before routing.')
+    throw new Error('cognitionNode must commit a loopDirective before routing.')
   }
   const route = ROUTES[directive]
-  traceDecision('shouldContinue', {
+  traceDecision('cognitionNode', {
     title: '决策: Agent Loop 路由',
     summary: `${directive} -> ${route}`,
     data: { directive, route }

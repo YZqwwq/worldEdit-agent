@@ -10,7 +10,7 @@
         <ChatHeader
           :show-logs="showLogs"
           :show-tasks="showTasks"
-          :disable-purge="isLoading || purgeConfirmLoading"
+          :disable-purge="isLoading || resetAgentSessionLoading"
           @open-memory="openMemorySnapshot"
           @open-character-impression="openCharacterImpressionPanel"
           @open-model-config="openModelConfig"
@@ -769,17 +769,17 @@
     </div>
 
     <ConfirmDialog
-      v-model="showPurgeConfirm"
-      title="确认清空所有 AI 数据？"
-      message="这将删除对话历史、记忆状态、人格状态和上传文件，且无法撤销。"
+      v-model="showResetAgentSessionConfirm"
+      title="确认清空 Agent 会话？"
+      message="这将清零对话、任务、记忆、人格和运行状态，并将 Agent 恢复到初始状态。不会删除头像、上传文件、工具副作用或世界数据。"
       confirm-text="确认清空"
       cancel-text="取消"
       loading-text="清空中..."
       size="md"
       icon="warning"
       :danger="true"
-      :loading="purgeConfirmLoading"
-      @confirm="confirmPurgeAllData"
+      :loading="resetAgentSessionLoading"
+      @confirm="confirmResetAgentSession"
       @cancel="restoreInputFocus"
     />
 
@@ -879,7 +879,7 @@ const {
   revertLastChatTurn,
   loadHistory,
   refreshHistory,
-  purgeAllData,
+  resetAgentSession,
   resetAgentState,
   toggleTurnActivity,
   agentLogs,
@@ -914,8 +914,8 @@ const characterImpressionLoading = ref(false)
 const characterImpressionError = ref('')
 const showAgentStateResetConfirm = ref(false)
 const agentStateResetLoading = ref(false)
-const showPurgeConfirm = ref(false)
-const purgeConfirmLoading = ref(false)
+const showResetAgentSessionConfirm = ref(false)
+const resetAgentSessionLoading = ref(false)
 type DialogIcon = 'none' | 'info' | 'warning' | 'danger' | 'success'
 
 const uploadedFiles = ref<UploadedChatFile[]>([])
@@ -1845,7 +1845,7 @@ const restoreInputFocus = async (): Promise<void> => {
     !showModelConfig.value &&
     !showMemorySnapshot.value &&
     !showCharacterImpressionPanel.value &&
-    !showPurgeConfirm.value &&
+    !showResetAgentSessionConfirm.value &&
     !showAgentStateResetConfirm.value &&
     !showDeleteFileConfirm.value &&
     !showNoticeDialog.value
@@ -1867,7 +1867,7 @@ const closeNoticeDialog = async (): Promise<void> => {
 }
 
 const openPurgeConfirm = (): void => {
-  showPurgeConfirm.value = true
+  showResetAgentSessionConfirm.value = true
 }
 
 const openAvatarEditor = (sender: ChatParticipantKey): void => {
@@ -1904,17 +1904,20 @@ const applyAvatarProfile = async (input: {
   void restoreInputFocus()
 }
 
-const confirmPurgeAllData = async (): Promise<void> => {
-  if (purgeConfirmLoading.value) return
-  purgeConfirmLoading.value = true
+const confirmResetAgentSession = async (): Promise<void> => {
+  if (resetAgentSessionLoading.value) return
+  resetAgentSessionLoading.value = true
   try {
-    await purgeAllData()
+    await resetAgentSession()
     await loadTaskMonitorSnapshot(true)
     clearComposerFiles()
-    showPurgeConfirm.value = false
+    showResetAgentSessionConfirm.value = false
     await restoreInputFocus()
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    showNotice('清空 Agent 会话失败', message, 'warning')
   } finally {
-    purgeConfirmLoading.value = false
+    resetAgentSessionLoading.value = false
   }
 }
 

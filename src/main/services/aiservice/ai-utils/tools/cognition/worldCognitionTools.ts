@@ -80,35 +80,44 @@ export const queryWorldCognitionTool = defineAgentTool({
     matches: z.array(cognitionNodeSchema)
   }),
   metadata: {
-    whenToUse: [
-      '用户提到可能曾经认识过的世界概念、简称、别名或惯称',
-      '需要确定一个概念应优先读取哪些世界文档',
-      '准备修正已有认知，需要先取得 nodeId 和当前 revision'
-    ],
-    whenNotToUse: [
-      '已经知道准确 documentId，只需要读取当前事实',
-      '从未认识过该概念且需要广泛发现，应先搜索世界文档',
-      '只是在普通闲聊，不涉及当前世界内容'
-    ],
-    inputSummary: '提供 worldId、名称或称呼 query；limit 默认 5，最大 10。',
-    outputSummary:
-      '返回少量匹配的维度/概念 Markdown 卡片、来源文档 revision、认知 revision 和待验证状态。',
-    usageContract: [
-      '认知是 Agent 的导航与既有理解，不是世界事实真源。回答事实前应按 documentRefs 读取当前文档。',
-      'needs_review 表示来源已经可疑，不应直接沿用其中结论。',
-      '查询无结果时使用 search_world_documents，不要用相同参数反复查询。',
-      '工具只查询当前主 Agent 在指定世界中的认知，不接受或切换 agentId。'
-    ],
-    examples: ['{"worldId":"world-id","query":"青岚"}'],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    contextRetention: 'evidence',
-    uiStage: {
-      label: '查询世界认知',
-      runningLabel: '正在回想世界认知',
-      doneLabel: '世界认知查询完成'
-    }
+    description: {
+      purpose: '查询主 Agent 在指定世界中的可复用概念与维度认知。',
+      whenToUse: [
+        '用户提到可能曾经认识过的世界概念、简称、别名或惯称',
+        '需要确定一个概念应优先读取哪些世界文档',
+        '准备修正已有认知，需要先取得 nodeId 和当前 revision'
+      ],
+      whenNotToUse: [
+        '已经知道准确 documentId，只需要读取当前事实',
+        '从未认识过该概念且需要广泛发现，应先搜索世界文档',
+        '只是在普通闲聊，不涉及当前世界内容'
+      ],
+      inputSummary: '提供 worldId、名称或称呼 query；limit 默认 5，最大 10。',
+      outputSummary:
+        '返回少量匹配的维度/概念 Markdown 卡片、来源文档 revision、认知 revision 和待验证状态。',
+      usageContract: [
+        '认知是 Agent 的导航与既有理解，不是世界事实真源。回答事实前应按 documentRefs 读取当前文档。',
+        'needs_review 表示来源已经可疑，不应直接沿用其中结论。',
+        '查询无结果时使用 search_world_documents，不要用相同参数反复查询。',
+        '工具只查询当前主 Agent 在指定世界中的认知，不接受或切换 agentId。'
+      ],
+      examples: ['{"worldId":"world-id","query":"青岚"}']
+    },
+    display: {
+      visibility: 'visible',
+      stage: {
+        label: '查询世界认知',
+        runningLabel: '正在回想世界认知',
+        doneLabel: '世界认知查询完成'
+      }
+    },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     try {
@@ -156,41 +165,49 @@ export const saveWorldCognitionTool = defineAgentTool({
     node: cognitionNodeSchema
   }),
   metadata: {
-    whenToUse: [
-      '已经阅读相关世界文档，并形成可在未来复用的名称、别称和文档入口映射',
-      '需要建立 Agent 自己选择的新认知维度',
-      '重新阅读证据后，需要修正已有卡片或恢复其有效状态'
-    ],
-    whenNotToUse: [
-      '只有一次性猜测、联想或尚未确认的搜索候选',
-      '没有阅读任何来源文档却准备创建概念卡片',
-      '用户要求修改世界事实；此工具只修改 Agent 认知，不修改文档'
-    ],
-    inputSummary:
-      '新建时提供 worldId、parentId、nodeKind、title、Markdown 和 documentRefs；更新时再提供 nodeId 与 expectedRevision。',
-    outputSummary: '返回保存后的认知节点 ID、revision、状态和认知空间 revision。',
-    usageContract: [
-      '先创建维度节点，再把概念节点放到对应 parentId 下；维度由 Agent 自由命名，不套用固定枚举。',
-      '概念卡片必须至少引用一篇已经读取的文档及其当前 revision。',
-      'Markdown 保持短小，只保存稳定称呼、阅读入口和理解摘要，不复制大段文档事实。',
-      '更新前先查询当前卡片，使用最新 expectedRevision，禁止盲目覆盖 revision 冲突。',
-      '该工具不会创建世界实体、修改世界文档或写入人物印象。'
-    ],
-    examples: [
-      '{"worldId":"world-id","parentId":null,"nodeKind":"dimension","title":"人物","markdown":"# 人物\\n\\n收录具有独立身份和行动能力的角色。","documentRefs":[]}',
-      '{"worldId":"world-id","parentId":"dimension-id","nodeKind":"concept","title":"菲尔娜","markdown":"# 菲尔娜\\n\\n- 别称：菲、银发剑士","documentRefs":[{"documentId":"document-id","revision":3}]}'
-    ],
-    executionLevel: 'safe',
-    readOnly: false,
-    idempotent: false,
-    completionSemantics: 'definitive',
-    contextRetention: 'ephemeral',
-    uiStage: {
-      label: '保存世界认知',
-      runningLabel: '正在整理世界认知',
-      doneLabel: '世界认知已保存',
-      errorLabel: '世界认知保存失败'
-    }
+    description: {
+      purpose: '创建或修订主 Agent 在指定世界中的 Markdown 认知卡片。',
+      whenToUse: [
+        '已经阅读相关世界文档，并形成可在未来复用的名称、别称和文档入口映射',
+        '需要建立 Agent 自己选择的新认知维度',
+        '重新阅读证据后，需要修正已有卡片或恢复其有效状态'
+      ],
+      whenNotToUse: [
+        '只有一次性猜测、联想或尚未确认的搜索候选',
+        '没有阅读任何来源文档却准备创建概念卡片',
+        '用户要求修改世界事实；此工具只修改 Agent 认知，不修改文档'
+      ],
+      inputSummary:
+        '新建时提供 worldId、parentId、nodeKind、title、Markdown 和 documentRefs；更新时再提供 nodeId 与 expectedRevision。',
+      outputSummary: '返回保存后的认知节点 ID、revision、状态和认知空间 revision。',
+      usageContract: [
+        '先创建维度节点，再把概念节点放到对应 parentId 下；维度由 Agent 自由命名，不套用固定枚举。',
+        '概念卡片必须至少引用一篇已经读取的文档及其当前 revision。',
+        'Markdown 保持短小，只保存稳定称呼、阅读入口和理解摘要，不复制大段文档事实。',
+        '更新前先查询当前卡片，使用最新 expectedRevision，禁止盲目覆盖 revision 冲突。',
+        '该工具不会创建世界实体、修改世界文档或写入人物印象。'
+      ],
+      examples: [
+        '{"worldId":"world-id","parentId":null,"nodeKind":"dimension","title":"人物","markdown":"# 人物\\n\\n收录具有独立身份和行动能力的角色。","documentRefs":[]}',
+        '{"worldId":"world-id","parentId":"dimension-id","nodeKind":"concept","title":"菲尔娜","markdown":"# 菲尔娜\\n\\n- 别称：菲、银发剑士","documentRefs":[{"documentId":"document-id","revision":3}]}'
+      ]
+    },
+    display: {
+      visibility: 'visible',
+      stage: {
+        label: '保存世界认知',
+        runningLabel: '正在整理世界认知',
+        doneLabel: '世界认知已保存',
+        errorLabel: '世界认知保存失败'
+      }
+    },
+    execution: {
+      level: 'safe',
+      readOnly: false,
+      idempotent: false,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'ephemeral' }
   },
   async execute(input) {
     try {

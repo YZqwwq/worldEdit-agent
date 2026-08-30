@@ -12,17 +12,19 @@ const RESOURCE_ROOTS: Record<AppResourceBucket, () => string> = {
   uploads: getStaticUploadDir
 }
 
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: APP_RESOURCE_SCHEME,
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      stream: true
+if (process.env.WORLDEDIT_AGENT_SKIP_RESOURCE_SCHEME !== '1') {
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: APP_RESOURCE_SCHEME,
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        stream: true
+      }
     }
-  }
-])
+  ])
+}
 
 const isBucket = (value: string): value is AppResourceBucket => value === 'avatars' || value === 'uploads'
 

@@ -63,6 +63,11 @@ export const readWorldDocumentSectionInputSchema = z.object({
   sectionHash: z.string().regex(/^[a-f0-9]{64}$/).optional()
 })
 
+export const readWorldDocumentSectionsByTitleInputSchema = z.strictObject({
+  documentId: z.string().trim().min(1),
+  sectionTitle: z.string().trim().min(1).max(120)
+})
+
 export const replaceWorldDocumentSectionInputSchema = z.object({
   documentId: z.string().trim().min(1),
   expectedRevision: z.number().int().positive(),

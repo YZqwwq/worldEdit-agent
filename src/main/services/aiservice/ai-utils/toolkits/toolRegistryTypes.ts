@@ -3,7 +3,10 @@ import type {
   TaskLifecycleState,
   TaskStatus
 } from '@share/cache/AItype/states/taskLifecycleState'
-import type { AgentTool } from '../core/agentTool'
+import {
+  type AgentTool,
+  type AgentToolPhase
+} from '../core/agentTool'
 
 export type ToolAudience = 'main_agent' | 'child_agent' | 'shared'
 export type ToolAccess = 'read' | 'write' | 'delegate' | 'control'
@@ -72,6 +75,26 @@ const normalize = (value: string): string => value.trim().toLowerCase()
 export const listEnabledEntries = (entries: AgentToolRegistryEntry[]): AgentToolRegistryEntry[] =>
   entries.filter((entry) => entry.enabled)
 
+/**
+ * Return the phases in which a tool is available. Metadata normalization supplies
+ * the cognition default, while this fallback also keeps registry-level consumers
+ * robust when handed a plain test double.
+ */
+export const getAgentToolPhases = (tool: AgentTool): AgentToolPhase[] => {
+  const phases = tool.agentMetadata.routing?.phases
+  return phases && phases.length > 0 ? phases : ['cognition']
+}
+
+export const isToolAvailableInPhase = (
+  entry: AgentToolRegistryEntry,
+  phase: AgentToolPhase
+): boolean => getAgentToolPhases(entry.tool).includes(phase)
+
+export const listEntriesForPhase = (
+  entries: AgentToolRegistryEntry[],
+  phase: AgentToolPhase
+): AgentToolRegistryEntry[] => entries.filter((entry) => isToolAvailableInPhase(entry, phase))
+
 export const getToolTurnCallCount = (
   entry: AgentToolRegistryEntry,
   state?: ToolActivationState
@@ -132,13 +155,11 @@ export const isToolVisible = (
 
   const activeToolsets = new Set((state?.activeToolsets ?? []).map(normalize))
   const activeTools = new Set((state?.activeTools ?? []).map(normalize))
-  const quickToolsets = new Set((state?.quickToolsets ?? []).map(normalize))
   const quickTools = new Set((state?.quickTools ?? []).map(normalize))
   return (
     activeToolsets.has(normalize(entry.toolsetId)) ||
     activeTools.has(normalize(entry.key)) ||
     activeTools.has(normalize(entry.tool.name)) ||
-    quickToolsets.has(normalize(entry.toolsetId)) ||
     quickTools.has(normalize(entry.key)) ||
     quickTools.has(normalize(entry.tool.name))
   )
@@ -163,10 +184,8 @@ export const getToolVisibilityTier = (
     return 'activated'
   }
 
-  const quickToolsets = new Set((state?.quickToolsets ?? []).map(normalize))
   const quickTools = new Set((state?.quickTools ?? []).map(normalize))
   if (
-    quickToolsets.has(normalize(entry.toolsetId)) ||
     quickTools.has(normalize(entry.key)) ||
     quickTools.has(normalize(entry.tool.name))
   ) {
@@ -243,14 +262,14 @@ export const validateToolRegistry = (options: ToolRegistryValidationOptions): vo
         `Tool "${label}" audience "${entry.audience}" is not allowed in ${options.registryName}.`
       )
     }
-    if (entry.access === 'read' && !entry.tool.agentMetadata.readOnly) {
+    if (entry.access === 'read' && !entry.tool.agentMetadata.execution.readOnly) {
       errors.push(`Read tool "${label}" must declare agentMetadata.readOnly=true.`)
     }
-    if (entry.access === 'write' && entry.tool.agentMetadata.readOnly) {
+    if (entry.access === 'write' && entry.tool.agentMetadata.execution.readOnly) {
       errors.push(`Write tool "${label}" must declare agentMetadata.readOnly=false.`)
     }
     if (
-      entry.tool.agentMetadata.executionLevel === 'confirmation_required' &&
+      entry.tool.agentMetadata.execution.level === 'confirmation_required' &&
       entry.turnCallLimit !== 1
     ) {
       errors.push(

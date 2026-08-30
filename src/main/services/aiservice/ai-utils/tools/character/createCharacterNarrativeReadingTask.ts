@@ -12,23 +12,25 @@ export const createCharacterNarrativeReadingTaskTool = defineAgentTool({
   inputSchema: createCharacterNarrativeReadingTaskInputSchema,
   outputSchema: createCharacterNarrativeReadingTaskOutputSchema,
   metadata: {
-    whenToUse: [
+    description: {
+      purpose: '编译用于建立或刷新人物印象的严格阅读任务。',
+      whenToUse: [
       '已经查看过人物文本目录，需要把印象形成目的和阅读范围编译成可执行 JSON',
       '用户要求全量阅读人物文本并形成概念、印象或分析',
       '用户要求选择性阅读一个或多个文件/文件树，并且每个选择都需要独立阅读目的',
       '需要重新形成或刷新人物印象，且必须明确本轮阅读 mission、范围和顺序'
     ],
-    whenNotToUse: [
+      whenNotToUse: [
       '还没有查看目录，不知道 documentId 或 rootDocumentId',
       '已经有有效 reading task，应该继续按 cursor 读取',
       '只是想看目录，不准备读取正文',
       '已有印象足以回答当前问题，不需要创建新的阅读任务'
     ],
-    inputSummary:
+      inputSummary:
       '提供 characterEntityId、总 mission、mode；selective 模式必须提供 selections，每个 document/document_tree 都必须有 mission。',
-    outputSummary:
+      outputSummary:
       '返回标准 reading task，包括 units、每个 unit 的 mission、展开后的 documentIds、字符量、firstCursor 和阅读协议。',
-    usageContract: [
+      usageContract: [
       '本工具不读取正文，只生成可执行 reading task；它是重新形成印象前的硬性计划步骤。',
       'full 模式只读取当前有效人物认知引用的全部文档，不会读取整个世界；适合没有印象、旧印象范围不足或用户要求完整重读。',
       '人物认知缺失、待验证或同名歧义时工具会拒绝创建任务，应先用世界文档工具修正认知范围。',
@@ -38,15 +40,14 @@ export const createCharacterNarrativeReadingTaskTool = defineAgentTool({
       '后续必须调用 read_character_narrative_task_batch，并从 firstCursor 开始按 nextCursor 顺序阅读。',
       '不要在 reading task 建立前声称已经阅读了文本；不要在 hasMore=false 前保存最终印象。'
     ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '正在创建人物文本阅读任务',
       doneLabel: '人物文本阅读任务已创建',
       errorLabel: '人物文本阅读任务创建失败'
-    }
+    } },
+    execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const task = await characterNarrativeReadingService.createReadingTask(input)

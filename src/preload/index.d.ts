@@ -90,7 +90,7 @@ declare global {
       restoredInput?: MainAgentUserMessageInput
     }>
     clearHistory: () => Promise<void>
-    purgeAllData: () => Promise<number>
+    resetAgentSession: () => Promise<void>
     resetAgentState: () => Promise<void>
     getMemorySnapshot: () => Promise<MemoryInspectionPayload>
     getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>

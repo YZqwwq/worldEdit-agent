@@ -12,19 +12,21 @@ export const upsertCharacterDemographicTool = defineAgentTool({
   inputSchema: upsertCharacterDemographicInputSchema,
   outputSchema: upsertCharacterDemographicOutputSchema,
   metadata: {
-    whenToUse: [
+    description: {
+      purpose: '更新人物 character_demographic 基础信息 JSON。',
+      whenToUse: [
       '需要更新人物基础信息 JSON，例如性别、年龄、种族、势力、国家或自定义键值',
       '人物编辑子 agent 已确认这是 demographic 层改动',
       '已经通过 get_character_detail 确认目标人物存在'
     ],
-    whenNotToUse: ['目标不是人物实体', '只是查询人物信息', '需要创建或修改关系边'],
-    inputSummary: '提供 entityId 和要写入 character_demographic.basicInfo 的 patch 字段。',
-    outputSummary: '返回更新后的 character_demographic 组件。',
-    examples: ['先读取人物详情，再调用 upsert_character_demographic 更新 basicInfo.fields.gender。'],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    completionSemantics: 'definitive'
+      whenNotToUse: ['目标不是人物实体', '只是查询人物信息', '需要创建或修改关系边'],
+      inputSummary: '提供 entityId 和要写入 character_demographic.basicInfo 的 patch 字段。',
+      outputSummary: '返回更新后的 character_demographic 组件。',
+      examples: ['先读取人物详情，再调用 upsert_character_demographic 更新 basicInfo.fields.gender。']
+    },
+    display: { visibility: 'visible', stage: { label: '更新人物基础信息', doneLabel: '人物基础信息已更新', errorLabel: '人物基础信息更新失败' } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const detail = await worldbuildingService.getEntityDetail(input.entityId)

@@ -2,9 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   advanceTurnExecutionModelStep,
+  advanceToolBatch,
   appendTurnExecutionAction,
+  beginToolBatch,
   createTurnExecutionAction,
   createTurnExecutionLedger,
+  deriveTurnUnresolvedItems,
   findBlockedUnchangedInvocation
 } from '../../agentrsystem/execution/turnExecutionLifecycle'
 import { toolContextReloadNode } from '../../agentrsystem/node/toolcontextreloadnode/toolContextReloadNode'
@@ -65,7 +68,7 @@ test('the turn ledger preserves multiple valid actions by the same tool', () => 
     ledger.actions.map((item) => item.subject?.id),
     ['doc-a', 'doc-b']
   )
-  assert.equal(ledger.unresolvedItems.length, 0)
+  assert.equal(deriveTurnUnresolvedItems(ledger.actions).length, 0)
   assert.equal(ledger.objective, '比较两篇世界观文档')
   assert.deepEqual(
     ledger.actions.map((item) => item.summary),
@@ -86,7 +89,7 @@ test('a later successful action resolves an earlier partial result for the same 
       summary: '暂时没有取得正文。'
     })
   )
-  assert.deepEqual(ledger.unresolvedItems, ['暂时没有取得正文。'])
+  assert.deepEqual(deriveTurnUnresolvedItems(ledger.actions), ['暂时没有取得正文。'])
 
   ledger = appendTurnExecutionAction(
     ledger,
@@ -99,7 +102,7 @@ test('a later successful action resolves an earlier partial result for the same 
       summary: '已经取得完整正文。'
     })
   )
-  assert.equal(ledger.unresolvedItems.length, 0)
+  assert.equal(deriveTurnUnresolvedItems(ledger.actions).length, 0)
 })
 
 test('pending tool context is promoted before the next model call', async () => {
@@ -124,6 +127,35 @@ test('pending tool context is promoted before the next model call', async () => 
   assert.equal(patch.toolEvidenceContext?.length, 1)
   assert.equal(patch.toolEvidenceContext?.[0].toolCallId, 'call-a')
   assert.equal(patch.ephemeralToolContext?.length, 0)
+})
+
+test('tool batch cursor resumes only the unfinished calls', () => {
+  let ledger = createTurnExecutionLedger('执行批量读取')
+  ledger = advanceTurnExecutionModelStep(ledger, true)
+  ledger = beginToolBatch(ledger, 'turn-1:1:a:b:c', ['a', 'b', 'c'])
+  ledger = advanceToolBatch(ledger, 1)
+
+  assert.equal(ledger.toolBatch?.status, 'running')
+  assert.equal(ledger.toolBatch?.nextIndex, 1)
+
+  const recovered = ledger
+  const startIndex = recovered.toolBatch?.nextIndex ?? 0
+  assert.deepEqual(recovered.toolBatch?.callIds.slice(startIndex), ['b', 'c'])
+
+  const completed = advanceToolBatch(recovered, 3)
+  assert.equal(completed.toolBatch?.status, 'completed')
+  assert.equal(completed.toolBatch?.nextIndex, 3)
+})
+
+test('a mismatched tool batch starts a fresh cursor', () => {
+  let ledger = createTurnExecutionLedger('执行批量读取')
+  ledger = beginToolBatch(ledger, 'turn-1:1:a:b', ['a', 'b'])
+  ledger = advanceToolBatch(ledger, 1)
+
+  const next = beginToolBatch(ledger, 'turn-1:2:x:y', ['x', 'y'])
+  assert.equal(next.toolBatch?.id, 'turn-1:2:x:y')
+  assert.equal(next.toolBatch?.nextIndex, 0)
+  assert.deepEqual(next.toolBatch?.callIds, ['x', 'y'])
 })
 
 test('a newer document edit continuation supersedes the stale revision for the same document', async () => {
@@ -217,7 +249,7 @@ test('eventual actions remain unresolved until a later completed state replaces 
   )
 
   assert.equal(ledger.actions[0]?.status, 'accepted')
-  assert.deepEqual(ledger.unresolvedItems, ['阅读任务已受理。'])
+  assert.deepEqual(deriveTurnUnresolvedItems(ledger.actions), ['阅读任务已受理。'])
   assert.equal(ledger.actions[0]?.status, 'accepted')
 
   ledger = appendTurnExecutionAction(
@@ -234,7 +266,7 @@ test('eventual actions remain unresolved until a later completed state replaces 
     })
   )
 
-  assert.equal(ledger.unresolvedItems.length, 0)
+  assert.equal(deriveTurnUnresolvedItems(ledger.actions).length, 0)
 })
 
 test('interruption waits for durable tools to publish their receipt boundary', async () => {

@@ -248,7 +248,12 @@ class MainAgentTurnCommitter {
     })
 
     if (input.status !== 'failed' && input.workspace) {
-      for (const toolName of input.workspace.draft.successfulToolNames) {
+      const toolNames = new Set(
+        (input.workspace.draft.durableToolReceipts ?? [])
+          .map((receipt) => receipt.toolName)
+          .filter(Boolean)
+      )
+      for (const toolName of toolNames) {
         const entry = getMainAgentToolEntry(toolName)
         if (!entry || entry.activationMode === 'always') continue
         try {

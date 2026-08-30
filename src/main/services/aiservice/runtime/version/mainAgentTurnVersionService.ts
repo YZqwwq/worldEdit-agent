@@ -65,10 +65,15 @@ class MainAgentTurnVersionService {
   ): Promise<void> {
     const context = this.runtime.getStore()
     if (!context) return
+    const batch = state.turnExecutionLedger?.toolBatch
+    const resumePoint =
+      batch && batch.status === 'running' && batch.nextIndex < batch.callIds.length
+        ? 'toolNode'
+        : 'toolContextReloadNode'
     await persistTurnVersion(AppDataSource, {
       eventId: context.eventId,
       turnId: context.turnId,
-      resumePoint: 'toolContextReloadNode',
+      resumePoint,
       snapshotJson: serializeTurnGraphState(state)
     })
   }

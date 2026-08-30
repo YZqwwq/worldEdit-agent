@@ -393,22 +393,23 @@ async function revertLastChatTurn(): Promise<{
 }
 
 /**
- * 清空所有 AI 运行数据（历史、记忆、人格、上传文件）
+ * 清零 Agent 会话与运行状态（保留头像、文件及工具副作用）
  */
-async function purgeAllData(): Promise<void> {
+async function resetAgentSession(): Promise<void> {
   try {
-    if (!window.api?.purgeAllData) {
+    if (!window.api?.resetAgentSession) {
       const msg = '检测到 API 更新未生效，请重启 Electron 应用 (npm run dev) 以加载最新代码。'
       console.error(msg)
       alert(msg)
       return
     }
-    await window.api.purgeAllData()
+    await window.api.resetAgentSession()
     messages.value = []
     agentLogs.value = []
     turnActivity.value = null
   } catch (error) {
-    console.error('Failed to purge all data:', error)
+    console.error('Failed to reset agent session:', error)
+    throw error
   }
 }
 
@@ -490,8 +491,8 @@ async function sendMessage(input: MainAgentUserMessageInput): Promise<void> {
   turnActivity.value = {
     messageId: aiMsgId,
     phase: 'thinking',
-    label: '正在理解你的问题',
-    expanded: true,
+    label: '正在阅读消息',
+    expanded: false,
     entries: [],
     startedAt: Date.now()
   }
@@ -530,7 +531,7 @@ export function useAIChatService(): {
   loadHistory: () => Promise<void>
   refreshHistory: () => Promise<void>
   clearHistory: () => Promise<void>
-  purgeAllData: () => Promise<void>
+  resetAgentSession: () => Promise<void>
   resetAgentState: () => Promise<void>
   toggleTurnActivity: () => void
 } {
@@ -545,7 +546,7 @@ export function useAIChatService(): {
     loadHistory,
     refreshHistory,
     clearHistory,
-    purgeAllData,
+    resetAgentSession,
     resetAgentState,
     toggleTurnActivity
   }

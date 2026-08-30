@@ -3,7 +3,10 @@ import { worldbuildingService } from '../../../../worldbuilding/worldbuildingSer
 import { defineAgentTool } from '../../core/agentTool'
 import { worldEntityPayloadSchema, worldEntityTypeSchema, worldPayloadSchema } from './shared'
 
-const normalizeText = (value: unknown): string => String(value ?? '').trim().toLowerCase()
+const normalizeText = (value: unknown): string =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
 
 const includesQuery = (value: unknown, query: string): boolean =>
   normalizeText(value).includes(query)
@@ -39,28 +42,41 @@ const searchEntitiesOutputSchema = z.object({
 
 export const searchEntitiesTool = defineAgentTool({
   name: 'search_entities',
-  description: 'Search entities across one or more worlds by world selector, entity type, name, or keyword.',
+  description:
+    'Search entities across one or more worlds by world selector, entity type, name, or keyword.',
   inputSchema: searchEntitiesInputSchema,
   outputSchema: searchEntitiesOutputSchema,
   metadata: {
-    whenToUse: [
-      '已经有部分线索，但还没有稳定的 entityId',
-      '用户给了世界名、实体名或关键词，需要先找到候选实体',
-      '主 agent 需要做比 list_entities 更接近自然语言的目标解析'
-    ],
-    whenNotToUse: [
-      '已经明确知道 entityId，应直接调用 get_entity_detail',
-      '只想列出某个世界的所有实体且 worldId 已明确，可直接用 list_entities',
-      '查询明确只针对人物实体且需要人物字段过滤，可优先用 list_characters'
-    ],
-    inputSummary: '提供 worldId 或 worldName，可选 entityType；可再提供 name、keyword 和 limit。',
-    outputSummary: '返回候选实体列表，每项包含所属 world、matchedFields 和 entity 基础信息。',
-    examples: [
-      '用户说“星港联邦的首都”，可先用 worldName + keyword + entityType=city 搜索候选实体。'
-    ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true
+    description: {
+      purpose:
+        'Search entities across one or more worlds by world selector, entity type, name, or keyword.',
+      whenToUse: [
+        '已经有部分线索，但还没有稳定的 entityId',
+        '用户给了世界名、实体名或关键词，需要先找到候选实体',
+        '主 agent 需要做比 list_entities 更接近自然语言的目标解析'
+      ],
+      whenNotToUse: [
+        '已经明确知道 entityId，应直接调用 get_entity_detail',
+        '只想列出某个世界的所有实体且 worldId 已明确，可直接用 list_entities',
+        '查询明确只针对人物实体且需要人物字段过滤，可优先用 list_characters'
+      ],
+      inputSummary: '提供 worldId 或 worldName，可选 entityType；可再提供 name、keyword 和 limit。',
+      outputSummary: '返回候选实体列表，每项包含所属 world、matchedFields 和 entity 基础信息。',
+      examples: [
+        '用户说“星港联邦的首都”，可先用 worldName + keyword + entityType=city 搜索候选实体。'
+      ]
+    },
+    display: {
+      visibility: 'visible',
+      stage: { label: '实体搜索', runningLabel: '正在搜索实体', doneLabel: '实体搜索完成' }
+    },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const allWorlds = await worldbuildingService.listWorlds()
@@ -97,8 +113,7 @@ export const searchEntitiesTool = defineAgentTool({
         }
         if (nameQuery) {
           const matchedName =
-            includesQuery(entity.name, nameQuery) ||
-            includesQuery(entity.title, nameQuery)
+            includesQuery(entity.name, nameQuery) || includesQuery(entity.title, nameQuery)
           if (!matchedName) {
             continue
           }
@@ -148,8 +163,12 @@ export const searchEntitiesTool = defineAgentTool({
   },
   nextSuggestions(data) {
     if (data.count === 0) {
-      return ['Try changing the world selector, loosening the keyword, or falling back to list_worlds / list_entities.']
+      return [
+        'Try changing the world selector, loosening the keyword, or falling back to list_worlds / list_entities.'
+      ]
     }
-    return ['Pick a returned entityId and call get_entity_detail to inspect the full record before making decisions.']
+    return [
+      'Pick a returned entityId and call get_entity_detail to inspect the full record before making decisions.'
+    ]
   }
 })

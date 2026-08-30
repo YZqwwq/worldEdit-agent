@@ -1,9 +1,6 @@
 import { worldbuildingService } from '../../../../worldbuilding/worldbuildingService'
 import { defineAgentTool } from '../../core/agentTool'
-import {
-  getCharacterDetailInputSchema,
-  getCharacterDetailOutputSchema
-} from './shared'
+import { getCharacterDetailInputSchema, getCharacterDetailOutputSchema } from './shared'
 
 export const getCharacterDetailTool = defineAgentTool({
   name: 'get_character_detail',
@@ -12,19 +9,29 @@ export const getCharacterDetailTool = defineAgentTool({
   inputSchema: getCharacterDetailInputSchema,
   outputSchema: getCharacterDetailOutputSchema,
   metadata: {
-    whenToUse: [
-      '已经知道人物 entityId，需要读取人物完整资料',
-      '在修改人物前，需要先确认人物当前的 profile、demographic 和 relations',
-      '人物编辑子 agent 需要把角色现状作为编辑基线'
-    ],
-    whenNotToUse: ['目标不是人物实体', '还没有 entityId，应先用人物查询工具定位目标'],
-    inputSummary: '提供 character 实体的 entityId。',
-    outputSummary:
-      '返回 found 和 detail。detail 中包含 character 的 entity、components、relations。',
-    examples: ['先调用 get_character_detail 读取角色完整档案，再决定如何更新 profile 或 demographic。'],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true
+    description: {
+      purpose: 'Get the full detail of a character entity.',
+      whenToUse: [
+        '已经知道人物 entityId，需要读取人物完整资料',
+        '在修改人物前，需要先确认人物当前的 profile、demographic 和 relations',
+        '人物编辑子 agent 需要把角色现状作为编辑基线'
+      ],
+      whenNotToUse: ['目标不是人物实体', '还没有 entityId，应先用人物查询工具定位目标'],
+      inputSummary: '提供 character 实体的 entityId。',
+      outputSummary:
+        '返回 found 和 detail。detail 中包含 character 的 entity、components、relations。',
+      examples: [
+        '先调用 get_character_detail 读取角色完整档案，再决定如何更新 profile 或 demographic。'
+      ]
+    },
+    display: { visibility: 'visible' },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const detail = await worldbuildingService.getEntityDetail(input.entityId)
@@ -52,8 +59,12 @@ export const getCharacterDetailTool = defineAgentTool({
   },
   nextSuggestions(data) {
     if (!data.found) {
-      return ['Confirm the character entityId first, or use list_characters to find a valid target.']
+      return [
+        'Confirm the character entityId first, or use list_characters to find a valid target.'
+      ]
     }
-    return ['Use the returned components and relations as the source of truth before editing the character.']
+    return [
+      'Use the returned components and relations as the source of truth before editing the character.'
+    ]
   }
 })

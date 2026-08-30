@@ -1,8 +1,6 @@
 import type { MemorySlotSnapshot } from './memorySlots'
 import type { PersonaState } from './personalState'
 import type { InteractionObservationSnapshot } from './interactionObservation'
-import type { ToolChangeSetSummary } from './toolEffect'
-import type { TurnLifecycleState } from './turnLifecycle'
 import type { SelfCoreSnapshot } from './selfCore'
 import type { AgentLifeStateCandidate, AgentLifeStateSnapshot } from './agentLifeState'
 
@@ -65,11 +63,8 @@ export type TurnWorkspace = {
     memorySlots?: MemorySlotSnapshot
     persona?: PersonaState
     memoryMessages: TurnWorkspaceMemoryMessage[]
-    successfulToolNames: string[]
     durableToolReceipts: TurnWorkspaceDurableToolReceipt[]
-    changeSet?: ToolChangeSetSummary
     observations: InteractionObservationSnapshot[]
-    lifecycle?: TurnLifecycleState
     lifeState?: AgentLifeStateCandidate
   }
 }

@@ -144,6 +144,9 @@ export const listAgentTraceRuns = (
   const limit = clampInteger(query.limit, 10, 50)
   const grouped = new Map<string, AgentTraceRecord[]>()
   for (const record of readAvailableRecords()) {
+    if (query.sessionId && record.sessionId !== query.sessionId) continue
+    if (query.eventId && record.eventId !== query.eventId) continue
+    if (typeof query.turnId === 'number' && record.turnId !== query.turnId) continue
     const records = grouped.get(record.runId) ?? []
     records.push(record)
     grouped.set(record.runId, records)
@@ -152,13 +155,22 @@ export const listAgentTraceRuns = (
   return [...grouped.entries()]
     .map(([runId, records]): AgentTraceRunSummary => {
       records.sort((a, b) => a.timestamp - b.timestamp || (a.sequence ?? 0) - (b.sequence ?? 0))
-      const terminal = [...records].reverse().find((record) => record.node === 'turnSummary')
+      const terminal = [...records].reverse().find((record) => record.node === 'runSummary')
       const startedAt = records[0]?.timestamp ?? 0
       const completedAt = terminal?.timestamp
-      const status = terminal?.phase === 'error' ? 'failed' : terminal ? 'completed' : 'running'
+      const status =
+        terminal?.status === 'interrupted'
+          ? 'interrupted'
+          : terminal?.phase === 'error'
+            ? 'failed'
+            : terminal
+              ? 'completed'
+              : 'running'
       return {
         runId,
-        turnId: terminal?.turnId ?? records[0]?.turnId,
+        sessionId: terminal?.sessionId ?? records[0].sessionId,
+        eventId: terminal?.eventId ?? records[0].eventId,
+        turnId: terminal?.turnId ?? records[0].turnId,
         status,
         startedAt,
         completedAt,
@@ -180,6 +192,14 @@ export const listAgentTraceRuns = (
 }
 
 export const queryAgentTrace = (query: AgentTraceQuery): AgentTraceQueryResult => {
+  if (
+    !query.runId &&
+    !query.sessionId &&
+    !query.eventId &&
+    typeof query.turnId !== 'number'
+  ) {
+    throw new Error('Trace query requires runId, sessionId, eventId, or turnId.')
+  }
   const limit = clampInteger(query.limit, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT)
   const charBudget = clampInteger(
     query.charBudget,
@@ -188,10 +208,17 @@ export const queryAgentTrace = (query: AgentTraceQuery): AgentTraceQueryResult =
   )
   const cursor = Math.max(0, Math.floor(query.cursor ?? 0))
   const matching = readAvailableRecords()
-    .filter((record) => record.runId === query.runId)
+    .filter((record) => !query.runId || record.runId === query.runId)
+    .filter((record) => !query.sessionId || record.sessionId === query.sessionId)
+    .filter((record) => !query.eventId || record.eventId === query.eventId)
+    .filter((record) => typeof query.turnId !== 'number' || record.turnId === query.turnId)
     .filter((record) => !query.node || record.node === query.node)
     .filter((record) => !query.phase || record.phase === query.phase)
     .filter((record) => !query.level || record.level === query.level)
+    .filter((record) => !query.scope || record.scope === query.scope)
+    .filter((record) => typeof query.modelStep !== 'number' || record.modelStep === query.modelStep)
+    .filter((record) => !query.toolCallId || record.toolCallId === query.toolCallId)
+    .filter((record) => !query.changeSetId || record.changeSetId === query.changeSetId)
     .sort((a, b) => a.timestamp - b.timestamp || (a.sequence ?? 0) - (b.sequence ?? 0))
 
   const records: AgentTraceRecord[] = []

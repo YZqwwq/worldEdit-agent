@@ -219,43 +219,52 @@ export const officialWebSearchTool = defineAgentTool({
   inputSchema: officialWebSearchInputSchema,
   outputSchema: officialWebSearchOutputSchema,
   metadata: {
-    whenToUse: [
-      '用户询问新闻、时事、天气、价格、近期发布、网页资料或其他时效性强的信息',
-      '需要最新公开资料支撑回答，而不是依赖稳定常识',
-      '用户明确要求“查一下最新资料”或“联网搜一下”',
-      '回答质量明显依赖外部实时公开信息，而本地工具和现有上下文都无法给出可靠答案'
-    ],
-    whenNotToUse: [
-      '问题只涉及本地数据库、世界观状态、任务状态或配置',
-      '问题是稳定常识，不依赖实时信息',
-      '只是普通闲聊、情绪陪伴或不需要外部公开资料的讨论',
-      '用户只是想听观点、建议、分析或陪聊，而不是要最新事实',
-      '问题主要依赖你的判断、表达或推理，不依赖联网结果',
-      '用户已经提供了足够的页面文本、资料摘录或明确来源，不需要再次联网搜索',
-      '问题可以先澄清范围、时间或对象，再决定是否联网；此时不要直接搜索'
-    ],
-    inputSummary: '输入 query，必要时可补一条简短 reason 说明搜索目的。',
-    outputSummary: '返回搜索结论 summary、是否实际使用搜索、命中结果数 sources 和原始回答。',
-    usageContract: [
-      '这是“最新公开信息查询工具”，不是默认回答工具；只有在答案明显依赖实时或近期外部信息时才调用。',
-      '如果问题更像观点讨论、情绪陪伴、创作共想、一般解释或日常聊天，默认不要调用本工具。',
-      '如果只是缺一个更清楚的问题范围，应先在脑中收束 query，必要时再追问；不要把模糊原话直接拿去搜。',
-      '优先把用户真正想查的问题整理成清晰搜索 query，不要把无关上下文都塞进 query。',
-      '同一轮里避免重复搜索相近问题；除非第一次结果明显不足，否则不要连续多次联网。',
-      '拿到结果后，应基于工具返回的 summary 和 sources 回答，而不是再次臆造“我查到”的内容。',
-      '如果工具返回 ok=false，应向用户说明无法联网获取最新资料，而不是假装已经查过。',
-      '如果没有明确的实时性需求，就不要为了“显得更严谨”而联网。'
-    ],
-    examples: [
-      '用户问“今天杭州天气怎样”，调用 official_web_search。',
-      '用户问“最近 AI 领域有哪些重要新闻”，调用 official_web_search。',
-      '用户问“OpenAI 最新模型发布了吗”，调用 official_web_search。'
-    ],
-    executionLevel: 'notice',
-    readOnly: true,
-    idempotent: false,
-    completionSemantics: 'definitive',
-    contextRetention: 'evidence'
+    description: {
+      purpose: 'Use official web search to retrieve up-to-date public information.',
+      whenToUse: [
+        '用户询问新闻、时事、天气、价格、近期发布、网页资料或其他时效性强的信息',
+        '需要最新公开资料支撑回答，而不是依赖稳定常识',
+        '用户明确要求“查一下最新资料”或“联网搜一下”',
+        '回答质量明显依赖外部实时公开信息，而本地工具和现有上下文都无法给出可靠答案'
+      ],
+      whenNotToUse: [
+        '问题只涉及本地数据库、世界观状态、任务状态或配置',
+        '问题是稳定常识，不依赖实时信息',
+        '只是普通闲聊、情绪陪伴或不需要外部公开资料的讨论',
+        '用户只是想听观点、建议、分析或陪聊，而不是要最新事实',
+        '问题主要依赖你的判断、表达或推理，不依赖联网结果',
+        '用户已经提供了足够的页面文本、资料摘录或明确来源，不需要再次联网搜索',
+        '问题可以先澄清范围、时间或对象，再决定是否联网；此时不要直接搜索'
+      ],
+      inputSummary: '输入 query，必要时可补一条简短 reason 说明搜索目的。',
+      outputSummary: '返回搜索结论 summary、是否实际使用搜索、命中结果数 sources 和原始回答。',
+      usageContract: [
+        '这是“最新公开信息查询工具”，不是默认回答工具；只有在答案明显依赖实时或近期外部信息时才调用。',
+        '如果问题更像观点讨论、情绪陪伴、创作共想、一般解释或日常聊天，默认不要调用本工具。',
+        '如果只是缺一个更清楚的问题范围，应先在脑中收束 query，必要时再追问；不要把模糊原话直接拿去搜。',
+        '优先把用户真正想查的问题整理成清晰搜索 query，不要把无关上下文都塞进 query。',
+        '同一轮里避免重复搜索相近问题；除非第一次结果明显不足，否则不要连续多次联网。',
+        '拿到结果后，应基于工具返回的 summary 和 sources 回答，而不是再次臆造“我查到”的内容。',
+        '如果工具返回 ok=false，应向用户说明无法联网获取最新资料，而不是假装已经查过。',
+        '如果没有明确的实时性需求，就不要为了“显得更严谨”而联网。'
+      ],
+      examples: [
+        '用户问“今天杭州天气怎样”，调用 official_web_search。',
+        '用户问“最近 AI 领域有哪些重要新闻”，调用 official_web_search。',
+        '用户问“OpenAI 最新模型发布了吗”，调用 official_web_search。'
+      ],
+    },
+    display: {
+      visibility: 'visible',
+      stage: { label: '联网搜索', runningLabel: '正在搜索公开信息', doneLabel: '公开信息搜索完成' }
+    },
+    execution: {
+      level: 'notice',
+      readOnly: true,
+      idempotent: false,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const { apiKey, model } = await resolveSearchModelConfig()

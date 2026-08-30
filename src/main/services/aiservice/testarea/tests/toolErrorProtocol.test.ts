@@ -10,11 +10,10 @@ const createFailingTool = (name: string, execute: () => never) =>
     inputSchema: z.object({ value: z.string() }),
     outputSchema: z.object({ ok: z.boolean() }),
     metadata: {
-      whenToUse: ['test'],
-      inputSummary: 'value',
-      outputSummary: 'never succeeds',
-      executionLevel: 'notice',
-      readOnly: false
+      description: { purpose: 'test', whenToUse: ['test'], inputSummary: 'none', outputSummary: 'test result' },
+      display: { visibility: 'hidden' },
+      execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive' },
+      retention: { context: 'ephemeral' }
     },
     execute
   })
@@ -26,11 +25,10 @@ test('invalid tool output returns a non-retryable structured error', async () =>
     inputSchema: z.object({}),
     outputSchema: z.object({ ok: z.literal(true) }),
     metadata: {
-      whenToUse: ['test'],
-      inputSummary: 'none',
-      outputSummary: 'invalid test output',
-      executionLevel: 'safe',
-      readOnly: true
+      description: { purpose: 'test', whenToUse: ['test'], inputSummary: 'none', outputSummary: 'test result' },
+      display: { visibility: 'hidden' },
+      execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+      retention: { context: 'ephemeral' }
     },
     execute: () => ({ ok: false }) as never
   })

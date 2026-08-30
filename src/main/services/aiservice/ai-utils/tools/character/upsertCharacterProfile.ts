@@ -12,23 +12,25 @@ export const upsertCharacterProfileTool = defineAgentTool({
   inputSchema: upsertCharacterProfileInputSchema,
   outputSchema: upsertCharacterProfileOutputSchema,
   metadata: {
-    whenToUse: [
+    description: {
+      purpose: '对人物 character_profile 组件应用部分字段更新。',
+      whenToUse: [
       '需要更新人物简介、详细描述、性格特征、能力或标签',
       '需要把人物事迹、经历、秘密或转折写入 character_profile.description',
       '人物编辑子 agent 已确认这是 profile 层改动',
       '已经通过 get_character_detail 确认目标人物存在'
     ],
-    whenNotToUse: ['目标不是人物实体', '只是读取人物信息而不是写入', '需要修改关系数据'],
-    inputSummary: '提供 entityId 和要写入 character_profile 的 patch 字段。',
-    outputSummary: '返回更新后的 character_profile 组件。',
-    examples: [
-      '先读取人物详情，再调用 upsert_character_profile 更新 summary 或 description。',
-      '当 editingDirection=character_deeds 时，应优先使用该工具把人物事迹写入 description。'
-    ],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    completionSemantics: 'definitive'
+      whenNotToUse: ['目标不是人物实体', '只是读取人物信息而不是写入', '需要修改关系数据'],
+      inputSummary: '提供 entityId 和要写入 character_profile 的 patch 字段。',
+      outputSummary: '返回更新后的 character_profile 组件。',
+      examples: [
+        '先读取人物详情，再调用 upsert_character_profile 更新 summary 或 description。',
+        '当 editingDirection=character_deeds 时，应优先使用该工具把人物事迹写入 description。'
+      ]
+    },
+    display: { visibility: 'visible', stage: { label: '更新人物档案', doneLabel: '人物档案已更新', errorLabel: '人物档案更新失败' } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const detail = await worldbuildingService.getEntityDetail(input.entityId)

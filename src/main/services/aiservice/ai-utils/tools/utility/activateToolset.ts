@@ -23,29 +23,35 @@ export const activateToolsetTool = defineAgentTool({
   inputSchema: activateToolsetInputSchema,
   outputSchema: activateToolsetOutputSchema,
   metadata: {
-    whenToUse: [
-      '已经通过 query_tool_catalog 找到匹配工具集，需要使用其中具体工具',
-      '后台任务或任务上下文明确给出了 toolsetId，需要恢复对应能力',
-      '默认工具无法完成请求，但已明确知道要激活哪个工具集'
-    ],
-    whenNotToUse: [
-      '还不知道应该使用哪个工具集时，应先调用 query_tool_catalog',
-      '当前默认工具已经足够完成任务',
-      '只是想了解工具目录而不打算使用具体能力'
-    ],
-    inputSummary:
-      '输入一个或多个 toolsetIds，并可附带 purpose 说明激活目的。',
-    outputSummary:
-      '返回已激活工具集、下一轮会出现的工具名，以及不存在的工具集 id。',
-    usageContract: [
-      '本工具只激活工具集，不直接执行具体能力。',
-      '激活成功后，下一次模型循环才能看到该工具集里的真实工具 schema。',
-      '如果 missingToolsets 非空，不要编造这些工具集的能力。'
-    ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    contextRetention: 'ephemeral'
+    description: {
+      purpose:
+        'Activate one or more specialized toolsets so their concrete tools become visible in the next model step.',
+      whenToUse: [
+        '已经通过 query_tool_catalog 找到匹配工具集，需要使用其中具体工具',
+        '后台任务或任务上下文明确给出了 toolsetId，需要恢复对应能力',
+        '默认工具无法完成请求，但已明确知道要激活哪个工具集'
+      ],
+      whenNotToUse: [
+        '还不知道应该使用哪个工具集时，应先调用 query_tool_catalog',
+        '当前默认工具已经足够完成任务',
+        '只是想了解工具目录而不打算使用具体能力'
+      ],
+      inputSummary: '输入一个或多个 toolsetIds，并可附带 purpose 说明激活目的。',
+      outputSummary: '返回已激活工具集、下一轮会出现的工具名，以及不存在的工具集 id。',
+      usageContract: [
+        '本工具只激活工具集，不直接执行具体能力。',
+        '激活成功后，下一次模型循环才能看到该工具集里的真实工具 schema。',
+        '如果 missingToolsets 非空，不要编造这些工具集的能力。'
+      ]
+    },
+    display: { visibility: 'hidden' },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'ephemeral' }
   },
   async execute(input) {
     const purpose = input.purpose?.trim() || ''
@@ -76,9 +82,8 @@ export const activateToolsetTool = defineAgentTool({
   },
   successMessage(data) {
     const activated = data.activatedToolsets.join(', ') || 'none'
-    const missing = data.missingToolsets.length > 0
-      ? ` Missing: ${data.missingToolsets.join(', ')}.`
-      : ''
+    const missing =
+      data.missingToolsets.length > 0 ? ` Missing: ${data.missingToolsets.join(', ')}.` : ''
     return `Activated toolset(s): ${activated}.${missing}`
   },
   buildReceipt(data) {
@@ -109,6 +114,8 @@ export const activateToolsetTool = defineAgentTool({
     if (data.activatedToolsets.length === 0) {
       return ['Query the catalog again or explain that no matching toolset exists.']
     }
-    return ['In the next model step, call a concrete tool from the activated toolset if it matches the task.']
+    return [
+      'In the next model step, call a concrete tool from the activated toolset if it matches the task.'
+    ]
   }
 })

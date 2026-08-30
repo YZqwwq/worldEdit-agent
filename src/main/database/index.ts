@@ -5,8 +5,9 @@ import { applicationEntities } from './applicationEntities'
 import { migrateWorldEntityDocuments } from './migrations/migrateWorldEntityDocuments'
 import { runAppSchemaMigrations } from './migrations/runAppSchemaMigrations'
 
-// 数据库文件路径：UserData/database.sqlite
-const dbPath = join(app.getPath('userData'), 'database.sqlite')
+// Tests may provide an isolated database path; normal runs use UserData/database.sqlite.
+const dbPath =
+  process.env.WORLDEDIT_AGENT_DATABASE_PATH?.trim() || join(app.getPath('userData'), 'database.sqlite')
 
 export const AppDataSource = new DataSource({
   type: 'better-sqlite3',

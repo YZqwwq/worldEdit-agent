@@ -118,12 +118,10 @@ test('read-only tools expose the complete validated result to the next model cal
     inputSchema: z.object({}),
     outputSchema: z.object({ content: z.string(), revision: z.number().int() }),
     metadata: {
-      whenToUse: ['test'],
-      inputSummary: 'none',
-      outputSummary: 'full test content',
-      executionLevel: 'safe',
-      readOnly: true,
-      idempotent: true
+      description: { purpose: 'test', whenToUse: ['test'], inputSummary: 'none', outputSummary: 'test result' },
+      display: { visibility: 'hidden' },
+      execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+      retention: { context: 'ephemeral' }
     },
     execute: () => ({ content: fullContent, revision: 68 })
   })
@@ -150,12 +148,10 @@ test('write tools return a receipt projection instead of echoing a full write pa
     inputSchema: z.object({ content: z.string() }),
     outputSchema: z.object({ content: z.string(), revision: z.number().int() }),
     metadata: {
-      whenToUse: ['test'],
-      inputSummary: 'content',
-      outputSummary: 'write receipt',
-      executionLevel: 'notice',
-      readOnly: false,
-      idempotent: false
+      description: { purpose: 'test', whenToUse: ['test'], inputSummary: 'none', outputSummary: 'test result' },
+      display: { visibility: 'hidden' },
+      execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive' },
+      retention: { context: 'ephemeral' }
     },
     execute: ({ content }) => ({ content, revision: 69 }),
     buildReceipt: (data) => ({
@@ -183,12 +179,10 @@ test('repeatable write tools can expose the authoritative state required by the 
       content: z.string()
     }),
     metadata: {
-      whenToUse: ['test'],
-      inputSummary: 'expected revision',
-      outputSummary: 'next edit state',
-      executionLevel: 'notice',
-      readOnly: false,
-      idempotent: false
+      description: { purpose: 'test', whenToUse: ['test'], inputSummary: 'none', outputSummary: 'test result' },
+      display: { visibility: 'hidden' },
+      execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive' },
+      retention: { context: 'ephemeral' }
     },
     execute: ({ expectedRevision }) => ({
       documentId: 'document-a',
@@ -222,14 +216,10 @@ test('usage rules and legal examples are visible in the model-facing tool descri
     inputSchema: z.object({ entityId: z.string() }),
     outputSchema: z.object({ ok: z.boolean() }),
     metadata: {
-      whenToUse: ['需要读取测试实体'],
-      inputSummary: '提供扁平的 entityId。',
-      outputSummary: '返回测试结果。',
-      executionLevel: 'safe',
-      usageContract: ['不要把参数对象序列化成字符串。'],
-      examples: ['{"entityId":"entity-a"}'],
-      readOnly: true,
-      idempotent: true
+      description: { purpose: 'test', whenToUse: ['需要读取测试实体'], inputSummary: '提供 entityId。', outputSummary: '返回测试结果。', usageContract: ['不要把参数对象序列化成字符串。'], examples: ['{"entityId":"entity-a"}'] },
+      display: { visibility: 'hidden' },
+      execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+      retention: { context: 'ephemeral' }
     },
     execute: () => ({ ok: true })
   })
@@ -247,12 +237,10 @@ test('eventual tools expose a non-final accepted state until explicitly complete
     inputSchema: z.object({ state: z.enum(['accepted', 'running', 'completed']) }),
     outputSchema: z.object({ state: z.enum(['accepted', 'running', 'completed']) }),
     metadata: {
-      whenToUse: ['test'],
-      inputSummary: 'state',
-      outputSummary: 'task state',
-      executionLevel: 'notice',
-      readOnly: false,
-      completionSemantics: 'eventual'
+      description: { purpose: 'test', whenToUse: ['test'], inputSummary: 'state', outputSummary: 'task state' },
+      display: { visibility: 'hidden' },
+      execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'eventual' },
+      retention: { context: 'ephemeral' }
     },
     execute: ({ state }) => ({ state }),
     resolveCompletionState: ({ state }) => state
@@ -281,12 +269,10 @@ test('eventual tools default to accepted rather than pretending to be complete',
     inputSchema: z.object({}),
     outputSchema: z.object({ taskId: z.string() }),
     metadata: {
-      whenToUse: ['test'],
-      inputSummary: 'none',
-      outputSummary: 'accepted task',
-      executionLevel: 'notice',
-      readOnly: false,
-      completionSemantics: 'eventual'
+      description: { purpose: 'test', whenToUse: ['test'], inputSummary: 'none', outputSummary: 'accepted task' },
+      display: { visibility: 'hidden' },
+      execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'eventual' },
+      retention: { context: 'ephemeral' }
     },
     execute: () => ({ taskId: 'task-a' })
   })

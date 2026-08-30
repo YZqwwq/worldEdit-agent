@@ -93,34 +93,40 @@ const INTENT_TOOLSET_IDS: Record<z.infer<typeof toolCatalogIntentSchema>, string
 
 export const queryToolCatalogTool = defineAgentTool({
   name: 'query_tool_catalog',
-  description:
-    'Query the lightweight toolset catalog before activating specialized tools.',
+  description: 'Query the lightweight toolset catalog before activating specialized tools.',
   inputSchema: queryToolCatalogInputSchema,
   outputSchema: queryToolCatalogOutputSchema,
   metadata: {
-    whenToUse: [
-      '默认工具不足以完成用户请求，需要寻找某类专门能力',
-      '你知道任务意图，但不知道应该激活哪个工具集',
-      '用户提出外部查询、世界观数据读取、长任务处理或后台能力需求'
-    ],
-    whenNotToUse: [
-      '当前默认工具已经足够完成任务',
-      '你已经明确知道需要激活的 toolsetId，可直接调用 activate_toolset'
-    ],
-    inputSummary:
-      '可选 intent 标注能力类型；可选 purpose 描述需要的能力；可选 toolsetIds 用于精确查询；maxResults 限制返回数量。',
-    outputSummary:
-      '返回少量匹配工具集的轻量目录，只包含用途、激活提示和工具名，不返回完整工具 schema。',
-    usageContract: [
-      '本工具只查询工具底图，不会激活工具集。',
-      '当意图明确时优先传 intent，例如联网搜索传 network_search，读取世界观传 world_read。',
-      '拿到候选工具集后，如确实需要其中能力，再调用 activate_toolset。',
-      '不要把未返回的工具集当成已存在能力。'
-    ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    contextRetention: 'ephemeral'
+    description: {
+      purpose: 'Query the catalog of available specialized toolsets.',
+      whenToUse: [
+        '默认工具不足以完成用户请求，需要寻找某类专门能力',
+        '你知道任务意图，但不知道应该激活哪个工具集',
+        '用户提出外部查询、世界观数据读取、长任务处理或后台能力需求'
+      ],
+      whenNotToUse: [
+        '当前默认工具已经足够完成任务',
+        '你已经明确知道需要激活的 toolsetId，可直接调用 activate_toolset'
+      ],
+      inputSummary:
+        '可选 intent 标注能力类型；可选 purpose 描述需要的能力；可选 toolsetIds 用于精确查询；maxResults 限制返回数量。',
+      outputSummary:
+        '返回少量匹配工具集的轻量目录，只包含用途、激活提示和工具名，不返回完整工具 schema。',
+      usageContract: [
+        '本工具只查询工具底图，不会激活工具集。',
+        '当意图明确时优先传 intent，例如联网搜索传 network_search，读取世界观传 world_read。',
+        '拿到候选工具集后，如确实需要其中能力，再调用 activate_toolset。',
+        '不要把未返回的工具集当成已存在能力。'
+      ]
+    },
+    display: { visibility: 'hidden' },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'ephemeral' }
   },
   async execute(input) {
     const purpose = input.purpose?.trim() || ''
@@ -134,18 +140,18 @@ export const queryToolCatalogTool = defineAgentTool({
         toolset,
         score:
           requestedIds.size > 0
-            ? requestedIds.has(normalize(toolset.id)) ? 100 : 0
+            ? requestedIds.has(normalize(toolset.id))
+              ? 100
+              : 0
             : intentIds.size > 0 && intentIds.has(normalize(toolset.id))
               ? 80 + scoreToolset(toolset, purpose)
-            : scoreToolset(toolset, purpose)
+              : scoreToolset(toolset, purpose)
       }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score || a.toolset.id.localeCompare(b.toolset.id))
 
     const fallbackRanked =
-      requestedIds.size > 0
-        ? []
-        : catalog.map((toolset) => ({ toolset, score: 1 }))
+      requestedIds.size > 0 ? [] : catalog.map((toolset) => ({ toolset, score: 1 }))
     const toolsets = (ranked.length > 0 ? ranked : fallbackRanked)
       .slice(0, maxResults)
       .map((item) => item.toolset)
@@ -184,6 +190,8 @@ export const queryToolCatalogTool = defineAgentTool({
     if (data.count === 0) {
       return ['Use the default tools, or explain that no suitable toolset is available.']
     }
-    return ['If one candidate matches the request, activate it with activate_toolset before using its tools.']
+    return [
+      'If one candidate matches the request, activate it with activate_toolset before using its tools.'
+    ]
   }
 })

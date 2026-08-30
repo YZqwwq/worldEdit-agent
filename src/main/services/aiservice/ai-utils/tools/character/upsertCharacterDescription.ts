@@ -20,25 +20,27 @@ export const upsertCharacterDescriptionTool = defineAgentTool({
   inputSchema: upsertCharacterDescriptionInputSchema,
   outputSchema: upsertCharacterDescriptionOutputSchema,
   metadata: {
-    whenToUse: [
+    description: {
+      purpose: '仅更新人物 character_profile 的 description 字段。',
+      whenToUse: [
       '需要修改人物简介、经历、事迹、背景设定等描述性文本',
       '人物编辑子 agent 只允许写 character_profile.description',
       '已经通过 get_character_detail 确认目标人物存在'
     ],
-    whenNotToUse: [
+      whenNotToUse: [
       '需要修改 title、summary、traits、abilities、tags 等其他 profile 字段',
       '需要修改 demographic、relation、portrait 等非 description 字段',
       '只是读取人物信息而不是写入'
     ],
-    inputSummary: '提供 entityId 和新的 description 文本。',
-    outputSummary: '返回更新后的 character_profile 组件。',
-    examples: [
-      '先读取人物详情，再调用 upsert_character_description 更新人物经历与叙事描述。'
-    ],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    completionSemantics: 'definitive'
+      inputSummary: '提供 entityId 和新的 description 文本。',
+      outputSummary: '返回更新后的 character_profile 组件。',
+      examples: [
+        '先读取人物详情，再调用 upsert_character_description 更新人物经历与叙事描述。'
+      ]
+    },
+    display: { visibility: 'visible', stage: { label: '更新人物描述', doneLabel: '人物描述已更新', errorLabel: '人物描述更新失败' } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     logUpsertCharacterDescriptionTrace({

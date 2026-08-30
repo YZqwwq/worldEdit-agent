@@ -12,9 +12,11 @@ import { readDefaultResponseChannels } from '../../model-adapters/modelResponseC
 import { outputGuardNode } from '../../agentrsystem/node/outputguardnode/outputGuardNode'
 import {
   assertModelStepAvailable,
-  buildInternalCognitionText,
+  buildInternalDraft,
+  buildNativeReasoningText,
   decideReasoningLoop
 } from '../../agentrsystem/execution/reasoningLoopPolicy'
+import { appendCognitionDraftText } from '../../../../../share/cache/AItype/states/reasoningChannel'
 import { resolveProfileReasoningProtocol } from '../../model-adapters/modelReasoningProtocol'
 import { replacePromptManifestScope } from '../../prompt/main_agent/shared/promptSections'
 import { renderToolContextItems } from '../../agentrsystem/state/toolContextCollection'
@@ -25,9 +27,9 @@ import { buildReasoningRuntimeMessages } from '../../agentrsystem/node/modelnode
 import { createThoughtProgressPublisher } from '../../agentrsystem/node/modelnode/thoughtProgressPublisher'
 
 test('reasoning loop routes only through runtime actions and final-content boundaries', async () => {
-  assert.equal(await shouldContinue({ loopDirective: 'deliberate' } as any), 'llmCall')
+  assert.equal(await shouldContinue({ loopDirective: 'deliberate' } as any), 'cognitionNode')
   assert.equal(await shouldContinue({ loopDirective: 'execute_tools' } as any), 'toolNode')
-  assert.equal(await shouldContinue({ loopDirective: 'compose_final' } as any), 'finalAnswerNode')
+  assert.equal(await shouldContinue({ loopDirective: 'compose_final' } as any), 'expressionNode')
 })
 
 test('llm routing requires an explicit runtime directive', async () => {
@@ -131,16 +133,13 @@ test('final composition uses controlled cognition and evidence instead of replay
       new AIMessage({ content: '内部推理原文', additional_kwargs: { isInternalReasoning: true } }),
       new ToolMessage({ content: '工具原始结果', tool_call_id: 'tool-1' })
     ],
-    reasoningSegments: [
-      {
-        id: 'reasoning-1',
-        text: '她的克制比力量更重要。',
-        mode: 'emulated',
-        modelStep: 2,
-        createdAt: '2026-08-24T00:00:00.000Z',
-        followsObservation: true
-      }
-    ],
+    cognitionDraft: {
+      text: '她的克制比力量更重要。',
+      mode: 'emulated',
+      modelStep: 2,
+      createdAt: '2026-08-24T00:00:00.000Z',
+      followsObservation: true
+    },
     toolEvidenceContext: [
       {
         id: 'evidence-1',
@@ -386,14 +385,63 @@ test('a native turn remains native when a later final response omits reasoning',
   assert.equal(result.directive, 'compose_final')
 })
 
-test('native visible content becomes internal cognition for final composition', () => {
-  const cognition = buildInternalCognitionText('native', {
-    reasoning: '证据已经足够。',
-    content: '菲尔娜的克制比力量更重要。'
-  })
+test('native visible content stays out of native reasoning', () => {
+  const cognition = buildNativeReasoningText('native', { reasoning: '证据已经足够。' })
   assert.match(cognition, /证据已经足够/)
-  assert.match(cognition, /本步形成的结论/)
-  assert.match(cognition, /菲尔娜的克制比力量更重要/)
+})
+
+test('emulated cognition remains internal and is not projected as thought', () => {
+  const decision = decideReasoningLoop({
+    preference: 'emulated',
+    response: {
+      reasoning: '',
+      content: '先确认用户真正关心的是关系连续性，再组织最终表达。',
+      toolCallCount: 0
+    }
+  })
+
+  assert.equal(decision.mode, 'emulated')
+  assert.equal(decision.nativeReasoningText, '')
+  assert.equal(decision.internalDraft, '先确认用户真正关心的是关系连续性，再组织最终表达。')
+  assert.equal(decision.directive, 'compose_final')
+})
+
+test('missing reasoning never falls back to visible content in native mode', () => {
+  const cognition = buildNativeReasoningText('native', { reasoning: '' })
+  assert.equal(cognition, '')
+})
+
+test('emulated mode keeps its draft channel separate from final reply construction', () => {
+  const cognition = buildInternalDraft('emulated', { content: '这是用于继续处理的草稿。' })
+  assert.equal(cognition, '这是用于继续处理的草稿。')
+})
+
+test('cognition draft appends only the new increment at the runtime boundary', () => {
+  assert.equal(
+    appendCognitionDraftText('已有的个人判断。', '本次工具结果让我修正了判断。'),
+    '已有的个人判断。\n\n本次工具结果让我修正了判断。'
+  )
+  assert.equal(appendCognitionDraftText(undefined, '第一段认知。'), '第一段认知。')
+  assert.equal(appendCognitionDraftText('已有内容。', '  '), '已有内容。')
+})
+
+test('final composition can consume an emulated draft without a synthetic internal message', () => {
+  const messages = buildFinalCompositionMessages({
+    messages: [new HumanMessage('请继续处理。')],
+    cognitionDraft: {
+      text: '我先确认当前状态，再决定如何回应。',
+      mode: 'emulated',
+      modelStep: 1,
+      followsObservation: false,
+      createdAt: '2026-08-29T00:00:00.000Z'
+    },
+    toolEvidenceContext: [],
+    expressionProfile: undefined,
+    turnWorkspace: undefined
+  } as any)
+  const cognition = messages.find((message) => message.additional_kwargs?.contextAuthority === 'internal_cognition')
+  assert.ok(cognition)
+  assert.match(String(cognition?.content), /我先确认当前状态/)
 })
 
 test('an emulated turn does not switch protocol when later metadata contains reasoning', () => {

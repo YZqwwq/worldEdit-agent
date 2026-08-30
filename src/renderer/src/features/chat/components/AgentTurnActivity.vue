@@ -1,8 +1,8 @@
 <template>
-  <section class="mb-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80">
+  <section v-if="shouldRender" class="mb-2 overflow-hidden border-b border-slate-200/70 pb-1">
     <button
       type="button"
-      class="flex h-10 w-full items-center gap-2 px-3 text-left text-xs text-slate-600 transition hover:bg-slate-100/80"
+      class="flex min-h-9 w-full items-center gap-2 px-1 text-left text-xs text-slate-600 transition hover:text-slate-900"
       :aria-expanded="activity.expanded"
       @click="$emit('toggle')"
     >
@@ -15,15 +15,15 @@
       <span v-if="entrySummary" class="shrink-0 text-[11px] text-slate-400">
         {{ entrySummary }}
       </span>
-      <span class="shrink-0 text-[11px] text-slate-400">
-        {{ activity.expanded ? '收起' : '展开' }}
+      <span v-if="canExpand" class="shrink-0 text-[11px] text-slate-400">
+        {{ activity.expanded ? '收起' : '查看' }}
       </span>
     </button>
 
     <div
-      v-if="activity.expanded"
+      v-if="activity.expanded && canExpand"
       ref="activityBody"
-      class="h-56 overflow-y-auto border-t border-slate-200/80 px-3 py-3"
+      class="max-h-56 overflow-y-auto px-1 py-2"
     >
       <div v-if="orderedEntries.length" class="space-y-3">
         <div
@@ -90,9 +90,16 @@ defineEmits<{
 }>()
 
 const activityBody = ref<HTMLElement | null>(null)
-const orderedEntries = computed(() => [...props.activity.entries].sort((a, b) => a.order - b.order))
+const orderedEntries = computed(() =>
+  [...props.activity.entries]
+    .filter((entry) => entry.kind !== 'thought' || entry.text.trim())
+    .sort((a, b) => a.order - b.order)
+)
+const visibleThoughtCount = computed(
+  () => props.activity.entries.filter((entry) => entry.kind === 'thought' && entry.text.trim()).length
+)
 const thoughtCount = computed(
-  () => props.activity.entries.filter((entry) => entry.kind === 'thought').length
+  () => visibleThoughtCount.value
 )
 const toolCount = computed(
   () => props.activity.entries.filter((entry) => entry.kind === 'tool').length
@@ -106,14 +113,30 @@ const activeTool = computed(() =>
     )
 )
 
+const canExpand = computed(() => orderedEntries.value.length > 0)
+const shouldRender = computed(
+  () =>
+    visibleThoughtCount.value > 0 ||
+    toolCount.value > 0 ||
+    ['thinking', 'using_tools', 'finalizing', 'responding'].includes(props.activity.phase)
+)
+
+const normalizeActivityLabel = (label: string): string => {
+  const normalized = label.trim()
+  if (!normalized || normalized === '选择表达状态' || normalized === 'select_expression_profile') {
+    return '正在调整表达'
+  }
+  return normalized
+}
+
 const summaryLabel = computed(() => {
   if (activeTool.value?.kind === 'tool') return activeTool.value.label
-  if (props.activity.phase === 'finalizing') return '正在整理回答'
+  if (props.activity.phase === 'finalizing') return '正在打字'
   if (props.activity.phase === 'responding') return '正在回答'
-  if (props.activity.phase === 'done') return '本轮思考过程'
+  if (props.activity.phase === 'done') return thoughtCount.value ? '思考完成' : '本轮处理完成'
   if (props.activity.phase === 'error') return '本轮处理没有完成'
   if (props.activity.phase === 'interrupted') return '本轮处理已中断'
-  return props.activity.label || '正在思考'
+  return normalizeActivityLabel(props.activity.label || '正在思考')
 })
 
 const entrySummary = computed(() => {

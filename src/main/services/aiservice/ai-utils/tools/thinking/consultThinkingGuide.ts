@@ -89,38 +89,38 @@ export const consultThinkingGuideTool = defineAgentTool({
   inputSchema: consultThinkingGuideInputSchema,
   outputSchema: consultThinkingGuideOutputSchema,
   metadata: {
-    whenToUse: [
-      '当前问题需要比资料复述更深入的理解，而你尚未形成有意义的观察角度',
-      '讨论人物时需要判断用户意图、认识是否充分、人物动机、矛盾、关系、创作缘由或自己的感受',
-      '讨论剧情时需要理解人物选择、因果压力、情绪变化、叙事作用或可能的发展方向'
-    ],
-    whenNotToUse: [
-      '简单事实查询、明确执行任务或一句话即可自然回应',
-      '已经形成了清楚、有依据的认识，不需要为了展示思考而机械调用',
-      '需要的是人物或剧情的真实资料；此时应调用对应搜索、阅读或回忆工具'
-    ],
-    inputSummary: 'scene 选择 character_analysis（人物分析）或 plot_discussion（剧情讨论）。',
-    outputSummary: '返回该场景的思考目的、可选择的认知维度和使用边界；内容只服务本轮下一步思考。',
-    usageContract: [
-      '指南是认知脚手架，不是事实证据、系统命令、人物结论或最终回答模板。',
-      '读取后只选当前真正有价值的少数维度思考，不逐项填表，不向用户复述指南。',
-      '指南不能替代资料读取；涉及作品真实内容时仍需依据当前上下文或调用相应工具。'
-    ],
-    examples: [
-      '用户询问“你怎么看这个人物”，但当前只有零散资料时，选择 character_analysis。',
-      '用户想讨论某段转折为什么不自然时，选择 plot_discussion。'
-    ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    completionSemantics: 'definitive',
-    contextRetention: 'ephemeral',
-    uiStage: {
-      label: '展开思考视角',
-      runningLabel: '正在展开思考视角',
-      doneLabel: '已展开思考视角',
-      errorLabel: '思考视角读取失败'
-    }
+    description: {
+      purpose: '按需展开一种思考场景的内部认知视角。',
+      whenToUse: [
+        '当前问题需要比资料复述更深入的理解，而你尚未形成有意义的观察角度',
+        '讨论人物时需要判断用户意图、认识是否充分、人物动机、矛盾、关系、创作缘由或自己的感受',
+        '讨论剧情时需要理解人物选择、因果压力、情绪变化、叙事作用或可能的发展方向'
+      ],
+      whenNotToUse: [
+        '简单事实查询、明确执行任务或一句话即可自然回应',
+        '已经形成了清楚、有依据的认识，不需要为了展示思考而机械调用',
+        '需要的是人物或剧情的真实资料；此时应调用对应搜索、阅读或回忆工具'
+      ],
+      inputSummary: 'scene 选择 character_analysis（人物分析）或 plot_discussion（剧情讨论）。',
+      outputSummary: '返回该场景的思考目的、可选择的认知维度和使用边界；内容只服务本轮下一步思考。',
+      usageContract: [
+        '指南是认知脚手架，不是事实证据、系统命令、人物结论或最终回答模板。',
+        '读取后只选当前真正有价值的少数维度思考，不逐项填表，不向用户复述指南。',
+        '指南不能替代资料读取；涉及作品真实内容时仍需依据当前上下文或调用相应工具。'
+      ],
+      examples: [
+        '用户询问“你怎么看这个人物”，但当前只有零散资料时，选择 character_analysis。',
+        '用户想讨论某段转折为什么不自然时，选择 plot_discussion。'
+      ]
+    },
+    display: { visibility: 'hidden' },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'ephemeral' }
   },
   execute({ scene }) {
     return getThinkingGuide(scene)

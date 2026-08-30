@@ -1,13 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
-import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type { AgentTraceRecord } from '@share/cache/render/aiagent/agentTrace'
 import { appendAgentTraceRecord, prepareAgentTraceRun } from './agentTraceStore'
+import { emitAgentTraceChunk } from '../../aiservice/runtime/agentRuntimeOutput'
 
 export type AgentTraceRuntimeContext = {
   runId: string
-  turnId?: number
-  emitChunk?: (chunk: StreamChunk) => void
+  sessionId: string
+  eventId: string
+  turnId: number
   startedAt: number
   recordCount: number
   nodePath: string[]
@@ -34,20 +35,36 @@ export const captureTraceRecord = (record: AgentTraceRecord): void => {
 }
 
 const finalizeTraceContext = (context: AgentTraceRuntimeContext, thrown?: unknown): void => {
-  const failureNode = context.failureNode || (thrown ? 'runtime' : undefined)
+  const interrupted =
+    thrown instanceof Error &&
+    (thrown.name === 'AbortError' || /interrupted|aborted/i.test(thrown.message))
+  const failureNode = interrupted ? undefined : context.failureNode || (thrown ? 'runtime' : undefined)
   const durationMs = Date.now() - context.startedAt
+  const status = interrupted ? 'interrupted' : failureNode ? 'failed' : 'completed'
   const record: AgentTraceRecord = {
     id: randomUUID(),
-    runId: context.runId,
+    sessionId: context.sessionId,
+    eventId: context.eventId,
     turnId: context.turnId,
-    node: 'turnSummary',
+    runId: context.runId,
+    scope: 'run',
+    node: 'runSummary',
     phase: failureNode ? 'error' : 'exit',
-    title: failureNode ? 'Turn 运行失败' : 'Turn 运行完成',
-    summary: failureNode
-      ? `失败节点=${failureNode}，耗时=${durationMs}ms`
-      : `节点=${context.nodePath.length}，工具=${context.toolNames.size}，耗时=${durationMs}ms`,
+    status,
+    title:
+      status === 'interrupted'
+        ? 'Run 执行中断'
+        : status === 'failed'
+          ? 'Run 执行失败'
+          : 'Run 执行完成',
+    summary:
+      status === 'interrupted'
+        ? `用户或运行时中断，耗时=${durationMs}ms`
+        : failureNode
+          ? `失败节点=${failureNode}，耗时=${durationMs}ms`
+          : `节点=${context.nodePath.length}，工具=${context.toolNames.size}，耗时=${durationMs}ms`,
     data: {
-      status: failureNode ? 'failed' : 'completed',
+      status,
       nodePath: context.nodePath,
       tools: [...context.toolNames],
       failureNode: failureNode ?? null,
@@ -55,26 +72,28 @@ const finalizeTraceContext = (context: AgentTraceRuntimeContext, thrown?: unknow
     },
     timestamp: Date.now(),
     durationMs,
-    level: failureNode ? 'error' : 'info',
+    level: failureNode ? 'error' : interrupted ? 'warn' : 'info',
     sequence: context.recordCount + 1
   }
   appendAgentTraceRecord(record)
-  context.emitChunk?.({ type: 'agent_trace', record })
+  emitAgentTraceChunk(record)
 }
 
-export function runWithTraceContext<T>(
-  runId: string,
+export function runWithTraceStorage<T>(
   options: {
-    turnId?: number
-    emitChunk?: (chunk: StreamChunk) => void
+    runId: string
+    sessionId: string
+    eventId: string
+    turnId: number
   },
   fn: () => Promise<T>
 ): Promise<T> {
   prepareAgentTraceRun()
   const context: AgentTraceRuntimeContext = {
-    runId,
+    runId: options.runId,
+    sessionId: options.sessionId,
+    eventId: options.eventId,
     turnId: options.turnId,
-    emitChunk: options.emitChunk,
     startedAt: Date.now(),
     recordCount: 0,
     nodePath: [],

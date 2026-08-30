@@ -43,32 +43,42 @@ export const upsertWorldEntityManualMentionTool = defineAgentTool({
   inputSchema: upsertWorldEntityManualMentionInputSchema,
   outputSchema: upsertWorldEntityManualMentionOutputSchema,
   metadata: {
-    whenToUse: [
-      '用户明确说某个简称、昵称、外号、称谓指向某个世界观实体',
-      'Agent 已经确认一个称呼稳定指向某个 entity，需要提升后续瞬时感知命中率',
-      '从人物文本中读到明确别名、称号或常用称呼，并需要纳入聚焦检索'
-    ],
-    whenNotToUse: [
-      '还没有确认该称呼究竟指向哪个 entity',
-      '同一个称呼可能同时指向多个重要实体且尚未消歧',
-      '用户只是临时比喻或一次性描述，不应持久登记'
-    ],
-    inputSummary:
-      '提供 entityId 和 mentionText；可选 weight/source/note/enabled。weight 越高越容易被 BM25 聚焦采用。',
-    outputSummary: '返回保存后的 manual mention，并说明索引会在下一次 search/rebuild 自动导入。',
-    usageContract: [
-      '登记前应尽量确认 entityId 正确。',
-      '不要把含糊的一次性描述持久登记为 manual mention。',
-      '保存后不需要手动重建索引；下一次世界观聚焦搜索会自动导入。'
-    ],
-    examples: [
-      '用户确认“青岚”就是人物“李青岚”的常用简称后，登记 mentionText=青岚。',
-      '读到文本“世人称她为青岚剑主”后，为该人物登记 mentionText=青岚剑主，source=reading_extraction。'
-    ],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: true,
-    contextRetention: 'ephemeral'
+    description: {
+      purpose: 'Create or update a manual mention for a world entity.',
+      whenToUse: [
+        '用户明确说某个简称、昵称、外号、称谓指向某个世界观实体',
+        'Agent 已经确认一个称呼稳定指向某个 entity，需要提升后续瞬时感知命中率',
+        '从人物文本中读到明确别名、称号或常用称呼，并需要纳入聚焦检索'
+      ],
+      whenNotToUse: [
+        '还没有确认该称呼究竟指向哪个 entity',
+        '同一个称呼可能同时指向多个重要实体且尚未消歧',
+        '用户只是临时比喻或一次性描述，不应持久登记'
+      ],
+      inputSummary:
+        '提供 entityId 和 mentionText；可选 weight/source/note/enabled。weight 越高越容易被 BM25 聚焦采用。',
+      outputSummary: '返回保存后的 manual mention，并说明索引会在下一次 search/rebuild 自动导入。',
+      usageContract: [
+        '登记前应尽量确认 entityId 正确。',
+        '不要把含糊的一次性描述持久登记为 manual mention。',
+        '保存后不需要手动重建索引；下一次世界观聚焦搜索会自动导入。'
+      ],
+      examples: [
+        '用户确认“青岚”就是人物“李青岚”的常用简称后，登记 mentionText=青岚。',
+        '读到文本“世人称她为青岚剑主”后，为该人物登记 mentionText=青岚剑主，source=reading_extraction。'
+      ]
+    },
+    display: {
+      visibility: 'visible',
+      stage: { label: '保存称呼', runningLabel: '正在保存实体称呼', doneLabel: '实体称呼已保存' }
+    },
+    execution: {
+      level: 'notice',
+      readOnly: false,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'ephemeral' }
   },
   async execute(input) {
     const mention = await worldEntityMentionIndexService.upsertManualMention(input)

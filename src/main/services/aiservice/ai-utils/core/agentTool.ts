@@ -60,6 +60,45 @@ export type AgentToolUiStage = {
   errorLabel?: string
 }
 
+export type AgentToolDisplayVisibility = 'hidden' | 'visible'
+
+export type AgentToolDescription = {
+  purpose: string
+  whenToUse?: string[]
+  whenNotToUse?: string[]
+  inputSummary?: string
+  /** Tool-specific constraints that directly affect whether a model call succeeds. */
+  modelConstraints?: string[]
+  outputSummary?: string
+  usageContract?: string[]
+  examples?: string[]
+  userDirectiveEvidenceField?: string
+}
+
+export type AgentToolDisplay = {
+  visibility: AgentToolDisplayVisibility
+  stage?: AgentToolUiStage
+}
+
+export type AgentToolExecution = {
+  level: AgentToolExecutionLevel
+  readOnly: boolean
+  idempotent: boolean
+  completionSemantics: AgentToolCompletionSemantics
+  effectRecovery?: ToolEffectRecoveryMode
+}
+
+export type AgentToolRetention = {
+  context: AgentToolContextRetention
+}
+
+/** Runtime route(s) in which a tool may be offered to the model. */
+export type AgentToolPhase = 'cognition' | 'expression'
+
+export type AgentToolRouting = {
+  phases: AgentToolPhase[]
+}
+
 export type AgentToolReceipt = {
   kind: string
   operation?: string
@@ -76,20 +115,12 @@ export type AgentToolReceipt = {
 }
 
 export interface AgentToolMetadata {
-  whenToUse: string[]
-  whenNotToUse?: string[]
-  inputSummary: string
-  outputSummary: string
-  usageContract?: string[]
-  examples?: string[]
-  executionLevel: AgentToolExecutionLevel
-  readOnly?: boolean
-  idempotent?: boolean
-  completionSemantics?: AgentToolCompletionSemantics
-  contextRetention?: AgentToolContextRetention
-  effectRecovery?: ToolEffectRecoveryMode
-  userDirectiveEvidenceField?: string
-  uiStage?: AgentToolUiStage
+  description: AgentToolDescription
+  display: AgentToolDisplay
+  execution: AgentToolExecution
+  retention: AgentToolRetention
+  /** Optional at definition time; omitted tools default to the cognition phase. */
+  routing?: AgentToolRouting
 }
 
 export type AgentToolResultEnvelope<TData> = {
@@ -151,20 +182,21 @@ export type AgentTool<
   TInputSchema extends z.ZodTypeAny = z.ZodTypeAny,
   TOutputSchema extends z.ZodTypeAny = z.ZodTypeAny
 > = DynamicStructuredTool & {
-  agentMetadata: Required<
-    Pick<
-      AgentToolMetadata,
-      'executionLevel' | 'readOnly' | 'idempotent' | 'completionSemantics' | 'contextRetention'
-    >
-  > &
-    Omit<
-      AgentToolMetadata,
-      'executionLevel' | 'readOnly' | 'idempotent' | 'completionSemantics' | 'contextRetention'
-    >
+  agentMetadata: NormalizedAgentToolMetadata
   baseDescription: string
   inputSchema: TInputSchema
   outputSchema: TOutputSchema
 }
+
+export type NormalizedAgentToolMetadata = {
+  description: AgentToolDescription
+  display: AgentToolDisplay
+  execution: AgentToolExecution
+  retention: AgentToolRetention
+  routing: AgentToolRouting
+}
+
+type NormalizedMetadata = AgentTool['agentMetadata']
 
 const DEFAULT_FAILURE_SUGGESTIONS = [
   'Check whether the current request matches this tool before retrying.',
@@ -180,17 +212,15 @@ const logAgentToolTrace = (input: {
   void input
 }
 
-const normalizeMetadata = (metadata: AgentToolMetadata): AgentTool['agentMetadata'] => {
-  const readOnly = metadata.readOnly ?? false
-  return {
-    ...metadata,
-    executionLevel: metadata.executionLevel,
-    readOnly,
-    idempotent: metadata.idempotent ?? false,
-    completionSemantics: metadata.completionSemantics ?? 'definitive',
-    contextRetention: metadata.contextRetention ?? (readOnly ? 'evidence' : 'ephemeral')
+const normalizeMetadata = (metadata: AgentToolMetadata): NormalizedMetadata => ({
+  ...metadata,
+  routing: {
+    phases:
+      metadata.routing?.phases && metadata.routing.phases.length > 0
+        ? [...new Set(metadata.routing.phases)]
+        : ['cognition']
   }
-}
+})
 
 const toErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
@@ -206,36 +236,37 @@ const buildToolDescription = (
   description: string,
   metadata: AgentTool['agentMetadata']
 ): string => {
-  const lines = [description]
+  const agentDescription = metadata.description
+  const compact = (value: string, max = 180): string => {
+    const normalized = value.replace(/\s+/g, ' ').trim()
+    return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized
+  }
+  const compactList = (values: string[] | undefined, maxItems = 2): string[] =>
+    (values ?? []).slice(0, maxItems).map((value) => compact(value))
+  const primaryDescription = agentDescription.purpose.trim() || description.trim()
+  const lines = [compact(primaryDescription, 240)]
 
-  if (metadata.whenToUse.length > 0) {
-    lines.push(`Use when: ${metadata.whenToUse.join(' | ')}`)
+  const whenToUse = compactList(agentDescription.whenToUse)
+  if (whenToUse.length > 0) {
+    lines.push(`Use when: ${whenToUse.join(' | ')}`)
   }
-  if (metadata.whenNotToUse?.length) {
-    lines.push(`Do not use when: ${metadata.whenNotToUse.join(' | ')}`)
+  if (agentDescription.inputSummary?.trim()) {
+    lines.push(`Input: ${compact(agentDescription.inputSummary)}`)
   }
-
-  lines.push(`Input: ${metadata.inputSummary}`)
-  lines.push(`Output: ${metadata.outputSummary}`)
-  if (metadata.usageContract?.length) {
-    lines.push(`Rules: ${metadata.usageContract.join(' | ')}`)
+  const constraints = compactList(agentDescription.modelConstraints)
+  if (constraints.length > 0) {
+    lines.push(`Constraints: ${constraints.join(' | ')}`)
   }
-  if (metadata.examples?.length) {
-    lines.push(`Examples: ${metadata.examples.join(' | ')}`)
-  }
-  if (metadata.userDirectiveEvidenceField) {
+  if (agentDescription.userDirectiveEvidenceField) {
     lines.push(
-      `User directive rule: ${metadata.userDirectiveEvidenceField} must quote text from the current user message.`
+      `Constraint: ${compact(agentDescription.userDirectiveEvidenceField)} must quote text from the current user message.`
     )
   }
-  lines.push(`Completion semantics: ${metadata.completionSemantics}`)
-  if (metadata.completionSemantics === 'eventual') {
+  if (metadata.execution.completionSemantics === 'eventual') {
     lines.push(
-      'Completion rule: a successful call may only accept or advance work; do not claim the task is finished unless completion.state is completed.'
+      'Constraint: only completion.state=completed means the requested work is finished.'
     )
   }
-  lines.push(`Context retention: ${metadata.contextRetention}`)
-  lines.push(`Execution level: ${metadata.executionLevel}`)
 
   return lines.join('\n')
 }
@@ -388,18 +419,18 @@ const buildSuccessEnvelope = <TData>(
   nextSuggestions,
   receipt: receipt ?? null,
   completion: {
-    semantics: metadata.completionSemantics,
+    semantics: metadata.execution.completionSemantics,
     state: completionState,
     final: completionState === 'completed' || completionState === 'failed'
   },
   meta: {
     toolName,
     timestamp: new Date().toISOString(),
-    executionLevel: metadata.executionLevel,
-    readOnly: metadata.readOnly,
-    idempotent: metadata.idempotent,
-    completionSemantics: metadata.completionSemantics,
-    contextRetention: metadata.contextRetention
+    executionLevel: metadata.execution.level,
+    readOnly: metadata.execution.readOnly,
+    idempotent: metadata.execution.idempotent,
+    completionSemantics: metadata.execution.completionSemantics,
+    contextRetention: metadata.retention.context
   }
 })
 
@@ -431,18 +462,18 @@ const buildFailureEnvelope = (
   nextSuggestions: error.nextSuggestions ?? [],
   receipt: null,
   completion: {
-    semantics: metadata.completionSemantics,
+    semantics: metadata.execution.completionSemantics,
     state: 'failed',
     final: true
   },
   meta: {
     toolName,
     timestamp: new Date().toISOString(),
-    executionLevel: metadata.executionLevel,
-    readOnly: metadata.readOnly,
-    idempotent: metadata.idempotent,
-    completionSemantics: metadata.completionSemantics,
-    contextRetention: metadata.contextRetention
+    executionLevel: metadata.execution.level,
+    readOnly: metadata.execution.readOnly,
+    idempotent: metadata.execution.idempotent,
+    completionSemantics: metadata.execution.completionSemantics,
+    contextRetention: metadata.retention.context
   }
 })
 
@@ -664,7 +695,7 @@ export function defineAgentTool<
         const receipt = options.buildReceipt?.(parsedOutput.data, parsedInput.data)
         const modelResult = options.buildModelResult
           ? options.buildModelResult(parsedOutput.data, parsedInput.data)
-          : metadata.readOnly
+          : metadata.execution.readOnly
             ? parsedOutput.data
             : {
                 ok: true,
@@ -675,11 +706,11 @@ export function defineAgentTool<
               }
         const completionState = options.resolveCompletionState
           ? options.resolveCompletionState(parsedOutput.data, parsedInput.data)
-          : metadata.completionSemantics === 'eventual'
+          : metadata.execution.completionSemantics === 'eventual'
             ? 'accepted'
             : 'completed'
 
-        if (metadata.completionSemantics === 'definitive' && completionState !== 'completed') {
+        if (metadata.execution.completionSemantics === 'definitive' && completionState !== 'completed') {
           return serializeEnvelope(
             buildFailureEnvelope(options.name, metadata, {
               code: 'INVALID_TOOL_OUTPUT',
@@ -698,7 +729,7 @@ export function defineAgentTool<
           data: {
             hasReceipt: Boolean(receipt),
             receiptKind: receipt?.kind ?? null,
-            completionSemantics: metadata.completionSemantics
+            completionSemantics: metadata.execution.completionSemantics
           }
         })
 

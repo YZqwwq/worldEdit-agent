@@ -25,7 +25,7 @@ import {
   parseMainAgentContentForPersistence
 } from '../messagecontent/mainAgentMessageContentService'
 import { contentToText } from '../messageoutput/transformRespones'
-import { runWithTraceContext } from '../../log/trace/agentTraceRuntime'
+import { runWithAgentRuntimeContext } from './agentRuntimeContext'
 import { mainAgentRunControlService } from './mainAgentRunControlService'
 import { chatMessageService } from '../chat/chatMessageService'
 import { mainAgentTurnVersionService } from './version/mainAgentTurnVersionService'
@@ -139,7 +139,7 @@ class MainAgentChatRuntimeService {
     let graphResult: MainAgentGraphTurnResult | undefined
 
     try {
-      return await runWithTraceContext(runId, { turnId }, async () => {
+      return await runWithAgentRuntimeContext(runId, { sessionId, eventId, turnId }, async () => {
         await mainAgentTurnVersionService.runInTurn({ eventId, turnId }, async () => {
           const graphInput = restoredState ?? {
             messages: [
@@ -151,10 +151,6 @@ class MainAgentChatRuntimeService {
                 }
               })
             ],
-            runtimeEvent: {
-              kind: 'task_notification',
-              taskEvent
-            },
             turnInput: {
               kind: 'task_notification' as const,
               source: 'subagent' as const,
@@ -178,7 +174,7 @@ class MainAgentChatRuntimeService {
           for await (const event of stream) {
             if (
               event.event === 'on_chat_model_stream' &&
-              event.metadata?.langgraph_node === 'finalAnswerNode'
+              event.metadata?.langgraph_node === 'expressionNode'
             ) {
               const chunk = event.data.chunk
               if (chunk?.content) fullText += contentToText(chunk.content)
@@ -291,7 +287,15 @@ class MainAgentChatRuntimeService {
     const controller = mainAgentRunControlService.startRun({ eventId, turnId })
 
     try {
-      return await runWithTraceContext(runId, { turnId, emitChunk: onChunk }, async () => {
+      return await runWithAgentRuntimeContext(
+        runId,
+        {
+          sessionId: persistedMessage?.sessionId || 'default',
+          eventId,
+          turnId,
+          emitChunk: onChunk
+        },
+        async () => {
         const graphInput = restoredState ?? {
           messages: [
             new HumanMessage({
@@ -349,7 +353,8 @@ class MainAgentChatRuntimeService {
           })
         }
         return { fullText: canonicalText, interrupted: false, graphResult }
-      })
+        }
+      )
     } catch (error) {
       const interrupted =
         controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')
@@ -427,7 +432,7 @@ class MainAgentChatRuntimeService {
     let graphResult: MainAgentGraphTurnResult | undefined
 
     try {
-      return await runWithTraceContext(runId, { turnId }, async () => {
+      return await runWithAgentRuntimeContext(runId, { sessionId, eventId, turnId }, async () => {
         await mainAgentTurnVersionService.runInTurn({ eventId, turnId }, async () => {
           const stream = await agent.streamEvents(
             {
@@ -458,7 +463,7 @@ class MainAgentChatRuntimeService {
           for await (const event of stream) {
             if (
               event.event === 'on_chat_model_stream' &&
-              event.metadata?.langgraph_node === 'finalAnswerNode'
+              event.metadata?.langgraph_node === 'expressionNode'
             ) {
               const chunk = event.data.chunk
               if (chunk && chunk.content) {

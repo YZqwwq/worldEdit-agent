@@ -29,7 +29,10 @@ type QueueEntry = {
 }
 
 const createId = (): string => randomUUID()
-const DEFAULT_SESSION_ID = 'default'
+// Integration runs opt into an explicitly named session so their turns are
+// distinguishable from the human chat session and sub-agent notifications.
+const DEFAULT_SESSION_ID =
+  process.env.WORLDEDIT_AGENT_TEST_SESSION_ID?.trim() || 'default'
 
 const getBackgroundStageDedupeKey = (payload: MainAgentBackgroundPersonaStagePayload): string =>
   `background_persona_stage:${payload.backgroundTaskId}:${payload.stageId}`

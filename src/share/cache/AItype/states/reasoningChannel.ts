@@ -2,14 +2,16 @@ export type ReasoningChannelMode = 'native' | 'emulated'
 
 export type ReasoningProtocolPreference = ReasoningChannelMode | 'auto'
 
-export type TurnReasoningSegment = {
-  id: string
+export type CognitionDraft = {
   text: string
-  mode: ReasoningChannelMode
+  mode: 'native' | 'emulated'
   modelStep: number
-  createdAt: string
   followsObservation: boolean
+  createdAt: string
 }
+
+export const appendCognitionDraftText = (previous: string | undefined, increment: string): string =>
+  [previous?.trim(), increment.trim()].filter(Boolean).join('\n\n')
 
 export type FinalContentCandidate = {
   messageId: string

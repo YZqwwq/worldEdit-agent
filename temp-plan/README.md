@@ -29,6 +29,7 @@ Agent 的运行图、工具循环、Turn Workspace、统一提交、Reasoning �
 - `agent-core-plan.md`：运行闭环、工具治理、Context 与长期状态治理。
 - `agent-state-flow-plan.md`：Graph 状态、Turn Workspace、恢复日志和跨 Turn 持久化的职责收敛。
 - `agent-observability-plan.md`：Trace、模型调用、Token 和费用。
+- `retraction-capability.md`：消息撤回、Turn 中断、工具结果回退和主体版本补偿边界。
 
 ## 维护规则
 

@@ -60,10 +60,10 @@
 工具定义必须包含：
 
 - `name`
-- `description`
+- `description` 对象：面向 Agent 的用途、调用条件、输入输出和使用契约
 - `inputSchema`
 - `outputSchema`
-- `metadata`
+- `metadata.description` 与 `metadata.display`，以及执行器所需的内部事实字段
 - `execute`
 
 不要把裸 LangChain `tool(...)` 作为正式能力入口散落在业务代码里。
@@ -232,7 +232,43 @@
 - 调用次数
 - 最后使用时间
 
-## 7. 工具结果 envelope
+## 7. 工具描述与用户显示
+
+工具定义中的两个对象面向不同消费者：
+
+```ts
+description: {
+  purpose,
+  whenToUse,
+  whenNotToUse,
+  inputSummary,
+  outputSummary,
+  usageContract,
+  examples
+}
+
+metadata: {
+  description,
+  display: {
+    visibility: 'hidden' | 'visible',
+    stage: { label, runningLabel, doneLabel, errorLabel }
+  }
+}
+```
+
+`description` 会被编译进模型可见的工具 schema；它只应包含用途、调用时机、语义输入和会
+影响调用成功的特有限制，不应包含 UI 文案、输出 schema、保留策略、执行等级、内部 ID 展示
+规则或执行器实现细节。`display` 只供 Renderer 做用户侧投影：行为型工具（表达方案、内部路由、
+状态整理）使用 `hidden`，信息返回和用户可感知外部效果使用 `visible` 并提供自然语言阶段。
+无论隐藏或可见，工具都必须照常进入 Trace、执行账本、receipt 和 context retention 链路。
+UI 不得再按工具名、分类或 `readOnly` 猜测显示规则。
+
+工具入口遵循“外宽内严”：模型可以用自然语言、名称、query 或最近结果中的 ID 提交意图，
+工具内部负责解析、补全、消歧和规范化。只读发现工具在重名时返回全部候选或明确歧义；
+写入、删除、移动和委派工具在目标不能唯一确定时必须拒绝执行并返回候选。不要要求模型
+构造复杂嵌套 JSON，运行时 schema 仍负责最终校验。
+
+## 8. 工具结果 envelope
 
 所有正式工具都应返回统一 envelope。
 
@@ -263,7 +299,7 @@
 
 如果工具发生真实写入，且写入已经提交，应提供 `receipt`，方便 agent 判断本轮动作已经完成。
 
-## 8. 工具结果上下文保留
+## 9. 工具结果上下文保留
 
 工具 metadata 中的关键字段：
 
@@ -326,7 +362,7 @@
 1. 在 `tools/*` 下定义原子工具
 2. 使用 `defineAgentTool(...)` 包装
 3. 补齐输入输出 schema
-4. 补齐 metadata，尤其是 `contextRetention`
+4. 补齐 `metadata.description` 与 `metadata.display.visibility`，再补齐执行元数据，尤其是 `contextRetention`
 5. 在 `mainAgentToolRegistry.ts` 注册
 6. 判断它属于 `core / domain / extension / sub_agent`
 7. 如果是拓展工具，设置：

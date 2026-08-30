@@ -14,8 +14,7 @@ import {
   createFinalResponse,
   createTurnWorkspace,
   withDurableToolReceipt,
-  withMemoryMessagesDraft,
-  withSuccessfulToolUse
+  withMemoryMessagesDraft
 } from '../../agentrsystem/state/turnWorkspace'
 import {
   orchestrateMainAgentEvent,
@@ -65,8 +64,6 @@ test('document discussion keeps one coherent path from page snapshot to final co
     memorySlots: createDefaultMemorySlots(),
     persona: null
   })
-  workspace = withSuccessfulToolUse(workspace, 'search_world_documents')
-  workspace = withSuccessfulToolUse(workspace, 'read_world_document')
   workspace = withMemoryMessagesDraft(workspace, [
     { role: 'user', content: '看看菲尔娜的描述是否与当前基础设定一致' },
     { role: 'ai', content: '菲尔娜的人物描述与当前基础设定基本一致。' }
@@ -130,10 +127,6 @@ test('document discussion keeps one coherent path from page snapshot to final co
   assert.equal(commit.type, 'commit_turn')
   assert.equal(commit.status, 'completed')
   assert.equal(commit.finalResponse?.content, '菲尔娜的人物描述与当前基础设定基本一致。')
-  assert.deepEqual(commit.workspace?.draft.successfulToolNames, [
-    'search_world_documents',
-    'read_world_document'
-  ])
   assert.deepEqual(commit.workspace?.draft.memoryMessages, [
     { role: 'user', content: '看看菲尔娜的描述是否与当前基础设定一致' },
     { role: 'ai', content: '菲尔娜的人物描述与当前基础设定基本一致。' }
@@ -364,17 +357,14 @@ test('an interrupted turn commits its stable workspace and interruption boundary
   const event = createScenarioEvent()
   const appliedEffects: MainAgentEffect[] = []
   const workspace = withDurableToolReceipt(
-    withSuccessfulToolUse(
-      createTurnWorkspace({
-        eventId: event.id,
-        turnId: 501,
-        sessionId: event.sessionId,
-        runId: 'run-interrupted',
-        memorySlots: createDefaultMemorySlots(),
-        persona: null
-      }),
-      'update_world_document'
-    ),
+    createTurnWorkspace({
+      eventId: event.id,
+      turnId: 501,
+      sessionId: event.sessionId,
+      runId: 'run-interrupted',
+      memorySlots: createDefaultMemorySlots(),
+      persona: null
+    }),
     {
       toolCallId: 'call-update-document',
       toolName: 'update_world_document',

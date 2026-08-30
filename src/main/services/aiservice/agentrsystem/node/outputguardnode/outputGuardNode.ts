@@ -1,6 +1,6 @@
 import { MessagesState } from '../../state/messageState'
 import { AIMessage } from '@langchain/core/messages'
-import { createFinalResponse, withTurnLifecycleDraft } from '../../state/turnWorkspace'
+import { createFinalResponse } from '../../state/turnWorkspace'
 import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
 import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEmitter'
 import { contentToText } from '../../../messageoutput/transformRespones'
@@ -30,10 +30,7 @@ export const assertFinalOutputConsistency = (state: typeof MessagesState.State):
   if ((candidate as { source?: string }).source !== 'final_composition') {
     throw new Error('Final content must be produced by the final composition boundary.')
   }
-  if (
-    (state.pendingToolContext?.length ?? 0) > 0 ||
-    (state.activeToolTranscriptIds?.length ?? 0) > 0
-  ) {
+  if ((state.pendingToolContext?.length ?? 0) > 0) {
     throw new Error(
       'Final content cannot be accepted before pending tool observations are consumed.'
     )
@@ -73,9 +70,13 @@ export async function outputGuardNode(
   assertFinalOutputConsistency(state)
   const candidate = state.finalContentCandidate!
   const content = candidate.content.trim()
-  let lifecycle = state.turnLifecycle ?? state.turnWorkspace?.draft.lifecycle
-  if (lifecycle?.phase !== 'ready') lifecycle = advanceTurnLifecycle(lifecycle, 'ready')
-  lifecycle = advanceTurnLifecycle(lifecycle, 'expressing')
+  let lifecycle = state.turnLifecycle
+  if (lifecycle?.phase !== 'ready' && lifecycle?.phase !== 'expressing') {
+    lifecycle = advanceTurnLifecycle(lifecycle, 'ready')
+  }
+  if (lifecycle?.phase !== 'expressing') {
+    lifecycle = advanceTurnLifecycle(lifecycle, 'expressing')
+  }
   const finalResponse = createFinalResponse({ messageId: candidate.messageId, content })
   traceDecision('outputGuardNode', {
     title: '决策: 最终输出边界',
@@ -90,8 +91,6 @@ export async function outputGuardNode(
   return {
     finalResponse,
     turnLifecycle: lifecycle,
-    ...(state.turnWorkspace
-      ? { turnWorkspace: withTurnLifecycleDraft(state.turnWorkspace, lifecycle) }
-      : {})
+    ...(state.turnWorkspace ? { turnWorkspace: state.turnWorkspace } : {})
   }
 }

@@ -89,32 +89,50 @@ const getTaskDetailOutputSchema = z.object({
 
 export const getTaskDetailTool = defineAgentTool({
   name: 'get_task_detail',
-  description: 'Inspect a task in detail, including its status, pendingContext, recent executions, traces, and latest notification.',
+  description:
+    'Inspect a task in detail, including its status, pendingContext, recent executions, traces, and latest notification.',
   inputSchema: getTaskDetailInputSchema,
   outputSchema: getTaskDetailOutputSchema,
   metadata: {
-    whenToUse: [
-      '主 agent 需要解释某个任务为什么失败、卡住或等待补参',
-      '用户追问某个后台任务目前进展如何',
-      '需要读取任务的 execution 与 trace 摘要来判断下一步'
-    ],
-    whenNotToUse: [
-      '只需要知道当前是否有 active task，可先用 get_active_task_context',
-      '问题与任何任务无关'
-    ],
-    inputSummary: '可选提供 taskId；不提供时读取当前 active task。可选 recentExecutionsLimit 和 traceLimit。',
-    outputSummary: '返回 task 摘要、pendingContext、recent executions、recent traces 和 latest notification。',
-    examples: [
-      '当用户问“刚才那个任务为什么没继续跑”时，调用 get_task_detail 读取 execution 和 trace 摘要。'
-    ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true
+    description: {
+      purpose: 'Inspect a task in detail, including executions, traces, and notifications.',
+      whenToUse: [
+        '主 agent 需要解释某个任务为什么失败、卡住或等待补参',
+        '用户追问某个后台任务目前进展如何',
+        '需要读取任务的 execution 与 trace 摘要来判断下一步'
+      ],
+      whenNotToUse: [
+        '只需要知道当前是否有 active task，可先用 get_active_task_context',
+        '问题与任何任务无关'
+      ],
+      inputSummary:
+        '可选提供 taskId；不提供时读取当前 active task。可选 recentExecutionsLimit 和 traceLimit。',
+      outputSummary:
+        '返回 task 摘要、pendingContext、recent executions、recent traces 和 latest notification。',
+      examples: [
+        '当用户问“刚才那个任务为什么没继续跑”时，调用 get_task_detail 读取 execution 和 trace 摘要。'
+      ]
+    },
+    display: {
+      visibility: 'visible',
+      stage: {
+        label: '读取任务详情',
+        runningLabel: '正在读取任务详情',
+        doneLabel: '任务详情读取完成'
+      }
+    },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const repo = AppDataSource.getRepository(TaskRecord)
     const notificationRepo = AppDataSource.getRepository(TaskNotificationRecord)
-    const source = input.taskId ? 'task_id' as const : 'active_task' as const
+    const source = input.taskId ? ('task_id' as const) : ('active_task' as const)
     const task = input.taskId
       ? await repo.findOneBy({ id: input.taskId })
       : await taskService.getActiveTask()
@@ -135,11 +153,13 @@ export const getTaskDetailTool = defineAgentTool({
       taskService.getPendingContext(task.id),
       taskExecutionService.listRunsForTask(task.id, input.recentExecutionsLimit ?? 6),
       taskTraceService.listTaskTraces(task.id, input.traceLimit ?? 24),
-      notificationRepo.find({
-        where: { taskId: task.id },
-        order: { updatedAt: 'DESC', createdAt: 'DESC', id: 'DESC' },
-        take: 1
-      }).then((rows) => rows[0] ?? null)
+      notificationRepo
+        .find({
+          where: { taskId: task.id },
+          order: { updatedAt: 'DESC', createdAt: 'DESC', id: 'DESC' },
+          take: 1
+        })
+        .then((rows) => rows[0] ?? null)
     ])
 
     const parsedNotification = latestNotification
@@ -203,8 +223,12 @@ export const getTaskDetailTool = defineAgentTool({
   },
   nextSuggestions(data) {
     if (!data.found) {
-      return ['If you need the current active task only, check whether an active task exists before retrying.']
+      return [
+        'If you need the current active task only, check whether an active task exists before retrying.'
+      ]
     }
-    return ['Use the returned executions, traces, and notification summary to explain progress, failure, or the next required user input.']
+    return [
+      'Use the returned executions, traces, and notification summary to explain progress, failure, or the next required user input.'
+    ]
   }
 })

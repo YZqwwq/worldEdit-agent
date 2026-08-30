@@ -13,15 +13,13 @@ import {
   queryAgentTrace,
   readAgentTraceArtifact
 } from '../../../log/trace/agentTraceStore'
-import { runWithTraceContext } from '../../../log/trace/agentTraceRuntime'
+import { runWithAgentRuntimeContext } from '../../runtime/agentRuntimeContext'
 import {
-  emitAgentStage,
-  emitAgentThought,
-  emitAgentTurnPhase,
   traceArtifact,
   traceDecision,
   traceState
 } from '../../../log/trace/agentTraceEmitter'
+import { emitAgentStage, emitAgentThought, emitAgentTurnPhase } from '../../runtime/agentRuntimeOutput'
 
 const makeRecord = (
   runId: string,
@@ -29,9 +27,12 @@ const makeRecord = (
   overrides: Partial<AgentTraceRecord> = {}
 ): AgentTraceRecord => ({
   id: `${runId}-${sequence}`,
+  sessionId: 'default',
+  eventId: 'event-42',
   runId,
   turnId: 42,
-  node: 'llmCall',
+  scope: 'loop',
+  node: 'cognitionNode',
   phase: 'state',
   title: `record ${sequence}`,
   summary: 'x'.repeat(80),
@@ -78,21 +79,27 @@ test('runtime traces receive a stable sequence and redact credential fields', as
   const root = mkdtempSync(join(tmpdir(), 'worldedit-agent-trace-'))
   configureAgentTraceStorage(root)
   try {
-    await runWithTraceContext('run-sequence', { turnId: 7 }, async () => {
+    await runWithAgentRuntimeContext(
+      'run-sequence',
+      { sessionId: 'session-7', eventId: 'event-7', turnId: 7 },
+      async () => {
       traceState('contextNode', { data: { apiKey: 'private-value', model: 'qwen' } })
       traceArtifact('modelNode', {
         data: {
           response: { authorization: 'Bearer private-value', body: 'x'.repeat(7_000) }
         }
       })
-      traceDecision('llmCall', { summary: 'compose_final' })
-    })
+      traceDecision('cognitionNode', { summary: 'compose_final' })
+      }
+    )
     const result = queryAgentTrace({ runId: 'run-sequence' })
     assert.deepEqual(
       result.records.map((record) => record.sequence),
       [1, 2, 3, 4]
     )
-    assert.equal(result.records.at(-1)?.node, 'turnSummary')
+    assert.equal(result.records.at(-1)?.node, 'runSummary')
+    assert.equal(result.records[0].sessionId, 'session-7')
+    assert.equal(result.records[0].eventId, 'event-7')
     assert.deepEqual(result.records[0].data, { apiKey: '[REDACTED]', model: 'qwen' })
     const artifactRef = (result.records[1].data as { $artifactRef: string }).$artifactRef
     const artifact = readAgentTraceArtifact({ artifactRef })
@@ -108,9 +115,14 @@ test('user-visible turn activity streams separately from diagnostic trace record
   configureAgentTraceStorage(root)
   const chunks: StreamChunk[] = []
   try {
-    await runWithTraceContext(
+    await runWithAgentRuntimeContext(
       'run-user-activity',
-      { turnId: 9, emitChunk: (chunk) => chunks.push(chunk) },
+      {
+        sessionId: 'session-9',
+        eventId: 'event-9',
+        turnId: 9,
+        emitChunk: (chunk) => chunks.push(chunk)
+      },
       async () => {
         emitAgentThought({
           thoughtId: 'thought-1',
@@ -145,14 +157,15 @@ test('run listing uses deterministic terminal summaries instead of replaying all
     appendAgentTraceRecord(makeRecord('run-failed', 1))
     appendAgentTraceRecord(
       makeRecord('run-failed', 2, {
-        node: 'turnSummary',
+        node: 'runSummary',
+        scope: 'run',
         phase: 'error',
         level: 'error',
         durationMs: 320,
         data: {
-          nodePath: ['contextNode', 'llmCall'],
+        nodePath: ['contextNode', 'cognitionNode'],
           tools: ['read_world_document'],
-          failureNode: 'llmCall'
+        failureNode: 'cognitionNode'
         }
       })
     )
@@ -163,6 +176,32 @@ test('run listing uses deterministic terminal summaries instead of replaying all
     assert.equal(summaries[0].status, 'running')
     assert.equal(summaries[1].status, 'failed')
     assert.deepEqual(summaries[1].tools, ['read_world_document'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('trace queries use typed turn, loop and tool-effect correlations', () => {
+  const root = mkdtempSync(join(tmpdir(), 'worldedit-agent-trace-'))
+  configureAgentTraceStorage(root)
+  try {
+    appendAgentTraceRecord(
+      makeRecord('run-correlated', 1, {
+        modelStep: 2,
+        toolCallId: 'call-2',
+        actionId: 'action-2',
+        changeSetId: 'change-set-2',
+        receiptIds: ['receipt-2'],
+        scope: 'tool'
+      })
+    )
+    appendAgentTraceRecord(
+      makeRecord('run-correlated', 2, { modelStep: 3, toolCallId: 'call-3', scope: 'tool' })
+    )
+
+    assert.equal(queryAgentTrace({ turnId: 42, modelStep: 2 }).records.length, 1)
+    assert.equal(queryAgentTrace({ eventId: 'event-42', toolCallId: 'call-2' }).records.length, 1)
+    assert.equal(queryAgentTrace({ sessionId: 'default', changeSetId: 'change-set-2' }).records.length, 1)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

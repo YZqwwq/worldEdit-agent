@@ -9,10 +9,14 @@ import {
   buildAgentToolModelMessage,
   parseAgentToolResultEnvelope
 } from '../../../ai-utils/core/agentTool'
-import type { AgentToolErrorCode, AgentToolExecutionLevel } from '../../../ai-utils/core/agentTool'
+import {
+  AgentToolError,
+  type AgentToolErrorCode,
+  type AgentToolExecutionLevel
+} from '../../../ai-utils/core/agentTool'
 import {
   getMainAgentToolEntry,
-  getMainAgentTools,
+  getMainAgentToolsForPhase,
   getVisibleMainAgentToolEntryMap,
   resolveMainAgentToolActivationState
 } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
@@ -21,24 +25,24 @@ import {
   incrementToolTurnCallCount
 } from '../../../ai-utils/toolkits/toolRegistryTypes'
 import {
-  emitAgentStage,
   traceArtifact,
   traceDecision,
   traceError,
   traceState
 } from '../../../../log/trace/agentTraceEmitter'
+import { emitAgentStage } from '../../../runtime/agentRuntimeOutput'
 import { MessagesState } from '../../state/messageState'
 import type { PendingToolContextItem, ToolContextSourceRef } from '../../state/messageState'
 import {
   appendTurnExecutionAction,
+  advanceToolBatch,
+  beginToolBatch,
   createTurnExecutionAction,
   createTurnExecutionLedger,
   findBlockedUnchangedInvocation
 } from '../../execution/turnExecutionLifecycle'
 import {
-  withDurableToolReceipt,
-  withSuccessfulToolUse,
-  withToolChangeSetSummary
+  withDurableToolReceipt
 } from '../../state/turnWorkspace'
 import { buildDurableToolEffectCheckpointState } from '../../execution/durableToolEffectCheckpoint'
 import { mainAgentTurnVersionService } from '../../../runtime/version/mainAgentTurnVersionService'
@@ -84,13 +88,30 @@ const describeInvocationError = (
   error: unknown,
   inputSummary: string
 ): {
-  code: 'INVALID_TOOL_INPUT' | 'INTERNAL_ERROR'
+  code: AgentToolErrorCode
   message: string
   field?: string
   retryable: boolean
   retryCondition: 'change_arguments' | 'none'
   guidance: string
 } => {
+  if (error instanceof AgentToolError) {
+    const guidance = [
+      ...error.nextSuggestions,
+      error.retryable
+        ? '请根据上述信息修正参数或改用建议的工具继续处理。'
+        : '不要原样重试；改用其他路径，并在必要时向用户说明当前限制。'
+    ]
+      .filter(Boolean)
+      .join(' ')
+    return {
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable,
+      retryCondition: error.retryable ? 'change_arguments' : 'none',
+      guidance
+    }
+  }
   const message = error instanceof Error ? error.message : String(error)
   const isInputError =
     message.includes('did not match expected schema') ||
@@ -368,27 +389,55 @@ const getToolStageLabel = (
       ? (
           tool as {
             agentMetadata?: {
-              uiStage?: {
-                label?: string
-                runningLabel?: string
-                doneLabel?: string
-                errorLabel?: string
+              display?: {
+                visibility?: 'hidden' | 'visible'
+                stage?: {
+                  label?: string
+                  runningLabel?: string
+                  doneLabel?: string
+                  errorLabel?: string
+                }
               }
             }
           }
         ).agentMetadata
       : undefined
-  const uiStage = metadata?.uiStage
+  const uiStage = metadata?.display?.stage
 
   if (status === 'done') return uiStage?.doneLabel || `已完成 ${toolName}`
   if (status === 'error') return uiStage?.errorLabel || `${toolName} 执行失败`
   return uiStage?.runningLabel || uiStage?.label || `正在执行 ${toolName}`
 }
 
+const emitVisibleToolStage = (
+  tool: unknown,
+  stage: Omit<Parameters<typeof emitAgentStage>[0], never>
+): void => {
+  const visibility =
+    tool && typeof tool === 'object' && 'agentMetadata' in tool
+      ? (
+          tool as {
+            agentMetadata?: { display?: { visibility?: 'hidden' | 'visible' } }
+          }
+        ).agentMetadata?.display?.visibility
+      : undefined
+  if (visibility === 'visible') emitAgentStage(stage)
+}
+
 export async function toolNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
-  const lastMessage = state.messages[state.messages.length - 1]
+  const lastMessage = [...state.messages]
+    .reverse()
+    .find((message) => {
+      const candidate = message as any
+      return (
+        candidate._getType?.() === 'ai' ||
+        message.constructor.name === 'AIMessage' ||
+        message.constructor.name === 'AIMessageChunk'
+      ) && (candidate.tool_calls?.length ?? 0) > 0
+    })
+  if (!lastMessage) return { messages: [] }
 
   // Check if message has tool_calls - relax instanceof check to handle AIMessageChunk or version mismatches
   // Use _getType() as seen in shouldContinue.ts or check constructor name
@@ -410,17 +459,30 @@ export async function toolNode(
 
   const toolMessages: ToolMessage[] = []
   const pendingToolContext: PendingToolContextItem[] = []
-  const activeToolTranscriptIds = [
-    typeof lastMessage.id === 'string' && lastMessage.id ? lastMessage.id : ''
-  ].filter(Boolean)
   const toolActivationState = await resolveMainAgentToolActivationState(state)
-  const tools = getMainAgentTools(toolActivationState)
-  const toolEntries = getVisibleMainAgentToolEntryMap(toolActivationState)
+  const phase = state.activeToolPhase ?? 'cognition'
+  const tools = getMainAgentToolsForPhase(phase, toolActivationState)
+  const toolEntries = Object.fromEntries(
+    Object.entries(getVisibleMainAgentToolEntryMap(toolActivationState)).filter(([, entry]) =>
+      entry.tool.agentMetadata.routing.phases.includes(phase)
+    )
+  )
   const executedTools: Array<Record<string, unknown>> = []
   const activatedToolsets: string[] = []
   const activatedTools: string[] = []
   let toolCallCounts = { ...(state.toolCallCounts ?? {}) }
   let executionLedger = state.turnExecutionLedger ?? createTurnExecutionLedger('处理当前用户请求')
+  const toolCalls = msg.tool_calls as Array<{ id?: string; name: string; args?: unknown }>
+  const callIds = toolCalls.map((call) => call.id || call.name)
+  const batchId = `${state.turnWorkspace?.turnId ?? 'turn'}:${executionLedger.modelStep}:${callIds.join(':')}`
+  const isResumingBatch =
+    executionLedger.toolBatch?.id === batchId &&
+    executionLedger.toolBatch.callIds.length === callIds.length &&
+    executionLedger.toolBatch.callIds.every((id, index) => id === callIds[index])
+  const startToolIndex = isResumingBatch ? executionLedger.toolBatch?.nextIndex ?? 0 : 0
+  executionLedger = isResumingBatch
+    ? executionLedger
+    : beginToolBatch(executionLedger, batchId, callIds)
   let nextWorkspace = state.turnWorkspace
   let expressionProfile = state.expressionProfile
   const recordExecution = (input: Parameters<typeof createTurnExecutionAction>[0]): void => {
@@ -428,13 +490,15 @@ export async function toolNode(
   }
 
   // 遍历工具组执行调用
-  for (const toolCall of msg.tool_calls) {
+  for (let toolIndex = 0; toolIndex < toolCalls.length; toolIndex += 1) {
+    if (toolIndex < startToolIndex) continue
+    const toolCall = toolCalls[toolIndex]
     const actionId = randomUUID()
     const actionStartedAt = new Date().toISOString()
     const registeredEntry = getMainAgentToolEntry(toolCall.name)
     const toolEntryForExecution = toolEntries[toolCall.name] ?? registeredEntry
     const executionLevel: AgentToolExecutionLevel =
-      toolEntryForExecution?.tool.agentMetadata.executionLevel ?? 'confirmation_required'
+      toolEntryForExecution?.tool.agentMetadata.execution.level ?? 'confirmation_required'
     const confirmationKey = buildToolConfirmationKey(toolCall.name, toolCall.args)
     const confirmationSessionId = state.turnWorkspace?.sessionId ?? 'default'
     const confirmationEventId = state.turnWorkspace?.eventId ?? ''
@@ -449,17 +513,23 @@ export async function toolNode(
         : false
     const stageId = `tool-${toolCall.id ?? randomUUID()}-${toolCall.name}`
     traceState('toolNode', {
+      scope: 'tool',
+      status: 'started',
+      modelStep: executionLedger.modelStep,
+      toolBatchId: batchId,
+      toolCallId: toolCall.id,
+      actionId,
       title: `状态: toolNode 调用 ${toolCall.name}`,
       summary: `准备调用 ${toolCall.name}`,
       data: {
         toolName: toolCall.name,
-        toolCallId: toolCall.id ?? null,
-        args: toolCall.args ?? {}
+        executionLevel,
+        argsSummary: stringifyCompact(toolCall.args ?? {})
       }
     })
-    emitAgentStage({
+    emitVisibleToolStage(toolEntryForExecution?.tool, {
       stageId,
-      label: getToolStageLabel(tools[toolCall.name], toolCall.name, 'start'),
+      label: getToolStageLabel(toolEntryForExecution?.tool, toolCall.name, 'start'),
       status: 'start'
     })
 
@@ -500,7 +570,6 @@ export async function toolNode(
           status: 'error'
         })
         toolMessages.push(toolMessage)
-        if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
         pendingToolContext.push({
           id: randomUUID(),
           toolCallId: toolCall.id,
@@ -512,21 +581,26 @@ export async function toolNode(
           ok: false,
           argsSummary: stringifyCompact(toolCall.args ?? {}),
           resultSummary: content,
-          createdAtLoop: state.llmCalls ?? 0
+          createdAtLoop: executionLedger.modelStep
         })
       }
       traceDecision('toolNode', {
+        scope: 'tool',
+        status: 'skipped',
+        modelStep: executionLedger.modelStep,
+        toolBatchId: batchId,
+        toolCallId: toolCall.id,
+        actionId,
         title: `决策: toolNode 拦截 ${toolCall.name}`,
         summary: `${toolCall.name} 的工具协议要求明确确认`,
         data: {
           toolName: toolCall.name,
-          toolCallId: toolCall.id ?? null,
           reason: 'tool_protocol_confirmation_required',
           confirmationKey,
-          args: toolCall.args ?? {}
+          argsSummary: stringifyCompact(toolCall.args ?? {})
         }
       })
-      emitAgentStage({
+      emitVisibleToolStage(toolEntryForExecution?.tool, {
         stageId,
         label: `${toolCall.name} 等待明确确认`,
         status: 'done'
@@ -605,7 +679,6 @@ export async function toolNode(
           status: 'error'
         })
         toolMessages.push(toolMessage)
-        if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
         pendingToolContext.push({
           id: randomUUID(),
           toolCallId: toolCall.id,
@@ -617,23 +690,28 @@ export async function toolNode(
           ok: false,
           argsSummary: stringifyCompact(toolCall.args ?? {}),
           resultSummary: content,
-          createdAtLoop: state.llmCalls ?? 0
+          createdAtLoop: executionLedger.modelStep
         })
       }
       traceDecision('toolNode', {
+        scope: 'tool',
+        status: 'failed',
+        modelStep: executionLedger.modelStep,
+        toolBatchId: batchId,
+        toolCallId: toolCall.id,
+        actionId,
         title: `决策: toolNode ${normalizedToolName} 不可调用`,
         summary: errorMessage,
         data: {
           toolName: normalizedToolName,
-          toolCallId: toolCall.id ?? null,
-          args: toolCall.args ?? {},
+          argsSummary: stringifyCompact(toolCall.args ?? {}),
           errorCode,
           currentCallCount,
           turnCallLimit: registeredEntry?.turnCallLimit ?? null,
           activationMode: registeredEntry?.activationMode ?? null
         }
       })
-      emitAgentStage({
+      emitVisibleToolStage(toolEntryForExecution?.tool, {
         stageId,
         label: `${normalizedToolName} 不可用`,
         status: 'error'
@@ -654,7 +732,7 @@ export async function toolNode(
 
     if (!toolCall.id) {
       console.warn('Tool call missing id, skipping')
-      emitAgentStage({
+      emitVisibleToolStage(toolEntryForExecution?.tool, {
         stageId,
         label: `${toolCall.name} 缺少调用标识`,
         status: 'error'
@@ -699,7 +777,6 @@ export async function toolNode(
         status: 'error'
       })
       toolMessages.push(toolMessage)
-      if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
       pendingToolContext.push({
         id: randomUUID(),
         toolCallId: toolCall.id,
@@ -711,19 +788,24 @@ export async function toolNode(
         ok: false,
         argsSummary: stringifyCompact(toolCall.args ?? {}),
         resultSummary: content,
-        createdAtLoop: state.llmCalls ?? 0
+          createdAtLoop: executionLedger.modelStep
       })
       traceDecision('toolNode', {
+        scope: 'tool',
+        status: 'skipped',
+        modelStep: executionLedger.modelStep,
+        toolBatchId: batchId,
+        toolCallId: toolCall.id,
+        actionId,
         title: `决策: 阻止 ${toolCall.name} 原样重试`,
         summary: '相同参数已经确定性失败，本次未再次执行',
         data: {
           toolName: toolCall.name,
-          toolCallId: toolCall.id,
-          args: toolCall.args ?? {},
+          argsSummary: stringifyCompact(toolCall.args ?? {}),
           previousActionId: blockedInvocation.actionId
         }
       })
-      emitAgentStage({
+      emitVisibleToolStage(tool, {
         stageId,
         label: `${toolCall.name} 参数需要修正`,
         status: 'error',
@@ -752,7 +834,7 @@ export async function toolNode(
     let durableReceipts: TurnWorkspaceDurableToolReceipt[] = []
     let changeSetSummary: ToolChangeSetSummary | null = null
     const effectExecutionContext: ToolEffectExecutionContext | undefined =
-      tool.agentMetadata.readOnly === false && nextWorkspace
+      tool.agentMetadata.execution.readOnly === false && nextWorkspace
         ? {
             eventId: nextWorkspace.eventId,
             turnId: nextWorkspace.turnId,
@@ -760,15 +842,15 @@ export async function toolNode(
             sessionId: nextWorkspace.sessionId,
             toolCallId: toolCall.id,
             toolName: toolCall.name,
-            recoveryMode: tool.agentMetadata.effectRecovery ?? 'best_effort'
+            recoveryMode: tool.agentMetadata.execution.effectRecovery ?? 'best_effort'
           }
         : undefined
     const finishDurableToolExecution =
-      tool.agentMetadata.readOnly === false
+      tool.agentMetadata.execution.readOnly === false
         ? mainAgentRunControlService.beginDurableToolExecution()
         : undefined
     try {
-      emitAgentStage({
+      emitVisibleToolStage(tool, {
         stageId,
         label: getToolStageLabel(tool, toolCall.name, 'start'),
         status: 'running'
@@ -776,7 +858,7 @@ export async function toolNode(
       // 暂时使用 any 后续添加类型守卫
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const invokeTool = async (): Promise<unknown> => (tool as any).invoke(toolCall.args)
-      const userDirectiveEvidenceField = tool.agentMetadata.userDirectiveEvidenceField
+      const userDirectiveEvidenceField = tool.agentMetadata.description.userDirectiveEvidenceField
       if (userDirectiveEvidenceField) {
         const evidence = toolCall.args?.[userDirectiveEvidenceField]
         const currentUserMessage = getLatestHumanMessageText(state.messages)
@@ -830,7 +912,7 @@ export async function toolNode(
         })
       }
       const persistedEffectReceipts =
-        tool.agentMetadata.readOnly === false
+        tool.agentMetadata.execution.readOnly === false
           ? await listToolEffectsByCallId(AppDataSource, {
               eventId: nextWorkspace?.eventId ?? state.turnWorkspace?.eventId ?? '',
               turnId: nextWorkspace?.turnId ?? state.turnWorkspace?.turnId ?? 0,
@@ -1040,26 +1122,35 @@ export async function toolNode(
         turnCallLimit: toolEntry?.turnCallLimit
       })
       traceArtifact('toolNode', {
+        scope: 'tool',
+        status: effectiveToolOk ? 'completed' : 'failed',
+        modelStep: executionLedger.modelStep,
+        toolBatchId: batchId,
+        toolCallId: toolCall.id,
+        actionId,
+        changeSetId: persistedEffectReceipts[0]?.changeSetId,
+        receiptIds: persistedEffectReceipts.map((receipt) => receipt.id),
         title: `产物: toolNode ${toolCall.name} 返回`,
         summary: !effectiveToolOk
           ? `${toolCall.name} 返回失败：${envelope?.error?.message || envelope?.message || '结果未知'}`
           : `${toolCall.name} 已返回结果`,
         data: {
           toolName: toolCall.name,
-          toolCallId: toolCall.id,
-          args: toolCall.args ?? {},
+          argsSummary: stringifyCompact(toolCall.args ?? {}),
           ok: effectiveToolOk,
-          message: envelope?.message ?? null,
-          error: envelope?.error ?? null,
-          receipt: envelope?.receipt ?? null,
-          persistedEffectReceipt,
-          completion: envelope?.completion ?? null,
-          nextSuggestions: envelope?.nextSuggestions ?? [],
-          meta: envelope?.meta ?? null,
-          data: envelopeData ?? result
+          resultSummary: buildResultSummary(toolCall.name, envelope, result),
+          errorCode: envelope?.error?.code ?? null,
+          completionState:
+            persistedEffectReceipt?.status === 'completed'
+              ? 'completed'
+              : (envelope?.completion.state ?? null),
+          effectCount: persistedEffectReceipts.length,
+          beforeRevision: persistedEffectReceipt?.beforeRevision ?? null,
+          afterRevision: persistedEffectReceipt?.afterRevision ?? null,
+          retryable: envelope?.error?.retryable ?? envelope?.receipt?.retryable ?? false
         }
       })
-      emitAgentStage({
+      emitVisibleToolStage(tool, {
         stageId,
         label: getToolStageLabel(tool, toolCall.name, effectiveToolOk ? 'done' : 'error'),
         status: effectiveToolOk ? 'done' : 'error',
@@ -1073,10 +1164,9 @@ export async function toolNode(
             name: toolCall.name,
             status: effectiveToolOk ? 'success' : 'error'
           })
-          if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
           const retention = !effectiveToolOk
             ? 'ephemeral'
-            : (tool.agentMetadata.contextRetention ?? 'ephemeral')
+            : (tool.agentMetadata.retention.context ?? 'ephemeral')
           if (retention !== 'none') {
             const data =
               envelope?.data && typeof envelope.data === 'object'
@@ -1097,14 +1187,14 @@ export async function toolNode(
                 retention === 'evidence'
                   ? modelResultContent
                   : buildResultSummary(toolCall.name, envelope, result),
-              createdAtLoop: state.llmCalls ?? 0,
+              createdAtLoop: executionLedger.modelStep,
               sourceRefs: buildSourceRefs(toolCall.name, data)
             })
           }
           return toolMessage
         })()
       )
-      if (tool.agentMetadata.readOnly === false && toolCall.id) {
+      if (tool.agentMetadata.execution.readOnly === false && toolCall.id) {
         durableReceipts = persistedEffectReceipts
           .filter((effect) => effect.status === 'completed' || effect.status === 'unknown')
           .map(toWorkspaceDurableReceipt)
@@ -1149,18 +1239,29 @@ export async function toolNode(
           )
         }
       }
-      const invocationError = describeInvocationError(error, tool.agentMetadata.inputSummary)
+      const invocationError = describeInvocationError(error, tool.agentMetadata.description.inputSummary ?? '')
       // ✅ 错误信息返回给 LLM，而不是静默失败
       traceError('toolNode', error, {
+        scope: 'tool',
+        status: 'failed',
+        modelStep: executionLedger.modelStep,
+        toolBatchId: batchId,
+        toolCallId: toolCall.id,
+        actionId,
+        changeSetId: effectExecutionContext?.changeSetId,
+        receiptIds: durableReceipts
+          .map((receipt) => receipt.receiptId)
+          .filter((id): id is string => Boolean(id)),
         title: `异常: toolNode ${toolCall.name}`,
         summary: `${toolCall.name} 执行失败`,
         data: {
           toolName: toolCall.name,
-          toolCallId: toolCall.id,
-          args: toolCall.args ?? {}
+          argsSummary: stringifyCompact(toolCall.args ?? {}),
+          errorCode: invocationError.code,
+          retryCondition: invocationError.retryCondition
         }
       })
-      emitAgentStage({
+      emitVisibleToolStage(tool, {
         stageId,
         label: getToolStageLabel(tool, toolCall.name, 'error'),
         status: 'error',
@@ -1188,7 +1289,6 @@ export async function toolNode(
         status: 'error'
       })
       toolMessages.push(toolMessage)
-      if (toolMessage.id) activeToolTranscriptIds.push(toolMessage.id)
       pendingToolContext.push({
         id: randomUUID(),
         toolCallId: toolCall.id,
@@ -1200,7 +1300,7 @@ export async function toolNode(
         ok: false,
         argsSummary: stringifyCompact(toolCall.args ?? {}),
         resultSummary: content,
-        createdAtLoop: state.llmCalls ?? 0
+        createdAtLoop: executionLedger.modelStep
       })
       recordExecution({
         actionId,
@@ -1221,23 +1321,16 @@ export async function toolNode(
     try {
       if (durableReceipts.length > 0 && nextWorkspace) {
         for (const durableReceipt of durableReceipts) {
-          nextWorkspace = withDurableToolReceipt(
-            withSuccessfulToolUse(nextWorkspace, durableReceipt.toolName),
-            durableReceipt
-          )
-        }
-        if (changeSetSummary) {
-          nextWorkspace = withToolChangeSetSummary(nextWorkspace, changeSetSummary)
+          nextWorkspace = withDurableToolReceipt(nextWorkspace, durableReceipt)
         }
         await mainAgentTurnVersionService.checkpointAfterDurableToolEffect(
           buildDurableToolEffectCheckpointState(state, {
             messages: toolMessages,
             pendingToolContext,
-            activeToolTranscriptIds: [...new Set(activeToolTranscriptIds)],
             activeToolsets: [...new Set(activatedToolsets)],
             activeTools: [...new Set(activatedTools)],
             toolCallCounts,
-            turnExecutionLedger: executionLedger,
+            turnExecutionLedger: advanceToolBatch(executionLedger, toolIndex + 1),
             turnWorkspace: nextWorkspace
           })
         )
@@ -1248,6 +1341,9 @@ export async function toolNode(
   }
 
   traceDecision('toolNode', {
+    scope: 'loop',
+    modelStep: executionLedger.modelStep,
+    toolBatchId: batchId,
     title: '决策: toolNode 工具调用',
     summary: `收到 ${msg.tool_calls.length} 个工具调用`,
     data: {
@@ -1258,6 +1354,10 @@ export async function toolNode(
 
   if (executedTools.length > 0) {
     traceArtifact('toolNode', {
+      scope: 'loop',
+      status: 'completed',
+      modelStep: executionLedger.modelStep,
+      toolBatchId: batchId,
       title: '产物: toolNode 执行结果',
       summary: executedTools
         .map((item) => {
@@ -1283,24 +1383,13 @@ export async function toolNode(
     })
   }
 
-  const successfulToolNames = executedTools
-    .filter((tool) => tool.ok !== false)
-    .map((tool) => String(tool.name))
-  nextWorkspace = nextWorkspace
-    ? successfulToolNames.reduce(
-        (workspace, toolName) => withSuccessfulToolUse(workspace, toolName),
-        nextWorkspace
-      )
-    : undefined
-
   return {
     messages: toolMessages,
     pendingToolContext,
-    activeToolTranscriptIds: [...new Set(activeToolTranscriptIds)],
     activeToolsets: [...new Set(activatedToolsets)],
     activeTools: [...new Set(activatedTools)],
     toolCallCounts,
-    turnExecutionLedger: executionLedger,
+    turnExecutionLedger: advanceToolBatch(executionLedger, toolCalls.length),
     ...(expressionProfile ? { expressionProfile } : {}),
     ...(nextWorkspace ? { turnWorkspace: nextWorkspace } : {})
   }

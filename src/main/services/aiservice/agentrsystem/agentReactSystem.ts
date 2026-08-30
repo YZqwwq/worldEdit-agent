@@ -1,6 +1,6 @@
 import { END, START, StateGraph } from '@langchain/langgraph'
 import { MessagesState } from './state/messageState'
-import { llmCall } from './node/modelnode/modelnode'
+import { cognitionNode } from './node/modelnode/modelnode'
 import { toolNode } from './node/toolnode/toolnode'
 import { toolContextReloadNode } from './node/toolcontextreloadnode/toolContextReloadNode'
 import { contextNode } from './node/contextnode/contextnode'
@@ -9,8 +9,14 @@ import { instantPerceptionNode } from './node/instantperceptionnode/instantPerce
 import { shouldContinue } from './endlogic/shouldContinue'
 import { withNodeTrace } from '../../log/trace/withNodeTrace'
 import { withTurnVersionBoundary } from './execution/withTurnVersionBoundary'
-import { finalAnswerNode } from './node/finalanswernode/finalAnswerNode'
+import { expressionNode } from './node/finalanswernode/finalAnswerNode'
 import { outputGuardNode } from './node/outputguardnode/outputGuardNode'
+
+const expressionToolNode = toolNode
+const routeAfterToolReload = (state: typeof MessagesState.State) =>
+  state.activeToolPhase === 'expression' ? 'expressionNode' : 'cognitionNode'
+const routeAfterExpression = (state: typeof MessagesState.State) =>
+  state.loopDirective === 'compose_expression_tools' ? 'expressionToolNode' : 'outputGuardNode'
 
 const versionedNode = <TResult>(
   name: Parameters<typeof withTurnVersionBoundary>[0],
@@ -23,8 +29,9 @@ const routeTurnStart = (state: typeof MessagesState.State) =>
 export const agent = new StateGraph(MessagesState)
   .addNode('instantPerceptionNode', versionedNode('instantPerceptionNode', instantPerceptionNode))
   .addNode('contextNode', versionedNode('contextNode', contextNode))
-  .addNode('llmCall', versionedNode('llmCall', llmCall))
-  .addNode('finalAnswerNode', versionedNode('finalAnswerNode', finalAnswerNode))
+  .addNode('cognitionNode', versionedNode('cognitionNode', cognitionNode))
+  .addNode('expressionNode', versionedNode('expressionNode', expressionNode))
+  .addNode('expressionToolNode', versionedNode('expressionToolNode', expressionToolNode))
   .addNode('outputGuardNode', versionedNode('outputGuardNode', outputGuardNode))
   .addNode('toolNode', versionedNode('toolNode', toolNode))
   .addNode('toolContextReloadNode', versionedNode('toolContextReloadNode', toolContextReloadNode))
@@ -32,19 +39,21 @@ export const agent = new StateGraph(MessagesState)
   .addConditionalEdges(START, routeTurnStart, [
     'instantPerceptionNode',
     'contextNode',
-    'llmCall',
-    'finalAnswerNode',
+    'cognitionNode',
+    'expressionNode',
+    'expressionToolNode',
     'outputGuardNode',
     'toolNode',
     'toolContextReloadNode',
     'memoryNode'
   ])
   .addEdge('instantPerceptionNode', 'contextNode')
-  .addEdge('contextNode', 'llmCall')
-  .addConditionalEdges('llmCall', shouldContinue, ['llmCall', 'toolNode', 'finalAnswerNode'])
+  .addEdge('contextNode', 'cognitionNode')
+  .addConditionalEdges('cognitionNode', shouldContinue, ['cognitionNode', 'toolNode', 'expressionNode'])
   .addEdge('toolNode', 'toolContextReloadNode')
-  .addEdge('toolContextReloadNode', 'llmCall')
-  .addEdge('finalAnswerNode', 'outputGuardNode')
+  .addConditionalEdges('toolContextReloadNode', routeAfterToolReload, ['cognitionNode', 'expressionNode'])
+  .addConditionalEdges('expressionNode', routeAfterExpression, ['expressionToolNode', 'outputGuardNode'])
+  .addEdge('expressionToolNode', 'toolContextReloadNode')
   .addEdge('outputGuardNode', 'memoryNode')
   .addEdge('memoryNode', END)
   .compile()

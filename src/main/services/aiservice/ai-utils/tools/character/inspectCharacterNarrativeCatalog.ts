@@ -12,22 +12,24 @@ export const inspectCharacterNarrativeCatalogTool = defineAgentTool({
   inputSchema: inspectCharacterNarrativeCatalogInputSchema,
   outputSchema: inspectCharacterNarrativeCatalogOutputSchema,
   metadata: {
-    whenToUse: [
+    description: {
+      purpose: '查看人物认知范围内的叙事文档目录。',
+      whenToUse: [
       '需要建立或重新形成人物印象，并确认世界认知是否已经提供可靠文档范围',
       '需要查看人物文本目录、文件树、每个文件或子树的文本量',
       '需要为 create_character_narrative_reading_task 准备 documentId 或 rootDocumentId',
       '已有印象缺失、过旧、证据范围不足，或用户要求基于指定文本重新分析人物'
     ],
-    whenNotToUse: [
+      whenNotToUse: [
       '已经有有效的 reading task，应该继续调用 read_character_narrative_task_batch',
       '只需要读取人物结构化 profile/demographic 信息，应使用人物详情工具',
       '已有印象已经足够覆盖当前问题，且用户没有要求重新阅读或更新印象',
       '用户没有要求基于人物文本阅读做分析、总结或印象刷新'
     ],
-    inputSummary: '提供 characterEntityId；可选 includePreview/previewChars 让目录项附带短预览。',
-    outputSummary:
+      inputSummary: '提供 characterEntityId；可选 includePreview/previewChars 让目录项附带短预览。',
+      outputSummary:
       '返回人物认知范围状态，以及该范围内的全量阅读选项、document/document_tree、路径和文本量。',
-    usageContract: [
+      usageContract: [
       '本工具只查看目录，不读取完整正文。',
       '目录只包含有效人物认知卡片引用的文档，不再把整个世界文档树当作人物文本。',
       'cognitionScope 不是 available 时，不要创建阅读任务；先使用世界文档搜索、树浏览和精确阅读确认范围，再保存或修正世界认知。',
@@ -36,15 +38,14 @@ export const inspectCharacterNarrativeCatalogTool = defineAgentTool({
       '如果用户只关心部分主题、指定章节、某类事件或某个关系，从 selectableItems 中选择 document 或 document_tree。',
       '如果用户要求“重新认识/重新评价/更新印象”，应先检查目录，再根据问题决定 full 或 selective。'
     ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '正在查看人物文本目录',
       doneLabel: '人物文本目录查看完成',
       errorLabel: '人物文本目录查看失败'
-    }
+    } },
+    execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     return characterNarrativeReadingService.inspectCatalog(input)

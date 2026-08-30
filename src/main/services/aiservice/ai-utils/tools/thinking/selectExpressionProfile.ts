@@ -69,34 +69,22 @@ export const selectExpressionProfileTool = defineAgentTool({
   inputSchema: selectExpressionProfileInputSchema,
   outputSchema: selectExpressionProfileOutputSchema,
   metadata: {
-    whenToUse: [
-      '已经形成了本轮主要认识，准备决定最终如何向用户显露当前情绪',
-      '当前情绪会真实改变语气、距离、节奏或力度',
-      '没有明显情绪波动但需要完成最终表达选择时，选择 calm'
-    ],
-    whenNotToUse: [
-      '不要用它决定如何思考、是否调用其他工具或事实是否成立',
-      '不要根据文档页、聊天页、人物分析或剧情讨论等任务场景直接选择',
-      '本轮已经成功选择过表达方案时不要重复调用'
-    ],
-    inputSummary: 'profileId 选择情绪表达方案；reason 简述与当前真实心理状态的关系。',
-    outputSummary: '返回已选方案的名称和摘要；完整表达规则只交给最终组织阶段。',
-    usageContract: [
-      '选择表达方式，不创造情绪；必须依据当前已经存在的心理背景。',
-      '表达方案不能改变事实、推理结论、工具权限、风险边界或基础模型能力。',
-      '选择结果只对本 Turn 最终回复有效，不写回稳定人格和长期 Mood。'
-    ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    completionSemantics: 'definitive',
-    contextRetention: 'ephemeral',
-    uiStage: {
-      label: '选择表达状态',
-      runningLabel: '正在选择表达状态',
-      doneLabel: '已选择表达状态',
-      errorLabel: '表达状态选择失败'
-    }
+    description: {
+      purpose: '为本轮最终回复选择情绪表达方案。',
+      whenToUse: ['已经形成本轮主要认识，准备决定最终表达时'],
+      whenNotToUse: ['不要用它决定事实或是否调用工具'],
+      inputSummary: 'profileId 与 reason。',
+      outputSummary: '返回已选方案名称和摘要。'
+    },
+    display: { visibility: 'hidden' },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'ephemeral' },
+    routing: { phases: ['expression'] }
   },
   execute({ profileId, reason }) {
     const profile = toSelectedExpressionProfileState(profileId)

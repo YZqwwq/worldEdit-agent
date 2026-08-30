@@ -1,0 +1,195 @@
+=== SYSTEM tool-usage ===
+工具调用原则：
+1. 本地状态和外部事实优先用工具确认；不要猜测。
+2. 参数尽量使用用户语言和最近结果中的稳定标识；不要编造 ID。
+3. 只读工具可返回多个候选；写入、删除和委派必须先唯一定位目标。
+4. 工具失败也是可消费结果：根据 message、候选和 nextSuggestions 调整调用或继续回答，不要直接中止整轮。
+5. 当前工具不足时先 query_tool_catalog，再 activate_toolset；未激活的工具集不可调用。
+6. eventual 工具只有 completion.state=completed 才表示工作完成。
+=== BOUND TOOLS (6) ===
+
+--- query_tool_catalog ---
+Query the catalog of available specialized toolsets.
+Use when: 默认工具不足以完成用户请求，需要寻找某类专门能力 | 你知道任务意图，但不知道应该激活哪个工具集
+Input: 可选 intent 标注能力类型；可选 purpose 描述需要的能力；可选 toolsetIds 用于精确查询；maxResults 限制返回数量。
+Input schema:
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "intent": {
+      "type": "string",
+      "enum": [
+        "network_search",
+        "world_read",
+        "task_inspection",
+        "math",
+        "background_task",
+        "unknown"
+      ]
+    },
+    "purpose": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "toolsetIds": {
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "maxResults": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12
+    }
+  },
+  "additionalProperties": false
+}
+
+--- activate_toolset ---
+Activate one or more specialized toolsets so their concrete tools become visible in the next model step.
+Use when: 已经通过 query_tool_catalog 找到匹配工具集，需要使用其中具体工具 | 后台任务或任务上下文明确给出了 toolsetId，需要恢复对应能力
+Input: 输入一个或多个 toolsetIds，并可附带 purpose 说明激活目的。
+Input schema:
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "toolsetIds": {
+      "minItems": 1,
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "purpose": {
+      "type": "string",
+      "maxLength": 500
+    }
+  },
+  "required": [
+    "toolsetIds"
+  ],
+  "additionalProperties": false
+}
+
+--- get_time ---
+Get the current local time.
+Use when: 用户询问当前时间 | 需要用系统当前时间作为回复锚点
+Input: 不需要输入参数。
+Input schema:
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+
+--- recall_agent_memory ---
+Recall relevant long-term agent memories and prior interactions.
+Use when: 用户提到“之前、上次、刚才、继续、我们说过、你还记得吗、按之前那个”等历史指代 | 当前回答可能依赖用户曾经明确补充、纠正或确认过的信息
+Input: query 使用自然语言描述当前想回忆的经历、主题或不确定点；limit 可选，默认返回最多 8 条相关记忆。
+Input schema:
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "additionalProperties": false
+}
+
+--- consult_thinking_guide ---
+按需展开一种思考场景的内部认知视角。
+Use when: 当前问题需要比资料复述更深入的理解，而你尚未形成有意义的观察角度 | 讨论人物时需要判断用户意图、认识是否充分、人物动机、矛盾、关系、创作缘由或自己的感受
+Input: scene 选择 character_analysis（人物分析）或 plot_discussion（剧情讨论）。
+Input schema:
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "scene": {
+      "description": "选择当前需要的思考场景：character_analysis=人物分析；plot_discussion=剧情讨论。",
+      "type": "string",
+      "enum": [
+        "character_analysis",
+        "plot_discussion"
+      ]
+    }
+  },
+  "required": [
+    "scene"
+  ],
+  "additionalProperties": false
+}
+
+--- edit_agent_habit ---
+Create, update, or remove a persistent agent habit at the user's explicit request.
+Use when: 用户明确要求以后持续采用某种思考、交流或工具使用方式 | 用户明确要求不要再采用某种长期行为方式
+Input: 提供 set/remove、稳定 habitKey、影响范围、长期执行规则，并保留当前用户的明确原话作为来源。
+Constraint: userRequestEvidence must quote text from the current user message.
+Input schema:
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "operation": {
+      "description": "set=新增或替换一项长期习惯；remove=用户明确要求忘记已有习惯。",
+      "type": "string",
+      "enum": [
+        "set",
+        "remove"
+      ]
+    },
+    "habitKey": {
+      "description": "稳定、简短的英文语义键，例如 card_delivery、response_length、ask_before_editing。",
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "scope": {
+      "description": "set 时提供习惯主要影响的范围：thinking=思考，communication=交流，tool_use=工具使用；remove 时省略。",
+      "type": "string",
+      "enum": [
+        "thinking",
+        "communication",
+        "tool_use"
+      ]
+    },
+    "instruction": {
+      "description": "set 时写入清晰、可长期执行的自然语言习惯；remove 时省略。",
+      "type": "string",
+      "maxLength": 800
+    },
+    "userRequestEvidence": {
+      "description": "当前用户明确要求形成或忘记长期习惯的原话。",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 800
+    }
+  },
+  "required": [
+    "operation",
+    "habitKey",
+    "userRequestEvidence"
+  ],
+  "additionalProperties": false
+}

@@ -14,24 +14,41 @@ export const continueActiveChildAgentTool = defineAgentTool({
   inputSchema: continueActiveChildAgentInputSchema,
   outputSchema: continueActiveChildAgentOutputSchema,
   metadata: {
-    whenToUse: [
-      '当前 active task 正处于 awaiting_user_input',
-      '用户正在补充子 agent 之前请求的缺失参数',
-      '需要把用户补参转成下一条 execution 继续后台子 agent'
-    ],
-    whenNotToUse: [
-      '当前没有 active task',
-      '当前任务并未等待用户补参',
-      '用户是在发起一个全新任务，而不是补充旧任务'
-    ],
-    inputSummary: '提供 userReply，也就是用户刚刚补充的缺失信息原文。',
-    outputSummary:
-      '返回 accepted、taskId、executionId、executorKind、status、summary、nextAction，表示当前 active 子 agent 已被续跑。',
-    examples: ['当人物编辑子 agent 缺少 worldName，用户补充“方舟终章”后，调用本工具继续后台执行。'],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    completionSemantics: 'eventual'
+    description: {
+      purpose:
+        'Resume the current active child-agent task after the user supplies missing information.',
+      whenToUse: [
+        '当前 active task 正处于 awaiting_user_input',
+        '用户正在补充子 agent 之前请求的缺失参数',
+        '需要把用户补参转成下一条 execution 继续后台子 agent'
+      ],
+      whenNotToUse: [
+        '当前没有 active task',
+        '当前任务并未等待用户补参',
+        '用户是在发起一个全新任务，而不是补充旧任务'
+      ],
+      inputSummary: '提供 userReply，也就是用户刚刚补充的缺失信息原文。',
+      outputSummary:
+        '返回 accepted、taskId、executionId、executorKind、status、summary、nextAction，表示当前 active 子 agent 已被续跑。',
+      examples: [
+        '当人物编辑子 agent 缺少 worldName，用户补充“方舟终章”后，调用本工具继续后台执行。'
+      ]
+    },
+    display: {
+      visibility: 'visible',
+      stage: {
+        label: '继续后台任务',
+        runningLabel: '正在继续后台任务',
+        doneLabel: '后台任务已继续'
+      }
+    },
+    execution: {
+      level: 'notice',
+      readOnly: false,
+      idempotent: false,
+      completionSemantics: 'eventual'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const result = await taskContinuationService.continueActiveTask(input.userReply)

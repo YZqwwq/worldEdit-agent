@@ -33,9 +33,9 @@ test('plot discussion guide distinguishes existing events from new suggestions',
 
 test('thinking guide is a core ephemeral read-only tool', async () => {
   assert.equal(consultThinkingGuideTool.name, 'consult_thinking_guide')
-  assert.equal(consultThinkingGuideTool.agentMetadata.readOnly, true)
-  assert.equal(consultThinkingGuideTool.agentMetadata.idempotent, true)
-  assert.equal(consultThinkingGuideTool.agentMetadata.contextRetention, 'ephemeral')
+  assert.equal(consultThinkingGuideTool.agentMetadata.execution.readOnly, true)
+  assert.equal(consultThinkingGuideTool.agentMetadata.execution.idempotent, true)
+  assert.equal(consultThinkingGuideTool.agentMetadata.retention.context, 'ephemeral')
 
   const rawResult = await consultThinkingGuideTool.invoke({ scene: 'character_analysis' })
   const envelope = parseAgentToolResultEnvelope(rawResult)
@@ -68,7 +68,7 @@ test('expression selection returns a summary while runtime keeps the final-only 
   assert.equal('prompt' in modelResult, false)
   assert.match(selected.prompt, /稳态表达边界/)
   assert.match(selected.prompt, /受伤表达/)
-  assert.equal(selectExpressionProfileTool.agentMetadata.contextRetention, 'ephemeral')
+  assert.equal(selectExpressionProfileTool.agentMetadata.retention.context, 'ephemeral')
 
   const applied = resolveExpressionProfileSelection({
     toolName: selectExpressionProfileTool.name,

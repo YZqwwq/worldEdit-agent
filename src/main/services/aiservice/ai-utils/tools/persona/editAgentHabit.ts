@@ -76,43 +76,51 @@ export const editAgentHabitTool = defineAgentTool({
   inputSchema: editAgentHabitInputSchema,
   outputSchema: editAgentHabitOutputSchema,
   metadata: {
-    whenToUse: [
-      '用户明确要求以后持续采用某种思考、交流或工具使用方式',
-      '用户明确要求不要再采用某种长期行为方式',
-      '用户明确要求忘记、撤销或替换此前形成的习惯'
-    ],
-    whenNotToUse: [
-      '用户只对当前一次回复提出格式或行为要求',
-      '只是从用户语气、点击行为或单次选择中推测偏好',
-      'Agent 自己觉得某种方式可能更好，但用户没有要求形成长期习惯',
-      '修改稳定身份、价值观、事实记忆或工具权限；这些不属于习惯'
-    ],
-    inputSummary:
-      '提供 set/remove、稳定 habitKey、影响范围、长期执行规则，并保留当前用户的明确原话作为来源。',
-    outputSummary: '返回习惯是否发生变化、最新 revision 和当前习惯内容。',
-    usageContract: [
-      '只有当前用户消息明确表达长期、持续或以后都这样做的意图时才能调用。',
-      'userRequestEvidence 必须来自当前用户原话，不能由 Agent 自己编造或概括成更强的授权。',
-      '一次性要求直接在本轮遵守，不写入长期习惯。',
-      'set 应把用户要求整理成简洁可执行的习惯；同一主题使用相同 habitKey 以完成替换。',
-      '用户要求忘记某项习惯时使用 remove，不要用相反习惯模拟删除。'
-    ],
-    examples: [
-      '“以后不要用卡片回答我” → set card_delivery，写入默认直接在聊天中完整回答。',
-      '“以后长分析都放卡片里” → set card_delivery，替换同一主题习惯。',
-      '“忘掉我之前关于卡片的要求” → remove card_delivery。'
-    ],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: true,
-    completionSemantics: 'definitive',
-    contextRetention: 'evidence',
-    userDirectiveEvidenceField: 'userRequestEvidence',
-    uiStage: {
-      label: '正在调整长期习惯',
-      doneLabel: '长期习惯已更新',
-      errorLabel: '长期习惯更新失败'
-    }
+    description: {
+      purpose: "Create, update, or remove a persistent agent habit at the user's explicit request.",
+      whenToUse: [
+        '用户明确要求以后持续采用某种思考、交流或工具使用方式',
+        '用户明确要求不要再采用某种长期行为方式',
+        '用户明确要求忘记、撤销或替换此前形成的习惯'
+      ],
+      whenNotToUse: [
+        '用户只对当前一次回复提出格式或行为要求',
+        '只是从用户语气、点击行为或单次选择中推测偏好',
+        'Agent 自己觉得某种方式可能更好，但用户没有要求形成长期习惯',
+        '修改稳定身份、价值观、事实记忆或工具权限；这些不属于习惯'
+      ],
+      inputSummary:
+        '提供 set/remove、稳定 habitKey、影响范围、长期执行规则，并保留当前用户的明确原话作为来源。',
+      outputSummary: '返回习惯是否发生变化、最新 revision 和当前习惯内容。',
+      usageContract: [
+        '只有当前用户消息明确表达长期、持续或以后都这样做的意图时才能调用。',
+        'userRequestEvidence 必须来自当前用户原话，不能由 Agent 自己编造或概括成更强的授权。',
+        '一次性要求直接在本轮遵守，不写入长期习惯。',
+        'set 应把用户要求整理成简洁可执行的习惯；同一主题使用相同 habitKey 以完成替换。',
+        '用户要求忘记某项习惯时使用 remove，不要用相反习惯模拟删除。'
+      ],
+      examples: [
+        '“以后不要用卡片回答我” → set card_delivery，写入默认直接在聊天中完整回答。',
+        '“以后长分析都放卡片里” → set card_delivery，替换同一主题习惯。',
+        '“忘掉我之前关于卡片的要求” → remove card_delivery。'
+      ],
+      userDirectiveEvidenceField: 'userRequestEvidence'
+    },
+    display: {
+      visibility: 'hidden',
+      stage: {
+        label: '正在调整长期习惯',
+        doneLabel: '长期习惯已更新',
+        errorLabel: '长期习惯更新失败'
+      }
+    },
+    execution: {
+      level: 'notice',
+      readOnly: false,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     if (input.operation === 'remove') {

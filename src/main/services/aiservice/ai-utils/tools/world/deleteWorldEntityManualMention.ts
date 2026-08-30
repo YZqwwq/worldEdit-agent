@@ -23,18 +23,28 @@ export const deleteWorldEntityManualMentionTool = defineAgentTool({
   inputSchema: deleteWorldEntityManualMentionInputSchema,
   outputSchema: deleteWorldEntityManualMentionOutputSchema,
   metadata: {
-    whenToUse: [
-      '发现某个 manual mention 错误指向了实体，需要移除',
-      '用户明确要求删除某个别名、简称、外号或称谓',
-      '排查聚焦误命中后，需要撤销错误登记'
-    ],
-    whenNotToUse: ['还没有 mention id，应先调用 list_world_entity_manual_mentions'],
-    inputSummary: '提供 manual mention id。',
-    outputSummary: '返回 deleted，并说明索引会在下一次 search/rebuild 自动刷新。',
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: true,
-    contextRetention: 'ephemeral'
+    description: {
+      purpose: 'Delete a manual mention from a world entity.',
+      whenToUse: [
+        '发现某个 manual mention 错误指向了实体，需要移除',
+        '用户明确要求删除某个别名、简称、外号或称谓',
+        '排查聚焦误命中后，需要撤销错误登记'
+      ],
+      whenNotToUse: ['还没有 mention id，应先调用 list_world_entity_manual_mentions'],
+      inputSummary: '提供 manual mention id。',
+      outputSummary: '返回 deleted，并说明索引会在下一次 search/rebuild 自动刷新。'
+    },
+    display: {
+      visibility: 'visible',
+      stage: { label: '删除称呼', runningLabel: '正在删除实体称呼', doneLabel: '实体称呼已删除' }
+    },
+    execution: {
+      level: 'notice',
+      readOnly: false,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'ephemeral' }
   },
   async execute(input) {
     const deleted = await worldEntityMentionIndexService.deleteManualMention(input.id)

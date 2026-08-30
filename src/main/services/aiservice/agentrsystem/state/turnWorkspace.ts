@@ -4,8 +4,6 @@ import type {
   MainAgentFinalResponse,
   TurnWorkspace
 } from '@share/cache/AItype/states/turnWorkspace'
-import type { ToolChangeSetSummary } from '@share/cache/AItype/states/toolEffect'
-import type { TurnLifecycleState } from '@share/cache/AItype/states/turnLifecycle'
 import type { SelfCoreSnapshot } from '@share/cache/AItype/states/selfCore'
 import type {
   AgentLifeStateCandidate,
@@ -43,7 +41,6 @@ export const createTurnWorkspace = (input: {
   },
   draft: {
     memoryMessages: [],
-    successfulToolNames: [],
     durableToolReceipts: [],
     observations: []
   }
@@ -151,17 +148,6 @@ export const withMemoryMessagesDraft = (
   }
 })
 
-export const withSuccessfulToolUse = (
-  workspace: TurnWorkspace,
-  toolName: string
-): TurnWorkspace => ({
-  ...workspace,
-  draft: {
-    ...workspace.draft,
-    successfulToolNames: [...new Set([...workspace.draft.successfulToolNames, toolName])]
-  }
-})
-
 export const withDurableToolReceipt = (
   workspace: TurnWorkspace,
   receipt: TurnWorkspace['draft']['durableToolReceipts'][number]
@@ -180,17 +166,6 @@ export const withDurableToolReceipt = (
   }
 })
 
-export const withToolChangeSetSummary = (
-  workspace: TurnWorkspace,
-  changeSet: ToolChangeSetSummary
-): TurnWorkspace => ({
-  ...workspace,
-  draft: {
-    ...workspace.draft,
-    changeSet: clone(changeSet)
-  }
-})
-
 export const withObservationDraft = (
   workspace: TurnWorkspace,
   observation: TurnWorkspace['draft']['observations'][number]
@@ -199,17 +174,6 @@ export const withObservationDraft = (
   draft: {
     ...workspace.draft,
     observations: [...workspace.draft.observations, clone(observation)]
-  }
-})
-
-export const withTurnLifecycleDraft = (
-  workspace: TurnWorkspace,
-  lifecycle: TurnLifecycleState
-): TurnWorkspace => ({
-  ...workspace,
-  draft: {
-    ...workspace.draft,
-    lifecycle: clone(lifecycle)
   }
 })
 

@@ -43,8 +43,13 @@ export type TurnExecutionLedger = {
   objective: string
   phase: TurnExecutionPhase
   modelStep: number
+  toolBatch?: {
+    id: string
+    callIds: string[]
+    nextIndex: number
+    status: 'running' | 'completed' | 'interrupted'
+  }
   actions: TurnExecutionAction[]
-  unresolvedItems: string[]
 }
 
 const compact = (value: string, max = 260): string => {
@@ -142,9 +147,35 @@ export const createTurnExecutionLedger = (objective: string): TurnExecutionLedge
   objective: compact(objective, 500) || '处理当前用户请求',
   phase: 'understanding',
   modelStep: 0,
-  actions: [],
-  unresolvedItems: []
+  actions: []
 })
+
+export const beginToolBatch = (
+  ledger: TurnExecutionLedger,
+  batchId: string,
+  callIds: string[]
+): TurnExecutionLedger => ({
+  ...ledger,
+  phase: 'acting',
+  toolBatch: { id: batchId, callIds: [...callIds], nextIndex: 0, status: 'running' }
+})
+
+export const advanceToolBatch = (
+  ledger: TurnExecutionLedger,
+  nextIndex: number
+): TurnExecutionLedger => {
+  const batch = ledger.toolBatch
+  if (!batch) return ledger
+  const boundedIndex = Math.max(0, Math.min(nextIndex, batch.callIds.length))
+  return {
+    ...ledger,
+    toolBatch: {
+      ...batch,
+      nextIndex: boundedIndex,
+      status: boundedIndex >= batch.callIds.length ? 'completed' : 'running'
+    }
+  }
+}
 
 export const appendTurnExecutionAction = (
   ledger: TurnExecutionLedger,
@@ -154,8 +185,7 @@ export const appendTurnExecutionAction = (
   return {
     ...ledger,
     phase: 'acting',
-    actions,
-    unresolvedItems: deriveTurnUnresolvedItems(actions)
+    actions
   }
 }
 

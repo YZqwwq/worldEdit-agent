@@ -1,22 +1,25 @@
 import { MessagesState } from '../../state/messageState'
 import { traceArtifact } from '../../../../log/trace/agentTraceEmitter'
 import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
-import { withTurnLifecycleDraft } from '../../state/turnWorkspace'
 import { uniqueToolContextItems } from '../../state/toolContextCollection'
 
 export async function toolContextReloadNode(
   state: typeof MessagesState.State
 ): Promise<Partial<typeof MessagesState.State>> {
   const pending = state.pendingToolContext ?? []
-  const lifecycle = advanceTurnLifecycle(
-    state.turnLifecycle ?? state.turnWorkspace?.draft.lifecycle ?? {
-      phase: 'observing',
-      revision: 0,
-      updatedAt: new Date().toISOString()
-    },
-    'revising',
-    { observationBatch: pending.map((item) => item.toolCallId).join(':') || undefined }
-  )
+  let lifecycle = state.turnLifecycle ?? {
+    phase: 'observing' as const,
+    revision: 0,
+    updatedAt: new Date().toISOString()
+  }
+  if (state.activeToolPhase === 'expression') {
+    if (lifecycle.phase === 'forming') lifecycle = advanceTurnLifecycle(lifecycle, 'ready')
+    if (lifecycle.phase !== 'expressing') {
+      lifecycle = advanceTurnLifecycle(lifecycle, 'expressing')
+    }
+  } else {
+    lifecycle = advanceTurnLifecycle(lifecycle, 'revising')
+  }
 
   if (pending.length > 0) {
     traceArtifact('toolContextReloadNode', {
@@ -24,7 +27,10 @@ export async function toolContextReloadNode(
       summary: `保留 ${pending.length} 个工具 transcript，等待下一次模型完整消费`,
       data: {
         pendingCount: pending.length,
-        activeTranscriptCount: state.activeToolTranscriptIds?.length ?? 0,
+        activeTranscriptCount: pending.reduce(
+          (count, item) => count + item.transcriptMessageIds.length,
+          0
+        ),
         pending: pending.map((item) => ({
           toolName: item.toolName,
           retention: item.retention,
@@ -38,11 +44,9 @@ export async function toolContextReloadNode(
 
   return {
     turnLifecycle: lifecycle,
-    ...(state.turnWorkspace
-      ? { turnWorkspace: withTurnLifecycleDraft(state.turnWorkspace, lifecycle) }
-      : {}),
+    ...(state.turnWorkspace ? { turnWorkspace: state.turnWorkspace } : {}),
     // Promote the result before the next model step. The native transcript remains in
-    // pendingToolContext until llmCall has consumed the paired AI/Tool messages.
+    // pendingToolContext until cognitionNode has consumed the paired AI/Tool messages.
     toolEvidenceContext: uniqueToolContextItems([
       ...(state.toolEvidenceContext ?? []),
       ...pending.filter((item) => item.retention === 'evidence' && item.ok !== false)

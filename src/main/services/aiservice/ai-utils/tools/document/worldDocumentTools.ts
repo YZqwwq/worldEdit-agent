@@ -8,6 +8,7 @@ import {
   createWorldDocumentInputSchema,
   insertWorldDocumentTextInputSchema,
   readWorldDocumentSectionInputSchema,
+  readWorldDocumentSectionsByTitleInputSchema,
   replaceWorldDocumentSectionInputSchema,
   replaceWorldDocumentTextInputSchema,
   searchWorldDocumentsInputSchema,
@@ -259,7 +260,9 @@ export const searchWorldDocumentsTool = defineAgentTool({
     cognitionGuidance: cognitionDocumentGuidanceSchema
   }),
   metadata: {
-    whenToUse: [
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: [
       '只知道对象名称、简称或关键词，尚不知道它位于哪些文档',
       '需要从一个世界观的文档标题、目录路径和正文中寻找候选'
     ],
@@ -278,15 +281,14 @@ export const searchWorldDocumentsTool = defineAgentTool({
       '没有结果时可换用完整名称、简称或相关关键词，不要用完全相同的参数重复调用。'
     ],
     examples: ['{"worldId":"world-id","query":"青岚"}'],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '搜索世界观文档',
       runningLabel: '正在搜索世界观文档',
       doneLabel: '文档搜索已完成'
-    }
+    } },
+    execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const documents = await worldEntityDocumentService.listDocuments(input.worldId)
@@ -358,7 +360,9 @@ export const browseWorldDocumentTreeTool = defineAgentTool({
     nextBrowsableDocumentIds: z.array(z.string())
   }),
   metadata: {
-    whenToUse: [
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: [
       '需要了解世界观文档的根目录结构',
       '已经知道一个目录或根文档，需要继续查看其下级结构'
     ],
@@ -372,15 +376,14 @@ export const browseWorldDocumentTreeTool = defineAgentTool({
       '该工具不返回正文；确定目标文档后使用 read_world_document。'
     ],
     examples: ['{"worldId":"world-id"}', '{"worldId":"world-id","rootDocumentId":"document-id"}'],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '浏览文档结构',
       runningLabel: '正在浏览文档结构',
       doneLabel: '文档结构已读取'
-    }
+    } },
+    execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const documents = await worldEntityDocumentService.listDocuments(input.worldId)
@@ -441,7 +444,9 @@ export const readWorldDocumentTool = defineAgentTool({
   inputSchema: z.object({ documentId: z.string().trim().min(1) }),
   outputSchema: z.object({ found: z.boolean(), document: documentSchema.nullable() }),
   metadata: {
-    whenToUse: [
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: [
       '需要读取当前文档或指定文档的完整 Markdown 正文',
       '写入前需要确认当前内容和 revision'
     ],
@@ -453,15 +458,14 @@ export const readWorldDocumentTool = defineAgentTool({
       '读取成功后直接依据正文回答、概括或评价，不要向用户播报“已经读取文档”。',
       '只有用户明确询问版本、调试信息或并发冲突时，才说明 revision 等内部状态。'
     ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '读取文档',
       runningLabel: '正在阅读文档内容',
       doneLabel: '文档内容已读取'
-    }
+    } },
+    execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const document = await worldEntityDocumentService.getDocument(input.documentId)
@@ -504,7 +508,9 @@ export const readWorldDocumentSectionTool = defineAgentTool({
     section: documentSectionSchema
   }),
   metadata: {
-    whenToUse: [
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: [
       '只需要读取长文档中的一个已知标题章节',
       '局部编辑前需要刷新章节正文和 section hash'
     ],
@@ -515,32 +521,71 @@ export const readWorldDocumentSectionTool = defineAgentTool({
       'headingPath 使用 read_world_document 返回的标题路径。',
       '同一路径存在多个章节时必须提供 sectionHash，工具不会猜测目标。'
     ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true,
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '读取章节',
       runningLabel: '正在阅读文档章节',
       doneLabel: '文档章节已读取'
-    }
+    } },
+    execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const document = await worldEntityDocumentService.getDocument(input.documentId)
     if (!document) {
-      const error = new Error(`document not found: ${input.documentId}`) as Error & {
-        code: string
-        retryable: boolean
-      }
-      error.code = 'NOT_FOUND'
-      error.retryable = false
-      throw error
+      throw new AgentToolError({
+        code: 'NOT_FOUND',
+        message: `未找到文档 ${input.documentId}。该 documentId 不是当前世界观中的有效文档。`,
+        retryable: true,
+        details: { documentId: input.documentId },
+        nextSuggestions: [
+          '不要继续使用这个 documentId。',
+          '先调用 search_world_documents 或 browse_world_document_tree 获取有效 documentId。',
+          '确认目标文档后重新读取完整文档，再使用返回的 headingPath 调用本工具。'
+        ]
+      })
     }
-    const section = readMarkdownSection(
-      worldDocumentHtmlToMarkdown(document.contentHtml),
-      input.headingPath,
-      input.sectionHash
-    )
+    let section
+    try {
+      section = readMarkdownSection(
+        worldDocumentHtmlToMarkdown(document.contentHtml),
+        input.headingPath,
+        input.sectionHash
+      )
+    } catch (error) {
+      const conflict = error as Error & { code?: string; details?: Record<string, unknown> }
+      const code = conflict.code === 'section_not_unique'
+        ? 'INVALID_TOOL_INPUT'
+        : conflict.code === 'section_hash_mismatch'
+          ? 'REVISION_CONFLICT'
+          : 'NOT_FOUND'
+      throw new AgentToolError({
+        code,
+        message: conflict.message || '无法定位指定的 Markdown 章节。',
+        retryable: true,
+        details: {
+          documentId: input.documentId,
+          headingPath: input.headingPath,
+          sectionHash: input.sectionHash,
+          ...(conflict.details ?? {})
+        },
+        nextSuggestions:
+          code === 'REVISION_CONFLICT'
+            ? [
+                '先重新调用 read_world_document 获取当前 revision 和最新 sections。',
+                '只能使用最新文档返回的 headingPath 与 section hash。'
+              ]
+            : code === 'INVALID_TOOL_INPUT'
+              ? [
+                  '该标题路径有多个匹配章节，请使用最新读取结果中的 section hash。',
+                  '不要自行猜测章节路径或 hash。'
+                ]
+              : [
+                  '先重新调用 read_world_document 获取当前文档结构。',
+                  '只能使用该结果中的 headingPath 调用 read_document_section。'
+                ]
+      })
+    }
     return { document: toSummary(document), section }
   },
   buildReceipt(data) {
@@ -565,13 +610,90 @@ export const readWorldDocumentSectionTool = defineAgentTool({
   }
 })
 
+export const readWorldDocumentSectionsByTitleTool = defineAgentTool({
+  name: 'read_document_sections_by_title',
+  description: 'Read every Markdown section in a document whose heading title matches the requested title.',
+  inputSchema: readWorldDocumentSectionsByTitleInputSchema,
+  outputSchema: z.object({
+    document: documentSummarySchema,
+    sectionTitle: z.string(),
+    sections: z.array(documentSectionSchema)
+  }),
+  metadata: {
+    description: {
+      purpose: '面向 Agent 的语义化世界观文档章节读取工具。',
+      whenToUse: ['知道章节标题但不确定完整层级路径', '需要读取文档中所有同名章节'],
+      whenNotToUse: ['需要修改章节或进行并发安全校验，应使用精确章节编辑工具'],
+      inputSummary: '提供 documentId 和章节标题 sectionTitle，不需要自行构造 headingPath 或 sectionHash。',
+      outputSummary: '返回当前文档 revision 以及所有标题完全匹配的章节正文、路径和 hash。',
+      usageContract: [
+        'sectionTitle 只填写 Markdown 标题本身，不要填写正文首行、文档标题或完整路径。',
+        '如果存在多个同名章节，工具会全部返回，不要求 Agent 猜测目标。'
+      ]
+    },
+    display: {
+      visibility: 'visible',
+      stage: { label: '读取同名章节', runningLabel: '正在查找同名章节', doneLabel: '同名章节已读取' }
+    },
+    execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
+  },
+  async execute(input) {
+    const document = await worldEntityDocumentService.getDocument(input.documentId)
+    if (!document) {
+      throw new AgentToolError({
+        code: 'NOT_FOUND',
+        message: `未找到文档 ${input.documentId}。`,
+        retryable: true,
+        details: { documentId: input.documentId },
+        nextSuggestions: ['先使用 search_world_documents 或 browse_world_document_tree 获取有效 documentId。']
+      })
+    }
+    const sections = listMarkdownSections(worldDocumentHtmlToMarkdown(document.contentHtml)).filter(
+      (section) => section.headingPath.at(-1) === input.sectionTitle.trim()
+    )
+    return {
+      document: toSummary(document),
+      sectionTitle: input.sectionTitle.trim(),
+      sections: sections.map((section) => ({
+        ...section,
+        contentMarkdown: worldDocumentHtmlToMarkdown(document.contentHtml)
+          .split('\n')
+          .slice(section.startLine - 1, section.endLine)
+          .join('\n')
+      }))
+    }
+  },
+  successMessage(data) {
+    return data.sections.length > 0
+      ? `Found ${data.sections.length} sections titled ${data.sectionTitle}.`
+      : `No sections titled ${data.sectionTitle} were found.`
+  },
+  buildReceipt(data, input) {
+    return {
+      kind: 'world_document_sections_by_title_read',
+      operation: '按标题读取世界观文档章节',
+      subject: { type: 'document', id: input.documentId, label: data.document.title },
+      completion: data.sections.length > 0 ? 'complete' : 'partial',
+      summary: data.sections.length > 0
+        ? `已读取文档「${data.document.title}」中标题为「${data.sectionTitle}」的 ${data.sections.length} 个章节。`
+        : `文档「${data.document.title}」中未找到标题为「${data.sectionTitle}」的章节。`,
+      retryable: false,
+      evidenceRef: `document:${input.documentId}:sections:${encodeURIComponent(data.sectionTitle)}`,
+      payload: { documentId: input.documentId, revision: data.document.revision, sectionCount: data.sections.length }
+    }
+  }
+})
+
 export const createWorldDocumentTool = defineAgentTool({
   name: 'create_world_document',
   description: 'Create a free-form document in one world document tree from Markdown content.',
   inputSchema: createWorldDocumentInputSchema,
   outputSchema: z.object({ document: documentSchema }),
   metadata: {
-    whenToUse: ['用户明确要求创建新的世界观文档'],
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: ['用户明确要求创建新的世界观文档'],
     whenNotToUse: ['只是讨论文档内容，或目标文档已经存在'],
     inputSummary: '提供 worldId 和标题，可选父文档和 Markdown 正文。',
     outputSummary: '返回新文档和初始 revision。',
@@ -581,16 +703,14 @@ export const createWorldDocumentTool = defineAgentTool({
       '正文只通过 contentMarkdown 提交，不要生成或传入 HTML。'
     ],
     examples: ['{"worldId":"world-id","title":"力量体系"}'],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    effectRecovery: 'same_database_transaction',
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '创建文档',
       runningLabel: '正在创建文档',
       doneLabel: '文档已创建'
-    }
+    } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive', effectRecovery: 'same_database_transaction' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const document = await worldEntityDocumentService.createDocument(
@@ -646,7 +766,9 @@ export const updateWorldDocumentTool = defineAgentTool({
   inputSchema: updateWorldDocumentInputSchema,
   outputSchema: z.object({ document: documentSchema, changeSummary: z.string() }),
   metadata: {
-    whenToUse: ['用户明确要求修改当前文档或指定文档', '已经读取正文并持有匹配的 revision'],
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: ['用户明确要求修改当前文档或指定文档', '已经读取正文并持有匹配的 revision'],
     whenNotToUse: ['没有读取最新 revision', '用户只要求分析或提出建议'],
     inputSummary: '提供 documentId、expectedRevision、修改内容和变更摘要。',
     outputSummary: '返回更新后的文档和新 revision。',
@@ -654,16 +776,14 @@ export const updateWorldDocumentTool = defineAgentTool({
       '先读取最新文档，再使用返回的 revision 作为 expectedRevision。',
       'contentMarkdown 表示完整的新正文，不是 HTML、JSON 或局部补丁。'
     ],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    effectRecovery: 'same_database_transaction',
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '更新文档',
       runningLabel: '正在更新文档内容',
       doneLabel: '文档已更新'
-    }
+    } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive', effectRecovery: 'same_database_transaction' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const document = await worldEntityDocumentService.updateDocument(
@@ -755,7 +875,9 @@ export const replaceWorldDocumentTextTool = defineAgentTool({
   inputSchema: replaceWorldDocumentTextInputSchema,
   outputSchema: localEditOutputSchema,
   metadata: {
-    whenToUse: ['需要精确替换文档中的一段原文', '已读取最新正文和 revision'],
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: ['需要精确替换文档中的一段原文', '已读取最新正文和 revision'],
     whenNotToUse: ['原文在文档中出现多次', '需要重写整个章节或整篇文档'],
     inputSummary: '提供 documentId、expectedRevision、唯一 oldText、newText 和变更摘要。',
     outputSummary: '返回新 revision、语义定位锚点、增删统计和 Diff 引用。',
@@ -763,16 +885,14 @@ export const replaceWorldDocumentTextTool = defineAgentTool({
       '先读取文档，oldText 必须从最新 Markdown 原文中完整复制。',
       '只有唯一匹配时才会写入；零次或多次匹配都会返回可恢复错误。'
     ],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    effectRecovery: 'same_database_transaction',
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '局部替换',
       runningLabel: '正在替换文档内容',
       doneLabel: '局部替换已完成'
-    }
+    } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive', effectRecovery: 'same_database_transaction' },
+    retention: { context: 'evidence' }
   },
   execute: (input) =>
     executeLocalEdit({
@@ -792,7 +912,9 @@ export const insertWorldDocumentTextTool = defineAgentTool({
   inputSchema: insertWorldDocumentTextInputSchema,
   outputSchema: localEditOutputSchema,
   metadata: {
-    whenToUse: ['需要在已知唯一原文前后插入内容', '已读取最新正文和 revision'],
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: ['需要在已知唯一原文前后插入内容', '已读取最新正文和 revision'],
     whenNotToUse: ['只需在文末追加', '锚点原文在文档中出现多次'],
     inputSummary:
       '提供 documentId、revision、唯一 anchorText、before/after、插入 Markdown 和摘要。',
@@ -801,16 +923,14 @@ export const insertWorldDocumentTextTool = defineAgentTool({
       'anchorText 必须从最新 Markdown 原文中完整复制，并且只能出现一次。',
       'insertedMarkdown 会原样插入；需要新段落或标题时必须自行包含换行。'
     ],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    effectRecovery: 'same_database_transaction',
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '插入内容',
       runningLabel: '正在插入文档内容',
       doneLabel: '文档内容已插入'
-    }
+    } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive', effectRecovery: 'same_database_transaction' },
+    retention: { context: 'evidence' }
   },
   execute: (input) =>
     executeLocalEdit({
@@ -830,21 +950,21 @@ export const appendWorldDocumentTextTool = defineAgentTool({
   inputSchema: appendWorldDocumentTextInputSchema,
   outputSchema: localEditOutputSchema,
   metadata: {
-    whenToUse: ['需要把新段落或章节追加到文档末尾', '已读取最新 revision'],
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: ['需要把新段落或章节追加到文档末尾', '已读取最新 revision'],
     whenNotToUse: ['需要在文档中间插入或替换内容'],
     inputSummary: '提供 documentId、expectedRevision、追加 Markdown 和变更摘要。',
     outputSummary: '返回新 revision、语义定位锚点、增删统计和 Diff 引用。',
     usageContract: ['工具会在原文和追加内容之间建立一个空行，不需要复制整篇正文。'],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    effectRecovery: 'same_database_transaction',
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '追加内容',
       runningLabel: '正在追加文档内容',
       doneLabel: '文档内容已追加'
-    }
+    } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive', effectRecovery: 'same_database_transaction' },
+    retention: { context: 'evidence' }
   },
   execute: (input) =>
     executeLocalEdit({
@@ -863,7 +983,9 @@ export const replaceWorldDocumentSectionTool = defineAgentTool({
   inputSchema: replaceWorldDocumentSectionInputSchema,
   outputSchema: localEditOutputSchema,
   metadata: {
-    whenToUse: ['需要整体改写某个 Markdown 标题章节', '已从读取结果获得章节路径和 hash'],
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: ['需要整体改写某个 Markdown 标题章节', '已从读取结果获得章节路径和 hash'],
     whenNotToUse: ['只需替换一小段原文', '目标文档没有 Markdown 标题'],
     inputSummary: '提供 documentId、revision、headingPath、section hash、完整替换章节和摘要。',
     outputSummary: '返回新 revision、章节语义锚点、增删统计和 Diff 引用。',
@@ -871,16 +993,14 @@ export const replaceWorldDocumentSectionTool = defineAgentTool({
       'replacementMarkdown 是包含标题行的完整新章节。',
       'expectedSectionHash 必须使用最新 read_world_document 返回的值。'
     ],
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    effectRecovery: 'same_database_transaction',
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '改写章节',
       runningLabel: '正在改写文档章节',
       doneLabel: '章节改写已完成'
-    }
+    } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive', effectRecovery: 'same_database_transaction' },
+    retention: { context: 'evidence' }
   },
   execute: (input) =>
     executeLocalEdit({
@@ -909,20 +1029,20 @@ export const renameWorldDocumentTool = defineAgentTool({
   }),
   outputSchema: z.object({ document: documentSchema }),
   metadata: {
-    whenToUse: ['用户明确要求重命名文档'],
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: ['用户明确要求重命名文档'],
     whenNotToUse: ['同时需要修改正文，应使用 update_world_document'],
     inputSummary: '提供 documentId、expectedRevision 和新标题。',
     outputSummary: '返回重命名后的文档和新 revision。',
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    effectRecovery: 'same_database_transaction',
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '重命名文档',
       runningLabel: '正在重命名文档',
       doneLabel: '文档已重命名'
-    }
+    } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive', effectRecovery: 'same_database_transaction' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const document = await worldEntityDocumentService.updateDocument(
@@ -974,20 +1094,20 @@ export const moveWorldDocumentTool = defineAgentTool({
   }),
   outputSchema: z.object({ document: documentSchema }),
   metadata: {
-    whenToUse: ['用户明确要求调整文档层级或顺序'],
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: ['用户明确要求调整文档层级或顺序'],
     whenNotToUse: ['需要把文档移动到另一个世界；文档不能跨世界移动'],
     inputSummary: '提供 documentId、expectedRevision、父文档和可选 sortKey。',
     outputSummary: '返回移动后的文档和新 revision。',
-    executionLevel: 'notice',
-    readOnly: false,
-    idempotent: false,
-    effectRecovery: 'same_database_transaction',
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '移动文档',
       runningLabel: '正在调整文档层级',
       doneLabel: '文档层级已更新'
-    }
+    } },
+    execution: { level: 'notice', readOnly: false, idempotent: false, completionSemantics: 'definitive', effectRecovery: 'same_database_transaction' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const document = await worldEntityDocumentService.moveDocument(input, {
@@ -1031,19 +1151,20 @@ export const deleteWorldDocumentTool = defineAgentTool({
   }),
   outputSchema: z.object({ deleted: z.literal(true), documentId: z.string() }),
   metadata: {
-    whenToUse: ['用户明确要求永久删除指定文档，并且已经确认目标'],
+    description: {
+      purpose: '世界观文档工具。',
+      whenToUse: ['用户明确要求永久删除指定文档，并且已经确认目标'],
     whenNotToUse: ['用户只是要求清空、改写、隐藏或移动文档'],
     inputSummary: '提供 documentId；仅确认删除整个子树时设置 recursive=true。',
     outputSummary: '返回已删除的 documentId。',
-    executionLevel: 'confirmation_required',
-    readOnly: false,
-    idempotent: false,
-    contextRetention: 'evidence',
-    uiStage: {
+    },
+    display: { visibility: 'visible', stage: {
       label: '删除文档',
       runningLabel: '正在删除文档',
       doneLabel: '文档已删除'
-    }
+    } },
+    execution: { level: 'confirmation_required', readOnly: false, idempotent: false, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const deletedDocumentIds = await worldEntityDocumentService.deleteDocument(input, {

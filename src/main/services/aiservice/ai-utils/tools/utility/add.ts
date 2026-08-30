@@ -12,13 +12,21 @@ export const addTool = defineAgentTool({
     sum: z.number()
   }),
   metadata: {
-    whenToUse: ['用户明确需要做简单加法计算'],
-    whenNotToUse: ['问题不是简单加法', '需要复杂推理或外部数据而不是算术'],
-    inputSummary: '提供 a 和 b 两个数字。',
-    outputSummary: '返回 sum 字段。',
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true
+    description: {
+      purpose: 'Add two numbers.',
+      whenToUse: ['用户明确需要做简单加法计算'],
+      whenNotToUse: ['问题不是简单加法', '需要复杂推理或外部数据而不是算术'],
+      inputSummary: '提供 a 和 b 两个数字。',
+      outputSummary: '返回 sum 字段。'
+    },
+    display: { visibility: 'hidden' },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'ephemeral' }
   },
   execute({ a, b }) {
     return {

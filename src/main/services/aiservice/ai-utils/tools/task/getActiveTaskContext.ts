@@ -85,24 +85,37 @@ export const getActiveTaskContextTool = defineAgentTool({
   inputSchema: getActiveTaskContextInputSchema,
   outputSchema: getActiveTaskContextOutputSchema,
   metadata: {
-    whenToUse: [
-      '主 agent 需要知道当前是否存在 active task',
-      '需要判断当前任务是否正在等待用户补参',
-      '在调用 continue_active_child_agent 之前，先读取当前任务上下文'
-    ],
-    whenNotToUse: [
-      '用户只是普通闲聊，不涉及任何 active task',
-      '已经明确知道当前任务状态并且不需要再次确认'
-    ],
-    inputSummary: '可选提供 recentExecutionsLimit，用于限制返回多少条最近 execution，默认 4 条。',
-    outputSummary:
-      '返回当前 active task、pendingContext、missingFields、recentExecutions、latestActiveNotification、dispatch，以及建议下一步使用的工具。',
-    examples: [
-      '在用户补充 world 名之前，先调用本工具确认当前 task 是否真的在等待 worldName。'
-    ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true
+    description: {
+      purpose: 'Inspect the current active task context and recent execution state.',
+      whenToUse: [
+        '主 agent 需要知道当前是否存在 active task',
+        '需要判断当前任务是否正在等待用户补参',
+        '在调用 continue_active_child_agent 之前，先读取当前任务上下文'
+      ],
+      whenNotToUse: [
+        '用户只是普通闲聊，不涉及任何 active task',
+        '已经明确知道当前任务状态并且不需要再次确认'
+      ],
+      inputSummary: '可选提供 recentExecutionsLimit，用于限制返回多少条最近 execution，默认 4 条。',
+      outputSummary:
+        '返回当前 active task、pendingContext、missingFields、recentExecutions、latestActiveNotification、dispatch，以及建议下一步使用的工具。',
+      examples: ['在用户补充 world 名之前，先调用本工具确认当前 task 是否真的在等待 worldName。']
+    },
+    display: {
+      visibility: 'visible',
+      stage: {
+        label: '读取任务状态',
+        runningLabel: '正在读取任务状态',
+        doneLabel: '任务状态读取完成'
+      }
+    },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const activeTask = await taskService.getActiveTask()
@@ -140,7 +153,8 @@ export const getActiveTaskContextTool = defineAgentTool({
       runtimeSpec.inspection?.getRecommendedNextTool?.({
         taskStatus: activeTask.status,
         delegateToolName: runtimeSpec.delegateToolName
-      }) ?? (activeTask.status === 'awaiting_user_input' ? 'continue_active_child_agent' : undefined)
+      }) ??
+      (activeTask.status === 'awaiting_user_input' ? 'continue_active_child_agent' : undefined)
 
     return getActiveTaskContextOutputSchema.parse({
       found: true,
@@ -193,11 +207,17 @@ export const getActiveTaskContextTool = defineAgentTool({
   },
   nextSuggestions(data) {
     if (!data.found) {
-      return ['If the user is starting a long-running edit request, consider delegating a new child-agent task.']
+      return [
+        'If the user is starting a long-running edit request, consider delegating a new child-agent task.'
+      ]
     }
     if (data.recommendedNextTool === 'continue_active_child_agent') {
-      return ['If the user just supplied the missing fields, continue with continue_active_child_agent.']
+      return [
+        'If the user just supplied the missing fields, continue with continue_active_child_agent.'
+      ]
     }
-    return ['Use the returned task status and pendingContext to decide whether to ask the user for more detail or continue normal reasoning.']
+    return [
+      'Use the returned task status and pendingContext to decide whether to ask the user for more detail or continue normal reasoning.'
+    ]
   }
 })

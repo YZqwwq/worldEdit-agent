@@ -8,8 +8,9 @@ import {
   withSelfCoreSnapshot
 } from '../../state/turnWorkspace'
 import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
+import { mainAgentToolsets } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import {
-  getVisibleMainAgentToolEntries,
+  getMainAgentToolEntriesForPhase,
   resolveMainAgentToolActivationState
 } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import { MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY } from '../../../messagecontent/mainAgentMessageContentService'
@@ -301,8 +302,9 @@ export async function contextNode(
   }
 
   const toolUsagePrompt = buildToolUsageSystemPrompt(
-    getVisibleMainAgentToolEntries(toolActivationState),
-    toolActivationState
+    getMainAgentToolEntriesForPhase('cognition', toolActivationState),
+    toolActivationState,
+    mainAgentToolsets
   )
   if (toolUsagePrompt) {
     appendPromptSection({
@@ -550,13 +552,12 @@ export async function contextNode(
   })
 
   // 注意：LangGraph 的 reducer 通常是追加模式。
-  // 最终顺序由 llmCall 节点负责调整 (System -> History -> User Input)。
+  // 最终顺序由 cognitionNode 节点负责调整 (System -> History -> User Input)。
 
   return {
     messages: messages,
     turnWorkspace,
     expressionProfile,
-    promptSectionManifest,
     activeToolsets: contextualToolsets,
     quickToolsets: toolActivationState.quickToolsets ?? [],
     quickTools: toolActivationState.quickTools ?? [],

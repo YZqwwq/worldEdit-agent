@@ -1,9 +1,8 @@
 import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEmitter'
-import { MessagesState, type InstantPerceptionDetectorStatus } from '../../state/messageState'
+import { MessagesState } from '../../state/messageState'
 import { personaNode } from '../personanode/personanode'
 import { buildInstantPerceptionContext } from './instantPerceptionContext'
 import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
-import { withTurnLifecycleDraft } from '../../state/turnWorkspace'
 
 const detectorStateKeys = (patch: Partial<typeof MessagesState.State>): string[] =>
   Object.entries(patch)
@@ -29,7 +28,7 @@ export async function instantPerceptionNode(
   const startedAtMs = now()
   const startedAt = new Date(startedAtMs).toISOString()
   const lifecycle = advanceTurnLifecycle(
-    state.turnLifecycle ?? state.turnWorkspace.draft.lifecycle,
+    state.turnLifecycle,
     'forming'
   )
 
@@ -37,7 +36,7 @@ export async function instantPerceptionNode(
   const personaStartedAt = now()
   const personaPatch = await personaNode(state, perceptionContext)
   const workingState = { ...state, ...personaPatch }
-  const personaStatus: InstantPerceptionDetectorStatus = {
+  const personaStatus = {
     status: 'fulfilled',
     durationMs: now() - personaStartedAt,
     producedStateKeys: detectorStateKeys(personaPatch)
@@ -70,8 +69,7 @@ export async function instantPerceptionNode(
 
   return {
     ...personaPatch,
-    instantPerception,
     turnLifecycle: lifecycle,
-    turnWorkspace: withTurnLifecycleDraft(workingState.turnWorkspace ?? state.turnWorkspace, lifecycle)
+    turnWorkspace: workingState.turnWorkspace ?? state.turnWorkspace
   }
 }

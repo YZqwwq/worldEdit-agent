@@ -49,22 +49,21 @@ export type ReasoningResponseShape = {
 export type ReasoningLoopDecision = {
   mode?: ReasoningChannelMode
   directive: AgentLoopDirective
-  reasoningText: string
+  nativeReasoningText: string
+  internalDraft: string
   consecutiveEmptyResponses: number
   isEmpty: boolean
 }
 
-export const buildInternalCognitionText = (
+export const buildNativeReasoningText = (
   mode: ReasoningChannelMode | undefined,
-  response: Pick<ReasoningResponseShape, 'reasoning' | 'content'>
-): string => {
-  const reasoning = response.reasoning.trim()
-  const content = response.content.trim()
-  if (mode === 'native' && content) {
-    return [reasoning, `本步形成的结论：\n${content}`].filter(Boolean).join('\n\n')
-  }
-  return (response.reasoning || response.content).trim()
-}
+  response: Pick<ReasoningResponseShape, 'reasoning'>
+): string => (mode === 'native' ? response.reasoning.trim() : '')
+
+export const buildInternalDraft = (
+  mode: ReasoningChannelMode | undefined,
+  response: Pick<ReasoningResponseShape, 'content'>
+): string => (mode === 'emulated' ? response.content.trim() : '')
 
 export const assertModelStepAvailable = (
   completedSteps: number,
@@ -113,14 +112,16 @@ export const decideReasoningLoop = (input: {
   }
 
   const mode = resolveMode(input.lockedMode, preference, response)
-  const reasoningText =
-    mode === 'native' ? response.reasoning.trim() : (response.reasoning || response.content).trim()
+  // Keep provider channels explicit. Native reasoning is a private reasoning
+  // channel; emulated content is an internal draft consumed by expressionNode.
+  const nativeReasoningText = buildNativeReasoningText(mode, response)
+  const internalDraft = buildInternalDraft(mode, response)
 
   let directive: AgentLoopDirective
   if (response.toolCallCount > 0) directive = 'execute_tools'
   else if (mode === 'native' && response.content.trim()) directive = 'compose_final'
-  else if (mode === 'emulated' && reasoningText) directive = 'compose_final'
+  else if (mode === 'emulated' && internalDraft) directive = 'compose_final'
   else directive = 'deliberate'
 
-  return { mode, directive, reasoningText, consecutiveEmptyResponses, isEmpty }
+  return { mode, directive, nativeReasoningText, internalDraft, consecutiveEmptyResponses, isEmpty }
 }

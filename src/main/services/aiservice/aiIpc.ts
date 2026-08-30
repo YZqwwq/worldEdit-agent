@@ -412,10 +412,8 @@ export function initializeAIEndpoints(): void {
     return aiService.clearHistory()
   })
 
-  ipcMain.handle('ai:purgeAllData', async (_event) => {
-    await aiService.purgeAllData()
-    avatarProfileService.clearAll()
-    return clearUploadFiles()
+  ipcMain.handle('ai:resetAgentSession', async (_event) => {
+    await aiService.resetAgentSession()
   })
 
   ipcMain.handle('ai:resetAgentState', async (_event) => {

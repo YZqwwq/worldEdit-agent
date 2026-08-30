@@ -92,6 +92,36 @@ type AgentToolRegistryEntry = {
 }
 ```
 
+注册项只描述“谁能在本轮看到并调用哪些能力”；工具本身的 `agentMetadata` 负责更细的
+描述、显示和执行事实。进入模型 schema 的仅是用途、调用时机、语义输入和会影响成功的特有
+限制；输出 schema、retention、execution、audience、access、Trace 与账本协议不进入模型描述。
+新的工具定义应按以下边界组织：
+
+```ts
+defineAgentTool({
+  name: 'search_example',
+  description: {
+    purpose: '搜索示例资料。',
+    whenToUse: ['需要外部或本地证据时'],
+    whenNotToUse: ['已有权威正文时不要重复搜索'],
+    inputSummary: '提供查询词。',
+    outputSummary: '返回命中项和证据引用。'
+  },
+  metadata: {
+    display: {
+      visibility: 'visible',
+      stage: { label: '搜索资料', runningLabel: '正在搜索资料' }
+    },
+    execution: { level: 'safe', readOnly: true, idempotent: true, completionSemantics: 'definitive' },
+    retention: { context: 'evidence' }
+  }
+})
+```
+
+`description` 进入模型工具 schema；`display` 只进入用户侧 UI 投影。隐藏工具仍会执行并
+记录 Trace、receipt 与执行账本。注册器不得根据 `readOnly`、`access`、`category` 或工具
+名称推断显示规则。
+
 关键字段含义：
 
 - `key`
@@ -407,6 +437,8 @@ runner 回答：
 6. 拓展工具默认隐藏，并通过 `get_extend_tools` 激活。
 7. 拓展工具真实执行才计入常用统计。
 8. 工具结果必须按 `contextRetention` 进入工具上下文重装链路。
+9. 每个工具必须显式声明 `agentMetadata.display.visibility`；行为型和内部控制工具使用
+   `hidden`，信息返回与用户可感知外部效果使用 `visible`。
 
 ## 当前结论
 

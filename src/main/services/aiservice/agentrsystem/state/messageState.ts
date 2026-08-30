@@ -1,15 +1,11 @@
 import { Annotation, messagesStateReducer } from '@langchain/langgraph'
 import { BaseMessage } from '@langchain/core/messages'
 import type { PersonaPolicy } from '@share/cache/AItype/states/personaPolicy'
-import type {
-  MainAgentRuntimeEvent,
-  TaskLifecycleState
-} from '@share/cache/AItype/states/taskLifecycleState'
+import type { TaskLifecycleState } from '@share/cache/AItype/states/taskLifecycleState'
 import type { ExpressionPromptProfileState } from '@share/cache/AItype/states/expressionPromptProfile'
 import type { WorldEntityType } from '@share/cache/worldbuilding/worldbuilding'
-import type { AgentToolContextRetention } from '../../ai-utils/core/agentTool'
+import type { AgentToolContextRetention, AgentToolPhase } from '../../ai-utils/core/agentTool'
 import type { AgentWorkspaceContext } from '@share/cache/AItype/states/agentWorkspaceContext'
-import type { PromptSectionManifestItem } from '../../prompt/main_agent/shared/promptSections'
 import type { TurnExecutionLedger } from '../execution/turnExecutionLifecycle'
 import type {
   MainAgentFinalResponse,
@@ -22,9 +18,9 @@ import type {
 } from '@share/cache/AItype/states/turnLifecycle'
 import type { TurnInput } from '@share/cache/AItype/states/turnInput'
 import type {
+  CognitionDraft,
   FinalContentCandidate,
-  ReasoningChannelMode,
-  TurnReasoningSegment
+  ReasoningChannelMode
 } from '@share/cache/AItype/states/reasoningChannel'
 
 export type ToolContextSourceRef = {
@@ -55,25 +51,6 @@ export type PendingToolContextItem = ToolContextItem & {
   transcriptMessageIds: string[]
 }
 
-export type InstantPerceptionDetectorStatus = {
-  status: 'fulfilled' | 'rejected' | 'skipped'
-  durationMs: number
-  producedStateKeys: string[]
-  errorMessage?: string
-  skipReason?: string
-}
-
-export type InstantPerceptionSnapshot = {
-  mode: 'persona_appraisal'
-  startedAt: string
-  completedAt: string
-  durationMs: number
-  detectors: {
-    persona: InstantPerceptionDetectorStatus
-  }
-  warnings: string[]
-}
-
 export const MessagesState = Annotation.Root({
   turnInput: Annotation<TurnInput | undefined>({
     reducer: (x, y) => y ?? x,
@@ -88,10 +65,6 @@ export const MessagesState = Annotation.Root({
     reducer: messagesStateReducer,
     default: () => []
   }),
-  llmCalls: Annotation<number | undefined>({
-    reducer: (x, y) => y ?? x,
-    default: () => undefined
-  }),
   personaPolicy: Annotation<PersonaPolicy | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
@@ -104,17 +77,9 @@ export const MessagesState = Annotation.Root({
     reducer: (x, y) => y ?? x,
     default: () => undefined
   }),
-  instantPerception: Annotation<InstantPerceptionSnapshot | undefined>({
-    reducer: (x, y) => y ?? x,
-    default: () => undefined
-  }),
   workspaceContext: Annotation<AgentWorkspaceContext | undefined>({
     reducer: (x, y) => y ?? x,
     default: () => undefined
-  }),
-  promptSectionManifest: Annotation<PromptSectionManifestItem[]>({
-    reducer: (_x, y) => y ?? [],
-    default: () => []
   }),
   toolEvidenceContext: Annotation<ToolContextItem[]>({
     reducer: (_x, y) => y ?? [],
@@ -125,10 +90,6 @@ export const MessagesState = Annotation.Root({
     default: () => []
   }),
   pendingToolContext: Annotation<PendingToolContextItem[]>({
-    reducer: (_x, y) => y ?? [],
-    default: () => []
-  }),
-  activeToolTranscriptIds: Annotation<string[]>({
     reducer: (_x, y) => y ?? [],
     default: () => []
   }),
@@ -180,16 +141,12 @@ export const MessagesState = Annotation.Root({
     reducer: (_x, y) => y,
     default: () => 0
   }),
-  reasoningSegments: Annotation<TurnReasoningSegment[]>({
-    reducer: (x, y) => [...(x ?? []), ...(y ?? [])],
-    default: () => []
+  cognitionDraft: Annotation<CognitionDraft | undefined>({
+    reducer: (x, y) => y ?? x,
+    default: () => undefined
   }),
   finalContentCandidate: Annotation<FinalContentCandidate | undefined>({
     reducer: (_x, y) => y,
-    default: () => undefined
-  }),
-  runtimeEvent: Annotation<MainAgentRuntimeEvent | undefined>({
-    reducer: (x, y) => y ?? x,
     default: () => undefined
   }),
   turnLifecycle: Annotation<TurnLifecycleState | undefined>({
@@ -199,6 +156,10 @@ export const MessagesState = Annotation.Root({
   loopDirective: Annotation<AgentLoopDirective | undefined>({
     reducer: (_x, y) => y,
     default: () => undefined
+  }),
+  activeToolPhase: Annotation<AgentToolPhase>({
+    reducer: (_x, y) => y ?? 'cognition',
+    default: () => 'cognition'
   }),
   turnWorkspace: Annotation<TurnWorkspace | undefined>({
     reducer: (x, y) => y ?? x,

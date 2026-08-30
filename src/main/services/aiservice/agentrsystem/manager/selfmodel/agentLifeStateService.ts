@@ -58,6 +58,36 @@ class AgentLifeStateService {
     )
     return result.affected === 1
   }
+
+  async resetWithManager(manager: EntityManager): Promise<void> {
+    const repository = manager.getRepository(AgentLifeStateRecord)
+    const existing = await repository.findOneBy({ id: SINGLETON_ID })
+    if (!existing) {
+      await repository.save(
+        repository.create({ id: SINGLETON_ID, narrative: '', revision: 0, sourceTurnId: null })
+      )
+      return
+    }
+    existing.narrative = ''
+    existing.revision = 0
+    existing.sourceTurnId = null
+    await repository.save(existing)
+  }
+
+  async reset(): Promise<void> {
+    const repository = await this.repository()
+    const existing = await repository.findOneBy({ id: SINGLETON_ID })
+    if (!existing) {
+      await repository.save(
+        repository.create({ id: SINGLETON_ID, narrative: '', revision: 0, sourceTurnId: null })
+      )
+      return
+    }
+    existing.narrative = ''
+    existing.revision = 0
+    existing.sourceTurnId = null
+    await repository.save(existing)
+  }
 }
 
 export const agentLifeStateService = new AgentLifeStateService()

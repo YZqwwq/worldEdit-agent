@@ -21,21 +21,38 @@ export const getWorldSchemaCatalogTool = defineAgentTool({
   inputSchema: getWorldSchemaCatalogInputSchema,
   outputSchema: getWorldSchemaCatalogOutputSchema,
   metadata: {
-    whenToUse: [
-      '在创建世界观实体、组件或关系前，需要确认系统允许的建模结构',
-      '需要知道某种实体可以挂哪些组件',
-      '需要知道关系类型允许连接哪些实体类型'
-    ],
-    whenNotToUse: ['问题只是在查询某个世界的现有数据', '已经明确知道目标字段和关系定义且无需再次确认'],
-    inputSummary: '无参数。',
-    outputSummary:
-      '返回 schema catalog，包含 entityDefinitions、componentDefinitions、relationDefinitions 及其字段定义。',
-    examples: [
-      '先调用 get_world_schema_catalog，再决定如何创建人物组件或建立实体关系。'
-    ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true
+    description: {
+      purpose:
+        'Read the worldbuilding schema catalog that defines available entity, component, and relation types.',
+      whenToUse: [
+        '在创建世界观实体、组件或关系前，需要确认系统允许的建模结构',
+        '需要知道某种实体可以挂哪些组件',
+        '需要知道关系类型允许连接哪些实体类型'
+      ],
+      whenNotToUse: [
+        '问题只是在查询某个世界的现有数据',
+        '已经明确知道目标字段和关系定义且无需再次确认'
+      ],
+      inputSummary: '无参数。',
+      outputSummary:
+        '返回 schema catalog，包含 entityDefinitions、componentDefinitions、relationDefinitions 及其字段定义。',
+      examples: ['先调用 get_world_schema_catalog，再决定如何创建人物组件或建立实体关系。']
+    },
+    display: {
+      visibility: 'visible',
+      stage: {
+        label: '读取世界结构',
+        runningLabel: '正在读取世界结构',
+        doneLabel: '世界结构读取完成'
+      }
+    },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute() {
     const catalog = worldbuildingService.getSchemaCatalog()

@@ -83,16 +83,13 @@ const createState = (): typeof MessagesState.State =>
     },
     reasoningMode: 'native',
     consecutiveEmptyModelResponses: 1,
-    reasoningSegments: [
-      {
-        id: 'reasoning:ai-1',
-        text: '先读取文档，再修正人物判断。',
-        mode: 'native',
-        modelStep: 1,
-        createdAt: '2026-08-10T00:00:02.000Z',
-        followsObservation: false
-      }
-    ]
+    cognitionDraft: {
+      text: '先读取文档，再修正人物判断。',
+      mode: 'emulated',
+      modelStep: 1,
+      createdAt: '2026-08-10T00:00:02.000Z',
+      followsObservation: false
+    }
   }) as unknown as typeof MessagesState.State
 
 const createVersionDataSource = async (database: string): Promise<DataSource> => {
@@ -189,16 +186,16 @@ test('turn graph snapshot restores messages, workspace and exact resume point', 
   assert.equal(restored.turnExecutionLedger?.actions[0].status, 'completed')
   assert.equal(restored.reasoningMode, 'native')
   assert.equal(restored.consecutiveEmptyModelResponses, 1)
-  assert.equal(restored.reasoningSegments?.[0].text, '先读取文档，再修正人物判断。')
+  assert.equal(restored.cognitionDraft?.text, '先读取文档，再修正人物判断。')
 })
 
 test('turn graph snapshot can resume at the final answer boundary', () => {
   const restored = deserializeTurnGraphState(
     serializeTurnGraphState({ messages: [], pendingToolContext: [] } as any),
-    'finalAnswerNode'
+    'expressionNode'
   )
 
-  assert.equal(restored.resumeFromNode, 'finalAnswerNode')
+  assert.equal(restored.resumeFromNode, 'expressionNode')
 })
 
 test('completed tool actions are visible to rollback safety checks', () => {

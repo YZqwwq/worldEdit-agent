@@ -37,19 +37,30 @@ export const listWorldEntityManualMentionsTool = defineAgentTool({
   inputSchema: listWorldEntityManualMentionsInputSchema,
   outputSchema: listWorldEntityManualMentionsOutputSchema,
   metadata: {
-    whenToUse: [
-      '需要查看某个世界观实体已经登记了哪些别名、简称、外号或用户常用称呼',
-      '在新增实体称呼前，需要避免重复登记',
-      '排查世界观瞬时感知为什么会把某个称呼聚焦到该实体'
-    ],
-    whenNotToUse: ['还不知道 entityId', '只是要搜索实体候选，应先使用世界观读取工具'],
-    inputSummary: '提供 entityId。',
-    outputSummary:
-      '返回该实体的 manual mention 列表；这些源数据会在索引重建时自动导入 BM25 索引表。',
-    examples: ['查看人物“李青岚”是否已经登记“青岚”“李姑娘”等称呼。'],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true
+    description: {
+      purpose: 'List manual mentions registered for a world entity.',
+      whenToUse: [
+        '需要查看某个世界观实体已经登记了哪些别名、简称、外号或用户常用称呼',
+        '在新增实体称呼前，需要避免重复登记',
+        '排查世界观瞬时感知为什么会把某个称呼聚焦到该实体'
+      ],
+      whenNotToUse: ['还不知道 entityId', '只是要搜索实体候选，应先使用世界观读取工具'],
+      inputSummary: '提供 entityId。',
+      outputSummary:
+        '返回该实体的 manual mention 列表；这些源数据会在索引重建时自动导入 BM25 索引表。',
+      examples: ['查看人物“李青岚”是否已经登记“青岚”“李姑娘”等称呼。']
+    },
+    display: {
+      visibility: 'visible',
+      stage: { label: '读取称呼', runningLabel: '正在读取实体称呼', doneLabel: '实体称呼读取完成' }
+    },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const mentions = await worldEntityMentionIndexService.listManualMentions(input.entityId)

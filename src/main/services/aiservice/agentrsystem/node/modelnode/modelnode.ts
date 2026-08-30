@@ -11,26 +11,22 @@ import { MessagesState } from '../../state/messageState'
 import type { ConfiguredModelRuntime } from '../../../model-adapters/modelProviderAdapter'
 import { readModelResponseChannels } from '../../../model-adapters/modelProviderAdapter'
 import {
-  emitAgentThought,
   traceArtifact,
   traceDecision,
   traceState
 } from '../../../../log/trace/agentTraceEmitter'
-import {
-  replacePromptManifestScope
-} from '../../../prompt/main_agent/shared/promptSections'
+import { emitAgentThought } from '../../../runtime/agentRuntimeOutput'
 import {
   advanceTurnExecutionModelStep,
   createTurnExecutionLedger
 } from '../../execution/turnExecutionLifecycle'
 import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
-import { withTurnLifecycleDraft } from '../../state/turnWorkspace'
 import { contentToText } from '../../../messageoutput/transformRespones'
 import {
   assertModelStepAvailable,
-  buildInternalCognitionText,
   decideReasoningLoop
 } from '../../execution/reasoningLoopPolicy'
+import { appendCognitionDraftText, type CognitionDraft } from '@share/cache/AItype/states/reasoningChannel'
 import {
   createModelCallAbortScope,
   resolveMainAgentTimeoutMs
@@ -46,14 +42,6 @@ const getCurrentUserRequestPreview = (state: typeof MessagesState.State): string
   const text = message ? contentToText(message.content).replace(/\s+/g, ' ').trim() : ''
   return text.length > 240 ? `${text.slice(0, 239).trimEnd()}…` : text
 }
-
-const CALL_LOCAL_PROMPT_SECTION_IDS = new Set([
-  'turn-reasoning-contract',
-  'turn-execution-ledger',
-  'empty-response-recovery',
-  'tool-evidence',
-  'tool-ephemeral-status'
-])
 
 const ensureAIMessage = (message: BaseMessage): AIMessage => {
   if (message instanceof AIMessage && message.id) return message
@@ -109,7 +97,12 @@ const streamModel = async (input: {
           : input.runtime.reasoningProtocol === 'native'
             ? 'native'
             : 'emulated')
-      input.onCognitionProgress?.(buildInternalCognitionText(streamingMode, channels))
+      // Both protocols feed the dedicated thought surface while streaming.
+      // In emulated mode this is still the private cognition draft; the
+      // projection does not make it part of the persisted user reply.
+      const thoughtText =
+        streamingMode === 'native' ? channels.reasoning.trim() : channels.content.trim()
+      if (thoughtText) input.onCognitionProgress?.(thoughtText)
     }
     if (abortScope.signal.aborted) {
       throw input.signal?.reason ?? abortScope.signal.reason ?? new Error('model_call_aborted')
@@ -128,7 +121,7 @@ const streamModel = async (input: {
   }
 }
 
-export async function llmCall(
+export async function cognitionNode(
   state: typeof MessagesState.State,
   config?: { signal?: AbortSignal }
 ): Promise<Partial<typeof MessagesState.State>> {
@@ -164,7 +157,10 @@ export async function llmCall(
     ],
     configured.runtime
   )
-  traceState('llmCall', {
+  traceState('cognitionNode', {
+    scope: 'loop',
+    status: 'started',
+    modelStep,
     title: '状态: 自然语言认知',
     summary: `step=${ledger.modelStep + 1}，current=${currentMessages.length}`,
     data: {
@@ -194,33 +190,19 @@ export async function llmCall(
     previousConsecutiveEmptyResponses: state.consecutiveEmptyModelResponses
   })
   const mode = loopDecision.mode
-  const reasoningText = loopDecision.reasoningText
-  const cognitionText = buildInternalCognitionText(mode, channels)
-  const segment =
-    cognitionText && mode
-      ? {
-          id: thoughtId,
-          text: cognitionText,
-          mode,
-          modelStep,
-          createdAt: new Date().toISOString(),
-          followsObservation
-        }
-      : undefined
-  if (segment) {
-    thoughtProgress.publish(segment.text, { force: true })
-  }
+  const nativeReasoningText = loopDecision.nativeReasoningText
+  const internalDraft = loopDecision.internalDraft
+  // Project the current cognition stream to the dedicated thought UI for both
+  // protocols. In emulated mode the model's content is still an internal
+  // cognition draft; exposing it here does not make it part of the user reply
+  // or the persisted chat message.
+  const cognitionText = nativeReasoningText || (mode === 'emulated' ? internalDraft : '')
+  if (cognitionText) thoughtProgress.publish(cognitionText, { force: true })
   const directive = loopDecision.directive
-  const currentLifecycle = state.turnLifecycle ?? state.turnWorkspace?.draft.lifecycle
+  const currentLifecycle = state.turnLifecycle
   const lifecycle = advanceTurnLifecycle(
     currentLifecycle,
-    directive === 'execute_tools' ? 'observing' : (currentLifecycle?.phase ?? 'forming'),
-    {
-      observationBatch:
-        directive === 'execute_tools'
-          ? toolCalls.map((call) => call.id || call.name).join(':')
-          : currentLifecycle?.observationBatch
-    }
+    directive === 'execute_tools' ? 'observing' : (currentLifecycle?.phase ?? 'forming')
   )
   const responseForState = new AIMessage({
     content: response.content,
@@ -230,12 +212,25 @@ export async function llmCall(
     invalid_tool_calls: response.invalid_tool_calls,
     id: response.id
   })
-  traceArtifact('llmCall', {
+  const cognitionDraft: CognitionDraft | undefined =
+    mode === 'emulated' && internalDraft
+      ? {
+          text: appendCognitionDraftText(state.cognitionDraft?.text, internalDraft),
+          mode,
+          modelStep,
+          followsObservation,
+          createdAt: new Date().toISOString()
+        }
+      : undefined
+  traceArtifact('cognitionNode', {
+    scope: 'loop',
+    status: 'completed',
+    modelStep,
     title: '产物: 推理文本',
-    summary: reasoningText.slice(0, 120) || '(empty)',
+    summary: (nativeReasoningText || internalDraft).slice(0, 120) || '(empty)',
     data: {
       mode: mode ?? 'unresolved',
-      chars: reasoningText.length,
+      chars: (nativeReasoningText || internalDraft).length,
       followsObservation,
       visibleContentChars: channels.content.length,
       toolCallCount: toolCalls.length,
@@ -244,31 +239,26 @@ export async function llmCall(
       totalMs: streamed.totalMs
     }
   })
-  traceDecision('llmCall', {
+  traceDecision('cognitionNode', {
+    scope: 'loop',
+    modelStep,
     title: '决策: 推理循环路由',
     summary: directive,
     data: { directive, mode, toolCalls: toolCalls.map((call) => call.name) }
   })
 
   return {
-    ...(loopDecision.isEmpty ? {} : { messages: [responseForState] }),
-    llmCalls: (state.llmCalls ?? 0) + 1,
+    ...(toolCalls.length > 0 ? { messages: [responseForState] } : {}),
     ...(mode ? { reasoningMode: mode } : {}),
     consecutiveEmptyModelResponses: loopDecision.consecutiveEmptyResponses,
-    ...(segment ? { reasoningSegments: [segment] } : {}),
+    cognitionDraft,
     turnExecutionLedger: advanceTurnExecutionModelStep(ledger, toolCalls.length > 0),
     turnLifecycle: lifecycle,
     loopDirective: directive,
     pendingToolContext: [],
     ephemeralToolContext: [],
-    activeToolTranscriptIds: [],
-    promptSectionManifest: replacePromptManifestScope(
-      state.promptSectionManifest ?? [],
-      runtimePrompts.manifest,
-      CALL_LOCAL_PROMPT_SECTION_IDS
-    ),
-    ...(state.turnWorkspace
-      ? { turnWorkspace: withTurnLifecycleDraft(state.turnWorkspace, lifecycle) }
-      : {})
+    ...(state.turnWorkspace ? { turnWorkspace: state.turnWorkspace } : {})
   }
 }
+
+export const llmCall = cognitionNode

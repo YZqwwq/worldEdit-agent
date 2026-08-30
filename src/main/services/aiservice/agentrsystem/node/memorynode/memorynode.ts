@@ -2,11 +2,8 @@ import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
 import { getMainAgentContentPartsFromMessage, parseMainAgentContentForPersistence } from '../../../messagecontent/mainAgentMessageContentService'
 import { contentToText } from '../../../messageoutput/transformRespones'
-import {
-  withMemoryMessagesDraft
-} from '../../state/turnWorkspace'
+import { withMemoryMessagesDraft } from '../../state/turnWorkspace'
 import { advanceTurnLifecycle } from '@share/cache/AItype/states/turnLifecycle'
-import { withTurnLifecycleDraft } from '../../state/turnWorkspace'
 
 export async function memoryNode(
   state: typeof MessagesState.State
@@ -43,7 +40,7 @@ export async function memoryNode(
   }
 
   const lifecycle = advanceTurnLifecycle(
-    state.turnLifecycle ?? state.turnWorkspace.draft.lifecycle ?? {
+    state.turnLifecycle ?? {
       phase: 'expressing',
       revision: 0,
       updatedAt: new Date().toISOString()
@@ -53,6 +50,6 @@ export async function memoryNode(
   const workspaceWithMemory = withMemoryMessagesDraft(state.turnWorkspace, memoryMessages)
   return {
     turnLifecycle: lifecycle,
-    turnWorkspace: withTurnLifecycleDraft(workspaceWithMemory, lifecycle)
+    turnWorkspace: workspaceWithMemory
   }
 }

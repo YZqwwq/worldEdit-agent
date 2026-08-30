@@ -3,7 +3,10 @@ import { worldbuildingService } from '../../../../worldbuilding/worldbuildingSer
 import { defineAgentTool } from '../../core/agentTool'
 import { worldPayloadSchema } from './shared'
 
-const normalizeText = (value: unknown): string => String(value ?? '').trim().toLowerCase()
+const normalizeText = (value: unknown): string =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
 
 const resolveWorldByNameInputSchema = z.object({
   worldName: z.string().trim().min(1),
@@ -19,28 +22,41 @@ const resolveWorldByNameOutputSchema = z.object({
 
 export const resolveWorldByNameTool = defineAgentTool({
   name: 'resolve_world_by_name',
-  description: 'Resolve worldbuilding projects by world name, preferring exact matches and falling back to fuzzy substring matches.',
+  description:
+    'Resolve worldbuilding projects by world name, preferring exact matches and falling back to fuzzy substring matches.',
   inputSchema: resolveWorldByNameInputSchema,
   outputSchema: resolveWorldByNameOutputSchema,
   metadata: {
-    whenToUse: [
-      '已经知道世界名称，但还不知道 worldId',
-      '用户用自然语言提到某个世界，需要先把名字解析成系统内 world 记录',
-      '在调用 list_entities、delegate 类工具前，需要先稳定定位世界'
-    ],
-    whenNotToUse: [
-      '已经明确知道 worldId',
-      '问题和世界观项目无关',
-      '只是想列出所有世界，不需要按名字解析'
-    ],
-    inputSummary: '提供 worldName；可选 allowFuzzy 和 limit。',
-    outputSummary: '返回匹配世界列表，并标记本轮采用 exact、substring 还是 none 的匹配策略。',
-    examples: [
-      '用户说“方舟终章”，先调用 resolve_world_by_name 解析出对应 worldId，再继续查实体。'
-    ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true
+    description: {
+      purpose:
+        'Resolve worldbuilding projects by world name, preferring exact matches and falling back to fuzzy substring matches.',
+      whenToUse: [
+        '已经知道世界名称，但还不知道 worldId',
+        '用户用自然语言提到某个世界，需要先把名字解析成系统内 world 记录',
+        '在调用 list_entities、delegate 类工具前，需要先稳定定位世界'
+      ],
+      whenNotToUse: [
+        '已经明确知道 worldId',
+        '问题和世界观项目无关',
+        '只是想列出所有世界，不需要按名字解析'
+      ],
+      inputSummary: '提供 worldName；可选 allowFuzzy 和 limit。',
+      outputSummary: '返回匹配世界列表，并标记本轮采用 exact、substring 还是 none 的匹配策略。',
+      examples: [
+        '用户说“方舟终章”，先调用 resolve_world_by_name 解析出对应 worldId，再继续查实体。'
+      ]
+    },
+    display: {
+      visibility: 'visible',
+      stage: { label: '解析世界', runningLabel: '正在解析世界名称', doneLabel: '世界名称解析完成' }
+    },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const worlds = await worldbuildingService.listWorlds()
@@ -85,8 +101,12 @@ export const resolveWorldByNameTool = defineAgentTool({
   },
   nextSuggestions(data) {
     if (data.count === 0) {
-      return ['If the name may be inaccurate, call list_worlds to inspect all available projects before retrying.']
+      return [
+        'If the name may be inaccurate, call list_worlds to inspect all available projects before retrying.'
+      ]
     }
-    return ['Use a returned world id before listing entities or delegating a task tied to that world.']
+    return [
+      'Use a returned world id before listing entities or delegating a task tied to that world.'
+    ]
   }
 })

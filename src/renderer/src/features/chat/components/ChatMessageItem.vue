@@ -53,15 +53,17 @@
           </time>
         </header>
 
+        <AgentTurnActivity
+          v-if="turnActivity"
+          :activity="turnActivity"
+          @toggle="$emit('toggle-turn-activity')"
+        />
+
         <div
+          v-if="hasVisibleContent"
           class="max-w-[min(100%,960px)] rounded-[18px] border px-4 py-3 shadow-sm"
           :class="cardClass"
         >
-          <AgentTurnActivity
-            v-if="turnActivity"
-            :activity="turnActivity"
-            @toggle="$emit('toggle-turn-activity')"
-          />
 
           <div v-if="message.attachments?.length" class="flex flex-wrap gap-3">
             <a
@@ -168,6 +170,16 @@ const props = defineProps<{
   documentDiffLocatable?: boolean
   turnActivity?: AgentTurnActivityState
 }>()
+
+const hasVisibleContent = computed(
+  () =>
+    Boolean(
+      props.message.text.trim() ||
+        props.message.attachments?.length ||
+        props.message.artifacts?.length ||
+        props.message.documentDiffs?.length
+    )
+)
 
 defineEmits<{
   (e: 'edit-avatar', sender: Exclude<ChatSender, 'system'>): void

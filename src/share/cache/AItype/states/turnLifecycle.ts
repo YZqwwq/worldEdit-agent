@@ -10,13 +10,16 @@ export const TURN_INTERNAL_PHASE_VALUES = [
 
 export type TurnInternalPhase = (typeof TURN_INTERNAL_PHASE_VALUES)[number]
 
-export type AgentLoopDirective = 'deliberate' | 'execute_tools' | 'compose_final'
+export type AgentLoopDirective =
+  | 'deliberate'
+  | 'execute_tools'
+  | 'compose_expression_tools'
+  | 'compose_final'
+  | 'complete_expression'
 
 export type TurnLifecycleState = {
   phase: TurnInternalPhase
   revision: number
-  observationBatch?: string
-  revisedObservationBatch?: string
   updatedAt: string
 }
 
@@ -37,8 +40,7 @@ export const canAdvanceTurnInternalPhase = (
 
 export const advanceTurnLifecycle = (
   current: TurnLifecycleState | undefined,
-  phase: TurnInternalPhase,
-  options?: { observationBatch?: string; revisedObservationBatch?: string }
+  phase: TurnInternalPhase
 ): TurnLifecycleState => {
   const previous = current ?? {
     phase: 'forming' as const,
@@ -51,8 +53,6 @@ export const advanceTurnLifecycle = (
   return {
     phase,
     revision: phase === previous.phase ? previous.revision : previous.revision + 1,
-    observationBatch: options?.observationBatch ?? previous.observationBatch,
-    revisedObservationBatch: options?.revisedObservationBatch ?? previous.revisedObservationBatch,
     updatedAt: new Date().toISOString()
   }
 }

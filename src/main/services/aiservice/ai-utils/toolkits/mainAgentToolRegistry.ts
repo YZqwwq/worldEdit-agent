@@ -5,11 +5,13 @@ import type {
 } from './toolRegistryTypes'
 import {
   listDiscoverableToolsets,
+  listEntriesForPhase,
   listEnabledEntries,
   listVisibleEntries,
   toToolMap,
   validateToolRegistry
 } from './toolRegistryTypes'
+import type { AgentToolPhase } from '../core/agentTool'
 import { configureToolsetCatalogProvider, toToolsetCatalogItem } from './toolsetCatalog'
 import { toolUsageStatsService } from './toolUsageStatsService'
 import { continueActiveChildAgentTool } from '../tools/task/continueActiveChildAgent'
@@ -50,6 +52,7 @@ import {
   moveWorldDocumentTool,
   readWorldDocumentTool,
   readWorldDocumentSectionTool,
+  readWorldDocumentSectionsByTitleTool,
   renameWorldDocumentTool,
   replaceWorldDocumentSectionTool,
   replaceWorldDocumentTextTool,
@@ -592,6 +595,11 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
       summary: '按标题路径和可选章节 hash 读取一段 Markdown。'
     },
     {
+      tool: readWorldDocumentSectionsByTitleTool,
+      access: 'read' as const,
+      summary: '按章节标题读取文档中所有同名 Markdown 章节。'
+    },
+    {
       tool: createWorldDocumentTool,
       access: 'write' as const,
       summary: '在世界观文档树中创建根文档或子文档。'
@@ -655,7 +663,7 @@ export const mainAgentToolRegistry: AgentToolRegistryEntry[] = [
     enabled: true,
     quickAccessEligible: true,
     quickAccessScope: 'toolset' as const,
-    turnCallLimit: tool.agentMetadata.executionLevel === 'confirmation_required' ? 1 : undefined
+    turnCallLimit: tool.agentMetadata.execution.level === 'confirmation_required' ? 1 : undefined
   })),
   {
     key: listWorldEntityManualMentionsTool.name,
@@ -864,6 +872,12 @@ export const getVisibleMainAgentToolEntries = (
   state?: ToolActivationState
 ): AgentToolRegistryEntry[] => listVisibleEntries(mainAgentToolRegistry, state)
 
+export const getMainAgentToolEntriesForPhase = (
+  phase: AgentToolPhase,
+  state?: ToolActivationState
+): AgentToolRegistryEntry[] =>
+  listEntriesForPhase(getVisibleMainAgentToolEntries(state), phase)
+
 export const getVisibleMainAgentToolEntryMap = (
   state?: ToolActivationState
 ): Record<string, AgentToolRegistryEntry> =>
@@ -873,6 +887,11 @@ export const getVisibleMainAgentToolEntryMap = (
 
 export const getMainAgentTools = (state?: ToolActivationState) =>
   toToolMap(getVisibleMainAgentToolEntries(state))
+
+export const getMainAgentToolsForPhase = (
+  phase: AgentToolPhase,
+  state?: ToolActivationState
+) => toToolMap(getMainAgentToolEntriesForPhase(phase, state))
 
 const normalize = (value: string): string => value.trim().toLowerCase()
 

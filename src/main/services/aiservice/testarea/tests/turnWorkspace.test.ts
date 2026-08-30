@@ -11,9 +11,7 @@ import {
   withMemoryMessagesDraft,
   withMemorySlotsDraft,
   withLifeStateDraft,
-  withObservationDraft,
-  withSuccessfulToolUse,
-  withToolChangeSetSummary
+  withObservationDraft
 } from '../../agentrsystem/state/turnWorkspace'
 import { buildDurableToolEffectCheckpointState } from '../../agentrsystem/execution/durableToolEffectCheckpoint'
 import { resolveTurnWorkspaceCommitPolicy } from '../../runtime/orchestration/turnCommitPolicy'
@@ -93,8 +91,6 @@ test('turn workspace carries one finalizable draft without duplicate derived eff
     { role: 'user', content: '问题' },
     { role: 'ai', content: '回答' }
   ])
-  workspace = withSuccessfulToolUse(workspace, 'read_document')
-  workspace = withSuccessfulToolUse(workspace, 'read_document')
   workspace = withObservationDraft(workspace, {
     id: 1,
     type: 'user_message',
@@ -104,7 +100,6 @@ test('turn workspace carries one finalizable draft without duplicate derived eff
     createdAt: '2026-08-09T00:00:00.000Z'
   })
 
-  assert.deepEqual(workspace.draft.successfulToolNames, ['read_document'])
   assert.equal(workspace.draft.memoryMessages.length, 2)
   assert.equal(workspace.draft.observations.length, 1)
   assert.deepEqual(createFinalResponse({ messageId: ' message-1 ', content: ' 回答 ' }), {
@@ -174,27 +169,6 @@ test('durable tool receipts survive interruption checkpoints without duplication
 
   assert.equal(checkpoint.messages.length, 2)
   assert.equal(checkpoint.turnWorkspace?.draft.durableToolReceipts[0]?.payload?.revision, 9)
-})
-
-test('change set summary survives the same workspace checkpoint as durable receipts', () => {
-  const workspace = withToolChangeSetSummary(createWorkspace(), {
-    id: 'event-1:turn:7',
-    scopeType: 'turn',
-    scopeId: 'event-1:7',
-    eventId: 'event-1',
-    turnId: 7,
-    sessionId: 'default',
-    lifecycle: 'open',
-    outcome: 'partial',
-    effectCount: 3,
-    counts: { planned: 0, completed: 2, failed: 1, aborted: 0, unknown: 0 },
-    subjectTypes: ['document', 'image'],
-    summaries: ['更新文档', '替换图片', '地图更新失败'],
-    createdAt: '2026-08-14T00:00:00.000Z'
-  })
-
-  assert.equal(workspace.draft.changeSet?.outcome, 'partial')
-  assert.deepEqual(workspace.draft.changeSet?.subjectTypes, ['document', 'image'])
 })
 
 test('one tool call preserves multiple effect receipts by effect identity', () => {

@@ -95,23 +95,35 @@ export const listCharactersTool = defineAgentTool({
   inputSchema: listCharactersInputSchema,
   outputSchema: listCharactersOutputSchema,
   metadata: {
-    whenToUse: [
-      '需要按人物姓名、称号、摘要、性格特征、能力或归属字段查找人物',
-      '已知 worldId，但还不知道对应人物的 entityId',
-      '只知道部分人物线索，需要先得到候选人物列表'
-    ],
-    whenNotToUse: ['已经明确知道 entityId，应直接调用 get_entity_detail', '要查询的不是人物实体'],
-    inputSummary:
-      '提供至少一个查询条件，可使用 worldId、keyword、name、title、summary、gender、raceEntityId、factionEntityId、nationEntityId、birthplaceEntityId、personalityTraits、abilities、tags。基础信息查询会匹配 character_demographic.basicInfo 中的默认字段。',
-    outputSummary:
-      '返回人物候选列表。每项包含 worldId、worldName、matchedFields、entity 基础信息，以及 profile / demographic 的摘要字段。',
-    examples: [
-      '提供 worldId + name 查找某个世界中的人物',
-      '只提供 keyword 或 abilities，在所有世界中筛出可能的人物'
-    ],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true
+    description: {
+      purpose:
+        'Search character entities by names, traits, affiliations, and other character fields.',
+      whenToUse: [
+        '需要按人物姓名、称号、摘要、性格特征、能力或归属字段查找人物',
+        '已知 worldId，但还不知道对应人物的 entityId',
+        '只知道部分人物线索，需要先得到候选人物列表'
+      ],
+      whenNotToUse: ['已经明确知道 entityId，应直接调用 get_entity_detail', '要查询的不是人物实体'],
+      inputSummary:
+        '提供至少一个查询条件，可使用 worldId、keyword、name、title、summary、gender、raceEntityId、factionEntityId、nationEntityId、birthplaceEntityId、personalityTraits、abilities、tags。基础信息查询会匹配 character_demographic.basicInfo 中的默认字段。',
+      outputSummary:
+        '返回人物候选列表。每项包含 worldId、worldName、matchedFields、entity 基础信息，以及 profile / demographic 的摘要字段。',
+      examples: [
+        '提供 worldId + name 查找某个世界中的人物',
+        '只提供 keyword 或 abilities，在所有世界中筛出可能的人物'
+      ]
+    },
+    display: {
+      visibility: 'visible',
+      stage: { label: '人物搜索', runningLabel: '正在搜索人物', doneLabel: '人物搜索完成' }
+    },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute(input) {
     const characters = await worldbuildingService.searchCharacterEntities(input)
@@ -126,8 +138,12 @@ export const listCharactersTool = defineAgentTool({
   },
   nextSuggestions(data) {
     if (data.count === 0) {
-      return ['Try loosening the filters, or confirm the worldId and character clues before retrying.']
+      return [
+        'Try loosening the filters, or confirm the worldId and character clues before retrying.'
+      ]
     }
-    return ['Pick a returned entityId and call get_entity_detail to inspect the full character record before modifying it.']
+    return [
+      'Pick a returned entityId and call get_entity_detail to inspect the full character record before modifying it.'
+    ]
   }
 })

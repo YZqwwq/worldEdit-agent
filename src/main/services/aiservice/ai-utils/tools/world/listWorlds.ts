@@ -21,24 +21,34 @@ const listWorldsOutputSchema = z.object({
 
 export const listWorldsTool = defineAgentTool({
   name: 'list_worlds',
-  description:
-    'List all available worldbuilding projects in the local database.',
+  description: 'List all available worldbuilding projects in the local database.',
   inputSchema: listWorldsInputSchema,
   outputSchema: listWorldsOutputSchema,
   metadata: {
-    whenToUse: [
-      '用户询问当前有哪些世界观项目',
-      '在创建或编辑实体前，需要先确认可操作的 worldId',
-      '需要基于真实本地数据了解当前世界观范围'
-    ],
-    whenNotToUse: ['问题与世界观项目列表无关', '已经明确拿到了目标 worldId 且无需再次确认'],
-    inputSummary: '无参数。',
-    outputSummary:
-      '返回 count 和 worlds 数组。每个 world 包含 id、name、summary、status、schemaVersion、updatedAt、createdAt。',
-    examples: ['先调用 list_worlds，再决定后续对哪个世界进行查询或写入。'],
-    executionLevel: 'safe',
-    readOnly: true,
-    idempotent: true
+    description: {
+      purpose: 'List all available worldbuilding projects in the local database.',
+      whenToUse: [
+        '用户询问当前有哪些世界观项目',
+        '在创建或编辑实体前，需要先确认可操作的 worldId',
+        '需要基于真实本地数据了解当前世界观范围'
+      ],
+      whenNotToUse: ['问题与世界观项目列表无关', '已经明确拿到了目标 worldId 且无需再次确认'],
+      inputSummary: '无参数。',
+      outputSummary:
+        '返回 count 和 worlds 数组。每个 world 包含 id、name、summary、status、schemaVersion、updatedAt、createdAt。',
+      examples: ['先调用 list_worlds，再决定后续对哪个世界进行查询或写入。']
+    },
+    display: {
+      visibility: 'visible',
+      stage: { label: '世界列表', runningLabel: '正在读取世界列表', doneLabel: '世界列表读取完成' }
+    },
+    execution: {
+      level: 'safe',
+      readOnly: true,
+      idempotent: true,
+      completionSemantics: 'definitive'
+    },
+    retention: { context: 'evidence' }
   },
   async execute() {
     const worlds = await worldbuildingService.listWorlds()
@@ -63,6 +73,8 @@ export const listWorldsTool = defineAgentTool({
     if (data.count === 0) {
       return ['No worlds exist yet. Ask the user whether they want to create one.']
     }
-    return ['Use a world id from the result before querying entities or writing worldbuilding data.']
+    return [
+      'Use a world id from the result before querying entities or writing worldbuilding data.'
+    ]
   }
 })

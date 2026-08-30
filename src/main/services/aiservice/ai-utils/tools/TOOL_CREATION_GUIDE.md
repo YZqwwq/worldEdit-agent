@@ -95,21 +95,80 @@
 
 默认值必须符合最常见、最低风险行为。可选字段缺失时的语义必须写入 `inputSummary`，不能依赖模型猜测。
 
-## 4. 工具说明
+## 4. 工具描述对象
 
-每个工具通过 `defineAgentTool` 提供以下信息：
+每个工具通过 `defineAgentTool` 提供一个可扩展的 `metadata.description` 对象。它是
+**给 Agent/模型看的能力说明**，不负责权限判断、执行控制或用户界面文案：
 
-- `description`：一句话说明能力。
-- `whenToUse`：什么意图下调用。
-- `whenNotToUse`：什么情况下不要调用。
-- `inputSummary`：字段和缺省语义。
-- `outputSummary`：能得到什么，不承诺什么。
-- `usageContract`：调用顺序、安全边界和完成条件。
-- `examples`：一至两个最短合法调用示例。
+```ts
+description: {
+  purpose: '读取一个世界文档的正文。',
+  whenToUse: ['需要确认文档的权威当前内容时'],
+  whenNotToUse: ['只需要目录或标题时不要读取完整正文'],
+  inputSummary: '提供稳定的 documentId。',
+  outputSummary: '返回当前正文、revision 和最小定位信息。',
+  usageContract: ['已有 documentId 时不要重复搜索。'],
+  examples: ['{"documentId":"document-id"}']
+}
+```
 
-说明用于解释一个良好接口，不能用于补救复杂接口。示例必须是合法参数本身，不要只写自然语言流程。
+字段边界：
 
-## 5. 返回契约
+- `purpose`：工具能做什么，一句话即可。
+- `whenToUse` / `whenNotToUse`：调用条件和明确禁用场景。
+- `inputSummary` / `outputSummary`：参数缺省语义和结果承诺。
+- `usageContract`：调用顺序、安全边界、完成条件。
+- `examples`：一至两个最短合法调用示例，必须是可直接调用的 JSON。
+- 后续扩展字段必须有明确消费者；不能为了“以后可能需要”堆入描述对象。
+
+说明用于解释一个良好接口，不能用于补救复杂接口。模型提示只消费本对象中与调用有关的
+投影，不应读取 UI 阶段文本或执行器内部字段。
+
+### 4.1 Agent 可见投影
+
+注册器和 `defineAgentTool` 会保留完整元数据，供执行器、UI、Trace、执行账本和测试使用；
+模型只需要知道工具能做什么、什么时候使用、需要提供哪些语义化输入，以及哪些工具特有
+限制会直接影响调用成功。
+
+工具绑定给模型的描述不得重复输出 schema、结果保留、执行等级、audience、access、
+category、Trace 或副作用协议。`outputSummary`、`usageContract` 和 `examples` 可用于
+开发文档与注册校验，但不自动进入模型描述；只有会改变调用决策的限制才写入
+`description.modelConstraints`。工具描述应尽量控制在 150 字以内。
+
+工具集目录只说明能力和激活方式，不展开工具集内全部个体工具。模型需要专门能力时，先
+查询目录，再激活工具集；快捷工具集是目录提示，不等于其中每个工具都已挂载。
+
+## 5. 工具显示对象
+
+每个工具通过 `metadata.display` 声明用户侧投影。它与 Agent 描述、执行事实严格分开：
+
+```ts
+display: {
+  visibility: 'hidden' | 'visible',
+  stage?: {
+    label: '读取文档',
+    runningLabel: '正在读取文档',
+    doneLabel: '文档已读取',
+    errorLabel: '读取文档失败'
+  }
+}
+```
+
+规则：
+
+1. `visibility: 'hidden'` 的工具仍正常执行、记录 Trace、进入执行账本和上下文保留链路，
+   但不进入用户侧思考/工具进度条。典型例子是表达方案选择、内部路由和状态整理。
+2. `visibility: 'visible'` 的工具必须提供自然语言 `stage`，不能把工具名、内部 ID、schema、
+   参数或完整异常堆栈直接展示给用户。典型例子是网页搜索、人物查询和世界文档读取。
+3. 是否显示不能由 `readOnly`、`access` 或 `contextRetention` 推导。只读的搜索工具可以显示，
+   有内部写入的控制工具也可以隐藏。
+4. `display` 只影响 UI 投影，不改变模型能否调用工具，也不改变副作用、回退、Trace 或
+   receipt 语义。未来可在对象内增加 `mode`、`surfaces` 等字段，但不得把它们混入执行事实。
+
+第一阶段只要求 `visibility`；需要显示阶段时再填写 `stage`。后续若出现“仅显示进度”、
+“仅显示结果”等稳定需求，应扩展 `display` 的枚举，而不是恢复按工具名称猜测的过滤逻辑。
+
+## 6. 返回契约
 
 工具必须返回统一 envelope：
 
@@ -152,7 +211,7 @@
 
 receipt 应回答“做了什么、作用于谁、是否完成”，不能只写“工具成功”。
 
-## 6. 错误与重试
+## 7. 错误与重试
 
 业务失败通过 `AgentToolError` 返回，禁止只抛出无法分类的字符串：
 
@@ -195,9 +254,9 @@ throw new AgentToolError({
 
 不得通过提高 LangGraph recursion limit 掩盖重复调用问题。循环上限只负责异常收尾，不负责业务决策。
 
-## 7. 用户可见反馈
+## 8. 用户可见反馈
 
-每个工具配置 `uiStage`：
+每个可见工具在 `metadata.display.stage` 中配置：
 
 - `label`
 - `runningLabel`
@@ -208,7 +267,7 @@ throw new AgentToolError({
 
 Agent 获得详细错误；用户只获得与任务有关的阶段和结果。最终回复不重复播报已经由界面显示的工具进度。
 
-## 8. 执行等级与内部语义
+## 9. 执行等级与内部语义
 
 每个工具必须在设计时只选择一个 `executionLevel`。这是 Agent 能看到的唯一执行判断：
 
@@ -240,7 +299,7 @@ Agent 获得详细错误；用户只获得与任务有关的阶段和结果。�
 
 
 
-## 9. Context 保留
+## 10. Context 保留
 
 - `evidence`：正文、搜索来源等后续回答必须引用的证据。
 - `ephemeral`：激活结果、参数错误和短期控制信息。
@@ -248,7 +307,7 @@ Agent 获得详细错误；用户只获得与任务有关的阶段和结果。�
 
 不要把大段原始数据和摘要同时保留。需要完整正文时保留正文；普通写入完成后优先保留 receipt，可连续编辑则额外保留最小 continuation 状态。
 
-## 10. 注册与激活
+## 11. 注册与激活
 
 新增工具后必须：
 
@@ -277,7 +336,7 @@ audience 越界或元数据冲突都会阻止启动；`toToolMap()` 也禁止静
 
 高频入口可以进入常用工具栏；内部原子工具不应仅因为属于同一工具集就全部常驻。
 
-## 11. 测试要求
+## 12. 测试要求
 
 每个新工具至少覆盖：
 
@@ -292,12 +351,20 @@ audience 越界或元数据冲突都会阻止启动；`toToolMap()` 也禁止静
 
 任务入口还应进行一次真实模型调用测试，确认当前主模型可以稳定生成合法参数。仅通过 TypeScript 类型检查不足以证明 Agent 会正确调用。
 
-## 12. 创建模板
+## 13. 创建模板
 
 ```ts
 export const exampleTool = defineAgentTool({
   name: 'read_example',
-  description: 'Read one example by its stable reference.',
+  description: {
+    purpose: 'Read one example by its stable reference.',
+    whenToUse: ['需要读取示例内容'],
+    whenNotToUse: ['用户只是在讨论假设，不依赖本地数据'],
+    inputSummary: '提供 worldId，可选 entityId。',
+    outputSummary: '返回是否命中及正文。',
+    usageContract: ['参数保持扁平；已有 entityId 时不要重复搜索。'],
+    examples: ['{"worldId":"world-id","entityId":"entity-id"}']
+  },
   inputSchema: z.object({
     worldId: z.string().trim().min(1),
     entityId: z.string().trim().min(1).optional()
@@ -307,21 +374,18 @@ export const exampleTool = defineAgentTool({
     content: z.string().nullable()
   }),
   metadata: {
-    whenToUse: ['需要读取示例内容'],
-    whenNotToUse: ['用户只是在讨论假设，不依赖本地数据'],
-    inputSummary: '提供 worldId，可选 entityId。',
-    outputSummary: '返回是否命中及正文。',
-    usageContract: ['参数保持扁平；已有 entityId 时不要重复搜索。'],
-    examples: ['{"worldId":"world-id","entityId":"entity-id"}'],
+    display: {
+      visibility: 'visible',
+      stage: {
+        label: '读取示例',
+        runningLabel: '正在读取示例',
+        doneLabel: '示例已读取'
+      }
+    },
     executionLevel: 'safe',
     readOnly: true,
     idempotent: true,
     contextRetention: 'evidence',
-    uiStage: {
-      label: '读取示例',
-      runningLabel: '正在读取示例',
-      doneLabel: '示例已读取'
-    }
   },
   async execute(input) {
     return { found: false, content: null }
@@ -341,7 +405,25 @@ export const exampleTool = defineAgentTool({
 
 
 
-## 13. 合并前检查清单
+## 14. 现存工具迁移要求
+
+现存工具必须逐个补齐描述和显示对象，不允许继续依赖工具名、分类名或自然语言文案推断
+用户可见性。迁移顺序：
+
+1. 把原 `metadata.whenToUse`、`whenNotToUse`、`inputSummary`、`outputSummary`、
+   `usageContract`、`examples` 移入 `metadata.description`。
+2. 把原 `metadata.uiStage` 移入 `metadata.display.stage`。
+3. 为每个工具显式填写 `metadata.display.visibility`：信息返回或用户可感知外部效果使用
+   `visible`；表达策略、内部控制、路由和纯状态整理使用 `hidden`。
+4. 删除调用方对 `tool.name`、`capabilityGroup`、`description` 文案的 UI 猜测；UI 只消费
+   `agentMetadata.display`。
+5. `description` 仍进入模型工具 schema；`display` 不进入模型提示，Trace 可完整记录两者。
+6. 新工具若未声明 `description` 或 `display.visibility`，注册校验应失败，而不是静默采用默认值。
+
+本次迁移不改变工具执行结果、上下文保留、Trace、receipt、工具副作用或回退语义，只改变
+元数据的职责边界和用户侧投影来源。
+
+## 15. 合并前检查清单
 
 - [ ] 工具名称表达动作和对象。
 - [ ] 参数保持扁平，没有暴露可推导的内部结构。
