@@ -35,6 +35,11 @@ const routes = [
     path: '/chat',
     name: 'AIChat',
     component: () => import('../views/AIChatView.vue')
+  },
+  {
+    path: '/prompt-inspection',
+    name: 'PromptInspection',
+    component: () => import('../views/PromptInspectionView.vue')
   }
 ]
 

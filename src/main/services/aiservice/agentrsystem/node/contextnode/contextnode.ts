@@ -36,6 +36,7 @@ import { renderExpressionPromptProfileCatalog } from '../../../prompt/main_agent
 import { renderAgentHabitsPrompt } from '../../../prompt/main_agent/persona/communicationHabits'
 import { agentHabitStore } from '../../manager/personal/agentHabitStore'
 import { buildAgentHabitatPrompt } from '../../../prompt/main_agent/persona/agentHabitatPrompt'
+import { renderPromptTemplate, resolvePromptOverride } from '../../../prompt/promptOverrideStore'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
@@ -139,6 +140,19 @@ export async function contextNode(
   const expressionProfile =
     state.expressionProfile ?? (await loadExpressionPromptProfile('default'))
   const currentTimeContext = formatCurrentContextTime()
+  const promptValues = {
+    now: currentTimeContext,
+    event:
+      state.turnInput?.source === 'subagent'
+        ? '子 agent 返回的消息'
+        : state.turnInput?.source === 'system'
+          ? '应用中发生的系统事件'
+          : '用户发来的消息',
+    eventContent: state.turnInput?.content ?? '',
+    page: state.workspaceContext?.routeName ?? '当前页面',
+    world: state.workspaceContext?.world?.name ?? '当前世界观',
+    document: state.workspaceContext?.document?.title ?? '当前文档'
+  }
   const currentUserMessageCreatedAt = getCurrentUserMessageCreatedAt(state)
   const workspaceProfile = resolveWorkspaceProfile(state.workspaceContext)
   const agentHabits = await agentHabitStore.list()
@@ -162,14 +176,14 @@ export async function contextNode(
     kind: 'persona_anchor',
     source: 'selfCoreAuthorityService',
     capturedAt: selfCore.updatedAt,
-    content: personaParts.identity
+    content: await resolvePromptOverride('persona-anchor', personaParts.identity)
   })
   appendPromptSection({
     id: 'agent-habitat',
     duty: 'identity',
     kind: 'existential_environment',
     source: 'agentHabitatPrompt',
-    content: buildAgentHabitatPrompt()
+    content: await resolvePromptOverride('agent-habitat', buildAgentHabitatPrompt())
   })
   const lifeState = getEffectiveLifeState(turnWorkspace)
   appendPromptSection({
@@ -194,7 +208,10 @@ export async function contextNode(
       kind: 'event_context',
       source: 'turnInput',
       capturedAt: state.turnInput?.occurredAt,
-      content: currentEventNarrative
+      content: renderPromptTemplate(
+        await resolvePromptOverride('current-event-narrative', currentEventNarrative),
+        promptValues
+      )
     })
   }
   appendPromptSection({
@@ -202,14 +219,14 @@ export async function contextNode(
     duty: 'instruction',
     kind: 'persona_cognition',
     source: 'personaAssemblyPrompt',
-    content: personaParts.cognitionInstruction
+    content: await resolvePromptOverride('persona-cognition', personaParts.cognitionInstruction)
   })
   appendPromptSection({
     id: 'agent-habits',
     duty: 'instruction',
     kind: 'agent_habits',
     source: 'agentHabitStore',
-    content: renderAgentHabitsPrompt(agentHabits)
+    content: await resolvePromptOverride('agent-habits', renderAgentHabitsPrompt(agentHabits))
   })
 
   appendPromptSection({
@@ -217,15 +234,20 @@ export async function contextNode(
     duty: 'context',
     kind: 'time_context',
     source: 'systemClock',
-    content: `当前时间锚点：${currentTimeContext}`
+    content: renderPromptTemplate(
+      await resolvePromptOverride('time-context', `当前时间锚点：${currentTimeContext}`),
+      promptValues
+    )
   })
   appendPromptSection({
     id: 'relative-time-rule',
     duty: 'instruction',
     kind: 'time_interpretation_rule',
     source: 'contextNode',
-    content:
+    content: await resolvePromptOverride(
+      'relative-time-rule',
       '默认以当前时间锚点作为“现在/今天/最近”等相对时间表达的解释基准；除非用户明确提供其他时间背景，否则不要自行假设年份或日期。'
+    )
   })
 
   if (currentUserMessageCreatedAt) {
@@ -242,8 +264,10 @@ export async function contextNode(
       duty: 'instruction',
       kind: 'time_interpretation_rule',
       source: 'contextNode',
-      content:
+      content: await resolvePromptOverride(
+        'message-time-rule',
         '当前用户消息时间是你看到本轮用户消息时的聊天时间戳；理解“刚刚/这条消息/用户现在说”时优先参考它。'
+      )
     })
   }
 
@@ -254,7 +278,10 @@ export async function contextNode(
       duty: 'context',
       kind: 'workspace_state',
       source: 'agentWorkspaceContextResolver',
-      content: workspacePrompt.context,
+      content: renderPromptTemplate(
+        await resolvePromptOverride('workspace-state', workspacePrompt.context),
+        promptValues
+      ),
       capturedAt: state.workspaceContext?.capturedAt
     })
   }
@@ -264,7 +291,7 @@ export async function contextNode(
       duty: 'instruction',
       kind: 'context_usage_rule',
       source: 'contextNode',
-      content: workspacePrompt.instruction
+      content: await resolvePromptOverride('workspace-rule', workspacePrompt.instruction)
     })
   }
 
@@ -373,7 +400,7 @@ export async function contextNode(
     duty: 'context',
     kind: 'expression_profile_catalog',
     source: 'expressionPromptProfiles',
-    content: renderExpressionPromptProfileCatalog()
+    content: await resolvePromptOverride('expression-profile-catalog', renderExpressionPromptProfileCatalog())
   })
 
   const cognitivePolicyPrompt = buildCognitivePolicyPrompt(state.personaPolicy?.cognition)
@@ -383,7 +410,7 @@ export async function contextNode(
       duty: 'context',
       kind: 'agent_cognitive_policy',
       source: 'personaPolicyCompiler',
-      content: cognitivePolicyPrompt,
+      content: await resolvePromptOverride('agent-cognitive-policy', cognitivePolicyPrompt),
       capturedAt: state.personaPolicy?.generatedAt
     })
   }
@@ -441,7 +468,7 @@ export async function contextNode(
       duty: 'instruction',
       kind: 'scene_character_posture',
       source: 'workspaceProfileRegistry',
-      content: sceneCharacterPrompt,
+      content: await resolvePromptOverride('scene-character', sceneCharacterPrompt),
       capturedAt: state.personaPolicy?.generatedAt
     })
   }

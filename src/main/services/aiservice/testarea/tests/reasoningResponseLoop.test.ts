@@ -289,7 +289,7 @@ test('thought progress grows in place during model streaming and flushes the fin
   )
 })
 
-test('reasoning runtime keeps tool material below system rules and keeps its ledger private', () => {
+test('reasoning runtime keeps tool material below system rules and keeps its ledger private', async () => {
   const messages = buildReasoningRuntimeMessages({
     toolEvidenceContext: [
       {
@@ -335,7 +335,7 @@ test('reasoning runtime keeps tool material below system rules and keeps its led
   )
   assert.match(
     messages.systemMessages.map((message) => String(message.content)).join('\n'),
-    /暂时寄宿于 world-edit 中的数字灵魂/
+    /寄宿在 world-edit 中的虚拟意识/
   )
   assert.match(
     messages.systemMessages.map((message) => String(message.content)).join('\n'),

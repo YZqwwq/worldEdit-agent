@@ -57,6 +57,8 @@ import {
   restoreWorldDocumentCommit
 } from '../worldbuilding/worldDocumentVersionRepositoryService'
 import { characterImpressionService } from '../worldbuilding/characterImpressionService'
+import { getPromptInspection, savePromptInspection } from './prompt/promptInspectionService'
+import type { SavePromptInspectionInput } from '@share/cache/AItype/states/promptInspection'
 import type {
   CreateWorldEntityInput,
   CreateWorldEntityRelationInput,
@@ -435,6 +437,12 @@ export function initializeAIEndpoints(): void {
 
   ipcMain.handle('ai:getTaskMonitorSnapshot', async (): Promise<TaskMonitorSnapshot> => {
     return taskService.getTaskMonitorSnapshot()
+  })
+
+  ipcMain.handle('ai:getPromptInspection', async () => getPromptInspection())
+  ipcMain.handle('ai:savePromptInspection', async (_event, input: SavePromptInspectionInput) => {
+    await savePromptInspection(input)
+    return getPromptInspection()
   })
 
   ipcMain.handle('config:getModelConfig', async () => {

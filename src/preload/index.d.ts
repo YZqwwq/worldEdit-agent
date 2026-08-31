@@ -72,6 +72,7 @@ import type {
   WorldDocumentDiffReferencePayload,
   WorldDocumentVersionStatusPayload
 } from '../share/cache/worldbuilding/worldDocumentHistory'
+import type { PromptInspectionPayload, SavePromptInspectionInput } from '../share/cache/AItype/states/promptInspection'
 
 declare global {
   // Define the shape of custom APIs exposed to renderer (global type)
@@ -94,6 +95,8 @@ declare global {
     resetAgentState: () => Promise<void>
     getMemorySnapshot: () => Promise<MemoryInspectionPayload>
     getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
+    getPromptInspection: () => Promise<PromptInspectionPayload>
+    savePromptInspection: (input: SavePromptInspectionInput) => Promise<PromptInspectionPayload>
 
     pickFile: () => Promise<{
       sourcePath: string

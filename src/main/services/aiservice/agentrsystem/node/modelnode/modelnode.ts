@@ -4,7 +4,8 @@ import {
   AIMessageChunk,
   BaseMessage,
   HumanMessage,
-  SystemMessage
+  SystemMessage,
+  ToolMessage
 } from '@langchain/core/messages'
 import { getModelWithTool, normalizeModelResponse } from '../../modelwithtool/modelwithtool'
 import { MessagesState } from '../../state/messageState'
@@ -34,6 +35,8 @@ import {
   resolveMainAgentTimeoutMs
 } from '../../execution/modelCallAbortScope'
 import { buildReasoningRuntimeMessages } from './reasoningRuntimeMessages'
+import { resolvePromptOverride } from '../../../prompt/promptOverrideStore'
+import { savePromptRuntimeSnapshot } from '../../../prompt/promptRuntimeSnapshotStore'
 import { createThoughtProgressPublisher } from './thoughtProgressPublisher'
 
 const getCurrentUserRequestPreview = (state: typeof MessagesState.State): string => {
@@ -130,7 +133,9 @@ export async function cognitionNode(
   const ledger =
     state.turnExecutionLedger ?? createTurnExecutionLedger(getCurrentUserRequestPreview(state))
   assertModelStepAvailable(ledger.modelStep)
-  const runtimePrompts = buildReasoningRuntimeMessages(state)
+  const runtimePrompts = buildReasoningRuntimeMessages(state, {
+    reasoningContract: await resolvePromptOverride('reasoning-contract', '')
+  })
   const sourceMessages = [...state.messages]
   const systemMessages = [
     ...sourceMessages.filter((message) => message instanceof SystemMessage),
@@ -159,6 +164,26 @@ export async function cognitionNode(
     ],
     configured.runtime
   )
+  try {
+    await savePromptRuntimeSnapshot({
+      source: 'runtime',
+      capturedAt: new Date().toISOString(),
+      modelStep,
+      model: configured.runtime.effectiveOptions.model,
+      profile: configured.runtime.profile,
+      reasoningProtocol: configured.runtime.reasoningProtocol,
+      messages: preparedMessages.map((message) => ({
+        type: message.constructor.name,
+        content: message.content,
+        additionalKwargs: message.additional_kwargs,
+        toolCalls: message instanceof AIMessage ? message.tool_calls : undefined,
+        toolCallId: message instanceof ToolMessage ? message.tool_call_id : undefined,
+        name: message.name
+      }))
+    })
+  } catch (error) {
+    console.warn('[prompt-inspection] failed to persist cognition prompt snapshot', error)
+  }
   if (process.env.WORLDEDIT_AGENT_CAPTURE_FULL_PROMPT === '1') {
     const capturedPrompt = {
       model: configured.runtime.effectiveOptions.model,

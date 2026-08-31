@@ -30,6 +30,14 @@
         记忆状态
       </button>
 
+      <router-link
+        to="/prompt-inspection"
+        class="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 no-underline"
+        title="查看和编辑当前 Prompt 拼接结果"
+      >
+        Prompt
+      </router-link>
+
       <button
         type="button"
         class="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"

@@ -101,6 +101,24 @@ const listArtifactFiles = (
   return files
 }
 
+export const findLatestAgentTraceArtifact = (
+  fileNamePattern: RegExp
+): { path: string; content: string; mtimeMs: number } | null => {
+  try {
+    const latest = listArtifactFiles(getArtifactRoot())
+      .filter((file) => fileNamePattern.test(file.path.replace(/\\/g, '/').split('/').at(-1) ?? ''))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)[0]
+    if (!latest) return null
+    return {
+      path: latest.path,
+      content: readFileSync(latest.path, 'utf8'),
+      mtimeMs: latest.mtimeMs
+    }
+  } catch {
+    return null
+  }
+}
+
 const pruneArtifacts = (): void => {
   try {
     const files = listArtifactFiles(getArtifactRoot()).sort((a, b) => a.mtimeMs - b.mtimeMs)

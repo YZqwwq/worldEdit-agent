@@ -48,6 +48,7 @@ import type {
   UpsertCharacterImpressionInput
 } from '../share/cache/worldbuilding/characterImpression'
 import type { AgentArtifactPayload } from '../share/cache/AItype/states/agentArtifact'
+import type { PromptInspectionPayload, SavePromptInspectionInput } from '../share/cache/AItype/states/promptInspection'
 import type {
   ApplyWorldDocumentMergeInput,
   ApplyWorldDocumentCommitInput,
@@ -96,6 +97,8 @@ type Api = {
   resetAgentState: () => Promise<void>
   getMemorySnapshot: () => Promise<MemoryInspectionPayload>
   getTaskMonitorSnapshot: () => Promise<TaskMonitorSnapshot>
+  getPromptInspection: () => Promise<PromptInspectionPayload>
+  savePromptInspection: (input: SavePromptInspectionInput) => Promise<PromptInspectionPayload>
 
   pickFile: () => Promise<{ sourcePath: string; fileName: string; size: number; mimeType?: string }>
   pickImageAsset: () => Promise<{
@@ -285,6 +288,8 @@ const api: Api = {
   resetAgentState: () => ipcRenderer.invoke('ai:resetAgentState'),
   getMemorySnapshot: () => ipcRenderer.invoke('ai:getMemorySnapshot'),
   getTaskMonitorSnapshot: () => ipcRenderer.invoke('ai:getTaskMonitorSnapshot'),
+  getPromptInspection: () => ipcRenderer.invoke('ai:getPromptInspection'),
+  savePromptInspection: (input) => ipcRenderer.invoke('ai:savePromptInspection', input),
   pickFile: () => ipcRenderer.invoke('file:pick'),
   pickImageAsset: () => ipcRenderer.invoke('imageAsset:pick'),
   uploadFile: (sourcePath) => ipcRenderer.invoke('file:upload', sourcePath),
