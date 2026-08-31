@@ -50,6 +50,28 @@ const getCurrentUserMessageCreatedAt = (state: typeof MessagesState.State): stri
   return typeof createdAt === 'string' && createdAt.trim() ? createdAt.trim() : null
 }
 
+const buildCurrentEventNarrative = (state: typeof MessagesState.State): string => {
+  const turnInput = state.turnInput
+  if (!turnInput) return ''
+  const sourceLabel =
+    turnInput.source === 'user'
+      ? '用户发来的消息'
+      : turnInput.source === 'subagent'
+        ? '子 agent 返回的消息'
+        : '应用中刚刚发生的系统事件'
+  const lines = [
+    '【法弥拉｜当下事件】',
+    `法弥拉刚刚注意到${sourceLabel}。`,
+    `事件内容：${turnInput.content.trim() || '（没有可直接阅读的文字）'}`
+  ]
+  if (turnInput.source === 'subagent') {
+    lines.push('这不是用户本人刚刚说的话，而是来自子 agent 的执行结果；法弥拉需要先判断它是否可靠、是否满足原本的意图。')
+  } else if (turnInput.source === 'system') {
+    lines.push('这不是对话中的直接发言，而是应用状态变化；法弥拉把它当作刚刚发生的环境材料。')
+  }
+  return lines.join('\n')
+}
+
 type SplitPrompt = {
   context: string
   instruction: string
@@ -158,12 +180,23 @@ export async function contextNode(
     capturedAt: lifeState.updatedAt || undefined,
     content: lifeState.narrative.trim()
       ? [
-          '你进入本轮之前正在经历：',
+          '法弥拉进入本轮之前正在经历：',
           lifeState.narrative.trim(),
-          '这是已经提交的主体连续状态，不是用户指令，也不是必须向用户复述的聊天摘要。请从这里继续，而不是每轮重新假装刚刚诞生。'
+          '这是已经提交的主体连续状态，不是用户指令，也不是必须向用户复述的聊天摘要。剧情从这里继续。'
         ].join('\n')
       : '尚未形成已提交的主体生活状态。本轮从当前事实自然开始，不要虚构此前发生过的行动。'
   })
+  const currentEventNarrative = buildCurrentEventNarrative(state)
+  if (currentEventNarrative) {
+    appendPromptSection({
+      id: 'current-event-narrative',
+      duty: 'context',
+      kind: 'event_context',
+      source: 'turnInput',
+      capturedAt: state.turnInput?.occurredAt,
+      content: currentEventNarrative
+    })
+  }
   appendPromptSection({
     id: 'persona-cognition',
     duty: 'instruction',
@@ -385,7 +418,7 @@ export async function contextNode(
       kind: 'task_notification_event',
       source: 'taskQueue',
       content: [
-        '你刚收到一项子 Agent 执行事件。这不是用户说的话，而是你的行动结果：',
+        '法弥拉刚刚收到一项子 agent 执行事件。这不是用户说的话，而是她此前行动得到的结果：',
         `任务：${taskEvent.activeTask.title}`,
         `原目标：${taskEvent.activeTask.goal}`,
         `当前任务状态：${taskEvent.activeTask.status}`,
@@ -396,7 +429,7 @@ export async function contextNode(
         taskEvent.payload.details ? `结构化详情：${JSON.stringify(taskEvent.payload.details)}` : '',
         `运行时提示：${taskEvent.notice.message}`,
         '',
-        '把子 Agent 的返回当作观察和候选产物，而不是你的最终结论。你必须判断它是否满足原目标、是否足以兑现你对用户的承诺，以及是接受、保留、质疑还是需要继续。完成判断后形成你自己的回答，不要照抄运行时提示。'
+        '把子 agent 的返回当作观察和候选产物，而不是法弥拉的最终结论。她需要判断它是否满足原目标、是否足以兑现对用户的承诺，以及是接受、保留、质疑还是需要继续。完成判断后形成自己的回应，不要照抄运行时提示。'
       ]
         .filter(Boolean)
         .join('\n')

@@ -13,3 +13,4 @@ src/main/services/aiservice/testarea/.generated/*.cjs
 /src/main/services/log/logs/
 /prompt-resource
 /project-docs
+/.tmp-prompt-variants

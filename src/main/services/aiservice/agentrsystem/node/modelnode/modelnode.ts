@@ -15,6 +15,8 @@ import {
   traceDecision,
   traceState
 } from '../../../../log/trace/agentTraceEmitter'
+import { getTraceContext } from '../../../../log/trace/agentTraceRuntime'
+import { persistAgentTraceArtifact } from '../../../../log/trace/agentTraceStore'
 import { emitAgentThought } from '../../../runtime/agentRuntimeOutput'
 import {
   advanceTurnExecutionModelStep,
@@ -157,6 +159,42 @@ export async function cognitionNode(
     ],
     configured.runtime
   )
+  if (process.env.WORLDEDIT_AGENT_CAPTURE_FULL_PROMPT === '1') {
+    const capturedPrompt = {
+      model: configured.runtime.effectiveOptions.model,
+      profile: configured.runtime.profile,
+      reasoningProtocol: configured.runtime.reasoningProtocol,
+      messages: preparedMessages.map((message) => ({
+        type: message.constructor.name,
+        content:
+          typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
+        additional_kwargs: message.additional_kwargs
+      }))
+    }
+    const traceContext = getTraceContext()
+    const capturePath = traceContext
+      ? persistAgentTraceArtifact({
+          runId: traceContext.runId,
+          artifactId: `cognition-prompt-step-${modelStep}`,
+          extension: 'json',
+          content: JSON.stringify(capturedPrompt, null, 2)
+        })
+      : undefined
+    traceArtifact('cognitionNode', {
+      scope: 'loop',
+      modelStep,
+      title: '测试捕获: cognitionNode 全量模型入参',
+      summary: `捕获 ${preparedMessages.length} 条消息，可从 artifact 回放`,
+      data: {
+        model: capturedPrompt.model,
+        profile: capturedPrompt.profile,
+        reasoningProtocol: capturedPrompt.reasoningProtocol,
+        messageCount: preparedMessages.length,
+        capturePath: capturePath ?? null,
+        messages: capturedPrompt.messages
+      }
+    })
+  }
   traceState('cognitionNode', {
     scope: 'loop',
     status: 'started',
