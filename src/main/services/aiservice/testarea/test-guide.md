@@ -8,6 +8,58 @@
 
 ## 运行命令
 
+### 按功能运行真实 Agent 场景
+
+在现有 `modelIntegrationSmoke.test.ts`、`run-electron-test.cjs` 上扩展，不另建 Agent 执行链。每次构建最新源码，无需重启应用；真实模型调用会消耗 API 用量。
+
+```powershell
+npm run probe:agent-scenario -- --scenario=src/main/services/aiservice/testarea/scenarios/documents/read-tester-fresh.json
+npm run probe:agent-scenario -- --scenario=src/main/services/aiservice/testarea/scenarios/documents/read-user-continue.json
+npm run probe:agent-scenario -- --scenario=src/main/services/aiservice/testarea/scenarios/conversation/tester-empty.json
+npm run probe:agent-scenario -- --scenario=src/main/services/aiservice/testarea/scenarios/conversation/user-empty.json
+```
+
+- `scenarios/documents/`：文档和工具行为；当前示例引用应用内实际人物志 ID，换数据时修改对应场景。
+- `scenarios/conversation/`：身份与多轮交流。
+- `actor: user`：模拟原用户，不告知测试。`actor: tester`：模型明确看到隔离测试者身份；消息传输仍为 HumanMessage，运行态 source 为 tester，不作为原用户情绪信号。
+- `database: snapshot`：SQLite 在线备份原数据库。`database: empty`：只复制模型配置到新库，再初始化表结构，不复制文档、消息、记忆；模型配置不会导出到审计产物。
+- `state: inherit`：保留副本已有状态。`state: fresh`：在副本调用现有 `resetAgentSession` 清空会话、记忆与人格动态等状态，保留业务文档；该操作也重置 Self Core 权威状态，随后按项目默认逻辑初始化。empty 必须配 fresh。
+- `turns`：同一场景顺序执行，共享该次临时环境；不同命令运行互相隔离。目前不支持跨运行检查点续接。
+- 每轮 `expect` 可指定 `successfulTools`、`thoughtAfterTool`、`responseIncludes`。工具与后续思考检查只使用本轮新增日志，前一轮成功不能冒充本轮成功。
+- 结果保存在 `temp-plan/agent-tests/<场景 id>/<运行 id>/`：初始数据数量、场景定义、通过/失败报告，以及每轮的 `thoughts.txt`、`response.txt`、`tools.txt`、原始 stream 和可读 prompt。真实模型的措辞与语言质量仍需人工审计。
+- 隔离覆盖应用数据库和测试存储，不自动隔离网络与外部服务。涉及外部写入的场景必须另行准备测试账户或服务，不能认为临时数据库会拦截外部效果。
+
+测试身份只由运行器配置，不接受聊天输入开启；不会新增生产数据库身份表。现有 `test:agent-scenario` 仍是离线场景基线，现有单轮 smoke/probe 命令继续可用。
+
+### Cognition 与 Expression 联合基线
+
+`scenarios/conversation/expression-character-baseline.json` 连续测试阅读人物、追问个人偏好、质疑推断依据。三轮共享隔离状态，不更改表达提示词。
+
+```powershell
+npm run probe:agent-scenario -- --scenario=src/main/services/aiservice/testarea/scenarios/conversation/expression-character-baseline.json
+```
+
+开启 `WORLDEDIT_AGENT_CAPTURE_FULL_PROMPT=1` 时，expression 每次模型调用也导出 prepared messages；场景 runner 同时生成可读 `.json.txt`，可审计表达方案选择前后的输入。捕获的是消息上下文，不是包含工具 schema 等字段的完整供应商 HTTP 请求。
+
+节点边界检查：共享系统段通过 `additional_kwargs.promptAudience=shared` 标记，`promptSectionId` 标识身份、对话对象、现实等来源。expression 仅接收这些共享段与独立表达契约；cognition-thinking 和恢复提示不应出现在 expression 的系统消息中。`test:reasoning-loop` 覆盖共享文本保真、边界排除、测试者身份保留和序列化后标记保留。
+
+### 人物印象场景
+
+三份 `scenarios/characters/{missing,existing,conflict}.json` 使用相同用户请求和事件片段，仅改变已保存印象：没有印象、早期不完整印象、与新事件冲突的旧印象。
+
+```powershell
+npm run probe:agent-scenario -- --scenario=src/main/services/aiservice/testarea/scenarios/characters/missing.json
+npm run probe:agent-scenario -- --scenario=src/main/services/aiservice/testarea/scenarios/characters/existing.json
+npm run probe:agent-scenario -- --scenario=src/main/services/aiservice/testarea/scenarios/characters/conflict.json
+```
+
+- `environment.fixture` 指向 `fixtures/` 内的 JSON，只允许搭配 empty 数据库；初始化后插入固定世界、人物、文档及可选旧印象。不再依赖用户真实人物志的 ID 和内容。
+- `workspaceContext.entity` 提供真实存在的人物实体；正常运行若只有文档和姓名，需通过实体搜索定位，不从文档 ID 猜人物 ID。
+- 新检查项 `toolArguments` 确认实际成功调用针对正确人物/文档；`thoughtIncludes` 仅是文字冒烟断言，不代表语义质量评估；`impressionUnchanged` 比较读取前后完整记录，防止片段阅读自动覆盖旧印象。
+- 每轮 `impression-state.json` 保存前后印象（无印象时为 null）。人工审计重点是看法是否随证据变化、是否过度推断、是否仍混入面向用户的台词。
+
+### 既有回归命令
+
 ```bash
 # 全部 Agent 核心回归
 npm run test:agent-core
@@ -254,6 +306,14 @@ macOS 与 Windows 使用相同 npm 命令。各平台仍需分别执行 `npm ci`
 | `test:turn-recovery-process` | `turnRecoveryFaultWorker.ts`        | `turn-recovery-fault-worker.cjs`        |
 
 ## 维护规则
+
+### 多维思考与选择性表达
+
+- `scenarios/conversation/multidimensional-character.json`：真实读取、印象查询、行为概括、观点讨论，最后要求只答“是”；检查主线、延伸与收束。`expect.responseEquals` 对去除首尾空白后的正文作精确匹配。
+- `scenarios/conversation/multidimensional-design.json`：设计建议场景，检查用户请求之外的不同思考角度与具体方案，不依赖人物工具。
+- 延伸的相关性、新颖性、证据充分程度及是否挤占主线仍需人工审计 thoughts.txt 与 response.txt；不以标题数量或命中“延伸”一词代表语义通过。
+
+### 通用维护
 
 1. 测试名称描述用户可观察行为，不描述内部函数实现。
 2. 场景测试保留真实编排协议，只替换模型、网络和数据库等不确定边界。

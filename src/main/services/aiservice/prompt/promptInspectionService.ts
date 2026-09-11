@@ -15,16 +15,15 @@ const EDITABLE_STATIC_IDS = new Set([
   'message-time-rule',
   'workspace-rule',
   'expression-profile-catalog',
-  'reasoning-contract',
   'scene-character',
   'agent-cognitive-policy'
 ])
 
-const RUNTIME_ID_TO_OVERRIDE_ID: Record<string, string> = {
-  'turn-reasoning-contract': 'reasoning-contract'
-}
-
 const TITLES: Record<string, string> = {
+  'cognition-thinking': '内部思考规则',
+  'shared-identity': '共享人格设定',
+  'shared-interlocutor': '共享对话对象',
+  'shared-reality': '共享现实背景',
   'persona-anchor': '人物设定',
   'agent-habitat': '长期生活环境',
   'agent-life-state': '主体生活状态',
@@ -51,7 +50,6 @@ const TITLES: Record<string, string> = {
   'task-notification-event': '子 Agent 事件',
   'scene-character': '场景角色定位',
   'self-continuity': '跨轮主体连续性',
-  'turn-reasoning-contract': '剧情推进方式',
   'cognition-draft-context': '本轮认知草稿',
   'empty-response-recovery': '空响应恢复规则',
   'tool-evidence': '工具证据',
@@ -90,7 +88,7 @@ export const getPromptInspection = async (): Promise<PromptInspectionPayload> =>
     const rawContent = contentToText(message.content)
     const parsed = parsePromptSection(rawContent)
     const runtimeId = parsed?.runtimeId
-    const overrideId = runtimeId ? (RUNTIME_ID_TO_OVERRIDE_ID[runtimeId] ?? runtimeId) : ''
+    const overrideId = runtimeId ?? ''
     const editable = Boolean(overrideId && EDITABLE_STATIC_IDS.has(overrideId))
     const messageDetails = [
       message.toolCallId ? `tool_call_id=${message.toolCallId}` : '',

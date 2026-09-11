@@ -5,7 +5,9 @@ out
 .eslintcache
 *.log*
 .tmp-*.cjs
-src/main/services/aiservice/testarea/.generated/*.cjs
+/src/main/services/aiservice/testarea/.generated/
+/temp-plan/agent-tests/
+/temp-plan/cognition-observation-test/
 .vscode
 .promptx
 .trae

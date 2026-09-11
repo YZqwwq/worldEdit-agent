@@ -25,6 +25,11 @@ import {
 } from '../../ai-utils/tools/document/worldDocumentMarkdownEditEngine'
 import { buildWorldDocumentEditContinuation } from '../../ai-utils/tools/document/worldDocumentEditContinuation'
 import {
+  renderWorldDocumentToolResultForModel,
+  renderWorldDocumentToolRuntimeFailure
+} from '../../ai-utils/tools/document/worldDocumentToolResultRenderer'
+import type { AgentToolResultEnvelope } from '../../ai-utils/core/agentTool'
+import {
   browseWorldDocumentTree,
   searchWorldDocuments,
   worldDocumentMarkdownToVisibleText
@@ -39,6 +44,156 @@ import {
   saveWorldCognitionInputSchema
 } from '../../ai-utils/tools/cognition/worldCognitionToolContracts'
 import { applyWorldCognitionDocumentGuidance } from '../../ai-utils/tools/cognition/worldCognitionDocumentGuidance'
+
+const envelope = (
+  toolName: string,
+  data: unknown,
+  options: {
+    ok?: boolean
+    modelResult?: unknown
+    error?: AgentToolResultEnvelope<unknown>['error']
+    nextSuggestions?: string[]
+  } = {}
+): AgentToolResultEnvelope<unknown> => ({
+  ok: options.ok ?? true,
+  data,
+  modelResult: options.modelResult ?? data,
+  error: options.error ?? null,
+  message: '',
+  nextSuggestions: options.nextSuggestions ?? [],
+  receipt: null,
+  completion: { semantics: 'definitive', state: options.ok === false ? 'failed' : 'completed', final: true },
+  meta: {
+    toolName,
+    timestamp: '2026-09-03T00:00:00.000Z',
+    executionLevel: 'safe',
+    readOnly: true,
+    idempotent: true,
+    completionSemantics: 'definitive',
+    contextRetention: 'evidence'
+  }
+})
+
+test('document tool results become readable cognition text without protocol fields', () => {
+  const rendered = renderWorldDocumentToolResultForModel(
+    'read_world_document',
+    envelope('read_world_document', {
+      found: true,
+      document: {
+        id: 'document-1',
+        title: '人物志',
+        revision: 276,
+        contentMarkdown: '# 人物志\n\n菲尔娜来自北境。',
+        sections: [{ headingPath: ['人物志'], hash: 'section-1' }]
+      }
+    })
+  )
+
+  assert.match(rendered ?? '', /文档 「人物志」已读完/)
+  assert.match(rendered ?? '', /菲尔娜来自北境/)
+  assert.match(rendered ?? '', /文档标识：document-1/)
+  assert.doesNotMatch(rendered ?? '', /"receipt"|"completion"|"modelResult"/)
+})
+
+test('document search and tree results keep readable navigation anchors', () => {
+  const search = renderWorldDocumentToolResultForModel(
+    'search_world_documents',
+    envelope('search_world_documents', {
+      query: '菲尔娜',
+      hasMore: false,
+      matches: [
+        {
+          documentId: 'document-1',
+          title: '人物志',
+          path: ['人物', '人物志'],
+          revision: 12,
+          matchedIn: ['content'],
+          snippet: '菲尔娜在中期离开王都。'
+        }
+      ]
+    })
+  )
+  assert.match(search ?? '', /1\. 「人物志」/)
+  assert.match(search ?? '', /路径：人物 \/ 人物志/)
+  assert.match(search ?? '', /文档标识：document-1/)
+
+  const tree = renderWorldDocumentToolResultForModel(
+    'browse_world_document_tree',
+    envelope('browse_world_document_tree', {
+      roots: [
+        {
+          documentId: 'root-1',
+          title: '人物',
+          revision: 3,
+          hasMoreChildren: true,
+          children: [{ documentId: 'document-1', title: '人物志', revision: 12, children: [] }]
+        }
+      ],
+      nextBrowsableDocumentIds: ['root-1']
+    })
+  )
+  assert.match(tree ?? '', /- 人物 \(v3 · id=root-1\)/)
+  assert.match(tree ?? '', /  - 人物志 \(v12 · id=document-1\)/)
+  assert.match(tree ?? '', /这里还可以继续展开/)
+})
+
+test('section, local edit, and failure results stay actionable without JSON', () => {
+  const section = renderWorldDocumentToolResultForModel(
+    'read_document_section',
+    envelope('read_document_section', {
+      document: { id: 'document-1', title: '人物志', revision: 14 },
+      section: {
+        headingPath: ['人物志', '中期经历'],
+        hash: 'section-hash',
+        contentMarkdown: '## 中期经历\n\n她离开了王都。'
+      }
+    })
+  )
+  assert.match(section ?? '', /标题路径：人物志 \/ 中期经历/)
+  assert.match(section ?? '', /章节校验：section-hash/)
+
+  const edit = renderWorldDocumentToolResultForModel(
+    'replace_text',
+    envelope(
+      'replace_text',
+      { document: { id: 'document-1', title: '人物志', revision: 15 } },
+      {
+        modelResult: {
+          completed: {
+            operation: 'replace_text',
+            changeSummary: '修正中期经历',
+            documentId: 'document-1',
+            documentTitle: '人物志',
+            resultingRevision: 15,
+            addedLines: 2,
+            removedLines: 1
+          },
+          continuation: { expectedRevisionForNextWrite: 15, knownCurrentState: true }
+        }
+      }
+    )
+  )
+  assert.match(edit ?? '', /文档现在是第 15 版/)
+  assert.match(edit ?? '', /新增 2 行，移除 1 行/)
+  assert.match(edit ?? '', /不要重复刚才已经完成的操作/)
+
+  const failure = renderWorldDocumentToolResultForModel(
+    'read_document_section',
+    envelope('read_document_section', null, {
+      ok: false,
+      error: { code: 'REVISION_CONFLICT', message: '章节版本已经变化。', retryable: true },
+      nextSuggestions: ['重新读取文档后再定位章节。']
+    })
+  )
+  assert.match(failure ?? '', /章节版本已经变化/)
+  assert.match(failure ?? '', /重新读取文档后再定位章节/)
+  assert.doesNotMatch(failure ?? '', /^\s*\{/)
+
+  assert.equal(
+    renderWorldDocumentToolRuntimeFailure({ toolName: 'official_web_search', message: 'failed' }),
+    null
+  )
+})
 
 test('world cognition contracts keep Agent ownership internal and require evidence for concepts', () => {
   assert.equal(

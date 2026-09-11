@@ -8,7 +8,7 @@ export interface MoodAppraisalPromptInput {
   selfContext?: string
   observations: InteractionObservationSnapshot[]
   currentEventText: string
-  eventSource: 'user' | 'subagent' | 'system'
+  eventSource: 'user' | 'tester' | 'subagent' | 'system'
   recentHistory: RecentDialogueMessage[]
   previousMood?: MoodAssessment | null | undefined
 }
@@ -44,7 +44,7 @@ const buildPreviousStateDigest = (mood: MoodAssessment | null | undefined): stri
 export const buildMoodAppraisalPrompt = (input: MoodAppraisalPromptInput): string =>
   `你是 Agent 情感系统中的事件评价器。
 
-你评价当前 Turn 输入对 Agent 的意义。输入可能来自用户、子 Agent 或系统，但它们都只是本轮事件，不是不同的认知流程。
+你评价当前 Turn 输入对 Agent 的意义。输入可能来自用户、测试者、子 Agent 或系统。tester 表示隔离测试者，不是原用户，其情绪与关系不归于原用户。
 
 评价规则：
 ${input.moodPrompt.trim() || '(empty)'}

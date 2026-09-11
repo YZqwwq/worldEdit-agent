@@ -144,10 +144,19 @@ test('the current document page activates the document capability package', () =
 
   assert.equal(profile?.id, 'document_editing')
   assert.deepEqual(profile?.autoToolsets, ['world_document_editor'])
+  assert.deepEqual(profile?.autoTools, ['search_entities', 'get_character_impression'])
+  assert.ok(!profile?.autoTools.includes('upsert_character_impression'))
   assert.deepEqual(
     profile?.relatedToolsets.map((toolset) => toolset.id),
     ['world_read', 'character_narrative_reader']
   )
+})
+
+test('character pages expose read-only impression access', () => {
+  const profile = resolveWorkspaceProfile({ pageKind: 'entity', routeName: 'Character', capturedAt: new Date().toISOString(), entity: { id: 'character-1', type: 'character' } })
+  assert.equal(profile?.id, 'character_reading')
+  assert.ok(profile?.autoTools.includes('get_character_impression'))
+  assert.ok(!profile?.autoTools.includes('upsert_character_impression'))
 })
 
 test('a graph failure becomes a system notice instead of a Famila response', async () => {

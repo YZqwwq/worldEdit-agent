@@ -35,9 +35,9 @@ import {
   resolveMainAgentTimeoutMs
 } from '../../execution/modelCallAbortScope'
 import { buildReasoningRuntimeMessages } from './reasoningRuntimeMessages'
-import { resolvePromptOverride } from '../../../prompt/promptOverrideStore'
 import { savePromptRuntimeSnapshot } from '../../../prompt/promptRuntimeSnapshotStore'
 import { createThoughtProgressPublisher } from './thoughtProgressPublisher'
+import { extractCognitionHandoff } from './cognitionHandoff'
 
 const getCurrentUserRequestPreview = (state: typeof MessagesState.State): string => {
   const message = state.messages
@@ -133,9 +133,7 @@ export async function cognitionNode(
   const ledger =
     state.turnExecutionLedger ?? createTurnExecutionLedger(getCurrentUserRequestPreview(state))
   assertModelStepAvailable(ledger.modelStep)
-  const runtimePrompts = buildReasoningRuntimeMessages(state, {
-    reasoningContract: await resolvePromptOverride('reasoning-contract', '')
-  })
+  const runtimePrompts = buildReasoningRuntimeMessages(state)
   const sourceMessages = [...state.messages]
   const systemMessages = [
     ...sourceMessages.filter((message) => message instanceof SystemMessage),
@@ -279,6 +277,7 @@ export async function cognitionNode(
     mode === 'emulated' && internalDraft
       ? {
           text: appendCognitionDraftText(state.cognitionDraft?.text, internalDraft),
+          handoff: directive === 'compose_final' ? extractCognitionHandoff(internalDraft) : undefined,
           mode,
           modelStep,
           followsObservation,
@@ -294,6 +293,7 @@ export async function cognitionNode(
     data: {
       mode: mode ?? 'unresolved',
       chars: (nativeReasoningText || internalDraft).length,
+      hasExpressionHandoff: Boolean(cognitionDraft?.handoff),
       followsObservation,
       visibleContentChars: channels.content.length,
       toolCallCount: toolCalls.length,

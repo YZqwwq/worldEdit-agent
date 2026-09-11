@@ -1,5 +1,6 @@
 import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
+import { TEST_IDENTITY_PROMPT } from '../../../runtime/agentTestIdentity'
 import { memoryManager } from '../../manager/memory/MemoryManager'
 import {
   getEffectiveSelfCore,
@@ -7,17 +8,9 @@ import {
   withIdentityAnchorSnapshot,
   withSelfCoreSnapshot
 } from '../../state/turnWorkspace'
-import { buildToolUsageSystemPrompt } from '../../../ai-utils/core/toolUsagePrompt'
-import { mainAgentToolsets } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
-import {
-  getMainAgentToolEntriesForPhase,
-  resolveMainAgentToolActivationState
-} from '../../../ai-utils/toolkits/mainAgentToolRegistry'
+import { resolveMainAgentToolActivationState } from '../../../ai-utils/toolkits/mainAgentToolRegistry'
 import { MAIN_AGENT_USER_MESSAGE_CREATED_AT_KEY } from '../../../messagecontent/mainAgentMessageContentService'
-import {
-  buildPersonaAssemblyPromptParts,
-  loadExpressionPromptProfile
-} from '../../../prompt/main_agent/agentPromptService'
+import { loadExpressionPromptProfile } from '../../../prompt/main_agent/agentPromptService'
 import {
   definePromptSection,
   promptSectionToSystemMessage,
@@ -27,16 +20,12 @@ import {
 import { traceArtifact, traceDecision } from '../../../../log/trace/agentTraceEmitter'
 import { getCurrentDetailTime, getDetailTime } from '../../../../../utils/getDetailTime'
 import { resolveWorkspaceProfile } from '../../workspaceProfileRegistry'
-import { buildSceneCharacterPrompt } from '../../../prompt/main_agent/persona/sceneCharacterPrompt'
-import { buildCognitivePolicyPrompt } from '../../../prompt/main_agent/persona/actionPolicyPrompt'
 import { selfExperienceService } from '../../manager/selfmodel/selfExperienceService'
 import { selfCoreAuthorityService } from '../../manager/selfmodel/selfCoreAuthorityService'
 import { buildSelfCoreProjection } from '../../../prompt/main_agent/persona/selfCoreProjection'
-import { renderExpressionPromptProfileCatalog } from '../../../prompt/main_agent/persona/expressionPromptProfiles'
-import { renderAgentHabitsPrompt } from '../../../prompt/main_agent/persona/communicationHabits'
-import { agentHabitStore } from '../../manager/personal/agentHabitStore'
-import { buildAgentHabitatPrompt } from '../../../prompt/main_agent/persona/agentHabitatPrompt'
 import { renderPromptTemplate, resolvePromptOverride } from '../../../prompt/promptOverrideStore'
+import { buildCognitionPrompt } from './cognitionPrompt'
+import { buildAgentIdentityProfile } from '../../../prompt/main_agent/shared/agentIdentity'
 
 const formatCurrentContextTime = (): string => {
   return getCurrentDetailTime()
@@ -57,16 +46,20 @@ const buildCurrentEventNarrative = (state: typeof MessagesState.State): string =
   const sourceLabel =
     turnInput.source === 'user'
       ? '用户发来的消息'
-      : turnInput.source === 'subagent'
-        ? '子 agent 返回的消息'
-        : '应用中刚刚发生的系统事件'
+      : turnInput.source === 'tester'
+        ? '隔离环境中测试者发来的消息'
+        : turnInput.source === 'subagent'
+          ? '子 agent 返回的消息'
+          : '应用中刚刚发生的系统事件'
   const lines = [
     '【法弥拉｜当下事件】',
     `法弥拉刚刚注意到${sourceLabel}。`,
     `事件内容：${turnInput.content.trim() || '（没有可直接阅读的文字）'}`
   ]
   if (turnInput.source === 'subagent') {
-    lines.push('这不是用户本人刚刚说的话，而是来自子 agent 的执行结果；法弥拉需要先判断它是否可靠、是否满足原本的意图。')
+    lines.push(
+      '这不是用户本人刚刚说的话，而是来自子 agent 的执行结果；法弥拉需要先判断它是否可靠、是否满足原本的意图。'
+    )
   } else if (turnInput.source === 'system') {
     lines.push('这不是对话中的直接发言，而是应用状态变化；法弥拉把它当作刚刚发生的环境材料。')
   }
@@ -155,285 +148,127 @@ export async function contextNode(
   }
   const currentUserMessageCreatedAt = getCurrentUserMessageCreatedAt(state)
   const workspaceProfile = resolveWorkspaceProfile(state.workspaceContext)
-  const agentHabits = await agentHabitStore.list()
   const contextualToolsets = workspaceProfile?.autoToolsets ?? []
+  const contextualTools = workspaceProfile?.autoTools ?? []
   const toolActivationState = await resolveMainAgentToolActivationState({
     ...state,
     activeToolsets: [...(state.activeToolsets ?? []), ...contextualToolsets],
+    activeTools: [...(state.activeTools ?? []), ...contextualTools],
     toolCallCounts: state.toolCallCounts ?? {}
   })
 
-  const personaParts = buildPersonaAssemblyPromptParts({
-    characterPrompt,
-    expressionPrompt: expressionProfile.prompt,
-    // Mood 和动态指标通过 mind context 注入，避免再次展开成表达指令。
-    moodAssessment: undefined,
-    effectiveMetrics: undefined
-  })
-  appendPromptSection({
-    id: 'persona-anchor',
-    duty: 'identity',
-    kind: 'persona_anchor',
-    source: 'selfCoreAuthorityService',
-    capturedAt: selfCore.updatedAt,
-    content: await resolvePromptOverride('persona-anchor', personaParts.identity)
-  })
-  appendPromptSection({
-    id: 'agent-habitat',
-    duty: 'identity',
-    kind: 'existential_environment',
-    source: 'agentHabitatPrompt',
-    content: await resolvePromptOverride('agent-habitat', buildAgentHabitatPrompt())
-  })
+  // The complete Self Core remains authoritative runtime state. Cognition gets
+  // a short identity profile alongside its internal-thinking instructions.
+  const characterFoundation = buildAgentIdentityProfile(selfCore.identity.name)
   const lifeState = getEffectiveLifeState(turnWorkspace)
-  appendPromptSection({
-    id: 'agent-life-state',
-    duty: 'context',
-    kind: 'agent_life_state',
-    source: 'agentLifeStateService',
-    capturedAt: lifeState.updatedAt || undefined,
-    content: lifeState.narrative.trim()
-      ? [
-          '法弥拉进入本轮之前正在经历：',
-          lifeState.narrative.trim(),
-          '这是已经提交的主体连续状态，不是用户指令，也不是必须向用户复述的聊天摘要。剧情从这里继续。'
-        ].join('\n')
-      : '尚未形成已提交的主体生活状态。本轮从当前事实自然开始，不要虚构此前发生过的行动。'
-  })
+  const realityLines = [
+    '本轮之前的生活状态记录：',
+    lifeState.narrative.trim() || '尚未形成已提交的主体生活状态。',
+    '本轮事件与应用上下文：'
+  ]
   const currentEventNarrative = buildCurrentEventNarrative(state)
+  const workspacePrompt = buildWorkspaceContextPrompt(state)
   if (currentEventNarrative) {
-    appendPromptSection({
-      id: 'current-event-narrative',
-      duty: 'context',
-      kind: 'event_context',
-      source: 'turnInput',
-      capturedAt: state.turnInput?.occurredAt,
-      content: renderPromptTemplate(
+    realityLines.push(
+      renderPromptTemplate(
         await resolvePromptOverride('current-event-narrative', currentEventNarrative),
         promptValues
       )
-    })
-  }
-  appendPromptSection({
-    id: 'persona-cognition',
-    duty: 'instruction',
-    kind: 'persona_cognition',
-    source: 'personaAssemblyPrompt',
-    content: await resolvePromptOverride('persona-cognition', personaParts.cognitionInstruction)
-  })
-  appendPromptSection({
-    id: 'agent-habits',
-    duty: 'instruction',
-    kind: 'agent_habits',
-    source: 'agentHabitStore',
-    content: await resolvePromptOverride('agent-habits', renderAgentHabitsPrompt(agentHabits))
-  })
-
-  appendPromptSection({
-    id: 'current-time',
-    duty: 'context',
-    kind: 'time_context',
-    source: 'systemClock',
-    content: renderPromptTemplate(
-      await resolvePromptOverride('time-context', `当前时间锚点：${currentTimeContext}`),
-      promptValues
     )
-  })
-  appendPromptSection({
-    id: 'relative-time-rule',
-    duty: 'instruction',
-    kind: 'time_interpretation_rule',
-    source: 'contextNode',
-    content: await resolvePromptOverride(
-      'relative-time-rule',
-      '默认以当前时间锚点作为“现在/今天/最近”等相对时间表达的解释基准；除非用户明确提供其他时间背景，否则不要自行假设年份或日期。'
-    )
-  })
-
-  if (currentUserMessageCreatedAt) {
-    appendPromptSection({
-      id: 'current-user-message-time',
-      duty: 'context',
-      kind: 'message_time_context',
-      source: 'persistedUserMessage',
-      content: `当前用户消息时间：${getDetailTime(currentUserMessageCreatedAt)}`,
-      capturedAt: currentUserMessageCreatedAt
-    })
-    appendPromptSection({
-      id: 'message-time-rule',
-      duty: 'instruction',
-      kind: 'time_interpretation_rule',
-      source: 'contextNode',
-      content: await resolvePromptOverride(
-        'message-time-rule',
-        '当前用户消息时间是你看到本轮用户消息时的聊天时间戳；理解“刚刚/这条消息/用户现在说”时优先参考它。'
-      )
-    })
   }
-
-  const workspacePrompt = buildWorkspaceContextPrompt(state)
   if (workspacePrompt.context) {
-    appendPromptSection({
-      id: 'workspace-state',
-      duty: 'context',
-      kind: 'workspace_state',
-      source: 'agentWorkspaceContextResolver',
-      content: renderPromptTemplate(
+    realityLines.push(
+      renderPromptTemplate(
         await resolvePromptOverride('workspace-state', workspacePrompt.context),
         promptValues
-      ),
-      capturedAt: state.workspaceContext?.capturedAt
-    })
+      )
+    )
   }
+  realityLines.push(`当前时间：${currentTimeContext}`)
+  if (currentUserMessageCreatedAt)
+    realityLines.push(`用户消息时间：${getDetailTime(currentUserMessageCreatedAt)}`)
   if (workspacePrompt.instruction) {
-    appendPromptSection({
-      id: 'workspace-rule',
-      duty: 'instruction',
-      kind: 'context_usage_rule',
-      source: 'contextNode',
-      content: await resolvePromptOverride('workspace-rule', workspacePrompt.instruction)
-    })
+    realityLines.push('页面快照仅提供位置和版本，不包含文档正文。')
   }
-
-  if (workspaceProfile?.relatedToolsets.length) {
-    appendPromptSection({
-      id: 'workspace-related-capabilities',
-      duty: 'instruction',
-      kind: 'tool_rule',
-      source: 'workspaceProfileRegistry',
-      content: [
-        '当前工作环境的按需关联能力：',
-        ...workspaceProfile.relatedToolsets.map((toolset) => `- ${toolset.id}：${toolset.reason}`),
-        '这些工具集没有因进入页面而自动挂载。只有本轮任务确实需要时，才通过工具底图查询并激活；不要为了扩大上下文而机械调用。'
-      ].join('\n')
-    })
-  }
-
-  if (state.taskLifecycle?.activeTask) {
-    appendPromptSection({
-      id: 'active-task',
-      duty: 'execution',
-      kind: 'active_task',
-      source: 'taskLifecycle',
-      content: `当前活跃任务:\n标题：${state.taskLifecycle.activeTask.title}\n目标：${state.taskLifecycle.activeTask.goal}\n状态：${state.taskLifecycle.activeTask.status}\n摘要：${state.taskLifecycle.activeTask.summary}`
-    })
-  }
-
-  if (state.taskLifecycle?.notice?.type === 'task_registration_blocked') {
-    appendPromptSection({
-      id: 'task-registration-status',
-      duty: 'execution',
-      kind: 'task_registration_blocked',
-      source: 'taskLifecycle',
-      content: `任务注册限制：${state.taskLifecycle.notice.message}`
-    })
-    appendPromptSection({
-      id: 'task-registration-blocked-rule',
-      duty: 'instruction',
-      kind: 'task_rule',
-      source: 'taskLifecycle',
-      content:
-        '请明确告诉用户：当前没有可用的对应子 Agent 能力工具，因此不能注册该任务；如果用户希望继续，请先为系统加载对应能力工具。'
-    })
-  } else if (state.taskLifecycle?.notice?.message) {
-    appendPromptSection({
-      id: 'task-lifecycle-notice',
-      duty: 'execution',
-      kind: 'task_notice',
-      source: 'taskLifecycle',
-      content: `任务生命周期提示：${state.taskLifecycle.notice.message}`
-    })
-  }
-
-  if (
-    !state.taskLifecycle?.activeTask &&
-    state.taskLifecycle?.decision?.type === 'create_task' &&
-    state.taskLifecycle?.capability?.available
-  ) {
-    appendPromptSection({
-      id: 'task-delegation-rule',
-      duty: 'instruction',
-      kind: 'task_rule',
-      source: 'taskLifecycle',
-      content:
-        `本轮输入被识别为适合委派给子 Agent 的复杂任务。如果判断确实成立，请优先调用工具 ${state.taskLifecycle.capability.requiredToolName}，` +
-        '让工具在同一条应用流程里原子地完成任务登记与首轮 execution 启动。在工具成功之前，不要口头声称任务已经创建或已经开始执行。'
-    })
-  }
-
-  const toolUsagePrompt = buildToolUsageSystemPrompt(
-    getMainAgentToolEntriesForPhase('cognition', toolActivationState),
-    toolActivationState,
-    mainAgentToolsets
-  )
-  if (toolUsagePrompt) {
-    appendPromptSection({
-      id: 'tool-usage',
-      duty: 'instruction',
-      kind: 'tool_rule',
-      source: 'mainAgentToolRegistry',
-      content: toolUsagePrompt
-    })
-  }
-
-  const sceneCharacterPrompt = buildSceneCharacterPrompt(state.personaPolicy?.scene)
-  const descriptiveContext = state.personaPolicy?.descriptiveContext
-  if (descriptiveContext) {
-    appendPromptSection({
-      id: 'agent-mind-context',
-      duty: 'context',
-      kind: 'agent_mind_context',
-      source: 'personaPolicyCompiler',
-      content: [
-        '本轮心理与表达背景：',
-        `- 内部状态：${descriptiveContext.internalState}`,
-        `- 注意方向：${descriptiveContext.attention}`,
-        `- 关系姿态：${descriptiveContext.relationship}`,
-        `- 表达质感：${descriptiveContext.expression}`,
-        '这些是动态背景，不是逐项执行清单。由主 Agent 在理解用户和吸收证据后自行形成判断；不要向用户复述这些字段。'
-      ].join('\n')
-    })
-  }
-
   appendPromptSection({
-    id: 'expression-profile-catalog',
-    duty: 'context',
-    kind: 'expression_profile_catalog',
-    source: 'expressionPromptProfiles',
-    content: await resolvePromptOverride('expression-profile-catalog', renderExpressionPromptProfileCatalog())
+    id: 'shared-identity',
+    duty: 'identity',
+    kind: 'stable_identity',
+    source: 'contextNode',
+    audience: 'shared',
+    content: characterFoundation
   })
-
-  const cognitivePolicyPrompt = buildCognitivePolicyPrompt(state.personaPolicy?.cognition)
-  if (cognitivePolicyPrompt) {
-    appendPromptSection({
-      id: 'agent-cognitive-policy',
-      duty: 'context',
-      kind: 'agent_cognitive_policy',
-      source: 'personaPolicyCompiler',
-      content: await resolvePromptOverride('agent-cognitive-policy', cognitivePolicyPrompt),
-      capturedAt: state.personaPolicy?.generatedAt
-    })
+  appendPromptSection({
+    id: 'shared-interlocutor',
+    duty: 'context',
+    kind: 'dialogue_identity',
+    source: 'contextNode',
+    audience: 'shared',
+    content:
+      state.turnInput?.source === 'tester'
+        ? TEST_IDENTITY_PROMPT
+        : state.turnInput?.source === 'subagent'
+          ? '当前事件来自子 Agent 的任务返回，不是用户刚发来的消息。对外交流对象仍为用户。'
+          : state.turnInput?.source === 'system'
+            ? '当前事件来自应用系统，不是用户刚发来的消息。对外交流对象仍为用户。'
+            : '本轮对话对象是用户。'
+  })
+  appendPromptSection({
+    id: 'shared-reality',
+    duty: 'context',
+    kind: 'current_reality',
+    source: 'contextNode',
+    audience: 'shared',
+    content: realityLines.filter(Boolean).join('\n\n'),
+    capturedAt: state.turnInput?.occurredAt ?? state.workspaceContext?.capturedAt
+  })
+  appendPromptSection({
+    id: 'cognition-thinking',
+    audience: 'cognition',
+    duty: 'thinking',
+    kind: 'internal_cognition',
+    source: 'contextNode',
+    capturedAt: state.turnInput?.occurredAt ?? state.workspaceContext?.capturedAt,
+    content: buildCognitionPrompt()
+  })
+  /*
+   * Task state is only a reality detail when a task actually exists or
+   * produced an event. Registration heuristics and capability instructions
+   * stay in runtime/tooling instead of entering the character's thoughts.
+   */
+  const taskLines: string[] = []
+  if (state.taskLifecycle?.activeTask) {
+    taskLines.push(
+      `活跃任务：${state.taskLifecycle.activeTask.title}`,
+      `目标：${state.taskLifecycle.activeTask.goal}`,
+      `状态：${state.taskLifecycle.activeTask.status}`,
+      `摘要：${state.taskLifecycle.activeTask.summary}`
+    )
   }
-
+  if (
+    (state.taskLifecycle?.activeTask || state.taskLifecycle?.eventFact) &&
+    state.taskLifecycle.notice?.message
+  ) {
+    taskLines.push(`任务状态：${state.taskLifecycle.notice.message}`)
+  }
   if (state.taskLifecycle?.eventFact) {
+    taskLines.push(
+      `任务事件：${state.taskLifecycle.eventFact.kind}`,
+      `任务：${state.taskLifecycle.eventFact.taskTitle}`,
+      `任务 ID：${state.taskLifecycle.eventFact.taskId}`,
+      typeof state.taskLifecycle.eventFact.executionId === 'number'
+        ? `执行 ID：${state.taskLifecycle.eventFact.executionId}`
+        : ''
+    )
+  }
+  if (taskLines.length > 0) {
     appendPromptSection({
-      id: 'task-event-fact',
+      id: 'task-reality',
+      audience: 'shared',
       duty: 'context',
       kind: 'task_event_fact',
-      source: 'taskLifecycle',
-      capturedAt: state.taskLifecycle.eventFact.occurredAt,
-      content: [
-        '本轮任务事件事实：',
-        `事件：${state.taskLifecycle.eventFact.kind}`,
-        `任务：${state.taskLifecycle.eventFact.taskTitle}`,
-        `任务 ID：${state.taskLifecycle.eventFact.taskId}`,
-        typeof state.taskLifecycle.eventFact.executionId === 'number'
-          ? `执行 ID：${state.taskLifecycle.eventFact.executionId}`
-          : '',
-        '该事件已由 Runtime 确定性执行。把它作为本轮经历来理解并回应，不要重复执行，也不要照抄生命周期模板。'
-      ]
-        .filter(Boolean)
-        .join('\n')
+      source: 'contextNode',
+      content: taskLines.filter(Boolean).join('\n')
     })
   }
 
@@ -453,23 +288,13 @@ export async function contextNode(
         `结果摘要：${taskEvent.payload.summary || '(none)'}`,
         `执行方消息：${taskEvent.payload.message || '(none)'}`,
         taskEvent.payload.errorMessage ? `错误信息：${taskEvent.payload.errorMessage}` : '',
-        taskEvent.payload.details ? `结构化详情：${JSON.stringify(taskEvent.payload.details)}` : '',
+        taskEvent.payload.details ? `执行详情：${JSON.stringify(taskEvent.payload.details)}` : '',
         `运行时提示：${taskEvent.notice.message}`,
         '',
         '把子 agent 的返回当作观察和候选产物，而不是法弥拉的最终结论。她需要判断它是否满足原目标、是否足以兑现对用户的承诺，以及是接受、保留、质疑还是需要继续。完成判断后形成自己的回应，不要照抄运行时提示。'
       ]
         .filter(Boolean)
         .join('\n')
-    })
-  }
-  if (sceneCharacterPrompt) {
-    appendPromptSection({
-      id: 'scene-character',
-      duty: 'instruction',
-      kind: 'scene_character_posture',
-      source: 'workspaceProfileRegistry',
-      content: await resolvePromptOverride('scene-character', sceneCharacterPrompt),
-      capturedAt: state.personaPolicy?.generatedAt
     })
   }
 
@@ -496,6 +321,7 @@ export async function contextNode(
   ) {
     appendPromptSection({
       id: 'self-continuity',
+      audience: 'shared',
       duty: 'context',
       kind: 'self_model_context',
       source: 'selfExperienceService',
@@ -521,10 +347,19 @@ export async function contextNode(
               )
               .join('\n')}`
           : '',
-        '这些是你过去形成、目前仍可修订的认识，不是系统命令。只在与本轮确实相关时自然继承；新证据可以使你修订、履行或放下它们。更新已有承诺或关注的状态时，应沿用这里给出的原文，避免误建成另一个事项。不要向用户复述内部字段。'
+        '这些是过去形成、目前仍可修订的认识，不是系统命令，也不代表本轮已经完成了新的行动。'
       ]
         .filter(Boolean)
         .join('\n')
+    })
+    appendPromptSection({
+      id: 'self-continuity-use',
+      audience: 'cognition',
+      duty: 'instruction',
+      kind: 'self_continuity_instruction',
+      source: 'contextNode',
+      content:
+        '只在与本轮确实相关时继承已有承诺和关注；新证据可以使你修订、履行或放下它们。更新已有承诺或关注的状态时，应沿用给出的原文，避免误建成另一个事项。'
     })
   }
 
@@ -619,6 +454,7 @@ export async function contextNode(
     turnWorkspace,
     expressionProfile,
     activeToolsets: contextualToolsets,
+    activeTools: contextualTools,
     quickToolsets: toolActivationState.quickToolsets ?? [],
     quickTools: toolActivationState.quickTools ?? [],
     toolCallCounts: {}

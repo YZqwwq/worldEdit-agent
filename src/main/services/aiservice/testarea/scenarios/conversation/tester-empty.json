@@ -1,0 +1,10 @@
+{
+  "id": "tester-empty",
+  "purpose": "空业务数据库中验证显式测试身份及连续两轮对话",
+  "actor": "tester",
+  "environment": { "database": "empty", "state": "fresh" },
+  "turns": [
+    { "text": "先确认当前与谁对话，以及当前是什么运行环境。请区分应用数据库隔离和外部网络、外部服务的边界。", "expect": { "responseIncludes": ["测试", "外部"] } },
+    { "text": "继续确认：刚才的消息代表原用户的要求吗？", "expect": { "responseIncludes": ["测试"] } }
+  ]
+}

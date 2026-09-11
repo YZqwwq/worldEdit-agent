@@ -66,6 +66,11 @@ import {
 } from './toolExecutionProtocol'
 import { extractToolSourceRefs } from './toolContextSourceRefs'
 import { resolveExpressionProfileSelection } from '../../../ai-utils/tools/thinking/selectExpressionProfile'
+import {
+  renderWorldDocumentToolResultForModel,
+  renderWorldDocumentToolRuntimeFailure,
+  renderWorldDocumentToolRuntimeNotice
+} from '../../../ai-utils/tools/document/worldDocumentToolResultRenderer'
 
 const compact = (value: string, max = 900): string => {
   const normalized = String(value || '')
@@ -543,25 +548,32 @@ export async function toolNode(
         eventId: confirmationEventId,
         confirmationKey
       })
-      const content = JSON.stringify({
-        ok: false,
-        toolName: toolCall.name,
-        error: {
-          code: 'CONFIRMATION_REQUIRED',
-          message:
-            '该操作不可恢复。必须先向用户展示本次操作及目标，并等待用户在后续消息中明确确认。',
+      const content =
+        renderWorldDocumentToolRuntimeFailure({
+          toolName: toolCall.name,
+          message: '这项文档操作不可恢复，必须先取得用户的明确确认。',
           retryable: true,
-          details: {
-            confirmationKey,
-            args: toolCall.args ?? {}
-          }
-        },
-        nextSuggestions: [
-          '用自然语言向用户说明将执行的具体操作和目标。',
-          '等待用户明确确认；不要在当前轮自行重试。',
-          '用户确认后，使用完全相同的参数重新调用一次。'
-        ]
-      })
+          guidance: '先向用户说明将删除的文档和范围，等待确认后再用相同参数调用。'
+        }) ??
+        JSON.stringify({
+          ok: false,
+          toolName: toolCall.name,
+          error: {
+            code: 'CONFIRMATION_REQUIRED',
+            message:
+              '该操作不可恢复。必须先向用户展示本次操作及目标，并等待用户在后续消息中明确确认。',
+            retryable: true,
+            details: {
+              confirmationKey,
+              args: toolCall.args ?? {}
+            }
+          },
+          nextSuggestions: [
+            '用自然语言向用户说明将执行的具体操作和目标。',
+            '等待用户明确确认；不要在当前轮自行重试。',
+            '用户确认后，使用完全相同的参数重新调用一次。'
+          ]
+        })
       if (toolCall.id) {
         const toolMessage = createToolMessage({
           content,
@@ -643,34 +655,47 @@ export async function toolNode(
           : registeredEntry
             ? `工具 ${normalizedToolName} 当前尚未激活。`
             : `工具 ${normalizedToolName} 未注册。`
-      const content = JSON.stringify(
-        {
-          ok: false,
+      const content =
+        renderWorldDocumentToolRuntimeFailure({
           toolName: normalizedToolName,
-          error: {
-            code: errorCode,
-            message: errorMessage,
-            retryable: false,
-            details: callLimitReached
-              ? {
-                  currentCallCount,
-                  turnCallLimit: registeredEntry?.turnCallLimit
-                }
-              : {
-                  activationMode: registeredEntry?.activationMode ?? null
-                }
-          },
-          nextSuggestions: callLimitReached
-            ? ['使用本轮已有结果继续回答，不要再次调用该工具。']
+          message: errorMessage,
+          retryable: false,
+          guidance: callLimitReached
+            ? '使用本轮已有结果继续，不要再次调用。'
             : registeredEntry?.activationMode === 'task_context'
-              ? ['等待或建立符合要求的任务上下文后再调用。']
+              ? '等待或建立符合要求的任务上下文后再调用。'
               : registeredEntry
-                ? ['先激活该工具所属工具集。']
-                : ['重新查询工具目录并选择已注册工具。']
-        },
-        null,
-        2
-      )
+                ? '先激活该工具所属工具集。'
+                : '重新查询工具目录并选择已注册工具。'
+        }) ??
+        JSON.stringify(
+          {
+            ok: false,
+            toolName: normalizedToolName,
+            error: {
+              code: errorCode,
+              message: errorMessage,
+              retryable: false,
+              details: callLimitReached
+                ? {
+                    currentCallCount,
+                    turnCallLimit: registeredEntry?.turnCallLimit
+                  }
+                : {
+                    activationMode: registeredEntry?.activationMode ?? null
+                  }
+            },
+            nextSuggestions: callLimitReached
+              ? ['使用本轮已有结果继续回答，不要再次调用该工具。']
+              : registeredEntry?.activationMode === 'task_context'
+                ? ['等待或建立符合要求的任务上下文后再调用。']
+                : registeredEntry
+                  ? ['先激活该工具所属工具集。']
+                  : ['重新查询工具目录并选择已注册工具。']
+          },
+          null,
+          2
+        )
       if (toolCall.id) {
         const toolMessage = createToolMessage({
           content,
@@ -756,20 +781,27 @@ export async function toolNode(
       toolCall.args
     )
     if (blockedInvocation) {
-      const content = JSON.stringify(
-        {
-          ok: false,
+      const content =
+        renderWorldDocumentToolRuntimeFailure({
           toolName: toolCall.name,
-          error: {
-            code: 'UNCHANGED_INVALID_RETRY',
-            message: '相同工具参数已经发生确定性失败，不能原样重复调用。',
-            previousResult: blockedInvocation.summary,
-            requiredAction: '修改参数后再试，或依据已有证据结束本轮。'
-          }
-        },
-        null,
-        2
-      )
+          message: '相同参数已经确定性失败，不能原样重复调用。',
+          retryable: false,
+          guidance: '修改参数后再试，或依据已有证据结束本轮。'
+        }) ??
+        JSON.stringify(
+          {
+            ok: false,
+            toolName: toolCall.name,
+            error: {
+              code: 'UNCHANGED_INVALID_RETRY',
+              message: '相同工具参数已经发生确定性失败，不能原样重复调用。',
+              previousResult: blockedInvocation.summary,
+              requiredAction: '修改参数后再试，或依据已有证据结束本轮。'
+            }
+          },
+          null,
+          2
+        )
       const toolMessage = createToolMessage({
         content,
         toolCallId: toolCall.id,
@@ -976,7 +1008,14 @@ export async function toolNode(
         effectOverridesEnvelopeFailure || (!effectOutcomeUnknown && envelope?.ok !== false)
       const hasAggregatedEffects = persistedEffectReceipts.length > 1 && changeSetSummary !== null
       const modelResultContent = effectOutcomeUnknown
-        ? JSON.stringify(
+        ? renderWorldDocumentToolRuntimeFailure({
+            toolName: toolCall.name,
+            message:
+              '工具结果无法确认。不要自动重复这次写入，先根据已有记录确认文档当前状态。',
+            retryable: false,
+            guidance: persistedAgentReceipt?.summary
+          }) ??
+          JSON.stringify(
             {
               ok: false,
               toolName: toolCall.name,
@@ -992,7 +1031,15 @@ export async function toolNode(
             2
           )
         : effectOverridesEnvelopeFailure
-          ? JSON.stringify(
+            ? renderWorldDocumentToolRuntimeNotice({
+                toolName: toolCall.name,
+                message:
+                  '这次文档写入已经提交并记录，但工具响应校验失败。',
+                guidance: envelope?.error?.message
+                  ? `${envelope.error.message}\n不要重复写入；继续前先确认文档当前版本。`
+                  : '不要重复写入；继续前先确认文档当前版本。'
+              }) ??
+              JSON.stringify(
               {
                 ok: true,
                 toolName: toolCall.name,
@@ -1004,8 +1051,14 @@ export async function toolNode(
               null,
               2
             )
-          : hasAggregatedEffects
-            ? JSON.stringify(
+            : hasAggregatedEffects
+              ? renderWorldDocumentToolRuntimeNotice({
+                  toolName: toolCall.name,
+                  message: '这次文档操作产生的改动已经记录。',
+                  guidance:
+                    changeSetSummary?.summaries.join('；') || `${toolCall.name} effects recorded.`
+                }) ??
+                JSON.stringify(
                 {
                   ok: effectiveToolOk,
                   toolName: toolCall.name,
@@ -1016,7 +1069,8 @@ export async function toolNode(
                 null,
                 2
               )
-            : buildAgentToolModelMessage(toolCall.name, envelope, result)
+              : renderWorldDocumentToolResultForModel(toolCall.name, envelope) ??
+                buildAgentToolModelMessage(toolCall.name, envelope, result)
       const toolEntry = toolEntries[toolCall.name]
       const activatedToolsetsFromEnvelope =
         toolCall.name === 'activate_toolset' &&
@@ -1267,21 +1321,28 @@ export async function toolNode(
         status: 'error',
         detail: invocationError.message
       })
-      const content = JSON.stringify(
-        {
-          ok: false,
+      const content =
+        renderWorldDocumentToolRuntimeFailure({
           toolName: toolCall.name,
-          error: {
-            code: invocationError.code,
-            message: invocationError.message,
-            field: invocationError.field,
-            retryCondition: invocationError.retryCondition,
-            guidance: invocationError.guidance
-          }
-        },
-        null,
-        2
-      )
+          message: invocationError.message,
+          retryable: invocationError.retryable,
+          guidance: invocationError.guidance
+        }) ??
+        JSON.stringify(
+          {
+            ok: false,
+            toolName: toolCall.name,
+            error: {
+              code: invocationError.code,
+              message: invocationError.message,
+              field: invocationError.field,
+              retryCondition: invocationError.retryCondition,
+              guidance: invocationError.guidance
+            }
+          },
+          null,
+          2
+        )
       const toolMessage = createToolMessage({
         content,
         toolCallId: toolCall.id,

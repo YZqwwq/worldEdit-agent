@@ -1,0 +1,15 @@
+{
+  "id": "read-user-continue",
+  "purpose": "继承应用快照和原状态，以用户消息模拟正常文档阅读",
+  "actor": "user",
+  "environment": { "database": "snapshot", "state": "inherit" },
+  "turns": [{
+    "text": "查看人物志",
+    "workspaceContext": {
+      "pageKind": "document",
+      "routeName": "WorldEntityDocumentEditor",
+      "document": { "id": "43e4ebfc-9066-44b6-9b04-b3bab46194b4", "title": "人物志" }
+    },
+    "expect": { "successfulTools": ["read_world_document"], "thoughtAfterTool": true }
+  }]
+}

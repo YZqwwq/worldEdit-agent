@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { getTraceContext } from '../../../../log/trace/agentTraceRuntime'
+import { persistAgentTraceArtifact } from '../../../../log/trace/agentTraceStore'
 import { AIMessage, AIMessageChunk } from '@langchain/core/messages'
 import { MessagesState } from '../../state/messageState'
 import { getModelWithTool } from '../../modelwithtool/modelwithtool'
@@ -27,6 +29,30 @@ export async function expressionNode(
   const runtime = configured.runtime
   const messages = buildFinalCompositionMessages(state)
   const prepared = await runtime.familyAdapter.prepareMessages(messages, runtime)
+  if (process.env.WORLDEDIT_AGENT_CAPTURE_FULL_PROMPT === '1') {
+    const traceContext = getTraceContext()
+    const captured = {
+      model: runtime.effectiveOptions.model,
+      phase: 'expression',
+      messages: prepared.map(message => ({
+        type: message.constructor.name,
+        content: message.content,
+        additional_kwargs: message.additional_kwargs,
+        toolCalls: (message as AIMessage).tool_calls
+      }))
+    }
+    const capturePath = traceContext ? persistAgentTraceArtifact({
+      runId: traceContext.runId,
+      artifactId: `expression-prompt-${randomUUID()}`,
+      extension: 'json',
+      content: JSON.stringify(captured, null, 2)
+    }) : undefined
+    traceArtifact('expressionNode', {
+      title: '测试捕获: expressionNode 全量消息入参',
+      summary: `捕获 ${prepared.length} 条消息`,
+      data: { capturePath, messageCount: prepared.length }
+    })
+  }
   const abortScope = createModelCallAbortScope({
     timeoutMs: resolveMainAgentTimeoutMs(runtime),
     externalSignal: config?.signal
@@ -98,6 +124,17 @@ export async function expressionNode(
   const rawContent = contentToText(response.content).trim()
   if (!rawContent) throw new Error('expressionNode returned empty content')
   const parsed = parseFinalCompositionEnvelope(rawContent)
+  if (process.env.WORLDEDIT_AGENT_CAPTURE_FULL_PROMPT === '1') {
+    const traceContext = getTraceContext()
+    if (traceContext) {
+      persistAgentTraceArtifact({
+        runId: traceContext.runId,
+        artifactId: `expression-result-${randomUUID()}`,
+        extension: 'json',
+        content: JSON.stringify(parsed, null, 2)
+      })
+    }
+  }
   const content = parsed.reply
   if (!content) throw new Error('expressionNode returned an empty reply')
   const message = new AIMessage({ content, id: randomUUID() })

@@ -1,10 +1,6 @@
-const {
-  existsSync,
-  mkdtempSync,
-  rmSync
-} = require('node:fs')
+const { existsSync, readFileSync, mkdtempSync, rmSync } = require('node:fs')
 const { tmpdir } = require('node:os')
-const { isAbsolute, join, relative, resolve } = require('node:path')
+const { isAbsolute, join, relative, resolve, dirname, basename } = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 const [targetArgument, ...environmentArguments] = process.argv.slice(2)
@@ -26,11 +22,33 @@ const environment = {
 }
 environment.ELECTRON_DISABLE_GPU = '1'
 for (const argument of environmentArguments) {
+  if (argument.startsWith('--scenario=')) {
+    environment.WORLDEDIT_AGENT_TEST_SCENARIO = resolve(
+      workspaceRoot,
+      argument.slice('--scenario='.length)
+    )
+    continue
+  }
   const separator = argument.indexOf('=')
   if (separator <= 0) {
     throw new Error(`Invalid environment argument: ${argument}`)
   }
   environment[argument.slice(0, separator)] = argument.slice(separator + 1)
+}
+if (environment.WORLDEDIT_AGENT_TEST_SCENARIO) {
+  const scenario = JSON.parse(readFileSync(environment.WORLDEDIT_AGENT_TEST_SCENARIO, 'utf8'))
+  if (
+    !['user', 'tester'].includes(scenario.actor) ||
+    !['snapshot', 'empty'].includes(scenario.environment?.database) ||
+    !['inherit', 'fresh'].includes(scenario.environment?.state)
+  ) {
+    throw new Error('Invalid scenario actor or environment.')
+  }
+  environment.WORLDEDIT_AGENT_ISOLATE_APP_DATA = '1'
+  environment.RUN_MODEL_INTEGRATION_TESTS = '1'
+  environment.WORLDEDIT_AGENT_CAPTURE_FULL_PROMPT = '1'
+  environment.WORLDEDIT_AGENT_TEST_ACTOR = scenario.actor
+  environment.WORLDEDIT_AGENT_DATABASE_SEED = scenario.environment.database
 }
 if (environment.WORLDEDIT_AGENT_ELECTRON_APP_MODE === '1') {
   delete environment.ELECTRON_RUN_AS_NODE
@@ -44,7 +62,11 @@ let isolatedUserData
 if (environment.WORLDEDIT_AGENT_ISOLATE_APP_DATA === '1') {
   const sourceDatabase = resolve(
     environment.WORLDEDIT_AGENT_SOURCE_DATABASE ||
-      join(environment.APPDATA || join(process.env.USERPROFILE || '', 'AppData', 'Roaming'), 'worldedit-agent', 'database.sqlite')
+      join(
+        environment.APPDATA || join(process.env.USERPROFILE || '', 'AppData', 'Roaming'),
+        'worldedit-agent',
+        'database.sqlite'
+      )
   )
   if (!existsSync(sourceDatabase)) {
     throw new Error(`Application database does not exist: ${sourceDatabase}`)
@@ -54,11 +76,7 @@ if (environment.WORLDEDIT_AGENT_ISOLATE_APP_DATA === '1') {
   environment.WORLDEDIT_AGENT_TEST_USER_DATA = isolatedUserData
   environment.WORLDEDIT_AGENT_DATABASE_PATH = isolatedDatabase
   environment.WORLDEDIT_AGENT_SOURCE_DATABASE = sourceDatabase
-  environment.WORLDEDIT_AGENT_TRACE_ROOT = join(
-    isolatedUserData,
-    'diagnostics',
-    'agent-traces'
-  )
+  environment.WORLDEDIT_AGENT_TRACE_ROOT = join(isolatedUserData, 'diagnostics', 'agent-traces')
   environment.WORLDEDIT_AGENT_TEST_SESSION_ID ||= 'model-integration-test'
   environment.WORLDEDIT_AGENT_TEST_CONSUMER ||= 'model_integration_test'
 }
@@ -72,9 +90,10 @@ if (targetRelativePath.startsWith('..') || isAbsolute(targetRelativePath)) {
 if (!existsSync(target)) throw new Error(`Electron test target does not exist: ${target}`)
 let result
 try {
-  const electronArguments = environment.WORLDEDIT_AGENT_ELECTRON_APP_MODE === '1'
-    ? ['--disable-gpu', bootstrap, target]
-    : [bootstrap, target]
+  const electronArguments =
+    environment.WORLDEDIT_AGENT_ELECTRON_APP_MODE === '1'
+      ? ['--disable-gpu', bootstrap, target]
+      : [bootstrap, target]
   result = spawnSync(electronPath, electronArguments, {
     cwd: workspaceRoot,
     env: environment,
@@ -83,6 +102,13 @@ try {
   })
 } finally {
   if (isolatedUserData) {
+    const cleanupPath = resolve(isolatedUserData)
+    if (
+      dirname(cleanupPath) !== resolve(tmpdir()) ||
+      !basename(cleanupPath).startsWith('worldedit-agent-model-test-')
+    ) {
+      throw new Error(`Refusing unexpected cleanup path: ${cleanupPath}`)
+    }
     rmSync(isolatedUserData, { recursive: true, force: true })
   }
 }

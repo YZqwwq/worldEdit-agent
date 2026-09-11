@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'">
+</head><body><script>
+// This document is always loaded in an allow-scripts-only, opaque-origin iframe.
+window.addEventListener('message', function initialize(event) {
+  if (event.source !== parent || event.data?.type !== 'worldedit:host-init' || typeof event.data.html !== 'string') return;
+  window.removeEventListener('message', initialize);
+  const policy = document.querySelector('meta[http-equiv]').outerHTML;
+  document.open();
+  document.write('<!doctype html><meta charset="utf-8">' + policy + '<meta name="viewport" content="width=device-width,initial-scale=1">' + event.data.html);
+  document.close();
+  parent.postMessage({type: 'worldedit:home-ready'}, '*');
+});
+parent.postMessage({type: 'worldedit:host-ready'}, '*');
+</script></body></html>

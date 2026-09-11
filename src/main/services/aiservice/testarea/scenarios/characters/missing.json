@@ -1,0 +1,57 @@
+{
+  "id": "character-impression-missing",
+  "purpose": "人物阅读与missing印象比较；检查实际观察和暂定判断，不要求保存",
+  "actor": "user",
+  "environment": {
+    "database": "empty",
+    "state": "fresh",
+    "fixture": "characters/missing.json"
+  },
+  "turns": [
+    {
+      "text": "查看林澈这个人物，先看看当前这段材料。",
+      "workspaceContext": {
+        "pageKind": "document",
+        "routeName": "WorldEntityDocumentEditor",
+        "world": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "name": "人物认知测试世界"
+        },
+        "entity": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "type": "character",
+          "name": "林澈"
+        },
+        "document": {
+          "id": "33333333-3333-4333-8333-333333333333",
+          "title": "林澈：撤离事件片段"
+        }
+      },
+      "expect": {
+        "successfulTools": [
+          "read_world_document",
+          "get_character_impression"
+        ],
+        "thoughtAfterTool": true,
+        "thoughtIncludes": [
+          "初步"
+        ],
+        "impressionUnchanged": true,
+        "toolArguments": [
+          {
+            "name": "read_world_document",
+            "args": {
+              "documentId": "33333333-3333-4333-8333-333333333333"
+            }
+          },
+          {
+            "name": "get_character_impression",
+            "args": {
+              "characterEntityId": "22222222-2222-4222-8222-222222222222"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -33,7 +33,31 @@ const bootstrap = async () => {
     const Database = require('better-sqlite3')
     const sourceDatabase = new Database(source, { readonly: true, fileMustExist: true })
     try {
-      await sourceDatabase.backup(destination)
+      if (process.env.WORLDEDIT_AGENT_DATABASE_SEED === 'empty') {
+        const targetDatabase = new Database(destination)
+        try {
+          const schema = sourceDatabase
+            .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'modelconfig'")
+            .get()
+          if (schema) {
+            targetDatabase.exec(schema.sql)
+            const rows = sourceDatabase.prepare('SELECT * FROM modelconfig').all()
+            for (const row of rows) {
+              const columns = Object.keys(row)
+              const names = columns.map((name) => `"${name.replaceAll('"', '""')}"`).join(',')
+              targetDatabase
+                .prepare(
+                  `INSERT INTO modelconfig (${names}) VALUES (${columns.map(() => '?').join(',')})`
+                )
+                .run(...columns.map((name) => row[name]))
+            }
+          }
+        } finally {
+          targetDatabase.close()
+        }
+      } else {
+        await sourceDatabase.backup(destination)
+      }
     } finally {
       sourceDatabase.close()
     }

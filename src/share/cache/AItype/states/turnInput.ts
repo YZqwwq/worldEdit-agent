@@ -9,7 +9,7 @@ type TurnInputBase = {
 }
 
 export type TurnInput =
-  | (TurnInputBase & { kind: 'user_message'; source: 'user' })
+  | (TurnInputBase & { kind: 'user_message'; source: 'user' | 'tester' })
   | (TurnInputBase & {
       kind: 'task_notification'
       source: 'subagent'

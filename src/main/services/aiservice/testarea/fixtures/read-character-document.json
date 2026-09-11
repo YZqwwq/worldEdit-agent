@@ -1,0 +1,16 @@
+{
+  "text": "查看人物志",
+  "workspaceContext": {
+    "pageKind": "document",
+    "routeName": "WorldEntityDocumentEditor",
+    "world": {
+      "id": "6a629c40-bff2-46e9-9f73-0edcf71cded1",
+      "name": "1234"
+    },
+    "document": {
+      "id": "43e4ebfc-9066-44b6-9b04-b3bab46194b4",
+      "title": "人物志",
+      "revision": 276
+    }
+  }
+}

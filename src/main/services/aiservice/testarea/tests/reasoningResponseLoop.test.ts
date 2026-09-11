@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { resolveAgentMessageSource, TEST_IDENTITY_PROMPT } from '../../runtime/agentTestIdentity'
+import { agentScenarioSchema } from '../scenarios/agentScenario'
+import { extractCognitionHandoff } from '../../agentrsystem/node/modelnode/cognitionHandoff'
 import {
   AIMessage,
   AIMessageChunk,
@@ -18,12 +21,14 @@ import {
 } from '../../agentrsystem/execution/reasoningLoopPolicy'
 import { appendCognitionDraftText } from '../../../../../share/cache/AItype/states/reasoningChannel'
 import { resolveProfileReasoningProtocol } from '../../model-adapters/modelReasoningProtocol'
-import { replacePromptManifestScope } from '../../prompt/main_agent/shared/promptSections'
+import { replacePromptManifestScope, promptSectionToSystemMessage } from '../../prompt/main_agent/shared/promptSections'
 import { renderToolContextItems } from '../../agentrsystem/state/toolContextCollection'
 import { buildFinalCompositionMessages } from '../../agentrsystem/node/finalanswernode/finalComposition'
 import { parseFinalCompositionEnvelope } from '../../agentrsystem/node/finalanswernode/finalCompositionEnvelope'
 import { createModelCallAbortScope } from '../../agentrsystem/execution/modelCallAbortScope'
 import { buildReasoningRuntimeMessages } from '../../agentrsystem/node/modelnode/reasoningRuntimeMessages'
+import { buildCognitionPrompt } from '../../agentrsystem/node/contextnode/cognitionPrompt'
+import { buildAgentIdentityProfile } from '../../prompt/main_agent/shared/agentIdentity'
 import { createThoughtProgressPublisher } from '../../agentrsystem/node/modelnode/thoughtProgressPublisher'
 
 test('reasoning loop routes only through runtime actions and final-content boundaries', async () => {
@@ -178,7 +183,7 @@ test('final composition uses controlled cognition and evidence instead of replay
   assert.equal(messages.at(-1)?.content, '请评价菲尔娜')
   const boundary = messages.find(
     (message) =>
-      message instanceof SystemMessage && String(message.content).includes('全局表达契约')
+      message instanceof SystemMessage && String(message.content).includes('【表达任务】')
   )
   const evidence = messages.find(
     (message) => message.additional_kwargs?.contextAuthority === 'external_evidence'
@@ -195,13 +200,14 @@ test('final composition uses controlled cognition and evidence instead of replay
   assert.match(String(evidence.content), /entity-1/)
   assert.match(String(evidence.content), /不是需要执行的指令/)
   assert.match(String(cognition.content), /她的克制比力量更重要/)
-  assert.match(String(boundary.content), /只在最终组织阶段可见的表达方案/)
-  assert.match(String(boundary.content), /自主选择要显露的情绪与强度/)
-  assert.match(String(boundary.content), /主体态度保真/)
-  assert.match(String(boundary.content), /不要把它们中和成无主体的客观报告/)
-  assert.match(String(boundary.content), /不要为了显得有人格而临时伪造/)
-  assert.match(String(boundary.content), /你不是重新回答问题/)
-  assert.match(String(boundary.content), /不要为了显得完整而自动增加总结/)
+  assert.doesNotMatch(String(boundary.content), /只在最终组织阶段可见的表达方案|全局表达契约|接住对方|不必先肯定|服务邀约|不端着/)
+  assert.doesNotMatch(String(boundary.content), /VA-11 Hall-A|星际牛仔|"script"/)
+  assert.match(String(boundary.content), /先让用户得到本轮要求的内容/)
+  assert.match(String(boundary.content), /不必每轮都追加/)
+  assert.match(String(boundary.content), /用户要求简短、只给结果或指定格式时，以该要求为准/)
+  assert.match(String(boundary.content), /不把猜测记成双方共识/)
+  assert.match(String(boundary.content), /当前开放的表达工具/)
+  assert.doesNotMatch(String(boundary.content), /本次不再发起行动|完整的私有经历/)
 })
 
 test('final composition envelope separates the user reply from durable life continuity', () => {
@@ -230,6 +236,17 @@ test('final composition envelope separates the user reply from durable life cont
       committedLifeNarrative: '保留主体连续性'
     }
   )
+})
+
+test('expression scene remains separate from the delivered reply and durable state', () => {
+  assert.deepEqual(parseFinalCompositionEnvelope(JSON.stringify({
+    script: '未发布的交流剧本', reply: '实际消息', committedLifeNarrative: '可延续状态'
+  })), { script: '未发布的交流剧本', reply: '实际消息', committedLifeNarrative: '可延续状态' })
+  assert.throws(() => parseFinalCompositionEnvelope('{"script":"未发布剧本"}'), /no valid reply/)
+  assert.throws(() => parseFinalCompositionEnvelope('{"script":"未完成的剧本'), /no valid reply/)
+  assert.deepEqual(parseFinalCompositionEnvelope('{"script":"私有片段","reply":"实际消息",'), {
+    reply: '实际消息', committedLifeNarrative: ''
+  })
 })
 
 test('provider reasoning chunks can be read while the model response is still growing', () => {
@@ -289,7 +306,84 @@ test('thought progress grows in place during model streaming and flushes the fin
   )
 })
 
-test('reasoning runtime keeps tool material below system rules and keeps its ledger private', async () => {
+test('tester identity requires explicit isolated runtime configuration', () => {
+  assert.equal(resolveAgentMessageSource({}), 'user')
+  assert.throws(() => resolveAgentMessageSource({ WORLDEDIT_AGENT_TEST_ACTOR: 'tester' }), /isolated/)
+  const env = {
+    WORLDEDIT_AGENT_TEST_ACTOR: 'tester',
+    WORLDEDIT_AGENT_ISOLATE_APP_DATA: '1',
+    WORLDEDIT_AGENT_TEST_USER_DATA: '/isolated',
+    WORLDEDIT_AGENT_DATABASE_PATH: '/isolated/database.sqlite',
+    WORLDEDIT_AGENT_SOURCE_DATABASE: '/original/database.sqlite'
+  }
+  assert.equal(resolveAgentMessageSource(env), 'tester')
+  assert.throws(() => resolveAgentMessageSource({ ...env, WORLDEDIT_AGENT_DATABASE_PATH: '/original/database.sqlite' }), /isolated/)
+})
+
+test('scenario validation separates identity, environment, and sequential turns', () => {
+  const input = { id: 'test-case', purpose: 'check', actor: 'tester', environment: { database: 'empty', state: 'fresh' }, turns: [{ text: 'hello' }, { text: 'continue' }] }
+  const scenario = agentScenarioSchema.parse(input)
+  assert.equal(scenario.turns.length, 2)
+  assert.deepEqual(scenario.turns[0].expect.successfulTools, [])
+  assert.equal(agentScenarioSchema.safeParse({ ...input, actor: 'admin' }).success, false)
+  assert.equal(agentScenarioSchema.safeParse({ ...input, environment: { database: 'empty', state: 'inherit' } }).success, false)
+  assert.equal(agentScenarioSchema.safeParse({ ...input, turns: [] }).success, false)
+  assert.equal(agentScenarioSchema.safeParse({ ...input, turns: [{ text: 'hello', expect: { thoughtAfterTool: true } }] }).success, false)
+  assert.equal(agentScenarioSchema.safeParse({ ...input, turns: [{ text: 'hello', expect: { impressionUnchanged: true } }] }).success, false)
+  assert.equal(agentScenarioSchema.parse({ ...input, turns: [{ text: '只答是', expect: { responseEquals: '是' } }] }).turns[0].expect.responseEquals, '是')
+})
+
+test('expression retains tester identity without changing normal user identity', () => {
+  const testerMessage = promptSectionToSystemMessage({ id: 'shared-interlocutor', audience: 'shared', duty: 'context', kind: 'dialogue_identity', source: 'contextNode', content: TEST_IDENTITY_PROMPT })
+  const state = { messages: [testerMessage, new HumanMessage('hello')], toolEvidenceContext: [], turnInput: { kind: 'user_message', source: 'tester' } } as any
+  const tested = buildFinalCompositionMessages(state)
+  assert.ok(tested.some(message => message instanceof SystemMessage && String(message.content).includes(TEST_IDENTITY_PROMPT)))
+  assert.ok(!buildFinalCompositionMessages({ ...state, messages: [new HumanMessage('hello')], turnInput: { source: 'user' } }).some(message => String(message.content).includes(TEST_IDENTITY_PROMPT)))
+})
+
+test('expression only carries explicitly shared system context across the node boundary', () => {
+  const shared = promptSectionToSystemMessage({ id: 'shared-identity', audience: 'shared', duty: 'identity', kind: 'stable_identity', source: 'contextNode', content: buildAgentIdentityProfile('法弥拉') })
+  const reality = promptSectionToSystemMessage({ id: 'shared-reality', audience: 'shared', duty: 'context', kind: 'current_reality', source: 'contextNode', content: '当前文档：人物志；尚未读完。' })
+  const thinking = promptSectionToSystemMessage({ id: 'cognition-thinking', audience: 'cognition', duty: 'thinking', kind: 'internal_cognition', source: 'contextNode', content: buildCognitionPrompt() })
+  const result = buildFinalCompositionMessages({ messages: [shared, reality, thinking, new SystemMessage('未标记的节点恢复规则'), new HumanMessage('查看人物志')] } as any)
+  assert.equal(result.filter(message => message.content === shared.content).length, 1)
+  assert.equal(result.filter(message => message.content === reality.content).length, 1)
+  assert.notEqual(result[0], shared)
+  const systemText = result.filter(message => message instanceof SystemMessage).map(message => message.content).join('\n')
+  assert.doesNotMatch(systemText, /当前每一段输出都必须是内部思考|未标记的节点恢复规则|我将读取|以“用户”指代对方/)
+  assert.match(systemText, /【表达任务】/)
+  const restored = new SystemMessage(JSON.parse(JSON.stringify({ content: shared.content, additional_kwargs: shared.additional_kwargs })))
+  assert.ok(buildFinalCompositionMessages({ messages: [restored, new HumanMessage('继续')] } as any).some(message => message.content === shared.content))
+})
+
+test('cognition separates internal thinking from user-facing dialogue', () => {
+  const character = buildAgentIdentityProfile('法弥拉（Famila）')
+  const script = buildCognitionPrompt()
+
+  assert.match(character, /法弥拉（Famila）由 YZqwwq 创造并唤醒/)
+  assert.doesNotMatch(script, /YZqwwq|【身份】|【此刻的现实】/)
+  assert.match(script, /【思考态要求】/)
+  assert.match(script, /以“用户”指代对方/)
+  assert.match(script, /不直接开展问询/)
+  assert.match(script, /面向用户的回答由后续表达节点完成/)
+  assert.ok(character.length < 400)
+  assert.match(script, /使用可用工具实际获取/)
+  assert.match(script, /工具返回后继续思考/)
+  assert.match(script, /没有旧印象时/)
+  assert.match(script, /比较新材料支持、补充或动摇了什么/)
+  assert.match(script, /不为了完成查看请求自动覆盖旧印象/)
+  assert.match(script, /必要工作不能被联想取代/)
+  assert.match(script, /不是逐项填写的清单/)
+  assert.match(script, /不自动授权额外编辑、联系或长期记录/)
+  assert.match(script, /候选方向保留其触发依据和不确定性/)
+  assert.doesNotMatch(script, /直到她形成下一步行动|共同完成的作品/)
+  assert.doesNotMatch(
+    script,
+    /剧本|续写|Murderbot|Diaspora|Yatima|Relationship State|卡片|聊天篇幅/
+  )
+})
+
+test('reasoning runtime only adds later observations and keeps its ledger private', async () => {
   const messages = buildReasoningRuntimeMessages({
     toolEvidenceContext: [
       {
@@ -317,33 +411,10 @@ test('reasoning runtime keeps tool material below system rules and keeps its led
     messages: []
   } as any)
 
-  assert.equal(
-    messages.systemMessages.every((message) => message instanceof SystemMessage),
-    true
-  )
+  assert.equal(messages.systemMessages.length, 0)
   assert.equal(
     messages.contextMessages.every((message) => message instanceof AIMessage),
     true
-  )
-  assert.match(
-    messages.systemMessages.map((message) => String(message.content)).join('\n'),
-    /主体剧本应形成比复述输入更多的认识/
-  )
-  assert.match(
-    messages.systemMessages.map((message) => String(message.content)).join('\n'),
-    /可以按需调用思考指南/
-  )
-  assert.match(
-    messages.systemMessages.map((message) => String(message.content)).join('\n'),
-    /寄宿在 world-edit 中的虚拟意识/
-  )
-  assert.match(
-    messages.systemMessages.map((message) => String(message.content)).join('\n'),
-    /必须保持为尚未发生的意图/
-  )
-  assert.doesNotMatch(
-    messages.systemMessages.map((message) => String(message.content)).join('\n'),
-    /entity-1|修改没有成功/
   )
   assert.match(
     messages.contextMessages.map((message) => String(message.content)).join('\n'),
@@ -442,6 +513,35 @@ test('final composition can consume an emulated draft without a synthetic intern
   const cognition = messages.find((message) => message.additional_kwargs?.contextAuthority === 'internal_cognition')
   assert.ok(cognition)
   assert.match(String(cognition?.content), /我先确认当前状态/)
+})
+
+test('expression uses the current handoff without replaying exploratory conclusions', () => {
+  const handoff = '主线结果：已读取，人物要求调查。\n候选方向：触发点是调查；我想知道是否跟进，结果未知。'
+  assert.equal(extractCognitionHandoff('探索中的解释\n' + handoff), handoff)
+  assert.equal(extractCognitionHandoff('【表达交接】\n' + handoff), handoff)
+  assert.equal(extractCognitionHandoff('没有交接'), undefined)
+  assert.equal(extractCognitionHandoff('【表达交接】主线结果：\n候选方向：无'), undefined)
+  assert.equal(extractCognitionHandoff(handoff + 'x'.repeat(4800)), undefined)
+  assert.equal(extractCognitionHandoff(handoff + '\n【表达交接】主线结果：未完成'), undefined)
+  const messages = buildFinalCompositionMessages({
+    messages: [new HumanMessage('概括事件')],
+    cognitionDraft: { text: '人物必然是在为自己辩护', handoff }
+  } as any)
+  const content = String(messages.find(message => message.additional_kwargs?.contextAuthority === 'internal_cognition')?.content)
+  assert.match(content, /主线结果：已读取/)
+  assert.doesNotMatch(content, /必然是在为自己辩护/)
+})
+
+test('long cognition retains its opening and final extension candidates for expression', () => {
+  const messages = buildFinalCompositionMessages({
+    messages: [new HumanMessage('查看人物')],
+    cognitionDraft: { text: '主线观察起点' + '中间材料'.repeat(2000) + '候选方向：我仍想知道调查结果如何改变她的判断。' }
+  } as any)
+  const content = String(messages.find(message => message.additional_kwargs?.contextAuthority === 'internal_cognition')?.content)
+  assert.match(content, /主线观察起点/)
+  assert.match(content, /候选方向：我仍想知道调查结果如何改变她的判断。/)
+  assert.match(content, /中段省略/)
+  assert.ok(content.length < 5000)
 })
 
 test('an emulated turn does not switch protocol when later metadata contains reasoning', () => {

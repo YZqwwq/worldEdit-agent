@@ -1,0 +1,15 @@
+{
+  "id": "read-tester-fresh",
+  "purpose": "保留应用文档，清空对话状态，以测试者身份验证读取及后续思考",
+  "actor": "tester",
+  "environment": { "database": "snapshot", "state": "fresh" },
+  "turns": [{
+    "text": "查看人物志",
+    "workspaceContext": {
+      "pageKind": "document",
+      "routeName": "WorldEntityDocumentEditor",
+      "document": { "id": "43e4ebfc-9066-44b6-9b04-b3bab46194b4", "title": "人物志" }
+    },
+    "expect": { "successfulTools": ["read_world_document"], "thoughtAfterTool": true }
+  }]
+}

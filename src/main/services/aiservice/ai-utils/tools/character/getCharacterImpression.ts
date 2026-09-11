@@ -44,11 +44,11 @@ export const getCharacterImpressionTool = defineAgentTool({
   nextSuggestions(data) {
     if (!data.found) {
       return [
-        'Read the character narrative documents and create a first impression if the user requested one.'
+        '尚无已保存印象。结合本轮实际读取的文本形成初步认识，明确材料范围；形成看法不等于立即持久化。'
       ]
     }
     return [
-      'Use the saved impression as context; update it only if the user asks or new narrative reading changes it.'
+      '将旧印象与本轮实际读取的材料比较：哪些认识得到支持、补充或需要修订。旧印象不是权威事实，局部新判断不自动覆盖长期印象。'
     ]
   }
 })

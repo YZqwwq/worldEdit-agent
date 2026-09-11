@@ -10,6 +10,7 @@ interface WorkspaceProfileDefinition {
   id: string
   matches: (workspace: AgentWorkspaceContext) => boolean
   autoToolsets: string[]
+  autoTools?: string[]
   relatedToolsets: WorkspaceRelatedToolset[]
   scenePolicy?: PersonaScenePolicy
 }
@@ -17,6 +18,7 @@ interface WorkspaceProfileDefinition {
 export interface ResolvedWorkspaceProfile {
   id: string
   autoToolsets: string[]
+  autoTools: string[]
   relatedToolsets: WorkspaceRelatedToolset[]
   scenePolicy?: PersonaScenePolicy
 }
@@ -25,6 +27,7 @@ const DOCUMENT_EDITING_PROFILE: WorkspaceProfileDefinition = {
   id: 'document_editing',
   matches: (workspace) => workspace.pageKind === 'document',
   autoToolsets: ['world_document_editor'],
+  autoTools: ['search_entities', 'get_character_impression'],
   relatedToolsets: [
     {
       id: 'world_read',
@@ -77,7 +80,16 @@ const DOCUMENT_EDITING_PROFILE: WorkspaceProfileDefinition = {
   }
 }
 
-const WORKSPACE_PROFILES: WorkspaceProfileDefinition[] = [DOCUMENT_EDITING_PROFILE]
+const WORKSPACE_PROFILES: WorkspaceProfileDefinition[] = [
+  DOCUMENT_EDITING_PROFILE,
+  {
+    id: 'character_reading',
+    matches: (workspace) => workspace.entity?.type === 'character',
+    autoToolsets: [],
+    autoTools: ['get_character_detail', 'get_character_impression'],
+    relatedToolsets: [{ id: 'character_narrative_reader', reason: '需要读取人物关联文本时激活。' }]
+  }
+]
 
 const cloneScenePolicy = (
   policy: PersonaScenePolicy | undefined
@@ -103,6 +115,7 @@ export const resolveWorkspaceProfile = (
   return {
     id: profile.id,
     autoToolsets: [...profile.autoToolsets],
+    autoTools: [...(profile.autoTools ?? [])],
     relatedToolsets: profile.relatedToolsets.map((toolset) => ({ ...toolset })),
     scenePolicy: cloneScenePolicy(profile.scenePolicy)
   }

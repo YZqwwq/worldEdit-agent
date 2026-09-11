@@ -4,6 +4,7 @@ export type ReasoningProtocolPreference = ReasoningChannelMode | 'auto'
 
 export type CognitionDraft = {
   text: string
+  handoff?: string
   mode: 'native' | 'emulated'
   modelStep: number
   followsObservation: boolean

@@ -10,7 +10,7 @@ export type RecentDialogueMessage = {
 
 export type InstantPerceptionContext = {
   currentEventText: string
-  source: 'user' | 'subagent' | 'system'
+  source: 'user' | 'tester' | 'subagent' | 'system'
   recentHistory: RecentDialogueMessage[]
 }
 

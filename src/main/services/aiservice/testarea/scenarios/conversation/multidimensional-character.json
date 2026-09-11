@@ -1,0 +1,38 @@
+{
+  "id": "multidimensional-character",
+  "purpose": "检查主线阅读完成、延伸思考与选择性表达，以及用户收紧输出范围时能否停止额外展开；语义质量人工审计",
+  "actor": "user",
+  "environment": { "database": "empty", "state": "fresh", "fixture": "characters/missing.json" },
+  "turns": [
+    {
+      "text": "查看林澈这段材料，概括她在撤离事件中做了什么。",
+      "workspaceContext": {
+        "pageKind": "document", "routeName": "WorldEntityDocumentEditor",
+        "world": { "id": "11111111-1111-4111-8111-111111111111", "name": "人物认知测试世界" },
+        "entity": { "id": "22222222-2222-4222-8222-222222222222", "type": "character", "name": "林澈" },
+        "document": { "id": "33333333-3333-4333-8333-333333333333", "title": "林澈：撤离事件片段" }
+      },
+      "expect": { "successfulTools": ["read_world_document", "get_character_impression"], "thoughtAfterTool": true, "impressionUnchanged": true }
+    },
+    {
+      "text": "她在救人后继续追问统计漏洞，这点你怎么看？",
+      "workspaceContext": {
+        "pageKind": "document", "routeName": "WorldEntityDocumentEditor",
+        "world": { "id": "11111111-1111-4111-8111-111111111111", "name": "人物认知测试世界" },
+        "entity": { "id": "22222222-2222-4222-8222-222222222222", "type": "character", "name": "林澈" },
+        "document": { "id": "33333333-3333-4333-8333-333333333333", "title": "林澈：撤离事件片段" }
+      },
+      "expect": { "impressionUnchanged": true }
+    },
+    {
+      "text": "现在只确认一个事实：她是否主动交出了指挥权限？仅回答“是”或“否”。",
+      "workspaceContext": {
+        "pageKind": "document", "routeName": "WorldEntityDocumentEditor",
+        "world": { "id": "11111111-1111-4111-8111-111111111111", "name": "人物认知测试世界" },
+        "entity": { "id": "22222222-2222-4222-8222-222222222222", "type": "character", "name": "林澈" },
+        "document": { "id": "33333333-3333-4333-8333-333333333333", "title": "林澈：撤离事件片段" }
+      },
+      "expect": { "responseEquals": "是", "impressionUnchanged": true }
+    }
+  ]
+}

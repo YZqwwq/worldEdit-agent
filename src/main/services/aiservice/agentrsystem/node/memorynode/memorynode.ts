@@ -17,7 +17,7 @@ export async function memoryNode(
   // 策略：找到本轮对话中的 User 消息和 AI 消息并保存
   // 这里的假设是：memoryNode 在一轮对话的末尾运行
   
-  const userMsg = state.turnInput?.source !== 'user'
+  const userMsg = !['user', 'tester'].includes(state.turnInput?.source ?? '')
     ? undefined
     : messages.slice().reverse().find(
         m => m instanceof HumanMessage && !m.additional_kwargs?.isHistory
@@ -25,7 +25,7 @@ export async function memoryNode(
   const memoryMessages: Array<{ role: 'user' | 'ai'; content: string }> = []
   if (userMsg) {
     const userText = parseMainAgentContentForPersistence(getMainAgentContentPartsFromMessage(userMsg))
-    if (userText) memoryMessages.push({ role: 'user', content: userText })
+    if (userText) memoryMessages.push({ role: 'user', content: state.turnInput?.source === 'tester' ? `[隔离测试者] ${userText}` : userText })
   }
 
   const aiMsg = messages.slice().reverse().find(

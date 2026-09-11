@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { resolveAgentMessageSource } from './agentTestIdentity'
 import { HumanMessage } from '@langchain/core/messages'
 import type { StreamChunk } from '@share/cache/render/aiagent/aiContent'
 import type { MainAgentMessageContentPart } from '@share/cache/AItype/states/mainAgentMessageContent'
@@ -266,10 +267,11 @@ class MainAgentChatRuntimeService {
         selfCore,
         lifeState
       })
+    const messageSource = resolveAgentMessageSource()
     const userText = persistedMessage?.content?.trim() || contentToText(message).trim()
     const turnWorkspace = restoredWorkspace
       ? restoredWorkspace
-      : userText
+      : userText && messageSource === 'user'
         ? withObservationDraft(baseTurnWorkspace, {
             id: (memorySlots.lastObservationId ?? 0) + 1,
             type: 'user_message',
@@ -310,7 +312,7 @@ class MainAgentChatRuntimeService {
           ],
           turnInput: {
             kind: 'user_message' as const,
-            source: 'user' as const,
+            source: messageSource,
             content: message,
             occurredAt: userMessageCreatedAtIso
           },

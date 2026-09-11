@@ -1,6 +1,6 @@
 export const parseFinalCompositionEnvelope = (
   content: string
-): { reply: string; committedLifeNarrative: string } => {
+): { reply: string; committedLifeNarrative: string; script?: string } => {
   const normalized = content
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
@@ -15,6 +15,7 @@ export const parseFinalCompositionEnvelope = (
     const parsed = JSON.parse(jsonCandidate) as Record<string, unknown>
     if (typeof parsed.reply !== 'string') throw new Error('missing reply')
     return {
+      ...(typeof parsed.script === 'string' ? { script: parsed.script.trim() } : {}),
       reply: parsed.reply.trim(),
       committedLifeNarrative:
         typeof parsed.committedLifeNarrative === 'string'
@@ -32,6 +33,10 @@ export const parseFinalCompositionEnvelope = (
       } catch {
         // Fall through to plain-text delivery.
       }
+    }
+    // Never deliver an unpublished scene when its reply envelope is incomplete.
+    if (/"script"\s*:/.test(jsonCandidate)) {
+      throw new Error('Expression scene has no valid reply.')
     }
     // 普通模型偶尔无法遵守信封格式时，优先保证用户仍能收到回答；
     // 生活状态不提交，避免把格式错误或面向用户的正文误当成主体历史。

@@ -136,6 +136,7 @@ test('task results do not synthesize a user mood without user evidence', () => {
 })
 
 test('non-user events cannot mutate perceived user mood or relationship', () => {
+  for (const source of ['subagent', 'tester', 'system'] as const) {
   const normalized = normalizeMoodAppraisalForSource(
     appraisal({
       userState: { mood: 'frustrated', valence: -1, confidence: 1 },
@@ -144,13 +145,14 @@ test('non-user events cannot mutate perceived user mood or relationship', () => 
       salience: 3,
       confidence: 3
     }),
-    'subagent'
+    source
   )
 
   assert.deepEqual(normalized.userState, { mood: 'calm', valence: 0, confidence: 0 })
   assert.equal(normalized.relationshipImpact, 0)
   assert.equal(normalized.eventKind, 'obstacle')
   assert.equal(normalized.salience, 3)
+  }
 })
 
 test('one appraisal projects user state into memory and bounded response behavior', () => {
