@@ -87,6 +87,7 @@ export function useHomeStyle() {
   ])
   return {
     homeStyles,
+    getResource: (id: string) => state.value.resources.find((item) => item.id === id),
     homeStyle: computed(() => state.value.selected),
     activeResource: computed(() =>
       state.value.resources.find((item) => item.id === state.value.selected)

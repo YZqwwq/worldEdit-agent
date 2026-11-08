@@ -2,6 +2,8 @@
 
 更新时间：2026-08-28。
 
+思考与表达专题于 2026-09-12 更新，当前目标与实施顺序见 [think-express/README.md](think-express/README.md)。该专题不再以文学化主体剧本或拟真口吻作为目标；其他专题日期与结论未在本次复核。
+
 本目录只保留尚未完成或仍需真实验收的工作。完成记录和旧方案由 Git 历史保存。
 
 ## 当前判断
@@ -11,8 +13,8 @@ Agent 的运行图、工具循环、Turn Workspace、统一提交、Reasoning �
 ## 推进顺序
 
 1. **状态流正确性收口**：先修复多工具调用恢复可能跳过剩余工具的问题，并明确撤回究竟覆盖消息还是完整 Turn；随后收敛重复 Lifecycle、模型步数和无消费者状态。方案见 `agent-state-flow-plan.md`。
-2. **事实约束的主体剧本实测**：首版读写、Context、Reasoning、Final 与原子提交闭环已经完成；Reasoning 已从任务分析进一步改为基于真实事件的第一人称主体剧本。下一步用真实人物讨论、工具查询、失败、中断和恢复场景验证效果，并只修正实际暴露的问题。方案见 `HDSI-scripted-cognition.md`。
-3. **人格与认知实测**：同时验证 Agent 是否真的会深入思考、形成自己的态度、自然表达，并正确使用思考指南、情绪表达方案和长期习惯。
+2. **多维思考与证据交接**：在完成主线的基础上形成有依据的候选观点与疑问，并验证交接完整性。方案见 `think-express/thinking.md`。
+3. **简短表达与独立交付**：先完成短正文与真实卡牌，再贯通有序消息气泡和历史恢复。方案见 `think-express/expression.md` 与 `think-express/implementation.md`。
 4. **世界认知实测**：验证人物、国家、地区、势力的按需搜索、阅读、对象引用传递和认知保存。
 5. **文档编辑反馈闭环**：统一全文与局部编辑的 Diff 卡片，并让定位失败对用户可见。
 6. **Context 与费用可观测性**：先统计每轮 Context 去向、Token、缓存和费用，再决定压缩与限制。
@@ -22,8 +24,9 @@ Agent 的运行图、工具循环、Turn Workspace、统一提交、Reasoning �
 
 ## 专题文件
 
-- `thinking.md`：人格、Mood、Reasoning、表达和长期习惯。
-- `HDSI-scripted-cognition.md`：Agent Habitat、主体生活状态、回合内剧本化认知与后续自主生活推进。
+- `think-express/README.md`：当前思考与表达目标、专题文件导航。
+- `think-express/archive/thinking-2026-08-28.md`：旧人格、Mood、Reasoning 和长期习惯待办，历史参考。
+- `HDSI-scripted-cognition.md`：历史主体剧本方案，不作为当前思考与表达方向。
 - `cognitive_world_domcment.md`：世界文档发现、世界认知与人物印象边界。
 - `document-editor-plan.md`：文档版本、编辑工具和 Diff 交互。
 - `agent-core-plan.md`：运行闭环、工具治理、Context 与长期状态治理。

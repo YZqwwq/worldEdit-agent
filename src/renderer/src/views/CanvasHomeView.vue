@@ -458,9 +458,8 @@ const resizeCanvas = (): void => {
   const canvas = sceneCanvasRef.value
   const shell = shellRef.value
   if (!canvas || !shell) return
-  const rect = shell.getBoundingClientRect()
-  const nextWidth = Math.max(1, rect.width)
-  const nextHeight = Math.max(1, rect.height)
+  const nextWidth = Math.max(1, shell.clientWidth)
+  const nextHeight = Math.max(1, shell.clientHeight)
   const nextDpr = Math.min(window.devicePixelRatio || 1, 2)
   const nextCanvasWidth = Math.floor(nextWidth * nextDpr)
   const nextCanvasHeight = Math.floor(nextHeight * nextDpr)

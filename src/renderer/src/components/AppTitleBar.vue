@@ -23,8 +23,52 @@
           <Settings :size="16" aria-hidden="true" />
         </button>
         <div v-if="settingsOpen" id="home-style-settings" class="settings-panel">
-          <fieldset>
-            <legend>首页样式</legend>
+          <div class="settings-heading">
+            <div class="settings-heading-title">
+              <h2>首页样式</h2>
+              <div class="add-style-control">
+                <button
+                  type="button"
+                  class="settings-button"
+                  :disabled="importing"
+                  :title="importing ? '导入中…' : '添加样式资源'"
+                  :aria-label="importing ? '导入中…' : '添加样式资源'"
+                  @click="canvasInstalled ? fileInput?.click() : (addMenuOpen = !addMenuOpen)"
+                >
+                  <Plus :size="16" aria-hidden="true" />
+                </button>
+                <div v-if="addMenuOpen && !canvasInstalled" class="add-style-menu">
+                  <button
+                    type="button"
+                    @click="
+                      addMenuOpen = false
+                      fileInput?.click()
+                    "
+                  >
+                    导入样式资源
+                  </button>
+                  <button
+                    type="button"
+                    @click="
+                      addMenuOpen = false
+                      runSetting(installCanvas)
+                    "
+                  >
+                    安装动态世界
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button
+              class="settings-button"
+              aria-label="关闭首页样式"
+              title="关闭"
+              @click="closeSettings(true)"
+            >
+              <X :size="16" />
+            </button>
+          </div>
+          <fieldset class="style-gallery" aria-label="首页样式">
             <div v-for="style in homeStyles" :key="style.id" class="style-row">
               <label class="style-option">
                 <input
@@ -34,14 +78,20 @@
                   :checked="homeStyle === style.id"
                   @change="runSetting(() => setHomeStyle(style.id))"
                 />
-                <span
-                  >{{ style.name
-                  }}<small>{{ style.removable ? style.version : '内置 · 始终保留' }}</small></span
-                >
+                <div class="style-thumbnail" :class="{ selected: homeStyle === style.id }">
+                  <HomeStylePreview :id="style.id" :resource="getResource(style.id)" />
+                  <span v-if="homeStyle === style.id" class="selected-badge"
+                    ><Check :size="13"
+                  /></span>
+                </div>
+                <span class="style-caption" :class="{ 'has-remove': style.removable }">
+                  <span class="style-name" :title="style.name">{{ style.name }}</span>
+                  <small v-if="!style.removable">默认内置</small>
+                </span>
               </label>
               <button
                 v-if="style.removable"
-                class="settings-button"
+                class="settings-button remove-style"
                 :title="`移除 ${style.name}`"
                 :aria-label="`移除 ${style.name}`"
                 @click="pendingRemoval = style.id"
@@ -52,18 +102,8 @@
           </fieldset>
           <div v-if="pendingRemoval" class="remove-confirm">
             <p>移除此首页样式？世界观数据将保留。</p>
-            <button @click="confirmRemoval">
-              移除
-            </button>
+            <button @click="confirmRemoval">移除</button>
             <button @click="pendingRemoval = ''">取消</button>
-          </div>
-          <div class="resource-actions">
-            <button type="button" :disabled="importing" @click="fileInput?.click()">
-              <Plus :size="14" />{{ importing ? '导入中…' : '添加样式资源' }}
-            </button>
-            <button v-if="!canvasInstalled" type="button" @click="runSetting(installCanvas)">
-              安装动态世界
-            </button>
           </div>
           <input
             ref="fileInput"
@@ -82,12 +122,14 @@
 <script setup lang="ts">
 import { useAppTitleBarState } from '../composables/useAppTitleBar'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { Settings, Plus, Trash2 } from '@lucide/vue'
+import { Settings, Plus, Trash2, Check, X } from '@lucide/vue'
 import { useHomeStyle } from '../composables/useHomeStyle'
+import HomeStylePreview from '../features/home/HomeStylePreview.vue'
 
 const titleBar = useAppTitleBarState()
 const {
   homeStyles,
+  getResource,
   homeStyle,
   setHomeStyle,
   canvasInstalled,
@@ -99,6 +141,7 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const pendingRemoval = ref('')
 const settingsError = ref('')
 const importing = ref(false)
+const addMenuOpen = ref(false)
 function confirmRemoval(): void {
   runSetting(() => removeResource(pendingRemoval.value))
   pendingRemoval.value = ''
@@ -132,6 +175,7 @@ const settingsRef = ref<HTMLElement | null>(null)
 const settingsButtonRef = ref<HTMLButtonElement | null>(null)
 const closeSettings = (restoreFocus = false): void => {
   settingsOpen.value = false
+  addMenuOpen.value = false
   if (restoreFocus) settingsButtonRef.value?.focus()
 }
 const handleOutside = (event: Event): void => {
@@ -232,16 +276,21 @@ onBeforeUnmount(() => {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  width: min(280px, calc(100vw - var(--app-titlebar-window-control-width) - 24px));
+  width: min(540px, calc(100vw - var(--app-titlebar-window-control-width) - 24px));
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 64px);
   overflow: auto;
-  padding: 12px;
-  border: 1px solid #dce1e7;
-  border-radius: 6px;
-  background: #fff;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 20px;
+  background: rgba(242, 245, 249, 0.72);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
   color: #202124;
-  box-shadow: 0 8px 24px #18212c1f;
+  box-shadow:
+    0 18px 56px #24334a26,
+    0 2px 8px #24334a12,
+    inset 0 1px 0 #fff;
   font-size: 13px;
 }
 .settings-panel fieldset {
@@ -250,51 +299,135 @@ onBeforeUnmount(() => {
   margin: 0;
   min-width: 0;
 }
-.settings-panel legend {
-  padding: 0 6px 8px;
-  font-weight: 600;
-}
-.style-option {
-  flex: 1;
-  min-width: 0;
+.settings-heading {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 8px 6px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.settings-heading h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+.style-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 14px;
+}
+.style-option {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  display: block;
   cursor: pointer;
 }
 .style-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.style-option span {
-  overflow-wrap: anywhere;
+  position: relative;
+  min-width: 0;
 }
 .style-option small {
-  display: block;
+  flex-shrink: 0;
   color: #7a828c;
-  margin-top: 4px;
   font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
 }
-.resource-actions {
+.style-thumbnail {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px #26344a12;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+.style-thumbnail.selected {
+  border-color: #49877a;
+  box-shadow: 0 0 0 2px #49877a18;
+}
+.style-option:hover .style-thumbnail {
+  box-shadow: 0 4px 14px #26344a22;
+}
+.selected-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
   display: grid;
-  gap: 8px;
-  border-top: 1px solid #e5e7eb;
-  padding-top: 12px;
-  margin-top: 8px;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #39796b;
+  color: white;
+  box-shadow: 0 1px 4px #152d3033;
 }
-.resource-actions button {
+.style-caption {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid #dce1e7;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 0 0 2px;
+  font-weight: 550;
+  line-height: 26px;
+}
+.style-caption.has-remove {
+  padding-right: 30px;
+}
+.style-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remove-style {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+}
+.style-option input:focus-visible + .style-thumbnail {
+  outline: 2px solid #39796b;
+  outline-offset: 3px;
+}
+.settings-heading-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.add-style-control {
+  position: relative;
+}
+.settings-button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.add-style-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 2;
+  display: grid;
+  min-width: 140px;
+  padding: 4px;
+  border: 1px solid #dce2e9;
+  border-radius: 8px;
+  background: #f8fafc;
+  box-shadow: 0 6px 20px #24334a20;
+}
+.add-style-menu button {
+  border: 0;
   border-radius: 4px;
-  background: #f6f8fb;
+  padding: 8px 10px;
+  background: transparent;
   color: #202124;
+  text-align: left;
+  white-space: nowrap;
   cursor: pointer;
   font: inherit;
+}
+.add-style-menu button:hover {
+  background: #e5e9ef;
 }
 .settings-error {
   color: #a53039;
@@ -310,11 +443,25 @@ onBeforeUnmount(() => {
   margin-right: 12px;
   cursor: pointer;
 }
-.style-option:hover {
-  background: #f3f5f7;
-}
 .style-option input {
-  accent-color: #396f63;
-  margin: 0;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+@media (max-width: 720px) {
+  .settings-panel {
+    position: fixed;
+    top: calc(var(--app-titlebar-height) + 8px);
+    right: 12px;
+    width: calc(100vw - 24px);
+    max-width: 540px;
+    padding: 16px;
+  }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .settings-panel {
+    background: #f2f5f9;
+  }
 }
 </style>
